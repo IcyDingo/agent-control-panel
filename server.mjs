@@ -1261,9 +1261,15 @@ const send = (res, code, body, type = 'application/json') => {
   res.end(typeof body === 'string' ? body : JSON.stringify(body));
 };
 
-const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host}`);
+// Nothing a request carries may throw out of the handler: an unhandled rejection would stop the server.
+const server = http.createServer((req, res) => handle(req, res).catch((err) => {
+  console.error('request failed:', err?.message ?? err);
+  if (!res.headersSent) send(res, 500, { error: 'server error' }); else res.destroy();
+}));
+async function handle(req, res) {
   if (!HOSTS.has(req.headers.host)) return send(res, 421, { error: 'wrong host' });
+  let url;
+  try { url = new URL(req.url, 'http://127.0.0.1'); } catch { return send(res, 400, { error: 'bad url' }); }
 
   // Hook endpoints: Claude Code posts these. A browser always sends Origin on a cross-site POST, so refuse it.
   if (url.pathname.startsWith('/hook/')) {
@@ -1333,7 +1339,7 @@ const server = http.createServer(async (req, res) => {
     }
   }
   send(res, 404, { error: 'not found' });
-});
+}
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`agent control panel → http://127.0.0.1:${PORT}`);

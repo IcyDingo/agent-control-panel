@@ -302,6 +302,13 @@ An endpoint that approves commands is worth protecting, even on localhost:
 - Browser calls need a random token minted at each start, plus a same-origin `Origin`. That
   blocks other tabs from posting decisions.
 - Hook endpoints refuse anything that carries an `Origin` header, so a web page can't inject fake requests.
+- Hook endpoints take no token, so any program on this Mac can post them a made-up event. That changes only what the
+  panel shows: every action checks Claude Code's own records again first (`claude agents`, the session's transcript),
+  and a made-up permission request, if you answer it, answers only the program that sent it. A program running as you
+  can already do anything you can; a shared key would have to sit in your Claude Code settings file, which other
+  accounts on the Mac can usually read, so it wouldn't keep them out either.
+- Nothing a request carries can stop the server: the `Host` is checked before anything else, and an error in one
+  request ends that request alone.
 - Launch, messages, mode switches, folder suggestions, the folder dialog, interrupt, end and remove
   take the same token and Origin. They run `claude`
   through argv with no shell, and check every value first: the folder must exist, the model and
