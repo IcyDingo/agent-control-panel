@@ -1,0 +1,2180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent panel</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
+<style>
+/* One board, four state columns divided by hairlines; a session opens in a flush right-hand panel.
+   Space view shows the same sessions as an orrery. Matte graphite first, hairlines over shadows, soft corners:
+   6px on controls, 8px on cards and tiles, 12px on the panel. */
+:root {
+  --bg: #0d0f12; --panel: #12151a; --raise: #171b21; --hover: #1e232b; --code: #0a0c0f;
+  --line: #252b33; --line-strong: #39414c;
+  --fg: #e3e7ed; --fg-dim: #8c96a4; --fg-faint: #5f6875;
+  --amber: #e3ab3e; --amber-dim: rgba(227, 171, 62, .1); --amber-line: rgba(227, 171, 62, .42);
+  --run: #7ea6e6; --run-dim: rgba(126, 166, 230, .12);
+  --ok: #55b985; --ok-solid: #2c8a59; --stop: #e8634f; --stop-line: rgba(232, 99, 79, .5);
+  --del: rgba(232, 99, 79, .12); --add: rgba(85, 185, 133, .12);
+  --shade: rgba(0, 0, 0, .55); --on-solid: #ffffff; --top: #151c29;
+  /* Space view keeps one night sky in both themes */
+  --void: #03050a; --void-glow: #0b1526; --orbit: rgba(148, 170, 205, .15); --orbit-hot: rgba(227, 171, 62, .34);
+  --sun-core: #fffdf5; --sun: #ffe9b8; --sun-edge: #f0c070; --sun-glow: rgba(255, 196, 110, .22); --idle-body: #7d8796;
+  --sans: "Geist", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f3f4f6; --panel: #fafbfc; --raise: #ffffff; --hover: #eef0f3; --code: #f1f3f6; --line: #dfe2e7; --line-strong: #c4c9d1;
+    --fg: #111418; --fg-dim: #59616d; --fg-faint: #8a919c; --amber: #9a6500; --amber-dim: rgba(154, 101, 0, .07); --amber-line: rgba(154, 101, 0, .38);
+    --run: #2c5cae; --run-dim: rgba(44, 92, 174, .08); --ok: #1e7a4b; --ok-solid: #1e7a4b; --stop: #bf3d2b; --stop-line: rgba(191, 61, 43, .45);
+    --del: rgba(191, 61, 43, .08); --add: rgba(30, 122, 75, .08); --shade: rgba(17, 20, 24, .14); --top: #e4e9f1; color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #f3f4f6; --panel: #fafbfc; --raise: #ffffff; --hover: #eef0f3; --code: #f1f3f6; --line: #dfe2e7; --line-strong: #c4c9d1;
+  --fg: #111418; --fg-dim: #59616d; --fg-faint: #8a919c; --amber: #9a6500; --amber-dim: rgba(154, 101, 0, .07); --amber-line: rgba(154, 101, 0, .38);
+  --run: #2c5cae; --run-dim: rgba(44, 92, 174, .08); --ok: #1e7a4b; --ok-solid: #1e7a4b; --stop: #bf3d2b; --stop-line: rgba(191, 61, 43, .45);
+  --del: rgba(191, 61, 43, .08); --add: rgba(30, 122, 75, .08); --shade: rgba(17, 20, 24, .14); --top: #e4e9f1; color-scheme: light;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; display: flex; flex-direction: column; background: var(--bg); color: var(--fg); font: 13.5px/1.45 var(--sans); -webkit-font-smoothing: antialiased; }
+button, input, textarea, select { font: inherit; color: inherit; }
+:focus-visible { outline: 1px solid var(--fg); outline-offset: 1px; }
+[hidden] { display: none !important; }
+.mono { font-family: var(--mono); }
+.grow { flex: 1; }
+
+/* ---------- top bar ---------- */
+.top {
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 22px; min-height: 48px;
+  padding: 8px max(16px, env(safe-area-inset-right, 0px)) 8px max(16px, env(safe-area-inset-left, 0px)); border-bottom: 1px solid var(--line);
+  background: var(--top);
+}
+.brand { display: inline-flex; align-items: center; gap: 9px; font-weight: 600; font-size: 14px; letter-spacing: -0.01em; }
+.brand::before { content: ""; width: 9px; height: 9px; border-radius: 2px; background: var(--fg); }
+.live { display: inline-flex; align-items: center; gap: 6px; color: var(--fg-dim); font-size: 12.5px; }
+.live::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+.live.down::before { background: var(--stop); }
+.counts { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12.5px; color: var(--fg-dim); }
+.counts b { font: 500 12.5px var(--mono); color: var(--fg); margin-right: 5px; }
+.counts .hot, .counts .hot b { color: var(--amber); }
+.paused { color: var(--amber); font-size: 12.5px; font-weight: 550; }
+.switch { position: relative; display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--fg-dim); cursor: pointer; user-select: none; }
+.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
+.switch i { position: relative; width: 26px; height: 14px; border-radius: 3px; background: var(--line-strong); transition: background .15s; }
+.switch i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 2px; background: var(--on-solid); transition: transform .15s; }
+.switch input:checked + i { background: var(--ok-solid); }
+.switch input:checked + i::after { transform: translateX(12px); }
+.switch input:focus-visible + i { outline: 1px solid var(--fg); outline-offset: 2px; }
+.banner { flex: none; margin: 0; padding: 8px max(16px, env(safe-area-inset-left, 0px)); border-bottom: 1px solid var(--amber-line); color: var(--amber); font-size: 12.5px; }
+.banner.connect { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; color: var(--fg-dim); }
+.banner.connect b { color: var(--fg); font-weight: 600; }
+.banner.connect .mono { font: 11.5px var(--mono); color: var(--fg-faint); }
+/* The profile: which Claude Code config folder's sessions the panel shows. */
+.prof { position: relative; }
+.prof-btn { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border: 1px solid var(--line-strong); border-radius: 6px; background: transparent; color: var(--fg-dim); font-size: 12.5px; cursor: pointer; }
+.prof-btn:hover, .prof-btn[aria-expanded="true"] { border-color: var(--line-strong); color: var(--fg); }
+.prof-btn b { color: var(--fg); font-weight: 600; }
+.prof-btn::after { content: ""; width: 5px; height: 5px; margin: -3px 0 0 2px; border: solid currentColor; border-width: 0 1px 1px 0; transform: rotate(45deg); }
+.prof-menu {
+  position: absolute; left: 0; top: calc(100% + 6px); z-index: 60; display: grid; width: max-content; min-width: 280px; max-width: min(420px, calc(100vw - 32px)); padding: 4px;
+  border: 1px solid var(--line-strong); border-radius: 10px; background: var(--panel); box-shadow: 0 18px 40px -20px var(--shade);
+}
+.prof-item { display: grid; gap: 2px; padding: 8px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--fg); text-align: left; cursor: pointer; }
+.prof-item:hover, .prof-item:focus-visible { background: var(--hover); outline: none; }
+.prof-item[aria-checked="true"] { box-shadow: inset 2px 0 0 var(--fg); }
+.prof-item .p1 { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+.prof-item .p1 .prof-plan { margin-left: -2px; color: var(--fg-dim); font-weight: 400; }
+.prof-item .p2 { color: var(--fg-dim); font-size: 12px; }
+.prof-item .p3 { font: 11.5px var(--mono); color: var(--fg-faint); }
+.prof-item .chip { display: inline-flex; align-items: center; height: 17px; padding: 0 5px; border: 1px solid var(--line-strong); border-radius: 5px; color: var(--fg-dim); font-size: 11px; font-weight: 500; line-height: 1; }
+.prof-item .chip.off { border-color: var(--amber-line); color: var(--amber); }
+.prof-item.armed { background: var(--stop); color: var(--on-solid); }
+.prof-item.armed .p2, .prof-item.armed .p3 { color: var(--on-solid); }
+
+.btn { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 6px; background: transparent; color: var(--fg); font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+.btn:hover { background: var(--hover); }
+.btn:disabled { opacity: .4; cursor: default; background: transparent; }
+.btn.primary { background: var(--fg); border-color: var(--fg); color: var(--bg); }
+.btn.go { background: var(--ok-solid); border-color: var(--ok-solid); color: var(--on-solid); }
+.btn.danger { color: var(--stop); border-color: var(--stop-line); }
+.btn.danger::before { content: ""; width: 7px; height: 7px; border-radius: 1px; background: currentColor; }
+.btn.danger.armed { background: var(--stop); border-color: var(--stop); color: var(--on-solid); }
+.btn.quiet { border-color: transparent; color: var(--fg-dim); }
+.btn.quiet:hover { color: var(--fg); }
+.btn.small { height: 24px; padding: 0 8px; font-size: 12px; }
+.btn.orbit::before { content: ""; width: 11px; height: 11px; border-radius: 50%; border: 1px solid currentColor; background: radial-gradient(circle, currentColor 0 1.5px, transparent 2px); }
+.linkish { border: 0; background: none; padding: 0; color: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; font-size: 12.5px; }
+
+/* state, as a small square light */
+.glyph { flex: none; width: 7px; height: 7px; border-radius: 1.5px; background: var(--fg-faint); }
+.glyph[data-s="waiting"] { background: var(--amber); }
+.glyph[data-s="busy"], .glyph[data-s="running"] { background: var(--run); animation: blink 1.6s ease-in-out infinite; }
+.glyph[data-s="stopping"] { background: var(--stop); animation: blink .7s ease-in-out infinite; }
+.glyph[data-s="finished"], .glyph[data-s="done"] { background: var(--ok); opacity: .8; }
+.glyph[data-s="failed"] { background: var(--stop); }
+.glyph[data-s="stopped"] { background: transparent; box-shadow: inset 0 0 0 1px var(--fg-faint); }
+@keyframes blink { 50% { opacity: .3; } }
+.tag { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--fg-dim); }
+.tag[data-s="waiting"] { color: var(--amber); }
+.tag[data-s="busy"], .tag[data-s="running"] { color: var(--run); }
+.tag[data-s="stopping"], .tag[data-s="failed"] { color: var(--stop); }
+.tag[data-s="finished"] { color: var(--ok); }
+
+/* ---------- the board ---------- */
+.stage { flex: 1; min-height: 0; position: relative; display: flex; }
+.board { flex: 1; min-width: 0; min-height: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.col { min-height: 0; min-width: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); }
+.col:last-child { border-right: 0; }
+.col-h { flex: none; display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 14px; border-bottom: 1px solid var(--line); font-size: 12.5px; font-weight: 600; color: var(--fg-dim); }
+.col-h .n { font: 500 12px var(--mono); color: var(--fg-faint); }
+.col[data-col="waiting"] .col-h { color: var(--amber); }
+.col-tools { margin-left: auto; display: flex; }
+/* A narrow column (a wide panel beside it) keeps only the square of its bulk button; armed, it covers the header so
+   its count still shows. */
+.col { container-type: inline-size; }
+.col-h { position: relative; }
+@container (max-width: 215px) {
+  .col-h .btn.danger:not(.armed) { gap: 0; padding: 0 9px; font-size: 0; }
+  .col-h .btn.danger.armed { position: absolute; inset: 5px 8px; display: block; height: auto; padding: 0 8px; overflow: hidden; text-overflow: ellipsis; text-align: center; line-height: 26px; }
+  .col-h .btn.danger.armed::before { display: inline-block; margin-right: 7px; vertical-align: 1px; }
+}
+.col-body { flex: 1; min-height: 0; overflow: auto; padding: 10px; display: grid; gap: 6px; align-content: start; }
+.col-empty { margin: 4px 2px; color: var(--fg-faint); font-size: 12.5px; }
+.col-hint { margin: 0 2px 4px; }
+
+.tile-wrap { position: relative; }
+.tile {
+  display: grid; grid-template-columns: 7px minmax(0, 1fr) auto; column-gap: 9px; row-gap: 3px; align-items: center; width: 100%;
+  padding: 10px 12px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--raise); text-align: left; cursor: pointer;
+}
+.tile:hover { background: var(--hover); }
+.tile[aria-current="true"] { border-color: var(--fg); }
+.tile[data-state="waiting"] { border-color: var(--amber-line); }
+.tile[data-state="waiting"][aria-current="true"] { border-color: var(--amber); box-shadow: inset 0 0 0 1px var(--amber); }
+.tile[data-state="finished"], .tile[data-state="failed"] { background: transparent; }
+.tname { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tside { display: inline-flex; gap: 8px; align-items: center; font: 11.5px var(--mono); color: var(--fg-faint); white-space: nowrap; }
+.tline { grid-column: 2 / -1; min-width: 0; font-size: 12.5px; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tline .t { font: 500 11.5px var(--mono); color: var(--run); margin-right: 6px; }
+/* Where it works: its branch, with a branch mark in a shared checkout and a folder mark in a worktree of its own. */
+:root {
+  --i-branch: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6'%3E%3Ccircle cx='4.5' cy='3.5' r='1.7'/%3E%3Ccircle cx='4.5' cy='12.5' r='1.7'/%3E%3Ccircle cx='11.5' cy='4.5' r='1.7'/%3E%3Cpath d='M4.5 5.2v5.6M11.5 6.2c0 3.2-7 1.8-7 4.6'/%3E%3C/svg%3E");
+  --i-tree: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linejoin='round'%3E%3Cpath d='M1.8 3.2h4.4l1.5 1.6h6.5v8H1.8z'/%3E%3C/svg%3E");
+}
+.twhere { grid-column: 2 / -1; min-width: 0; display: flex; align-items: center; gap: 5px; font: 11px var(--mono); color: var(--fg-faint); }
+.twhere > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.twhere::before, .where-b::before { content: ""; flex: none; width: 11px; height: 11px; background: currentColor; -webkit-mask: var(--i-branch) center / contain no-repeat; mask: var(--i-branch) center / contain no-repeat; }
+.twhere.wt::before, .where-b.wt::before { -webkit-mask-image: var(--i-tree); mask-image: var(--i-tree); }
+.tile[data-state="waiting"] .tline { color: var(--amber); }
+.tile[data-state="stopping"] .tline { color: var(--stop); }
+.qstop {
+  position: absolute; top: 7px; right: 7px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-width: 22px; height: 22px; padding: 0 6px; border: 1px solid var(--stop-line); border-radius: 6px; background: var(--raise);
+  color: var(--stop); font-size: 12px; font-weight: 600; cursor: pointer; opacity: 0;
+}
+.qstop::before { content: ""; width: 7px; height: 7px; border-radius: 1px; background: currentColor; }
+.qstop.x { color: var(--fg-dim); border-color: var(--line-strong); }
+.qstop.x::before { content: "\00d7"; width: auto; height: auto; background: none; font-size: 15px; line-height: 1; }
+.qstop.armed, .qstop.x.armed { background: var(--stop); border-color: var(--stop); color: var(--on-solid); opacity: 1; }
+.tile-wrap:hover .qstop, .tile-wrap:focus-within .qstop { opacity: 1; }
+.tile-wrap.can-act:hover .tside, .tile-wrap.can-act:focus-within .tside, .tile-wrap:has(.qstop.armed) .tside { visibility: hidden; }
+
+/* ---------- the session panel ---------- */
+.drawer {
+  position: absolute; top: 8px; right: 8px; bottom: 8px; z-index: 5; width: min(var(--drawer-w), calc(100% - 16px)); display: flex; flex-direction: column;
+  overflow: hidden; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: -28px 0 48px -36px var(--shade);
+}
+.drawer.enter { animation: slide .18s ease-out; }
+/* Wide enough, the open session takes its own space beside the board instead of covering columns of it. */
+.stage { --drawer-w: var(--drawer-user, clamp(440px, 46vw, 820px)); }
+/* Drag its left edge to size it; double-click puts it back. */
+.d-grip { position: absolute; top: 0; bottom: 0; left: 0; z-index: 6; width: 8px; cursor: col-resize; touch-action: none; }
+.d-grip::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: transparent; transition: background .15s; }
+.d-grip:hover::after, .d-grip:focus-visible::after, .d-grip.drag::after { background: var(--line-strong); }
+.d-grip:focus-visible { outline: none; }
+body.resizing { cursor: col-resize; user-select: none; }
+body.resizing .drawer, body.resizing .board { transition: none; }
+@media (min-width: 1100px) { .stage.open .board { margin-right: calc(var(--drawer-w) + 16px); } .stage.open .drawer { box-shadow: none; } }
+@keyframes slide { from { transform: translateX(14px); opacity: .5; } }
+.d-scroll { flex: 1; min-height: 0; overflow: auto; padding: 18px 24px 28px; }
+.d-top { display: flex; align-items: center; gap: 12px; }
+.d-top .age { font: 12px var(--mono); color: var(--fg-faint); }
+.d-name { margin: 10px 0 3px; font-size: 20px; line-height: 1.2; font-weight: 600; letter-spacing: -0.015em; overflow-wrap: anywhere; text-wrap: balance; }
+.d-meta { margin: 0; color: var(--fg-dim); font-size: 12.5px; overflow-wrap: anywhere; }
+.d-meta .mono { color: var(--fg-faint); font-size: 12px; }
+.d-where { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 10px; margin: 6px 0 0; color: var(--fg-dim); font-size: 12.5px; }
+.where-b { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font: 12px var(--mono); color: var(--fg); overflow-wrap: anywhere; }
+.where-share { flex-basis: 100%; color: var(--amber); }
+.mode-tag { display: inline-block; margin-left: 8px; padding: 0 7px; border: 1px solid var(--line-strong); border-radius: 5px; font-size: 11.5px; line-height: 18px; white-space: nowrap; }
+.mode-tag[data-mode="bypassPermissions"] { border-color: var(--stop); color: var(--stop); }
+.mode-pick { flex: 0 1 auto; width: auto; }
+.acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+.hint { margin: 8px 0 0; font-size: 12.5px; color: var(--stop); }
+.note { margin: 12px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 12.5px; }
+.sec { margin-top: 26px; min-width: 0; }
+.rule { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; font-size: 12px; font-weight: 600; color: var(--fg-dim); }
+.rule::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.rule .n { font: 500 11.5px var(--mono); color: var(--fg-faint); }
+.sec.needs .rule { color: var(--amber); }
+.cards { display: grid; gap: 12px; }
+.tool-line { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+.tool-line .t { flex: none; font: 500 12px var(--mono); color: var(--run); }
+.tool-line .what { font: 12.5px/1.45 var(--mono); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.quiet { color: var(--fg-dim); font-size: 12.5px; }
+.wait { color: var(--amber); font-size: 12.5px; }
+
+/* a request */
+.req { min-width: 0; padding: 14px 16px 16px; border: 1px solid var(--amber-line); border-radius: 10px; background: var(--raise); }
+.req.busy { opacity: .55; pointer-events: none; }
+.req-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-bottom: 8px; }
+.req-tool { font: 600 13px var(--mono); color: var(--amber); }
+.req-age { margin-left: auto; font: 11.5px var(--mono); color: var(--fg-faint); }
+.req-from { margin: -2px 0 8px; font-size: 12.5px; color: var(--fg-dim); }
+.req-from b { color: var(--fg); font-weight: 550; }
+.req-desc { margin: 0 0 8px; color: var(--fg-dim); font-size: 12.5px; }
+.req-path { margin: 0 0 8px; font: 12.5px var(--mono); overflow-wrap: anywhere; }
+textarea.cmd { display: block; width: 100%; min-height: 3em; resize: vertical; padding: 9px 11px; border: 1px solid var(--line); border-radius: 6px; background: var(--code); font: 12.5px/1.5 var(--mono); }
+textarea.cmd.edited { border-color: var(--amber); }
+pre.block { margin: 0 0 8px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 6px; background: var(--code); font: 12px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto; }
+pre.del { background: var(--del); }
+pre.add { background: var(--add); }
+details.raw { margin: 8px 0 0; }
+details.raw summary, .remember summary { cursor: pointer; color: var(--fg-faint); font-size: 12px; }
+details.raw textarea { margin-top: 6px; min-height: 8em; }
+.remember { margin: 8px 0 0; }
+.remember ul { margin: 4px 0 0; padding-left: 18px; color: var(--fg-dim); font: 12px/1.5 var(--mono); overflow-wrap: anywhere; }
+.row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 10px; }
+.field { flex: 1 1 160px; min-width: 0; height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font-size: 13px; }
+textarea.field { flex-basis: 100%; height: auto; min-height: 3.4em; padding: 6px 9px; resize: vertical; }
+.err { margin: 8px 0 0; color: var(--stop); font-size: 12.5px; }
+.q { border: 0; margin: 0 0 12px; padding: 0; min-width: 0; }
+.q legend { padding: 0; margin-bottom: 8px; font-weight: 550; font-size: 14px; }
+.q-tag { margin-right: 8px; font: 500 11.5px var(--mono); color: var(--fg-faint); }
+.q-hint { color: var(--fg-dim); font-size: 12px; font-weight: 400; }
+.opt { display: grid; grid-template-columns: auto 1fr; gap: 1px 9px; padding: 7px 10px; border: 1px solid var(--line); cursor: pointer; }
+.opt + .opt { margin-top: -1px; }
+.opt:first-of-type { border-radius: 6px 6px 0 0; }
+.opt:last-of-type { border-radius: 0 0 6px 6px; }
+.opt:has(input:checked) { position: relative; z-index: 1; border-color: var(--run); background: var(--run-dim); }
+.opt input { margin: 3px 0 0; accent-color: var(--run); }
+.opt b { font-weight: 550; }
+.opt small { grid-column: 2; color: var(--fg-dim); font-size: 12px; }
+.opt pre.block { grid-column: 1 / -1; margin: 6px 0 0; }
+.opt:not(:has(input:checked)) pre.block { display: none; }
+.opt .other { grid-column: 2; margin-top: 4px; }
+.plan { max-height: 340px; overflow: auto; padding: 11px 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--code); font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
+.plan > :first-child { margin-top: 0; }
+.plan > :last-child { margin-bottom: 0; }
+.plan h4, .plan h5 { margin: 12px 0 4px; font-size: 13px; font-weight: 600; }
+.plan h4 { font-size: 14px; }
+.plan p { margin: 0 0 7px; }
+.plan ul, .plan ol { margin: 0 0 7px; padding-left: 20px; }
+.plan code { font: 12px var(--mono); }
+.plan pre { margin: 0 0 7px; font: 12px/1.45 var(--mono); white-space: pre-wrap; }
+.plan-file { margin: 6px 0 0; font: 11.5px var(--mono); color: var(--fg-faint); overflow-wrap: anywhere; }
+
+/* its subagents: a tree of thin lines back to the session */
+.tree-root { display: flex; align-items: center; gap: 8px; font-weight: 550; }
+.tree-root small { font: 11.5px var(--mono); color: var(--fg-faint); font-weight: 400; }
+.tree { list-style: none; margin: 4px 0 0 3px; padding: 0; }
+.branch { position: relative; padding: 8px 0 8px 22px; }
+.branch::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; border-left: 1px solid var(--line-strong); }
+.branch:last-child::before { bottom: auto; height: 20px; }
+.branch::after { content: ""; position: absolute; left: 0; top: 20px; width: 14px; border-top: 1px solid var(--line-strong); }
+.branch[data-state="running"]::after { border-top-color: var(--run); }
+.branch[data-state="waiting"]::after { border-top-color: var(--amber); }
+.branch[data-state="stopping"]::after { border-top-color: var(--stop); }
+.b-head { display: flex; align-items: center; gap: 8px; min-height: 24px; }
+.b-title { font-weight: 550; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.b-type { font: 11.5px var(--mono); color: var(--fg-faint); white-space: nowrap; }
+.b-head > :last-child { margin-left: auto; }
+.b-age { font: 11.5px var(--mono); color: var(--fg-faint); white-space: nowrap; }
+.b-now { margin-top: 3px; padding-left: 15px; font-size: 12.5px; color: var(--fg-dim); min-width: 0; overflow-wrap: anywhere; }
+.b-now .wait { color: var(--amber); }
+.b-now .stopping { color: var(--stop); }
+.branch .hint { padding-left: 15px; }
+.branch details { margin: 4px 0 0 15px; font-size: 12.5px; color: var(--fg-dim); }
+.branch summary { cursor: pointer; color: var(--fg-faint); }
+.branch details p { margin: 4px 0 0; white-space: pre-wrap; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.chip { max-width: 100%; height: 26px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: transparent; font-size: 12.5px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip:hover { background: var(--hover); }
+.chip b { margin-right: 6px; font: 500 12px var(--mono); color: var(--fg-dim); }
+/* chat: its last reply and what you sent from here, then the box with its mode, model, effort and Send along the bottom */
+.thread { display: grid; gap: 10px; margin-bottom: 12px; }
+.thread:empty { display: none; }
+.msg { min-width: 0; }
+.m-who { display: flex; gap: 8px; align-items: baseline; margin-bottom: 4px; font-size: 11.5px; color: var(--fg-faint); }
+.m-who b { font-weight: 600; color: var(--fg-dim); }
+.m-body { font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
+.msg.claude .m-body { max-height: 320px; overflow: auto; padding: 11px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--raise); }
+.msg.claude .m-body > :first-child { margin-top: 0; }
+.msg.claude .m-body > :last-child { margin-bottom: 0; }
+.msg.claude .m-body h4, .msg.claude .m-body h5 { margin: 10px 0 4px; font-size: 13px; font-weight: 600; }
+.msg.claude .m-body p { margin: 0 0 7px; }
+.msg.claude .m-body ul, .msg.claude .m-body ol { margin: 0 0 7px; padding-left: 20px; }
+.msg.claude .m-body code { font: 12px var(--mono); }
+.msg.claude .m-body pre { margin: 0 0 7px; font: 12px/1.45 var(--mono); white-space: pre-wrap; }
+.msg.you { justify-self: end; max-width: 88%; }
+.msg.you .m-body { padding: 8px 13px; border: 1px solid transparent; border-radius: 10px; background: var(--hover); white-space: pre-wrap; }
+.msg.you.waiting .m-body { border: 1px dashed var(--line-strong); background: transparent; }
+.msg.you .m-who { justify-content: flex-end; margin: 4px 0 0; }
+.msg.out .m-body { max-height: 260px; overflow: auto; margin: 0; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--raise); font: 11.5px/1.45 var(--mono); white-space: pre-wrap; }
+.linkish { padding: 0; border: 0; background: none; color: var(--fg-dim); font-size: 11.5px; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.composer { border: 1px solid var(--line-strong); border-radius: 10px; background: var(--raise); }
+.composer:focus-within { border-color: var(--fg-dim); }
+.composer textarea { display: block; width: 100%; min-height: 2.9em; padding: 11px 14px 2px; border: 0; background: transparent; resize: none; outline: none; font-size: 13px; line-height: 1.5; }
+.c-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 5px 8px 8px 10px; }
+.c-mode { height: 24px; min-width: 0; max-width: 100%; padding: 0 5px; border: 1px solid var(--line); border-radius: 5px; background: transparent; font-size: 12px; color: var(--fg-dim); cursor: pointer; }
+.c-hint { margin: 6px 0 0; font-size: 12px; }
+.lf-row { display: flex; gap: 6px; min-width: 0; }
+.lf-row input { flex: 1; }
+.advance { flex: none; position: relative; display: flex; align-items: center; gap: 14px; padding: 10px 20px; border-top: 1px solid var(--line-strong); background: var(--raise); font-size: 13px; font-weight: 550; }
+.advance::before { content: ""; position: absolute; left: 0; top: -1px; height: 1px; width: 100%; background: var(--fg); transform-origin: left; animation: count 2.5s linear forwards; }
+@keyframes count { from { transform: scaleX(0); } }
+.advance .linkish { margin-left: auto; color: var(--fg-dim); }
+
+/* ---------- the launcher ---------- */
+dialog.launcher { width: min(560px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--panel); color: var(--fg); box-shadow: 0 30px 80px -30px var(--shade); }
+dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
+.launcher form { display: grid; gap: 12px; padding: 18px 20px; }
+.launcher h2 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+.launcher .lead { margin: -6px 0 0; color: var(--fg-dim); font-size: 12.5px; }
+.lf { display: grid; gap: 4px; min-width: 0; }
+.lf > span { font-size: 12.5px; font-weight: 550; }
+.lf small { color: var(--fg-faint); font-weight: 400; }
+.lf input, .lf textarea, .lf select { width: 100%; min-width: 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font-size: 13px; }
+.lf textarea { min-height: 7em; resize: vertical; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.wt-pick { display: flex; align-items: center; gap: 12px; min-height: 28px; margin-top: -4px; }
+.wt-pick .switch { flex: none; color: var(--fg); }
+.switch:has(input:disabled) { color: var(--fg-faint); cursor: default; }
+.switch input:disabled + i { opacity: .45; }
+.wt-name { flex: 1; min-width: 0; height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font: 12.5px var(--mono); }
+.l-note { margin: -6px 0 0; color: var(--fg-dim); font-size: 12px; overflow-wrap: anywhere; }
+.l-note code { font: 11.5px var(--mono); color: var(--fg); }
+.launcher .row { justify-content: flex-end; }
+
+#toasts { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); display: grid; gap: 6px; z-index: 50; pointer-events: none; }
+.toast { max-width: min(560px, calc(100vw - 32px)); padding: 8px 13px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--raise); color: var(--fg); font-size: 12.5px; box-shadow: 0 12px 28px -16px var(--shade); }
+.toast.bad { border-color: var(--stop-line); color: var(--stop); }
+
+/* ---------- space view: the same sessions as an orrery. You sit at the centre; the closer a session orbits, the sooner it needs you. ---------- */
+body.in-space { overflow: hidden; }
+.space {
+  position: fixed; inset: 0; z-index: 40; overflow: hidden; background: radial-gradient(ellipse at 50% 52%, var(--void-glow), var(--void) 72%);
+  --bg: #0d0f12; --panel: #12151a; --raise: #171b21; --hover: #1e232b; --code: #0a0c0f; --line: #252b33; --line-strong: #39414c;
+  --fg: #e3e7ed; --fg-dim: #8c96a4; --fg-faint: #5f6875; --amber: #e3ab3e; --amber-dim: rgba(227, 171, 62, .1); --amber-line: rgba(227, 171, 62, .42);
+  --run: #7ea6e6; --run-dim: rgba(126, 166, 230, .12); --ok: #55b985; --ok-solid: #2c8a59; --stop: #e8634f; --stop-line: rgba(232, 99, 79, .5);
+  --del: rgba(232, 99, 79, .12); --add: rgba(85, 185, 133, .12); --shade: rgba(0, 0, 0, .55); --k: 1; color: var(--fg); color-scheme: dark;
+}
+body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c; }
+.stars, .orbits { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.orbits path { fill: none; stroke: var(--orbit); stroke-width: 1; }
+.orbits path.hot { stroke: var(--orbit-hot); }
+.orbits path.moon-orbit { stroke: rgba(148, 170, 205, .09); }
+.orbits text { fill: var(--fg-faint); font: 500 11.5px var(--sans); }
+.orbits text.hot { fill: var(--amber); }
+.orbits .tether { stroke: var(--amber); stroke-width: 1; stroke-dasharray: 2 5; opacity: .6; animation: pull 1.1s linear infinite; }
+@keyframes pull { to { stroke-dashoffset: -7; } }
+.bodies { position: absolute; inset: 0; z-index: 1; }
+#planets { position: absolute; inset: 0; }
+.planet { position: absolute; left: 0; top: 0; width: 0; height: 0; padding: 0; border: 0; background: none; cursor: pointer; --c: var(--idle-body); --R: calc(var(--r) * var(--k)); }
+.planet[data-state="waiting"] { --c: var(--amber); }
+.planet[data-state="busy"] { --c: var(--run); }
+.planet[data-state="stopping"], .planet[data-state="failed"] { --c: var(--stop); }
+.planet[data-state="finished"] { --c: var(--ok); }
+.planet:focus-visible { outline: none; }
+/* A session is a satellite: a body in its state's colour between two solar wings, flying along its orbit. A background
+   session carries a dish. --R is its size; --rot lines it up with the orbit; --ext is how far it reaches below. */
+.sat { position: absolute; left: 0; top: 0; transform: rotate(var(--rot, 0rad)) scale(var(--d, 1)); }
+.sat-in { position: absolute; left: 0; top: 0; }
+.sat-core {
+  position: absolute; left: calc(var(--R) * -.55); top: calc(var(--R) * -.55); width: calc(var(--R) * 1.1); height: calc(var(--R) * 1.1); border-radius: 2px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--c) 40%, #fff) 0%, var(--c) 42%, color-mix(in srgb, var(--c) 30%, #000) 100%);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .3);
+}
+.sat-wing {
+  position: absolute; top: calc(var(--R) * -.42); width: calc(var(--R) * 1.35); height: calc(var(--R) * .84);
+  background: repeating-linear-gradient(90deg, #345a91 0 calc(var(--R) * .3), #15243b calc(var(--R) * .3) calc(var(--R) * .35));
+  box-shadow: inset 0 0 0 1px rgba(150, 185, 235, .34);
+}
+.sat-wing.l { left: calc(var(--R) * -2.15); transform-origin: right; }
+.sat-wing.r { left: calc(var(--R) * .8); transform-origin: left; }
+.sat-wing::after { content: ""; position: absolute; top: 50%; width: calc(var(--R) * .25); border-top: 1px solid rgba(175, 195, 225, .55); }
+.sat-wing.l::after { left: 100%; }
+.sat-wing.r::after { right: 100%; }
+.sat-dish {
+  position: absolute; left: calc(var(--R) * -.36); top: calc(var(--R) * -1.32); width: calc(var(--R) * .72); height: calc(var(--R) * .42);
+  border: 1px solid color-mix(in srgb, var(--c) 60%, #fff); border-top: 0; border-radius: 0 0 50% 50% / 0 0 100% 100%;
+}
+.sat-dish::after { content: ""; position: absolute; left: 50%; top: 100%; height: calc(var(--R) * .36); border-left: 1px solid rgba(190, 205, 225, .6); }
+.planet[data-state="idle"] .sat-in, .planet[data-state="finished"] .sat-in, .planet[data-state="failed"] .sat-in { filter: saturate(.55) brightness(.75); }
+.planet[data-state="busy"] .sat-core { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .3), 0 0 14px -1px var(--c); }
+.planet[data-state="stopping"] .sat-in { animation: blink .7s ease-in-out infinite; }
+.sat::after, .sat::before { position: absolute; border-radius: 50%; pointer-events: none; }
+.planet[data-state="waiting"] .sat::after {
+  content: ""; left: calc(var(--R) * -.8); top: calc(var(--R) * -.8); width: calc(var(--R) * 1.6); height: calc(var(--R) * 1.6);
+  border: 1px solid var(--c); animation: ping 2.4s ease-out infinite;
+}
+@keyframes ping { from { transform: scale(1); opacity: .8; } to { transform: scale(2.6); opacity: 0; } }
+.planet[aria-current="true"] .sat::before, .planet:focus-visible .sat::before {
+  content: ""; left: calc(var(--R) * -2.6); top: calc(var(--R) * -2.6); width: calc(var(--R) * 5.2); height: calc(var(--R) * 5.2); border: 1px solid var(--fg); opacity: .55;
+}
+.planet:focus-visible .sat::before { border-style: dashed; }
+.p-label {
+  position: absolute; left: 0; top: calc(var(--ext, var(--R)) + 8px); transform: translateX(-50%); display: grid; justify-items: center; gap: 1px;
+  white-space: nowrap; text-shadow: 0 0 4px var(--void), 0 0 2px var(--void);
+}
+.p-name { font-size: 12px; font-weight: 550; color: var(--fg); }
+.planet[data-state="idle"] .p-name, .planet[data-state="finished"] .p-name, .planet[data-state="failed"] .p-name { color: var(--fg-dim); }
+.p-ask { max-width: 230px; overflow: hidden; text-overflow: ellipsis; font-size: 11.5px; color: var(--amber); }
+.planet[data-state="stopping"] .p-ask { color: var(--stop); }
+.p-ask .t { margin-right: 5px; font: 500 11px var(--mono); }
+.space.compact .p-label, .space.tight .p-ask { display: none; }
+.planet.leaving, .moon.leaving { opacity: 0; transition: opacity .6s; pointer-events: none; }
+/* A subagent is a small satellite circling its session's, wings along its little orbit. */
+.moon { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; --mc: var(--fg-faint); }
+.moon[data-state="running"] { --mc: var(--run); }
+.moon[data-state="waiting"] { --mc: var(--amber); }
+.moon[data-state="stopping"], .moon[data-state="stopped"] { --mc: var(--stop); }
+.mi { position: absolute; left: 0; top: 0; }
+.mc { position: absolute; left: -2.5px; top: -2.5px; width: 5px; height: 5px; border-radius: 1px; background: var(--mc); }
+.mw { position: absolute; top: -1.75px; width: 5px; height: 3.5px; background: #345a91; box-shadow: inset 0 0 0 .5px rgba(150, 185, 235, .5); }
+.mw.l { left: -8.5px; }
+.mw.r { left: 3.5px; }
+.moon[data-state="running"] .mc { box-shadow: 0 0 6px var(--run); }
+.moon[data-state="waiting"] .mi { transform: scale(1.35); }
+.moon[data-state="waiting"] .mc { box-shadow: 0 0 8px var(--amber); }
+.moon[data-state="stopping"] .mi { animation: blink .7s ease-in-out infinite; }
+.moon[data-state="stopped"] .mc { background: transparent; box-shadow: inset 0 0 0 1px var(--stop); }
+.moon[data-state="done"] .mi { opacity: .6; }
+.sun { position: absolute; left: 0; top: 0; z-index: 50; width: 0; height: 0; padding: 0; border: 0; background: none; cursor: pointer; }
+.sun:focus-visible { outline: none; }
+.sun:focus-visible .sun-core { outline: 1px dashed var(--fg); outline-offset: 6px; }
+.sun-core {
+  position: absolute; left: -13px; top: -13px; width: 26px; height: 26px; border-radius: 50%;
+  background: radial-gradient(circle at 40% 38%, var(--sun-core), var(--sun) 45%, var(--sun-edge) 100%);
+  box-shadow: 0 0 22px 6px var(--sun-glow), 0 0 110px 36px rgba(255, 196, 110, .06);
+}
+.sun-label { position: absolute; left: 0; top: 22px; transform: translateX(-50%); display: grid; justify-items: center; white-space: nowrap; font-size: 12px; text-shadow: 0 0 4px var(--void); }
+.sun-label b { font-weight: 600; }
+.sun-label span { color: var(--fg-dim); font-size: 11.5px; }
+.sun-label span.hot { color: var(--amber); }
+.sp-tip {
+  position: absolute; left: 0; top: 0; z-index: 200; display: grid; gap: 4px; width: max-content; max-width: 300px; padding: 9px 11px;
+  border: 1px solid var(--line-strong); border-radius: 4px; background: color-mix(in srgb, var(--panel) 94%, transparent); font-size: 12.5px; pointer-events: none;
+}
+.sp-tip .t-name { font-weight: 600; }
+.sp-tip .t-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-dim); }
+.sp-tip .t-line .t { margin-right: 6px; font: 500 11.5px var(--mono); color: var(--run); }
+.sp-tip .t-meta { font: 11.5px var(--mono); color: var(--fg-faint); }
+.sp-top {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 6; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 22px; min-height: 52px;
+  padding: calc(8px + env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) 8px max(16px, env(safe-area-inset-left, 0px));
+  border-bottom: 1px solid var(--orbit); background: color-mix(in srgb, var(--void) 72%, transparent);
+}
+.sp-sub { color: var(--fg-dim); font-size: 12.5px; }
+.sp-foot {
+  position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); z-index: 2;
+  display: grid; justify-items: start; gap: 12px; max-width: calc(100% - 32px);
+}
+.sp-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; font-size: 12px; color: var(--fg-dim); pointer-events: none; }
+/* Earth: new agents launch from here, by rocket, into their orbit. */
+/* It floats: a slow drift, and it turns (land and clouds slide under a fixed day/night shading, on a tilted axis). */
+.earth {
+  display: grid; justify-items: center; gap: 7px; margin: 0 0 6px 18px; padding: 6px; border: 0; border-radius: 4px; background: none;
+  color: var(--fg-dim); cursor: pointer; animation: drift 11s ease-in-out infinite;
+}
+@keyframes drift { 0%, 100% { transform: translate(0, 0); } 30% { transform: translate(5px, -9px); } 62% { transform: translate(-4px, -4px); } }
+.earth:focus-visible { outline: 1px dashed var(--fg); outline-offset: 2px; }
+.earth:hover, .earth:focus-visible { animation-play-state: paused; } /* holds still under the pointer, like the planets */
+.earth-globe {
+  position: relative; width: 50px; height: 50px; border-radius: 50%; overflow: hidden;
+  background: radial-gradient(circle at 40% 38%, #4c84c4, #29507f 58%, #12233a 100%);
+  box-shadow: 0 0 0 1px rgba(150, 190, 255, .2), 0 0 18px 2px rgba(110, 160, 240, .3), 0 0 60px 10px rgba(90, 140, 230, .08); transition: box-shadow .25s;
+}
+.earth-land, .earth-cloud { position: absolute; left: 0; top: -25%; width: 200%; height: 150%; background-size: 50% 100%; background-repeat: repeat-x; animation: turn 48s linear infinite; }
+.earth-land {
+  background-image:
+    radial-gradient(ellipse 16% 12% at 22% 40%, #5d8c60 0 60%, transparent 68%),
+    radial-gradient(ellipse 10% 17% at 38% 58%, #527c55 0 58%, transparent 66%),
+    radial-gradient(ellipse 13% 7% at 70% 30%, #69976a 0 55%, transparent 64%),
+    radial-gradient(ellipse 9% 12% at 82% 62%, #4f7a52 0 55%, transparent 64%);
+}
+.earth-cloud {
+  animation-duration: 31s; opacity: .55;
+  background-image:
+    radial-gradient(ellipse 14% 4% at 30% 34%, rgba(255, 255, 255, .7) 0 50%, transparent 70%),
+    radial-gradient(ellipse 18% 5% at 64% 70%, rgba(255, 255, 255, .6) 0 45%, transparent 70%),
+    radial-gradient(ellipse 10% 3% at 86% 44%, rgba(255, 255, 255, .55) 0 45%, transparent 70%);
+}
+@keyframes turn { from { transform: rotate(-18deg) translateX(0); } to { transform: rotate(-18deg) translateX(-50%); } }
+.earth-globe::after {
+  content: ""; position: absolute; inset: 0; border-radius: 50%;
+  background: radial-gradient(circle at 30% 28%, rgba(255, 255, 255, .22), transparent 30%), radial-gradient(circle at 30% 28%, transparent 44%, rgba(4, 8, 16, .66) 100%);
+  box-shadow: inset 0 0 0 1px rgba(170, 205, 255, .12), inset 2px 2px 6px rgba(170, 205, 255, .22);
+}
+.earth:hover .earth-globe, .earth:focus-visible .earth-globe { box-shadow: 0 0 0 1px rgba(150, 190, 255, .34), 0 0 26px 5px rgba(110, 160, 240, .44), 0 0 70px 14px rgba(90, 140, 230, .12); }
+.earth-label { display: grid; justify-items: center; gap: 1px; line-height: 1.25; white-space: nowrap; text-shadow: 0 0 4px var(--void), 0 0 2px var(--void); }
+.earth-label b { color: var(--fg); font-size: 12px; font-weight: 550; }
+.earth-label span { font-size: 11.5px; }
+.earth:hover .earth-label span { color: var(--fg); }
+@media (prefers-reduced-motion: reduce) { .earth, .earth-land, .earth-cloud { animation: none; } }
+.rocket { position: absolute; left: 0; top: 0; z-index: 120; width: 16px; height: 28px; margin: -14px 0 0 -8px; pointer-events: none; transition: opacity .35s; }
+.rocket svg { display: block; overflow: visible; }
+.r-body { fill: #dfe5ee; }
+.r-fin { fill: #c9584a; }
+.r-window { fill: #7ea6e6; stroke: #2a3442; stroke-width: .6; }
+.r-flame { fill: #ffc56a; transform-origin: 8px 20px; animation: flame .09s ease-in-out infinite alternate; }
+.rocket.coast .r-flame { opacity: 0; animation: none; }
+@keyframes flame { from { transform: scaleY(.7); opacity: .8; } to { transform: scaleY(1.3); opacity: 1; } }
+.orbits .trails circle { fill: #ffd28a; }
+.planet.incoming { opacity: 0; pointer-events: none; }
+.planet.born .sat-in { animation: born .7s cubic-bezier(.2, 1.5, .4, 1); }
+.planet.born .sat-wing { animation: unfold .55s .25s cubic-bezier(.3, 1.3, .5, 1) both; } /* its wings open once it is in orbit */
+@keyframes born { from { transform: scale(.15); } }
+@keyframes unfold { from { transform: scaleX(0); } }
+.burst { position: absolute; left: 0; top: 0; width: 4px; height: 4px; margin: -2px 0 0 -2px; border-radius: 50%; box-shadow: 0 0 0 1px var(--c); pointer-events: none; animation: burst .9s ease-out forwards; }
+@keyframes burst { to { width: 96px; height: 96px; margin: -48px 0 0 -48px; opacity: 0; } }
+.sp-legend .k { display: inline-flex; align-items: center; gap: 8px; }
+.k-sat { position: relative; width: 6px; height: 6px; margin: 0 9px; border-radius: 1px; background: var(--fg-dim); }
+.k-sat::before, .k-sat::after { content: ""; position: absolute; top: 1px; width: 6px; height: 4px; background: #345a91; box-shadow: inset 0 0 0 1px rgba(150, 185, 235, .4); }
+.k-sat::before { right: 8px; }
+.k-sat::after { left: 8px; }
+.k-dish { position: absolute; left: -1px; top: -6px; width: 8px; height: 4px; border: 1px solid var(--fg-dim); border-top: 0; border-radius: 0 0 50% 50% / 0 0 100% 100%; }
+.k-moon { position: relative; width: 4px; height: 4px; margin: 0 6px; border-radius: 1px; background: var(--run); }
+.k-moon::before, .k-moon::after { content: ""; position: absolute; top: .5px; width: 4px; height: 3px; background: #345a91; }
+.k-moon::before { right: 5px; }
+.k-moon::after { left: 5px; }
+.k-tether { width: 16px; border-top: 1px dashed var(--amber); }
+.space { --drawer-w: var(--drawer-user, clamp(440px, 46vw, 820px)); }
+.space .drawer { top: var(--sp-top, 52px); z-index: 5; background: color-mix(in srgb, var(--panel) 93%, transparent); backdrop-filter: blur(10px); }
+
+@media (max-width: 860px) {
+  .board { grid-template-columns: minmax(0, 1fr); overflow: auto; }
+  .col { border-right: 0; border-bottom: 1px solid var(--line); min-height: auto; }
+  .col-body { overflow: visible; }
+  .drawer { width: 100%; border-left: 0; }
+}
+@media (max-width: 520px) { .pair { grid-template-columns: 1fr; } }
+@media (hover: none) { .qstop { opacity: 1; } .tile-wrap.can-act .tside { visibility: hidden; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <span class="brand">Agent panel</span>
+  <div class="prof">
+    <button class="prof-btn" type="button" id="prof-btn" aria-haspopup="menu" aria-expanded="false" title="Which Claude Code profile's sessions this shows">Profile <b id="prof-name">…</b></button>
+    <div class="prof-menu" id="prof-menu" role="menu" aria-label="Profiles" hidden></div>
+  </div>
+  <span class="live down" id="conn">Connecting</span>
+  <div class="counts" id="counts"></div>
+  <span class="grow"></span>
+  <span class="paused" id="paused" hidden>Paused: the terminal answers everything</span>
+  <button class="linkish" type="button" id="notify" hidden>Turn on desktop alerts</button>
+  <label class="switch" title="When off, requests go to the terminal only"><input type="checkbox" id="armed" checked><i></i>Answer prompts here</label>
+  <button class="btn orbit" type="button" id="space-btn">Space view</button>
+  <button class="btn primary" type="button" id="new-agent">New agent</button>
+</header>
+<p class="banner" id="roster-err" hidden></p>
+<div class="banner connect" id="prof-banner" hidden>
+  <span>The <b id="pb-name"></b> profile doesn't report to this panel yet. Its sessions are listed, but their requests, tools and subagents don't show as they happen.</span>
+  <button class="btn small" type="button" id="pb-connect">Connect this profile</button>
+  <span class="mono" id="pb-file"></span>
+</div>
+<main class="stage">
+  <div class="board" id="board"></div>
+  <aside class="drawer" id="drawer" aria-label="Session" hidden>
+    <div class="d-grip" id="d-grip" role="separator" aria-orientation="vertical" aria-label="Panel width" tabindex="0" title="Drag to resize. Double-click for the default width."></div>
+    <div class="d-scroll" id="d-scroll">
+      <div id="d-head"></div>
+      <section class="sec needs" id="d-needs" hidden><h4 class="rule">Needs you <span class="n" id="d-needs-n"></span></h4><div class="cards" id="d-cards"></div></section>
+      <section class="sec"><h4 class="rule">Now</h4><div id="d-line"></div></section>
+      <section class="sec" id="d-chat" hidden>
+        <h4 class="rule">Chat</h4>
+        <div class="thread" id="d-thread"></div>
+        <div id="d-compose" hidden>
+          <div class="chips" id="d-chips"></div>
+          <div class="composer">
+            <textarea id="d-reply" rows="2" placeholder="Answer it, or tell it what to do next" aria-label="Your message"></textarea>
+            <div class="c-bar">
+              <select class="c-mode" id="d-mode" aria-label="Its permission mode"></select>
+              <select class="c-mode" id="d-model" aria-label="Its model"></select>
+              <select class="c-mode" id="d-effort" aria-label="Its effort level"></select>
+              <span class="grow"></span>
+              <button class="btn primary small" type="button" id="d-send" disabled>Send</button>
+            </div>
+          </div>
+          <p class="quiet c-hint" id="d-send-hint"></p>
+        </div>
+      </section>
+      <div id="d-subs"></div>
+    </div>
+    <div id="d-advance"></div>
+  </aside>
+</main>
+
+<div class="space" id="space" role="dialog" aria-modal="true" aria-label="Space view" hidden>
+  <canvas class="stars" id="stars" aria-hidden="true"></canvas>
+  <svg class="orbits" aria-hidden="true"><g id="rings"></g><g id="moon-orbits"></g><g id="tethers"></g><g class="trails" id="trails"></g></svg>
+  <div class="bodies">
+    <div id="planets"></div>
+    <button class="sun" id="sun" type="button" aria-label="You. Opens the next request."><span class="sun-core"></span><span class="sun-label"><b>You</b><span id="sun-n"></span></span></button>
+    <div class="sp-tip" id="sp-tip" hidden></div>
+  </div>
+  <div class="sp-top" id="sp-top">
+    <span class="brand">Agent panel</span>
+    <span class="sp-sub" id="sp-sub">Space view</span>
+    <div class="counts" id="sp-counts"></div>
+    <span class="grow"></span>
+    <button class="btn quiet small" type="button" id="sp-full">Full screen</button>
+    <button class="btn small" type="button" id="sp-exit" title="Esc">Back to board</button>
+  </div>
+  <div class="sp-foot">
+    <button class="earth" id="earth" type="button" aria-label="New agent: launch one from Earth">
+      <span class="earth-globe" id="earth-globe"><span class="earth-land"></span><span class="earth-cloud"></span></span><span class="earth-label"><b>Earth</b><span>Launch a new agent</span></span>
+    </button>
+    <div class="sp-legend">
+      <span>The closer in, the sooner it needs you.</span>
+      <span class="k"><i class="k-sat"></i>Terminal session</span>
+      <span class="k"><i class="k-sat"><i class="k-dish"></i></i>Background session</span>
+      <span class="k"><i class="k-moon"></i>Subagent</span>
+      <span class="k"><i class="k-tether"></i>Waiting on you</span>
+    </div>
+  </div>
+</div>
+
+<dialog class="launcher" id="launcher" aria-labelledby="launch-title">
+  <form id="launch-form">
+    <h2 id="launch-title">New agent</h2>
+    <p class="lead">Starts a background session. It shows up here, and its permission requests come to you.</p>
+    <label class="lf"><span>What should it do?</span><textarea id="l-prompt" required placeholder="e.g. Run the timesheet tests and fix whatever fails"></textarea></label>
+    <label class="lf"><span>Folder</span><span class="lf-row"><input id="l-cwd" list="l-folders" spellcheck="false" autocomplete="off" placeholder="~/Documents/projects/…"><button class="btn small" type="button" id="l-pick">Choose…</button></span><datalist id="l-folders"></datalist></label>
+    <div class="wt-pick">
+      <label class="switch"><input type="checkbox" id="l-wt"><i></i>Its own worktree</label>
+      <input id="l-wt-name" class="wt-name" maxlength="60" spellcheck="false" autocomplete="off" aria-label="Worktree name" hidden>
+    </div>
+    <p class="l-note" id="l-wt-note" hidden></p>
+    <div class="pair">
+      <label class="lf"><span>Name <small>(optional)</small></span><input id="l-name" maxlength="60" placeholder="fix-timesheet-tests" spellcheck="false"></label>
+      <label class="lf"><span>Agent type <small>(optional)</small></span><input id="l-agent" list="l-agents" placeholder="e.g. code-reviewer" spellcheck="false"><datalist id="l-agents"></datalist></label>
+    </div>
+    <div class="pair">
+      <label class="lf"><span>Model</span>
+        <select id="l-model"><option value="">Default</option><option value="opus">Opus</option><option value="opus[1m]">Opus (1M context)</option><option value="sonnet">Sonnet</option><option value="haiku">Haiku</option><option value="fable">Fable</option></select></label>
+      <label class="lf"><span>Effort</span>
+        <select id="l-effort"><option value="">Default</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Extra high</option><option value="max">Max</option></select></label>
+    </div>
+    <label class="lf"><span>Permissions</span>
+      <select id="l-mode"><option value="default">Ask me for each tool</option><option value="acceptEdits">Accept file edits</option><option value="plan">Plan first, then ask</option><option value="auto">Auto (a classifier decides)</option></select></label>
+    <p class="err" id="l-err" hidden></p>
+    <div class="row"><button class="btn" type="button" id="l-cancel">Cancel</button><button class="btn primary" type="submit" id="l-go">Launch agent</button></div>
+  </form>
+</dialog>
+<div id="toasts" role="status" aria-live="polite"></div>
+
+<script>
+const TOKEN = '__ACP_TOKEN__';
+const COLS = [['waiting', 'Needs you'], ['busy', 'Working'], ['idle', 'Idle'], ['finished', 'Finished']];
+const LABEL = { waiting: 'Needs you', busy: 'Working', idle: 'Idle', finished: 'Finished', failed: 'Failed', stopping: 'Stopping', running: 'Running', done: 'Done', stopped: 'Stopped' };
+const KIND = { background: 'Background session', interactive: 'Terminal session' };
+// Its permission mode, in the launcher's words. Bypass is shown, never offered.
+const MODE = { default: 'Asks for each tool', acceptEdits: 'Accepts file edits', plan: 'Plan mode', auto: 'Auto mode', bypassPermissions: 'Bypasses permissions', dontAsk: 'Never asks' };
+const modeOf = (m) => MODE[m] ?? m;
+// The models and effort levels it can restart on. A model shows by the name its replies ran on: claude-opus-5-5[1m] is Opus 5.5 (1M).
+const MODEL_PICKS = [['opus', 'Opus'], ['opus[1m]', 'Opus (1M context)'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku'], ['fable', 'Fable']];
+const EFFORT = { low: 'Low effort', medium: 'Medium effort', high: 'High effort', xhigh: 'Extra high effort', max: 'Max effort' };
+function modelName(m) {
+  const x = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?(\[1m\])?$/.exec(m ?? '');
+  return x ? `${x[1][0].toUpperCase()}${x[1].slice(1)} ${x[2]}${x[3] ? '.' + x[3] : ''}${x[4] ? ' (1M)' : ''}` : m || null;
+}
+const sameModel = (alias, full) => typeof full === 'string' && full.includes(`-${alias.replace('[1m]', '')}-`) && alias.endsWith('[1m]') === full.endsWith('[1m]');
+// How it comes back after a restart, from what you picked: "on Sonnet, at high effort, in plan mode".
+const MODE_HOW = { default: 'asking for each tool', acceptEdits: 'accepting file edits', plan: 'in plan mode', auto: 'in auto mode' };
+const comesBack = (mode, model, effort) => [model && `on ${MODEL_PICKS.find(([v]) => v === model)?.[1] ?? model}`,
+  effort && `at ${EFFORT[effort].toLowerCase()}`, mode && MODE_HOW[mode]].filter(Boolean).join(', ');
+const HINT = {
+  int: 'It stops at its next tool call, like pressing Esc, and stays open for your next prompt.',
+  end: 'Ends the background session. Its conversation is kept, and claude attach reopens it.',
+  close: 'Closes Claude in its terminal window. The conversation is kept, and claude --resume reopens it.',
+  rm: 'Removes it from the list with claude rm. Its transcript is kept. If its worktree has unpushed or uncommitted work, it stays.',
+  hide: 'Hides it from the board. It already ended in its terminal.',
+  all: 'Interrupts every working session at its next tool call. They stay open.',
+  idle: 'Ends every idle background session. Terminal sessions stay open: end those one at a time, in case you are typing in one.',
+  clear: 'Removes every finished session from the list. Transcripts are kept, and a worktree with unsaved work keeps its session.',
+  sub: 'It stops at its next tool call. Its session carries on without it.',
+};
+const SETTLED = {
+  allow: 'Allowed from the panel', deny: 'Denied from the panel', answer: 'Answered from the panel',
+  'approve-plan': 'Approved from the panel', 'answered in the terminal': 'Answered in the terminal',
+  'closed by Claude Code': 'Closed by Claude Code', expired: 'Expired, handed back to the terminal',
+  'panel closed': 'Handed back to the terminal', paused: 'Handed back to the terminal', interrupted: 'Refused, because you interrupted it',
+};
+// What a dialog is called on its card and in its notes, and what a deny means for it.
+const DIALOG = {
+  AskUserQuestion: { name: 'Question', deny: 'Declined from the panel' },
+  ExitPlanMode: { name: 'Plan', deny: 'Sent back with your feedback' },
+};
+const toolName = (t) => DIALOG[t]?.name || t;
+const WAITING_FOR = { 'permission prompt': 'A permission prompt is open in its terminal', 'input needed': 'Waiting for your reply in its terminal' };
+
+let snap = null;
+let open;               // the session in the panel; undefined until the first snapshot
+let armed = null;       // { key, timer }: a two-click control waiting for its second click
+let advance = null;     // { from, to, timer }: moving on after an answer
+let drawerWas = null;
+let launchedId = null;
+const notes = new Map();       // sessionId → { text, at }
+const cards = new Map();       // request id → { el, req, fitted }
+const tasksOpen = new Set();   // agentIds whose task is unfolded
+const stoppedSubs = new Set(); // agentIds stopped from the panel
+const $ = (id) => document.getElementById(id);
+
+// ---------- helpers: never innerHTML with data ----------
+function el(tag, attrs = {}, ...kids) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v == null || v === false) continue;
+    if (k === 'class') n.className = v;
+    else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
+    else if (k === 'text') n.textContent = v;
+    else n.setAttribute(k, v === true ? '' : v);
+  }
+  for (const k of kids.flat()) if (k != null && k !== false) n.append(k instanceof Node ? k : String(k));
+  return n;
+}
+function ago(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.round(s / 60) + 'm';
+  if (s < 86400) return Math.round(s / 3600) + 'h';
+  return Math.round(s / 86400) + 'd';
+}
+const base = (p) => (p ? p.split('/').filter(Boolean).pop() : '');
+const label = (s) => s?.name || base(s?.cwd) || 'session';
+const textOf = (parts) => parts.map((p) => (typeof p === 'string' ? p : p.textContent)).join(' ');
+// The first line of prose in a reply, without its markdown, cut at the first sentence.
+function gist(t) {
+  const lines = String(t).split('\n').map((l) => l.trim()).filter(Boolean);
+  const line = (lines.find((l) => !l.startsWith('#')) ?? lines[0] ?? '').replace(/^[#>*\-\s]+/, '');
+  return line.split(/(?<=[.!?])\s/)[0];
+}
+const glyph = (st) => el('span', { class: 'glyph', 'data-s': st, 'aria-hidden': 'true' });
+const quiet = (text) => el('div', { class: 'quiet', text });
+const toolLine = (t) => el('div', { class: 'tool-line', title: t.text }, el('span', { class: 't', text: t.tool }), el('span', { class: 'what', text: t.text }));
+function toast(text, bad) {
+  const t = el('div', { class: 'toast' + (bad ? ' bad' : ''), text });
+  $('toasts').append(t);
+  setTimeout(() => t.remove(), bad ? 6000 : 4000);
+}
+function note(sessionId, text) { notes.set(sessionId, { text, at: Date.now() }); render(); }
+/** Rebuild a container only when what it shows has changed, so selections, focus and animations survive the 1 s tick. */
+function patch(node, sig, build) {
+  if (node._sig === sig) return;
+  node._sig = sig;
+  node.replaceChildren(...[build()].flat().filter(Boolean));
+}
+
+// ---------- live connection ----------
+function connect() {
+  const es = new EventSource('/events?t=' + encodeURIComponent(TOKEN));
+  const conn = $('conn');
+  es.onopen = () => { conn.classList.remove('down'); conn.textContent = 'Live'; };
+  es.onerror = () => {
+    conn.classList.add('down');
+    conn.textContent = 'Disconnected. Is server.mjs running?';
+    // A restarted server mints a new token and refuses this page's: reload once it answers again.
+    if (es.readyState === EventSource.CLOSED) waitForServer();
+  };
+  es.onmessage = (m) => {
+    const prev = snap;
+    snap = JSON.parse(m.data);
+    for (const p of snap.pending) if (prev && !prev.pending.some((q) => q.id === p.id)) alertNew(p);
+    const ev = snap.event;
+    if (ev?.type === 'settled' && cards.has(ev.id)) {
+      const r = cards.get(ev.id).req;
+      const how = (ev.why === 'deny' && DIALOG[r.toolName]?.deny) || SETTLED[ev.why] || ev.why;
+      notes.set(r.sessionId, { text: `${toolName(r.toolName)}: ${how}.`, at: Date.now() });
+      // Answered here, and nothing else is waiting in this session: move on to the next that needs you.
+      const sentBack = ev.why === 'deny' && r.toolName === 'ExitPlanMode';
+      if (['allow', 'deny', 'answer', 'approve-plan'].includes(ev.why) && !sentBack && r.sessionId === open) scheduleAdvance(open);
+    }
+    render();
+  };
+}
+function waitForServer() {
+  setTimeout(() => fetch('/', { cache: 'no-store' }).then((r) => (r.ok ? location.reload() : waitForServer()), waitForServer), 2000);
+}
+async function api(path, body) {
+  try {
+    const r = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json', 'x-acp-token': TOKEN }, body: JSON.stringify(body) });
+    return await r.json();
+  } catch { return { ok: false, error: 'No answer from the panel server.' }; }
+}
+
+// ---------- alerts + the arm switch ----------
+const notifyBtn = $('notify');
+if ('Notification' in window && Notification.permission === 'default') notifyBtn.hidden = false;
+notifyBtn.onclick = () => Notification.requestPermission().then(() => { notifyBtn.hidden = Notification.permission !== 'default'; });
+function alertNew(p) {
+  if (!('Notification' in window) || Notification.permission !== 'granted' || document.hasFocus()) return;
+  const who = label(sessionOf(p.sessionId));
+  const title = p.toolName === 'AskUserQuestion' ? `${who} has a question for you`
+    : p.toolName === 'ExitPlanMode' ? `${who} has a plan ready for review` : `${who} wants to use ${p.toolName}`;
+  const n = new Notification(title, { body: summary(p), tag: p.id });
+  n.onclick = () => { window.focus(); open = p.sessionId; render(); n.close(); };
+}
+function summary(p) {
+  const i = p.toolInput || {};
+  return String(i.command ?? i.file_path ?? i.url ?? i.pattern ?? i.description ?? i.questions?.[0]?.question ?? i.plan ?? '').replace(/\s+/g, ' ').slice(0, 140);
+}
+$('armed').addEventListener('change', (e) => api('/api/arm', { armed: e.target.checked }));
+
+// ---------- states ----------
+const sessionOf = (id) => snap?.sessions.find((s) => s.sessionId === id);
+const reqsOf = (sid) => snap.pending.filter((p) => p.sessionId === sid).sort((a, b) => a.createdAt - b.createdAt);
+/** Sessions that ask, the one waiting longest first: the order "next" follows. */
+const asking = () => [...new Set([...snap.pending].sort((a, b) => a.createdAt - b.createdAt).map((p) => p.sessionId))];
+const isOver = (s) => s.ended || s.state === 'done' || s.state === 'failed' || s.state === 'stopped';
+function stateOf(s) {
+  if (isOver(s)) return s.state === 'failed' ? 'failed' : 'finished';
+  if (s.stopping) return 'stopping';
+  if (snap.pending.some((p) => p.sessionId === s.sessionId) || s.status === 'waiting') return 'waiting';
+  if (s.status === 'busy' && !s.atPrompt) return 'busy'; // a background task keeps it "busy" after its turn
+  if (!s.status && s.lastTool && snap.now - s.lastTool.at < 60_000) return 'busy'; // hook-only sessions (claude -p, SDK)
+  return 'idle';
+}
+const colOf = (st) => (st === 'stopping' ? 'busy' : st === 'failed' ? 'finished' : st);
+function subState(s, a) {
+  if (snap.pending.some((p) => p.sessionId === s.sessionId && p.agentId === a.agentId)) return 'waiting';
+  if (a.stopping) return 'stopping';
+  if (a.stoppedAt) return stoppedSubs.has(a.agentId) ? 'stopped' : 'done';
+  return 'running';
+}
+function visible() {
+  return snap.sessions.filter((s) => s.inRoster || snap.pending.some((p) => p.sessionId === s.sessionId)
+    || (s.leftRosterAt ? snap.now - s.leftRosterAt < 600_000 : snap.now - s.lastEventAt < 3_600_000));
+}
+function groups(vis) {
+  const g = { waiting: [], busy: [], idle: [], finished: [] };
+  for (const s of vis) g[colOf(stateOf(s))].push(s);
+  const order = asking();
+  const at = (s) => { const i = order.indexOf(s.sessionId); return i < 0 ? 1e9 : i; };
+  g.waiting.sort((a, b) => at(a) - at(b));
+  const started = (s) => s.startedAt ?? 0;
+  for (const k of ['busy', 'idle']) g[k].sort((a, b) => started(b) - started(a) || a.sessionId.localeCompare(b.sessionId));
+  g.finished.sort((a, b) => (b.leftRosterAt ?? b.lastEventAt) - (a.leftRosterAt ?? a.lastEventAt));
+  return g;
+}
+function askText(p) {
+  if (p.toolName === 'ExitPlanMode') return 'Plan ready for review';
+  if (p.toolName === 'AskUserQuestion') return 'Asks: ' + (p.toolInput?.questions?.[0]?.question ?? 'a question');
+  return `${p.toolName}: ${summary(p)}`;
+}
+function lineOf(s) {
+  const st = stateOf(s), rs = reqsOf(s.sessionId);
+  if (st === 'stopping') return ['Stopping at its next tool call'];
+  if (rs.length) return [(rs[0].agentId ? 'Its subagent: ' : '') + askText(rs[0]) + (rs.length > 1 ? ` (+${rs.length - 1})` : '')];
+  if (st === 'waiting') return [s.kind === 'background' ? 'Waiting on something the panel can\'t read' : WAITING_FOR[s.waitingFor] || 'Waiting in its terminal'];
+  if (st === 'busy') return s.lastTool ? [el('span', { class: 't', text: s.lastTool.tool }), s.lastTool.text] : ['Working'];
+  if (st === 'failed') return ['Ended with an error'];
+  if (s.leftRosterAt) return [s.closedByPanel ? 'Closed from the panel' : 'Closed ' + ago(snap.now - s.leftRosterAt) + ' ago'];
+  const said = s.lastMessage || s.note?.text;
+  if (said) return [gist(said)];
+  return [st === 'finished' ? (s.state === 'stopped' ? 'Ended' : 'Finished') : 'Idle'];
+}
+const canEnd = (s) => s.inRoster && !s.hostsPanel && ((s.kind === 'background' && s.id) || s.kind === 'interactive');
+const tasksStop = (s) => (!s.bgTasks ? '' : s.bgTasks === 1 ? ' The background task it started stops too.' : ` The ${s.bgTasks} background tasks it started stop too.`);
+const canRm = (s) => s.kind === 'background' && s.id && s.inRoster;
+
+// ---------- two-click controls ----------
+function confirmOr(key, run) {
+  if (armed?.key === key) { clearTimeout(armed.timer); armed = null; render(); run(); return; }
+  if (armed) clearTimeout(armed.timer);
+  armed = { key, timer: setTimeout(() => { armed = null; render(); }, 4000) };
+  render();
+}
+function armBtn(key, text, armedText, run) {
+  const on = armed?.key === key;
+  return el('button', { class: 'btn danger' + (on ? ' armed' : ''), type: 'button', 'data-key': key, title: HINT[key.split(':')[0]], text: on ? armedText : text, onclick: () => confirmOr(key, run) });
+}
+
+// ---------- what the controls do ----------
+async function doInterrupt(s, a) {
+  const r = await api('/api/interrupt', { sessionId: s.sessionId, agentId: a?.agentId ?? null });
+  if (!r.ok) return toast(r.error || 'It did not stop.', true);
+  if (a) stoppedSubs.add(a.agentId);
+  note(s.sessionId, a ? `Stopping its subagent ${a.title || a.agentType} at its next tool call.` : 'Stopping at its next tool call.');
+}
+async function doEnd(s, quietly) {
+  const r = await api('/api/end', { sessionId: s.sessionId });
+  if (!r.ok) { if (!quietly) toast(`${label(s)}: ${r.error || 'It did not end.'}`, true); return r; }
+  if (!quietly) note(s.sessionId, s.kind === 'background' ? `Ended. Its conversation is kept: claude attach ${s.id} reopens it.`
+    : `Closed. Its conversation is kept: claude --resume ${s.sessionId} reopens it.`);
+  return r;
+}
+async function doRemove(s, quietly) {
+  const r = await api('/api/remove', { sessionId: s.sessionId });
+  if (!r.ok) { if (!quietly) toast(`${label(s)} stays: ${r.error || 'it could not be removed.'}`, true); return r; }
+  if (open === s.sessionId) open = null;
+  if (!quietly) toast(r.removed ? `Removed ${label(s)}. Its transcript is kept.` : `Hid ${label(s)}.`);
+  render();
+  return r;
+}
+const sessions = (n) => `${n} session${n === 1 ? '' : 's'}`;
+async function bulk(list, act, done) {
+  const results = await Promise.all(list.map((s) => act(s, true).then((r) => ({ s, r }))));
+  const failed = results.filter((x) => !x.r.ok);
+  const ok = results.length - failed.length;
+  toast(done(ok) + (failed.length ? ` ${failed.length} stayed: ${label(failed[0].s)}: ${failed[0].r.error}` : ''), failed.length > 0);
+  render();
+}
+
+// ---------- the board: tiles are kept and updated in place, so a click never lands on a rebuilt one ----------
+const setText = (n, v) => { if (n.textContent !== v) n.textContent = v; };
+const setAttr = (n, k, v) => { if (n.getAttribute(k) !== v) n.setAttribute(k, v); };
+const colEls = COLS.map(([k, name]) => {
+  const n = el('span', { class: 'n' }), body = el('div', { class: 'col-body' });
+  const c = { k, n, body, hint: el('p', { class: 'hint col-hint', hidden: true }), empty: el('p', { class: 'col-empty' }) };
+  c.bulk = el('button', { class: 'btn danger', type: 'button', hidden: true, onclick: () => c.b && confirmOr(c.b.key, c.b.run) });
+  $('board').append(el('section', { class: 'col', 'data-col': k, 'aria-label': name }, el('div', { class: 'col-h' }, name, n, el('span', { class: 'col-tools' }, c.bulk)), body));
+  return c;
+});
+function tileAction(s, st) {
+  const bg = s.kind === 'background';
+  if (st === 'busy' || st === 'waiting') return { kind: 'int', ask: 'Interrupt?', name: 'Interrupt', run: () => doInterrupt(s), title: HINT.int };
+  if (st === 'idle' && canEnd(s)) return { kind: 'end', ask: 'End?', name: 'End', run: () => doEnd(s), title: bg ? HINT.end : HINT.close };
+  if (st === 'finished' || st === 'failed') return { kind: 'rm', ask: canRm(s) ? 'Remove?' : 'Hide?', name: canRm(s) ? 'Remove' : 'Hide', run: () => doRemove(s), title: canRm(s) ? HINT.rm : HINT.hide };
+  return null;
+}
+/** Its branch, and where that checkout is. */
+function whereOf(g) {
+  if (!g) return null;
+  const on = g.branch ?? (g.commit ? `detached at ${g.commit}` : 'no branch');
+  return { on, long: `${g.branch ? 'On ' + g.branch : on[0].toUpperCase() + on.slice(1)}, in ${g.worktree ? 'worktree ' + g.worktree : 'the main checkout'}` };
+}
+const listOf = (names, n = 3) => names.length > n ? `${names.slice(0, n).join(', ')} and ${names.length - n} more` : names.join(', ');
+/** Other live sessions working in the same checkout: they share its branch and its files. */
+const sharersOf = (s) => !s.git ? [] : (snap?.sessions ?? []).filter((o) => o !== s && o.git?.top === s.git.top && !['finished', 'failed'].includes(stateOf(o))).map(label);
+const tiles = new Map(); // sessionId → its tile
+function tile(s) {
+  const id = s.sessionId;
+  let t = tiles.get(id);
+  if (!t) {
+    t = { glyph: el('span', { class: 'glyph', 'aria-hidden': 'true' }), name: el('span', { class: 'tname' }), subs: el('span'), age: el('span'), line: el('span', { class: 'tline' }),
+          on: el('span') };
+    t.where = el('span', { class: 'twhere' }, t.on);
+    t.btn = el('button', { class: 'tile', type: 'button', onclick: () => { cancelAdvance(); open = open === id ? null : id; render(); } },
+      t.glyph, t.name, el('span', { class: 'tside' }, t.subs, t.age), t.line, t.where);
+    t.q = el('button', { class: 'qstop', type: 'button', onclick: () => t.act && confirmOr(t.key, t.act.run) });
+    t.wrap = el('div', { class: 'tile-wrap' }, t.btn, t.q);
+    tiles.set(id, t);
+  }
+  const st = stateOf(s), running = s.subagents.filter((a) => subState(s, a) === 'running').length;
+  setAttr(t.btn, 'data-state', st);
+  setAttr(t.btn, 'aria-current', String(open === id));
+  const w = whereOf(s.git);
+  setAttr(t.btn, 'title', [w?.long, s.cwd].filter(Boolean).join('\n') || label(s));
+  t.where.hidden = !w;
+  if (w) { t.where.classList.toggle('wt', Boolean(s.git.worktree)); setText(t.on, w.on); }
+  setAttr(t.glyph, 'data-s', st);
+  setText(t.name, label(s));
+  setText(t.subs, running ? `${running} sub${running > 1 ? 's' : ''}` : '');
+  t.subs.hidden = !running;
+  setText(t.age, s.startedAt ? ago(snap.now - s.startedAt) : '');
+  const parts = lineOf(s), text = textOf(parts);
+  if (t.lineText !== text) { t.lineText = text; t.line.replaceChildren(...parts); }
+  t.act = tileAction(s, st);
+  t.wrap.classList.toggle('can-act', Boolean(t.act));
+  t.q.hidden = !t.act;
+  if (t.act) {
+    const q = t.act, on = armed?.key === `tile-${q.kind}:${id}`;
+    t.key = `tile-${q.kind}:${id}`;
+    t.q.className = 'qstop' + (q.kind === 'rm' ? ' x' : '') + (on ? ' armed' : '');
+    setAttr(t.q, 'data-key', t.key);
+    setAttr(t.q, 'title', q.title);
+    setAttr(t.q, 'aria-label', on ? `Confirm: ${q.name.toLowerCase()} ${label(s)}` : `${q.name} ${label(s)}`);
+    setText(t.q, on ? q.ask : '');
+  }
+  return t.wrap;
+}
+function renderBoard(g, vis) {
+  const working = g.busy.filter((s) => stateOf(s) === 'busy');
+  // Bulk ending stays with background sessions: you may be typing in one of the terminal ones.
+  const idleBg = g.idle.filter((s) => s.kind === 'background' && canEnd(s));
+  const BULK = {
+    busy: working.length > 1 && { key: 'all:', text: 'Interrupt all', armed: `Interrupt ${working.length}`,
+      run: () => bulk(working, (s) => api('/api/interrupt', { sessionId: s.sessionId }), (n) => `Interrupting ${sessions(n)} at the next tool call.`) },
+    idle: idleBg.length > 0 && { key: 'idle:', text: 'End idle', armed: `End ${idleBg.length} background`,
+      run: () => bulk(idleBg, doEnd, (n) => `Ended ${sessions(n)}. Conversations are kept.`) },
+    finished: g.finished.length > 0 && { key: 'clear:', text: 'Clear', armed: `Clear ${g.finished.length}`,
+      run: () => bulk(g.finished, doRemove, (n) => `Cleared ${sessions(n)}. Transcripts are kept.`) },
+  };
+  for (const c of colEls) {
+    const list = g[c.k], b = BULK[c.k] || null, on = Boolean(b) && armed?.key === b.key;
+    setText(c.n, String(list.length));
+    c.b = b;
+    c.bulk.hidden = !b;
+    if (b) {
+      c.bulk.className = 'btn danger' + (on ? ' armed' : '');
+      setAttr(c.bulk, 'data-key', b.key);
+      setAttr(c.bulk, 'title', HINT[b.key.slice(0, -1)]);
+      setText(c.bulk, on ? b.armed : b.text);
+    }
+    c.hint.hidden = !on;
+    if (on) setText(c.hint, HINT[b.key.slice(0, -1)]);
+    c.empty.hidden = list.length > 0;
+    setText(c.empty, c.k === 'waiting' ? 'Nothing needs you.' : c.k === 'busy' && !vis.length ? 'No sessions yet. Press New agent, or run claude in a terminal, and it shows up here.' : 'None.');
+    // Move only what is out of place.
+    const want = [c.hint, ...list.map(tile), c.empty];
+    want.forEach((n, i) => { if (c.body.children[i] !== n) c.body.insertBefore(n, c.body.children[i] ?? null); });
+    while (c.body.children.length > want.length) c.body.lastChild.remove();
+  }
+  const keep = new Set(vis.map((s) => s.sessionId));
+  for (const [id, t] of tiles) if (!keep.has(id)) { t.wrap.remove(); tiles.delete(id); }
+  countsInto($('counts'), g);
+}
+function countsInto(node, g) {
+  node.replaceChildren(...COLS.map(([k, name]) => el('span', { class: k === 'waiting' && g[k].length ? 'hot' : '' }, el('b', { text: String(g[k].length) }), name.toLowerCase())));
+}
+
+// ---------- the session panel ----------
+function copyBtn(cmd) {
+  return el('button', { class: 'btn quiet mono', type: 'button', text: cmd, title: 'Copy the command that opens it in a terminal',
+    onclick: () => navigator.clipboard.writeText(cmd).then(() => toast('Copied ' + cmd), () => toast('Copy is blocked here. Select it: ' + cmd, true)) });
+}
+const subNows = new Map(); // agentId → its "now" line in the subagent tree
+function renderDrawer(vis) {
+  const d = $('drawer');
+  const s = open ? vis.find((x) => x.sessionId === open) : null;
+  d.hidden = !s;
+  document.querySelector('.stage').classList.toggle('open', Boolean(s) && !spaceOn);
+  if (!s) { saveDraft(); drawerWas = null; return; }
+  if (drawerWas !== s.sessionId) {
+    saveDraft();
+    d.classList.remove('enter');
+    void d.offsetWidth;
+    d.classList.add('enter');
+    $('d-scroll').scrollTop = 0;
+    drawerWas = s.sessionId;
+    $('d-reply').value = drafts.get(s.sessionId) ?? '';
+  }
+  const st = stateOf(s), live = st === 'busy' || st === 'waiting', ended = st === 'finished' || st === 'failed', bg = s.kind === 'background';
+  const k = (p) => `${p}:${s.sessionId}`;
+  const armedHere = armed && /^(int|end|close|rm|hide):/.test(armed.key) && armed.key.endsWith(':' + s.sessionId) ? armed.key : null;
+  const n = notes.get(s.sessionId), noteText = n && Date.now() - n.at < 15_000 ? n.text : null;
+  const where = whereOf(s.git), sharers = sharersOf(s);
+  patch($('d-head'), JSON.stringify([s.sessionId, st, label(s), s.cwd, s.kind, s.id, s.inRoster, Boolean(s.leftRosterAt), s.state, armedHere, noteText, s.bgTasks, s.hostsPanel, s.mode, s.git, sharers]), () => [
+    el('div', { class: 'd-top' }, el('span', { class: 'tag', 'data-s': st }, glyph(st), s.leftRosterAt ? 'Closed' : s.state === 'stopped' ? 'Ended' : LABEL[st]),
+      el('span', { class: 'age' }), el('span', { class: 'grow' }),
+      el('button', { class: 'btn quiet small', type: 'button', text: 'Close', onclick: () => { cancelAdvance(); open = null; render(); } })),
+    el('h2', { class: 'd-name', text: label(s) }),
+    el('p', { class: 'd-meta' }, (KIND[s.kind] || 'Headless session') + ' in ', el('span', { class: 'mono', text: s.cwd || 'an unknown folder' }),
+      s.mode ? el('span', { class: 'mode-tag', 'data-mode': s.mode, title: 'Its permission mode', text: modeOf(s.mode) }) : null),
+    where ? el('p', { class: 'd-where' },
+      el('span', { class: 'where-b' + (s.git.worktree ? ' wt' : ''), title: 'Its branch', text: where.on }),
+      el('span', { text: s.git.worktree ? `in worktree ${s.git.worktree}` : 'in the main checkout' }),
+      sharers.length ? el('span', { class: 'where-share', title: sharers.join('\n'), text: `Also in this checkout: ${listOf(sharers)}.` }) : null) : null,
+    el('div', { class: 'acts' },
+      live ? armBtn(k('int'), 'Interrupt', 'Confirm interrupt', () => doInterrupt(s)) : null,
+      !ended && canEnd(s) ? armBtn(k(bg ? 'end' : 'close'), 'End session', 'Confirm end', () => doEnd(s)) : null,
+      ended ? armBtn(k(canRm(s) ? 'rm' : 'hide'), canRm(s) ? 'Remove' : 'Hide', canRm(s) ? 'Confirm remove' : 'Confirm hide', () => doRemove(s)) : null,
+      bg && s.id ? copyBtn('claude attach ' + s.id) : s.kind === 'interactive' && s.leftRosterAt ? copyBtn('claude --resume ' + s.sessionId) : null),
+    armedHere ? el('p', { class: 'hint', text: HINT[armedHere.split(':')[0]] + (/^(end|close):/.test(armedHere) ? tasksStop(s) : '') }) : null,
+    noteText ? el('p', { class: 'note', text: noteText }) : null,
+  ]);
+  setText($('d-head').querySelector('.age'), s.startedAt ? 'up ' + ago(snap.now - s.startedAt) : '');
+
+  // Request cards are built once and kept, so an edit in progress survives every update.
+  const rs = reqsOf(s.sessionId), box = $('d-cards');
+  $('d-needs').hidden = !rs.length;
+  setText($('d-needs-n'), rs.length > 1 ? String(rs.length) : '');
+  const want = rs.map((p) => {
+    let c = cards.get(p.id);
+    if (!c) { c = { req: p, el: buildCard(p) }; cards.set(p.id, c); }
+    setText(c.el.querySelector('.req-age'), 'waiting ' + ago(snap.now - p.createdAt));
+    return c;
+  });
+  for (const child of [...box.children]) if (!want.some((c) => c.el === child)) child.remove();
+  want.forEach((c, i) => { if (box.children[i] !== c.el) box.insertBefore(c.el, box.children[i] ?? null); });
+  for (const c of want) if (!c.fitted && c.el.offsetParent !== null) { c.fitted = true; c.el._fit(); }
+
+  patch($('d-line'), JSON.stringify([st, s.lastTool?.tool, s.lastTool?.text, s.waitingFor, s.leftRosterAt, s.state, rs.length, s.bgTasks, s.hostsPanel]), () => nowLine(s, st, rs));
+  renderCompose(s, st);
+
+  // The tree's buttons only rebuild when its shape changes; each subagent's "now" line updates on its own.
+  const subArmed = armed?.key.startsWith(`sub:${s.sessionId}:`) ? armed.key : null;
+  const shape = s.subagents.map((a) => [a.agentId, subState(s, a), a.title, a.agentType, Boolean(a.task)]);
+  patch($('d-subs'), JSON.stringify([s.sessionId, subArmed, shape]), () => (s.subagents.length ? subTree(s) : null));
+  for (const a of s.subagents) {
+    const node = subNows.get(a.agentId);
+    if (node) patch(node, JSON.stringify([subState(s, a), a.lastTool?.text, a.result]), () => subNow(s, a));
+  }
+  patch($('d-advance'), JSON.stringify(advance?.from === s.sessionId ? advance.to : null), () => (advance?.from === s.sessionId
+    ? el('div', { class: 'advance', role: 'status' }, `Done here. Next: ${label(sessionOf(advance.to))}`,
+      el('button', { class: 'linkish', type: 'button', text: 'Stay here', onclick: () => { cancelAdvance(); render(); } }))
+    : null));
+}
+function nowLine(s, st, rs) {
+  if (st === 'stopping') return quiet('Stopping at its next tool call.');
+  if (st === 'waiting' && !rs.length) return el('div', { class: 'wait', text: s.kind === 'background'
+    ? `It is waiting on something the panel can't read, maybe one of its subagents. Open it with claude attach ${s.id ?? ''}.`
+    : (WAITING_FOR[s.waitingFor] || 'Waiting in its terminal') + '. Answer it there.' });
+  if (s.lastTool && (st === 'busy' || st === 'waiting')) return toolLine(s.lastTool);
+  if (st === 'busy') return quiet('Working');
+  if (st === 'idle' && s.hostsPanel) return quiet('Idle. The panel server runs inside this session, so reply to it in its terminal.');
+  if (st === 'idle' && s.bgTasks) return quiet(`At its prompt, waiting for you. ${s.bgTasks === 1 ? 'A background task it started is' : `${s.bgTasks} background tasks it started are`} still running.`);
+  if (st === 'idle') return quiet('Idle, waiting for a prompt');
+  if (st === 'failed') return quiet('Ended with an error');
+  if (s.leftRosterAt) return quiet(s.kind === 'interactive' ? `Closed. Its conversation is kept: claude --resume ${s.sessionId} reopens it.` : 'Closed');
+  if (s.state === 'stopped') return quiet(`Ended. Its conversation is kept${s.id ? `: claude attach ${s.id} reopens it` : ''}.`);
+  return quiet('Finished');
+}
+
+// ---------- replying: a session that stopped to ask you something in words ----------
+const drafts = new Map(); // sessionId → what you had typed to it
+function saveDraft() { if (drawerWas) { const v = $('d-reply').value; v ? drafts.set(drawerWas, v) : drafts.delete(drawerWas); } }
+const canReply = (s, st) => (s.kind === 'background' || s.kind === 'interactive') && !s.hostsPanel && (st === 'idle' || st === 'finished' || st === 'failed');
+// The last numbered or lettered list in a reply: the options it offered.
+function optionsIn(text) {
+  let best = [], cur = [];
+  for (const line of String(text ?? '').split('\n')) {
+    const m = line.match(/^\s{0,3}\**(\d{1,2}|[A-H])[.)]\**\s+(.+)$/);
+    if (m) { cur.push({ key: m[1], text: m[2].replace(/\*\*|`/g, '').trim() }); continue; }
+    if (!line.trim() || /^\s{2,}/.test(line)) continue;
+    if (cur.length) { best = cur; cur = []; }
+  }
+  if (cur.length) best = cur;
+  return best.length >= 2 && best.length <= 8 ? best : [];
+}
+// A background job takes your message straight in, working or not, as if typed in agent view. A terminal session
+// has no way in from outside: one that is working keeps your message until it is done; one at its prompt (or
+// closed) is resumed in the background with it.
+const bgLive = (s) => s.kind === 'background' && s.inRoster && Boolean(s.id) && s.state !== 'stopped' && s.state !== 'failed' && s.pid != null;
+// A model or effort you pick takes a restart, so a background job that is working keeps that message until it is done too.
+const restarts = (s) => modelPicks.has(s.sessionId) || effortPicks.has(s.sessionId);
+// So does a /command: a background job runs one at its prompt, once it is idle there.
+const isCommand = () => $('d-reply').value.trimStart().startsWith('/');
+const willQueue = (s, st) => (s.kind === 'interactive' || (bgLive(s) && (restarts(s) || isCommand()))) && Boolean(s.working) && st !== 'stopping' && !s.hostsPanel;
+const SWITCHABLE = ['default', 'acceptEdits', 'plan', 'auto'];
+const modePicks = new Map(); // sessionId → the mode a terminal session carries on in once your message restarts it
+const modelPicks = new Map(), effortPicks = new Map(); // sessionId → the model / effort your next message restarts it on
+const ownWorktree = (s) => s.kind === 'background' && /\/\.claude\/worktrees\//.test(s.cwd ?? '');
+const switching = new Map(); // sessionId → the mode a background job is being switched to
+const SENT_HOW = { now: 'Sent', 'once it was done': 'Sent once it was done', restarted: 'Sent. It carries on in the background' };
+// What a /command did, from what its transcript recorded and where Claude Code says it is now.
+function ranHow(m) {
+  const as = m.ran && m.ran !== m.text.split(' ')[0] ? ` as ${m.ran}` : '';
+  return m.status === 'waiting' ? `Ran${as}. It opened something on its screen: claude attach shows it`
+    : m.status === 'busy' ? `Ran${as}. It is working on it` : m.ran ? `Ran${as} at its prompt` : 'Typed at its prompt. Nothing came back in its conversation';
+}
+function renderThread(s) {
+  const items = [
+    ...(s.sent ?? []).flatMap((m) => [{ who: 'you', text: m.text, at: m.at, note: m.how === 'command' ? ranHow(m) : SENT_HOW[m.how] ?? 'Sent' },
+      ...(m.output ? [{ who: 'out', text: m.output, at: m.at + 1, title: m.ran ?? m.text.split(' ')[0] }] : [])]),
+    ...(s.queued ?? []).map((m) => ({ who: 'you', text: m.text, at: m.at, held: m })),
+    ...(s.lastMessage ? [{ who: 'claude', text: s.lastMessage, at: s.lastMessageAt ?? 0 }] : []),
+  ].sort((a, b) => a.at - b.at).slice(-4);
+  patch($('d-thread'), JSON.stringify([s.sessionId, items.map((m) => [m.who, m.at, m.text, m.note]), s.queueError]), () => items.map((m) => (m.who === 'claude'
+    ? el('div', { class: 'msg claude' }, el('div', { class: 'm-who' }, el('b', { text: 'Claude' })), el('div', { class: 'm-body' }, md(m.text)))
+    : m.who === 'out' ? el('div', { class: 'msg out' }, el('div', { class: 'm-who' }, el('b', { text: m.title }), 'printed'), el('pre', { class: 'm-body', text: m.text }))
+    : el('div', { class: 'msg you' + (m.held ? ' waiting' : '') }, el('div', { class: 'm-body', text: m.text }),
+      el('div', { class: 'm-who' },
+        m.held && s.queueError ? el('span', { class: 'wait', text: 'Not sent yet: ' + s.queueError }) : el('span', { text: m.held ? 'Waiting until it is done' : m.note }),
+        m.held ? el('button', { class: 'linkish', type: 'button', text: 'Cancel', onclick: () => unqueue(s, m.held) }) : null)))));
+  return items.length;
+}
+function renderCompose(s, st) {
+  const live = bgLive(s), queue = willQueue(s, st), show = live || queue || canReply(s, st);
+  $('d-chat').hidden = !renderThread(s) && !show;
+  $('d-compose').hidden = !show;
+  if (!show) return;
+  const running = s.inRoster && !isOver(s), term = s.kind === 'interactive';
+  setAttr($('d-reply'), 'placeholder', s.working ? 'Tell it something while it works' : 'Answer it, or tell it what to do next');
+  patch($('d-chips'), s.lastMessage ?? '', () => optionsIn(s.lastMessage).map((o) => el('button', { class: 'chip', type: 'button', title: o.text,
+    onclick: () => { const ta = $('d-reply'); ta.value = `${o.key}. ${o.text}`; ta.focus(); fit(ta); syncSend(); } }, el('b', { text: o.key }), o.text)));
+  // Its mode: a background job switches the moment you pick; a terminal session carries on in it once your message restarts it.
+  const to = switching.get(s.sessionId), picked = live ? null : modePicks.get(s.sessionId);
+  patch($('d-mode'), JSON.stringify([s.sessionId, s.mode]), () => [
+    ...(SWITCHABLE.includes(s.mode) ? [] : [el('option', { value: '', text: s.mode ? modeOf(s.mode) : 'Mode unknown' })]),
+    ...SWITCHABLE.map((m) => el('option', { value: m, text: modeOf(m) }))]);
+  $('d-mode').value = to ?? picked ?? (SWITCHABLE.includes(s.mode) ? s.mode : '');
+  $('d-mode').disabled = Boolean(to);
+  setAttr($('d-mode'), 'title', live ? 'Its permission mode. Picking one switches it now.' : 'The mode it carries on in once your message restarts it');
+  // Its model and effort: another one takes effect when your message restarts it (a background job restarts for it).
+  const mPick = modelPicks.get(s.sessionId), ePick = effortPicks.get(s.sessionId), restart = live && Boolean(mPick || ePick);
+  const mNow = MODEL_PICKS.find(([v]) => sameModel(v, s.model))?.[0];
+  patch($('d-model'), JSON.stringify([s.sessionId, s.model]), () => [
+    ...(mNow ? [] : [el('option', { value: '', text: modelName(s.model) ?? 'Model unknown' })]),
+    ...MODEL_PICKS.map(([v, t]) => el('option', { value: v, text: v === mNow ? modelName(s.model) : t }))]);
+  $('d-model').value = mPick ?? mNow ?? '';
+  patch($('d-effort'), JSON.stringify([s.sessionId, s.effort]), () => [
+    ...(EFFORT[s.effort] ? [] : [el('option', { value: '', text: 'Effort unknown' })]),
+    ...Object.entries(EFFORT).map(([v, t]) => el('option', { value: v, text: t }))]);
+  $('d-effort').value = ePick ?? (EFFORT[s.effort] ? s.effort : '');
+  const fixed = live && ownWorktree(s);
+  $('d-model').disabled = $('d-effort').disabled = fixed || sending.has(s.sessionId);
+  setAttr($('d-model'), 'title', fixed ? `It runs in its own worktree, so it isn't restarted from here. Use /model in claude attach ${s.id}.` : 'Its model. Another one takes effect when your message restarts it.');
+  setAttr($('d-effort'), 'title', fixed ? `It runs in its own worktree, so it isn't restarted from here. Use /effort in claude attach ${s.id}.` : 'How hard it thinks. Another level takes effect when your message restarts it.');
+  const key = `reply:${s.sessionId}`, on = armed?.key === key;
+  const btn = $('d-send');
+  btn.dataset.key = key;
+  btn.className = 'btn small ' + (on ? 'danger armed' : 'primary');
+  const cmd = isCommand(), typing = live && cmd && !restart;
+  setText(btn, on ? (queue ? 'Confirm: close it once done' : 'Confirm: close it and send') : sending.has(s.sessionId) ? (typing ? 'Running…' : 'Sending…')
+    : typing ? (queue ? 'Run when it is done' : 'Run') : queue ? 'Send when it is done' : restart ? 'Restart and send' : term && running ? 'Send, move to background' : 'Send');
+  const back = comesBack(picked && picked !== s.mode ? picked : null, mPick, ePick), carry = back ? ` It comes back ${back}.` : '';
+  setText($('d-send-hint'), to ? `Switching it to ${modeOf(to).toLowerCase()}…`
+    : typing ? (queue ? 'Once it is done, this is typed at its prompt, as you would in claude attach.' : 'This is typed at its prompt, as you would in claude attach.')
+    : restart ? (queue ? 'When it is done, it restarts in the background with this as its next prompt.' : 'It restarts in the background with this as its next prompt.') + tasksStop(s) + carry
+    : live ? (s.working ? 'It reads this at its next step, as if you typed it while it works.' : 'It carries on with your message.')
+    : queue ? 'When it is done, Claude closes in its terminal and carries on in the background with this. Or type it in its terminal.' + tasksStop(s) + carry
+    : (term && running ? 'Claude closes in its terminal and carries on in the background with this. claude attach opens it there.'
+      : running ? 'It restarts in the background with this as its next prompt.'
+      : 'It starts again in the background with this as its next prompt.') + (running ? tasksStop(s) : '') + carry);
+  syncSend();
+}
+$('d-mode').onchange = async () => {
+  const s = sessionOf(open), m = $('d-mode').value;
+  if (!s || !m) return;
+  if (!bgLive(s)) { if (m === s.mode) modePicks.delete(s.sessionId); else modePicks.set(s.sessionId, m); render(); return; }
+  if (m === s.mode) return;
+  switching.set(s.sessionId, m);
+  render();
+  const r = await api('/api/mode', { sessionId: s.sessionId, mode: m });
+  switching.delete(s.sessionId);
+  if (!r.ok) toast(`${label(s)}: ${r.error || 'its mode did not change.'}`, true);
+  else note(s.sessionId, `Switched to ${modeOf(m).toLowerCase()}.`);
+  render();
+};
+$('d-model').onchange = () => {
+  const s = sessionOf(open), v = $('d-model').value;
+  if (!s) return;
+  if (!v || sameModel(v, s.model)) modelPicks.delete(s.sessionId); else modelPicks.set(s.sessionId, v);
+  render();
+};
+$('d-effort').onchange = () => {
+  const s = sessionOf(open), v = $('d-effort').value;
+  if (!s) return;
+  if (!v || v === s.effort) effortPicks.delete(s.sessionId); else effortPicks.set(s.sessionId, v);
+  render();
+};
+$('d-reply').addEventListener('input', () => fit($('d-reply')));
+let wasCommand = false; // a /command changes what Send says
+$('d-reply').addEventListener('input', () => { if (isCommand() !== wasCommand) { wasCommand = isCommand(); render(); } });
+async function unqueue(s, m) {
+  const r = await api('/api/unqueue', { sessionId: s.sessionId, id: m.id });
+  if (!r.ok) toast(r.error || 'It could not be taken back.', true);
+}
+const sending = new Set();
+function syncSend() { const s = sessionOf(open); $('d-send').disabled = !$('d-reply').value.trim() || !s || sending.has(s.sessionId); }
+$('d-reply').addEventListener('input', syncSend);
+// Enter sends; Shift+Enter starts a new line (and Enter that confirms an IME composition is left alone).
+$('d-reply').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.isComposing) { e.preventDefault(); $('d-send').click(); } });
+$('d-send').onclick = () => {
+  const s = sessionOf(open);
+  if (!s || !$('d-reply').value.trim()) return;
+  // Closing a terminal session, now or once it is done, takes a second click; the rest send at once.
+  if (s.kind === 'interactive' && s.inRoster && !isOver(s)) confirmOr(`reply:${s.sessionId}`, () => doReply(s));
+  else doReply(s);
+};
+async function doReply(s) {
+  const text = $('d-reply').value.trim();
+  sending.add(s.sessionId);
+  render();
+  const mode = bgLive(s) ? null : modePicks.get(s.sessionId), model = modelPicks.get(s.sessionId), effort = effortPicks.get(s.sessionId);
+  const r = await api('/api/reply', { sessionId: s.sessionId, text, ...(mode ? { mode } : {}), ...(model ? { model } : {}), ...(effort ? { effort } : {}) });
+  sending.delete(s.sessionId);
+  if (!r.ok) { toast(r.error || 'Your reply was not sent.', true); render(); return; }
+  if (open === s.sessionId) { $('d-reply').value = ''; fit($('d-reply')); }
+  drafts.delete(s.sessionId);
+  for (const m of [modePicks, modelPicks, effortPicks]) m.delete(s.sessionId);
+  if (r.queued) return note(s.sessionId, 'Queued. It goes in once it is done.');
+  if (r.command) return;
+  if (r.sent) return note(s.sessionId, s.working ? 'Sent. It reads it at its next step.' : 'Sent. It carries on with your message.');
+  const on = r.restartedOn ? comesBack(null, r.restartedOn.model, r.restartedOn.effort) : '';
+  note(s.sessionId, on ? `Sent. It carries on in the background ${on}.` : r.same ? 'Sent. It carries on in the background with your reply.' : `Sent. It carries on in the background as ${r.id}.`);
+}
+
+function subNow(s, a) {
+  const st = subState(s, a);
+  return st === 'waiting' ? el('span', { class: 'wait', text: 'Asks you, under Needs you' })
+    : st === 'stopping' ? el('span', { class: 'stopping', text: 'Stopping at its next tool call' })
+    : st === 'stopped' ? 'Stopped from the panel'
+    : st === 'done' ? (a.result || 'Done')
+    : a.lastTool ? toolLine(a.lastTool) : 'Starting';
+}
+function subTree(s) {
+  subNows.clear();
+  const tree = el('ol', { class: 'tree' }, ...s.subagents.map((a) => {
+    const st = subState(s, a), live = st === 'running' || st === 'waiting';
+    const key = `sub:${s.sessionId}:${a.agentId}`;
+    const now = el('div', { class: 'b-now' });
+    subNows.set(a.agentId, now);
+    const task = a.task ? el('details', { open: tasksOpen.has(a.agentId), ontoggle: (e) => (e.target.open ? tasksOpen.add(a.agentId) : tasksOpen.delete(a.agentId)) },
+      el('summary', { text: 'Its task' }), el('p', { text: a.task })) : null;
+    return el('li', { class: 'branch', 'data-state': st },
+      el('div', { class: 'b-head' }, glyph(st), el('span', { class: 'b-title', text: a.title || a.agentType }), el('span', { class: 'b-type', text: a.agentType }),
+        live ? armBtn(key, 'Stop', 'Confirm stop', () => doInterrupt(s, a)) : el('span', { class: 'b-age', text: LABEL[st].toLowerCase() })),
+      now,
+      armed?.key === key ? el('p', { class: 'hint', text: HINT.sub }) : null,
+      task);
+  }));
+  return el('section', { class: 'sec' }, el('h4', { class: 'rule' }, 'Subagents', el('span', { class: 'n', text: String(s.subagents.length) })),
+    el('div', { class: 'tree-root' }, glyph(stateOf(s)), label(s), el('small', { text: 'reports back here' })), tree);
+}
+function scheduleAdvance(from) {
+  cancelAdvance();
+  if (open !== from || reqsOf(from).length) return;
+  const to = asking().find((id) => id !== from);
+  if (!to) return;
+  advance = { from, to, timer: setTimeout(() => {
+    const a = advance;
+    advance = null;
+    if (a && open === a.from && !reqsOf(a.from).length && reqsOf(a.to).length) open = a.to;
+    render();
+  }, 2500) };
+}
+function cancelAdvance() {
+  if (advance) clearTimeout(advance.timer);
+  advance = null;
+}
+
+// ---------- render ----------
+function render() {
+  if (!snap) return;
+  renderProfile();
+  $('armed').checked = snap.armed;
+  $('paused').hidden = snap.armed;
+  const err = $('roster-err');
+  err.hidden = !snap.rosterError;
+  err.textContent = snap.rosterError ? 'Could not read the session list (claude agents --json): ' + snap.rosterError : '';
+  const vis = visible(), g = groups(vis);
+  if (open === undefined) open = asking()[0] ?? null;
+  if (open && !vis.some((s) => s.sessionId === open)) open = null;
+  if (launchedId) { const s = vis.find((x) => x.id === launchedId); if (s) { launchedId = null; open = s.sessionId; } }
+  const live = new Set(snap.pending.map((p) => p.id));
+  for (const [id, c] of cards) if (!live.has(id)) { c.el.remove(); cards.delete(id); }
+  renderBoard(g, vis);
+  renderDrawer(vis);
+  if (spaceOn) renderSpace(g);
+  document.title = snap.pending.length ? `(${snap.pending.length}) Agent panel` : 'Agent panel';
+  // A two-click control keeps the keyboard focus through a redraw.
+  if (armed && (!document.activeElement || document.activeElement === document.body)) document.querySelector(`[data-key="${CSS.escape(armed.key)}"]`)?.focus({ preventScroll: true });
+}
+
+// ---------- launcher ----------
+const dlg = $('launcher');
+const lErr = $('l-err');
+$('new-agent').onclick = openLauncher;
+function openLauncher() {
+  const cwds = new Map();
+  for (const s of snap?.sessions ?? []) {
+    // A worktree Claude Code made for a session suggests its repository, not itself.
+    const c = s.git?.worktree && s.git.top.includes('/.claude/worktrees/') ? s.git.repo : s.cwd;
+    if (c) cwds.set(c, (cwds.get(c) || 0) + 1);
+  }
+  const ranked = [...cwds].sort((a, b) => b[1] - a[1]).map(([c]) => c);
+  recentFolders = ranked;
+  $('l-folders').replaceChildren(...ranked.map((c) => el('option', { value: c })));
+  const types = new Set(['general-purpose']);
+  for (const s of snap?.sessions ?? []) for (const a of s.subagents) types.add(a.agentType);
+  $('l-agents').replaceChildren(...[...types].map((t) => el('option', { value: t })));
+  if (!$('l-cwd').value) $('l-cwd').value = ranked[0] || '~';
+  lErr.hidden = true;
+  checkFolder();
+  dlg.showModal();
+  $('l-prompt').focus();
+};
+$('l-cancel').onclick = () => dlg.close();
+// Any folder: the Mac's folder dialog, or suggestions of the folders under the path you type.
+$('l-pick').onclick = async () => {
+  const b = $('l-pick');
+  b.disabled = true; b.textContent = 'Opening…';
+  const r = await api('/api/pick-folder', { path: $('l-cwd').value });
+  b.disabled = false; b.textContent = 'Choose…';
+  if (r.ok) { $('l-cwd').value = r.path; $('l-cwd').focus(); checkFolder(); }
+  else if (!r.cancelled) toast(r.error || 'The folder dialog did not open.', true);
+};
+let recentFolders = [], folderTimer = null;
+$('l-cwd').addEventListener('input', () => { clearTimeout(folderTimer); folderTimer = setTimeout(() => { suggestFolders(); checkFolder(); }, 120); });
+async function suggestFolders() {
+  const v = $('l-cwd').value.trim();
+  if (!/^[~/]/.test(v)) return;
+  const r = await api('/api/folders', { path: v });
+  if (r.ok && $('l-cwd').value.trim() === v) $('l-folders').replaceChildren(...[...new Set([...r.folders, ...recentFolders])].map((c) => el('option', { value: c })));
+}
+// Its own worktree: Claude Code makes it, on a new branch worktree-<name>. The name follows the agent's name unless typed.
+let folderGit; // the folder's git: undefined while there is no such folder, null when it is not in a git repository
+const slug = (t) => t.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/\.{2,}/g, '.').replace(/^[^a-z0-9]+|[-.]+$/g, '').slice(0, 60).replace(/\.lock$/, '');
+const wtName = () => $('l-wt-name').value.trim() || slug($('l-name').value);
+async function checkFolder() {
+  const v = $('l-cwd').value.trim();
+  const r = await api('/api/folder', { path: v });
+  if ($('l-cwd').value.trim() !== v) return;
+  folderGit = r.ok && r.folder ? r.git : undefined;
+  showWorktree();
+}
+function showWorktree() {
+  const box = $('l-wt'), g = folderGit, on = box.checked && Boolean(g), name = wtName(), c = (t) => el('code', { text: t });
+  box.disabled = !g;
+  $('l-wt-name').hidden = !on;
+  $('l-wt-name').placeholder = slug($('l-name').value) || 'Name it, or Claude picks one';
+  const note = g === undefined ? [] : g === null ? ['Not in a git repository, so it works in the folder itself.']
+    : on ? ['New branch ', c(name ? 'worktree-' + name : 'worktree-…'), ' from ', c(g.base), ', in ', c(`${g.repo}/.claude/worktrees/${name || '…'}`), '.']
+    : ['Starts on ', c(g.branch ?? 'a detached commit'), ...(g.worktree ? [' in worktree ', c(g.worktree)] : []),
+       g.isolates && !g.worktree ? '. Claude Code may move it into a worktree of its own before it edits.' : '.'];
+  $('l-wt-note').replaceChildren(...note);
+  $('l-wt-note').hidden = !note.length;
+}
+$('l-wt').addEventListener('change', showWorktree);
+$('l-wt-name').addEventListener('input', showWorktree);
+$('l-name').addEventListener('input', showWorktree);
+$('launch-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const go = $('l-go');
+  go.disabled = true;
+  go.textContent = 'Launching…';
+  lErr.hidden = true;
+  const worktree = $('l-wt').checked && !$('l-wt').disabled, worktreeName = worktree ? wtName() : '';
+  const name = $('l-name').value.trim() || worktreeName;
+  const r = await api('/api/launch', {
+    prompt: $('l-prompt').value, cwd: $('l-cwd').value, name,
+    agent: $('l-agent').value.trim(), model: $('l-model').value, effort: $('l-effort').value, mode: $('l-mode').value, worktree, worktreeName,
+  });
+  go.disabled = false;
+  go.textContent = 'Launch agent';
+  if (!r.ok) { lErr.textContent = r.error || 'It did not start.'; lErr.hidden = false; return; }
+  dlg.close();
+  $('l-prompt').value = '';
+  $('l-name').value = '';
+  $('l-wt-name').value = '';
+  if (launchRocket(r.id)) toast(`Launched ${name || r.id}. It's on its way to its orbit.`);
+  else { launchedId = r.id; toast(`Launched ${name || r.id}. It opens here in a moment.`); }
+});
+
+// ---------- a permission request card ----------
+const DEST = { session: 'for this session', localSettings: 'in local settings', projectSettings: 'in project settings', userSettings: 'in your user settings' };
+function ruleLines(u) {
+  if (u.type === 'addRules') return u.rules.map((r) => (r.ruleContent ? `${r.toolName}(${r.ruleContent})` : r.toolName));
+  if (u.type === 'addDirectories') return u.directories.map((d) => 'Access to ' + d);
+  if (u.type === 'setMode') return [`Switch to ${u.mode} mode`];
+  return [u.type];
+}
+function rememberDetails(suggestions) {
+  const lines = suggestions.flatMap(ruleLines);
+  const text = `Remember saves ${lines.length} ${lines.length === 1 ? 'rule' : 'rules'} ${DEST[suggestions[0].destination] || ''}`.trim();
+  return el('details', { class: 'remember' }, el('summary', { text }), el('ul', {}, ...lines.map((l) => el('li', { text: l }))));
+}
+// Grow a textarea to its content (up to a cap) so long commands read whole.
+function fit(ta) {
+  if (!ta.isConnected || ta.offsetParent === null) return;
+  ta.style.height = 'auto';
+  ta.style.height = Math.min(ta.scrollHeight + 2, 280) + 'px';
+}
+// What every card shares: the head, who asked, the send-and-show-error plumbing, the busy state.
+function cardShell(p, name) {
+  const s = sessionOf(p.sessionId), a = p.agentId ? s?.subagents.find((x) => x.agentId === p.agentId) : null;
+  const card = el('article', { class: 'req', 'aria-label': `${name} request from ${a ? a.title || a.agentType : label(s)}` });
+  const err = el('p', { class: 'err', hidden: true });
+  async function send(payload) {
+    err.hidden = true;
+    card.classList.add('busy');
+    const r = p.open ? await api('/api/answer-open', { sessionId: p.sessionId, toolUseId: p.toolUseId, ...payload })
+      : await api('/api/decide', { id: p.id, ...payload });
+    card.classList.remove('busy');
+    if (!r.ok) { err.textContent = r.error || 'That did not go through.'; err.hidden = false; }
+  }
+  const head = [el('div', { class: 'req-head' }, el('span', { class: 'req-tool', text: name }), el('span', { class: 'req-age' })),
+    p.agentId ? el('p', { class: 'req-from' }, 'From its subagent ', el('b', { text: a?.title || p.agentType || 'subagent' }), p.agentType ? ` (${p.agentType})` : '') : null];
+  return { card, err, send, head };
+}
+function buildCard(p) {
+  if (p.toolName === 'AskUserQuestion') return buildQuestionCard(p);
+  if (p.open) return buildOpenCard(p);
+  if (p.toolName === 'ExitPlanMode') return buildPlanCard(p);
+  const i = p.toolInput || {};
+  const body = [];
+  let primary = null; // the one field edited inline
+
+  if (p.toolName === 'Bash') {
+    if (i.description) body.push(el('p', { class: 'req-desc', text: i.description }));
+    const ta = el('textarea', { class: 'cmd', spellcheck: 'false', 'aria-label': 'Command', rows: '2' });
+    ta.value = i.command ?? '';
+    ta.addEventListener('input', () => fit(ta));
+    primary = { textarea: ta, key: 'command', original: ta.value };
+    body.push(ta);
+  } else if (p.toolName === 'Edit' || p.toolName === 'MultiEdit') {
+    body.push(el('p', { class: 'req-path', text: i.file_path }));
+    for (const e of i.edits ?? [{ old_string: i.old_string, new_string: i.new_string }]) {
+      body.push(el('pre', { class: 'block del', text: e.old_string ?? '' }), el('pre', { class: 'block add', text: e.new_string ?? '' }));
+    }
+  } else if (p.toolName === 'Write') {
+    body.push(el('p', { class: 'req-path', text: i.file_path }), el('pre', { class: 'block add', text: i.content ?? '' }));
+  } else if (p.toolName === 'WebFetch') {
+    body.push(el('p', { class: 'req-path', text: i.url }));
+    if (i.prompt) body.push(el('p', { class: 'req-desc', text: i.prompt }));
+  } else {
+    body.push(el('pre', { class: 'block', text: JSON.stringify(i, null, 2) }));
+  }
+
+  const raw = el('textarea', { class: 'cmd', spellcheck: 'false', 'aria-label': 'Full input as JSON' });
+  raw.value = JSON.stringify(i, null, 2);
+  const rawOriginal = raw.value;
+  raw.addEventListener('input', () => fit(raw));
+  body.push(el('details', { class: 'raw', ontoggle: () => fit(raw) }, el('summary', { text: 'Edit full input' }), raw));
+
+  const { card, err, send, head } = cardShell(p, p.toolName);
+  const allowBtn = el('button', { class: 'btn go', type: 'button', text: 'Allow' });
+  const markEdited = () => {
+    const cmdEdited = primary && primary.textarea.value !== primary.original;
+    primary?.textarea.classList.toggle('edited', cmdEdited);
+    raw.classList.toggle('edited', raw.value !== rawOriginal);
+    allowBtn.textContent = cmdEdited || raw.value !== rawOriginal ? (p.toolName === 'Bash' ? 'Allow edited command' : 'Allow edited input') : 'Allow';
+  };
+  primary?.textarea.addEventListener('input', markEdited);
+  raw.addEventListener('input', markEdited);
+  function updatedInput() {
+    const cmdEdited = primary && primary.textarea.value !== primary.original;
+    if (raw.value !== rawOriginal) {
+      const v = JSON.parse(raw.value); // throws on bad JSON, caught by the caller
+      if (cmdEdited) v[primary.key] = primary.textarea.value;
+      return v;
+    }
+    return cmdEdited ? { ...i, [primary.key]: primary.textarea.value } : undefined;
+  }
+  const reason = el('input', { class: 'field', type: 'text', placeholder: 'Reason for Claude (optional)', 'aria-label': 'Reason for denying' });
+  function allow(always) {
+    let u;
+    try { u = updatedInput(); } catch { err.textContent = 'The full input is not valid JSON. Fix it or reset it before allowing.'; err.hidden = false; return; }
+    send({ behavior: 'allow', updatedInput: u, always, ...(modePick?.value ? { mode: modePick.value } : {}) });
+  }
+  // A main-agent request can switch its mode as it carries on.
+  const modePick = p.agentId ? null : el('select', { class: 'field mode-pick', 'aria-label': 'Its mode after this' },
+    el('option', { value: '', text: p.permissionMode ? `Stays in ${modeOf(p.permissionMode).toLowerCase()}` : 'Mode stays as it is' }),
+    ...['default', 'acceptEdits', 'plan', 'auto'].filter((m) => m !== p.permissionMode).map((m) => el('option', { value: m, text: 'Then: ' + modeOf(m).toLowerCase() })));
+  allowBtn.onclick = () => allow(false);
+  primary?.textarea.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); allow(false); } });
+  const remember = p.suggestions?.length ? el('button', { class: 'btn', type: 'button', text: 'Allow and remember', onclick: () => allow(true) }) : null;
+  card.append(...[...head, ...body,
+    el('div', { class: 'row' }, allowBtn, remember, modePick),
+    p.suggestions?.length ? rememberDetails(p.suggestions) : null,
+    el('div', { class: 'row' }, reason, el('button', { class: 'btn', type: 'button', text: 'Deny', onclick: () => send({ behavior: 'deny', message: reason.value.trim() || undefined }) })),
+    err].filter(Boolean));
+  card._fit = () => primary && fit(primary.textarea);
+  return card;
+}
+// A question (AskUserQuestion): pick an option per question, or type your own.
+function buildQuestionCard(p) {
+  const { card, err, send, head } = cardShell(p, 'Question');
+  const qs = p.toolInput?.questions ?? [];
+  const reads = []; // one per question: () => its answer, '' while unanswered
+  const sendBtn = el('button', { class: 'btn go', type: 'button', text: qs.length > 1 ? 'Send answers' : 'Send answer', disabled: true });
+  const sync = () => { if (!sync.off) sendBtn.disabled = reads.some((r) => !r()); };
+  const sets = qs.map((q, qi) => {
+    const type = q.multiSelect ? 'checkbox' : 'radio';
+    const name = `q-${p.id}-${qi}`;
+    const inputs = [];
+    const opts = (q.options ?? []).map((o) => {
+      const input = el('input', { type, name, onchange: sync });
+      inputs.push({ input, value: () => o.label });
+      return el('label', { class: 'opt' }, input, el('b', { text: o.label }),
+        o.description ? el('small', { text: o.description }) : null, o.preview ? el('pre', { class: 'block', text: o.preview }) : null);
+    });
+    const otherPick = el('input', { type, name, onchange: sync, 'aria-label': 'Something else' });
+    const otherText = el('input', { class: 'field other', type: 'text', placeholder: 'Type your own answer', 'aria-label': `Your own answer to: ${q.question}` });
+    otherText.addEventListener('input', () => { otherPick.checked = Boolean(otherText.value.trim()) || otherPick.checked; sync(); });
+    inputs.push({ input: otherPick, value: () => otherText.value.trim() });
+    reads.push(() => inputs.filter((x) => x.input.checked).map((x) => x.value()).filter(Boolean).join(', '));
+    return el('fieldset', { class: 'q' },
+      el('legend', {}, q.header ? el('span', { class: 'q-tag', text: q.header }) : null, q.question,
+        q.multiSelect ? el('span', { class: 'q-hint', text: ' Pick any that apply.' }) : null),
+      ...opts, el('label', { class: 'opt' }, otherPick, el('b', { text: 'Something else' }), otherText));
+  });
+  const submit = () => { if (!sendBtn.disabled) send({ behavior: 'answer', answers: Object.fromEntries(qs.map((q, qi) => [q.question, reads[qi]()])) }); };
+  sendBtn.onclick = submit;
+  card.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); } });
+  const reason = el('input', { class: 'field', type: 'text', placeholder: 'Why not (optional)', 'aria-label': 'Reason for not answering' });
+  // One the panel no longer holds is answered on its own screen, as if you picked there; several picks can't be.
+  const many = p.open && qs.some((q) => q.multiSelect);
+  if (many) { sync.off = true; sendBtn.disabled = true; }
+  card.append(...[...head,
+    p.open ? el('p', { class: 'req-desc', text: many ? `It asks for several picks at once, which the panel can't press for it. Open it with claude attach ${sessionOf(p.sessionId)?.id ?? ''}.`
+      : 'The panel stopped holding this question, so your answers go in on its own screen, as if you picked them there.' }) : null,
+    ...sets, el('div', { class: 'row' }, sendBtn),
+    p.open ? null : el('div', { class: 'row' }, reason, el('button', { class: 'btn', type: 'button', text: 'Don\'t answer',
+      onclick: () => send({ behavior: 'deny', message: reason.value.trim() || 'The user chose not to answer this question.' }) })),
+    err].filter(Boolean));
+  card._fit = () => {};
+  return card;
+}
+// A plan (ExitPlanMode): read it, approve it into a mode, or send it back.
+function buildPlanCard(p) {
+  const { card, err, send, head } = cardShell(p, 'Plan');
+  const i = p.toolInput || {};
+  const feedback = el('textarea', { class: 'field', placeholder: 'Tell Claude what to change', 'aria-label': 'What to change in the plan' });
+  const back = el('button', { class: 'btn', type: 'button', text: 'Send back', disabled: true, onclick: () => send({ behavior: 'deny', message: feedback.value.trim() }) });
+  feedback.addEventListener('input', () => { back.disabled = !feedback.value.trim(); });
+  feedback.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !back.disabled) { e.preventDefault(); back.click(); } });
+  const approve = (mode) => send({ behavior: 'approve-plan', mode });
+  card.append(...[...head,
+    el('p', { class: 'req-desc', text: 'It is ready to start. Approve the plan, or send it back with what to change.' }),
+    el('div', { class: 'plan', tabindex: '0', role: 'region', 'aria-label': 'The plan' }, md(i.plan || 'The plan is empty.')),
+    i.planFilePath ? el('p', { class: 'plan-file', text: 'Saved at ' + i.planFilePath }) : null,
+    el('div', { class: 'row' },
+      el('button', { class: 'btn go', type: 'button', text: 'Approve, use auto mode', onclick: () => approve('auto') }),
+      el('button', { class: 'btn', type: 'button', text: 'Approve, ask before edits', onclick: () => approve('default') })),
+    el('div', { class: 'row' }, feedback, back),
+    err].filter(Boolean));
+  card._fit = () => {};
+  return card;
+}
+// A plan or permission prompt the panel no longer holds: it is open on its own screen, and is answered there.
+function buildOpenCard(p) {
+  const { card, head } = cardShell(p, p.toolName === 'ExitPlanMode' ? 'Plan' : p.toolName);
+  const i = p.toolInput || {}, id = sessionOf(p.sessionId)?.id ?? '';
+  const what = p.toolName === 'ExitPlanMode' ? 'plan' : 'permission prompt';
+  card.append(...[...head,
+    el('p', { class: 'req-desc', text: `The panel stopped holding this ${what}, and it doesn't answer one on its screen for you. Open it with claude attach ${id}, or in agent view (claude agents).` }),
+    p.toolName === 'ExitPlanMode' ? el('div', { class: 'plan', tabindex: '0', role: 'region', 'aria-label': 'The plan' }, md(i.plan || 'The plan is empty.'))
+      : el('pre', { class: 'block', text: i.command ?? i.file_path ?? i.url ?? JSON.stringify(i, null, 2) }),
+  ].filter(Boolean));
+  card._fit = () => {};
+  return card;
+}
+// Plans arrive as markdown. Headings, lists, code and tables, built as DOM text: never innerHTML.
+function md(src) {
+  const frag = document.createDocumentFragment();
+  let list = null, para = null, code = null, table = null;
+  const close = () => { list = para = table = null; };
+  for (const raw of String(src).replace(/\r/g, '').split('\n')) {
+    const line = raw.replace(/^>\s?/, '');
+    if (code) { if (/^\s*```/.test(line)) code = null; else code.textContent += line + '\n'; continue; }
+    if (/^\s*```/.test(line)) { close(); code = el('pre'); frag.append(code); continue; }
+    if (/^\s*\|/.test(line)) {
+      if (!table) { close(); table = el('pre'); frag.append(table); }
+      if (!/^\s*\|[\s|:-]+\|\s*$/.test(line)) table.textContent += line.trim() + '\n';
+      continue;
+    }
+    const h = line.match(/^(#{1,6})\s+(.*)$/);
+    if (h) { close(); frag.append(inline(el(h[1].length <= 2 ? 'h4' : 'h5'), h[2])); continue; }
+    const li = line.match(/^\s*(?:[-*+]|(\d+)[.)])\s+(.*)$/);
+    if (li) {
+      const tag = li[1] ? 'OL' : 'UL';
+      if (list?.tagName !== tag) { close(); list = el(tag.toLowerCase(), { start: li[1] && li[1] !== '1' ? li[1] : null }); frag.append(list); }
+      list.append(inline(el('li'), li[2]));
+      continue;
+    }
+    if (!line.trim() || /^\s*([-*_])\1{2,}\s*$/.test(line)) { close(); continue; }
+    if (list && /^\s{2,}/.test(raw)) { inline(list.lastChild, ' ' + line.trim()); continue; }
+    if (!para) { close(); para = el('p'); frag.append(para); } else para.append(' ');
+    inline(para, line.trim());
+  }
+  return frag;
+}
+function inline(node, text) {
+  for (const part of text.split(/(`[^`]+`|\*\*[^*]+\*\*)/)) {
+    if (!part) continue;
+    if (/^`[^`]+`$/.test(part)) node.append(el('code', { text: part.slice(1, -1) }));
+    else if (/^\*\*[^*]+\*\*$/.test(part)) node.append(el('strong', { text: part.slice(2, -2) }));
+    else node.append(part);
+  }
+  return node;
+}
+
+// ---------- space view: the same sessions as an orrery ----------
+// You sit at the centre. From the centre out the orbits are Needs you, Working, Idle and Finished.
+const RINGS = ['waiting', 'busy', 'idle', 'finished'];
+const RING_AT = { waiting: 0.32, busy: 0.56, idle: 0.79, finished: 1 };
+const START = { waiting: Math.PI / 4, busy: -0.35, idle: 0.6, finished: 1.9 };
+const TAU = 2 * Math.PI;
+// Motion means work: a session that needs you holds still until you answer, working ones drift, idle ones creep, finished ones stop.
+const SPIN = { waiting: 0, busy: TAU / 150, idle: TAU / 600, finished: 0 };
+const MOON_SPIN = TAU / 9;
+const calm = matchMedia('(prefers-reduced-motion: reduce)');
+const bodies = new Map();   // sessionId → its planet
+const rockets = new Map();  // a session just launched from Earth: its short id → the rocket's flight
+let spaceOn = false, raf = 0, last = 0, G = null, hoverId = null, focusId = null, side = 0, keepSpace = false;
+let size = { w: 0, h: 0, top: 52 };
+// Orbits are superellipses: 2 is an ellipse; higher squares them off toward a rounded rectangle.
+const SQUARE = 2;
+const spow = (v) => Math.sign(v) * Math.abs(v) ** (2 / SQUARE);
+const orbitAt = (cx, cy, rx, ry, a) => [cx + rx * spow(Math.cos(a)), cy + ry * spow(Math.sin(a))];
+function orbitPath(cx, cy, rx, ry) {
+  let d = '';
+  for (let i = 0; i <= 96; i++) { const [x, y] = orbitAt(cx, cy, rx, ry, (TAU * i) / 96); d += (i ? 'L' : 'M') + x.toFixed(1) + ',' + y.toFixed(1); }
+  return d + 'Z';
+}
+const svg = (tag, attrs = {}) => { const n = document.createElementNS('http://www.w3.org/2000/svg', tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); return n; };
+const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+const ringEls = RINGS.map((k) => {
+  const e = svg('path', { class: k === 'waiting' ? 'hot' : '' }), t = svg('text', { class: k === 'waiting' ? 'hot' : '', 'text-anchor': 'middle' });
+  $('rings').append(e, t);
+  return { e, t, count: 0, shown: '' };
+});
+function targetGeom() {
+  const w = size.w - side, h = size.h - size.top - 56;
+  const rx = Math.max(110, w * 0.45 - 40);
+  const ry = Math.max(80, Math.min(h * 0.47, rx * (w > h * 1.4 ? 0.62 : w > h ? 0.8 : 1)));
+  return { cx: w / 2, cy: size.top + h / 2, rx, ry };
+}
+function layoutSpace() {
+  const sp = $('space');
+  size = { w: sp.clientWidth, h: sp.clientHeight, top: $('sp-top').offsetHeight };
+  sp.style.setProperty('--sp-top', size.top + 'px');
+  const c = $('stars'), dpr = Math.min(2, devicePixelRatio || 1);
+  c.width = size.w * dpr;
+  c.height = size.h * dpr;
+  const x = c.getContext('2d');
+  x.scale(dpr, dpr);
+  let seed = 7;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let i = 0, n = Math.round((size.w * size.h) / 4200); i < n; i++) {
+    const r = rnd() ** 3 * 1.3 + 0.25, a = (0.15 + rnd() * 0.6).toFixed(2), hue = rnd();
+    x.fillStyle = hue < 0.15 ? `rgba(255, 214, 170, ${a})` : hue < 0.35 ? `rgba(180, 205, 255, ${a})` : `rgba(235, 240, 250, ${a})`;
+    x.beginPath();
+    x.arc(rnd() * size.w, rnd() * size.h, r, 0, TAU);
+    x.fill();
+  }
+}
+function makeBody(id, kind) {
+  const b = { id, f: 0, theta: 0, dtheta: 0, ring: null, base: 9, moons: new Map(), leaving: false, x: 0, y: 0 };
+  const bg = kind === 'background';
+  b.name = el('span', { class: 'p-name' });
+  b.ask = el('span', { class: 'p-ask' });
+  b.el = el('button', { class: 'planet' + (bg ? ' bg' : ''), type: 'button', onclick: () => { cancelAdvance(); open = open === id ? null : id; render(); },
+      onpointerenter: () => { hoverId = id; showTip(); }, onpointerleave: () => { if (hoverId === id) hoverId = null; showTip(); },
+      onfocus: () => { focusId = id; showTip(); }, onblur: () => { if (focusId === id) focusId = null; showTip(); } },
+    el('span', { class: 'sat' }, el('span', { class: 'sat-in' }, el('span', { class: 'sat-wing l' }), el('span', { class: 'sat-core' }), el('span', { class: 'sat-wing r' }),
+      bg ? el('span', { class: 'sat-dish' }) : null)),
+    el('span', { class: 'p-label' }, b.name, b.ask));
+  return b;
+}
+function dropBody(b) {
+  b.el.remove();
+  for (const m of b.moons.values()) { m.el.remove(); m.orbit.remove(); }
+  if (bodies.get(b.id) === b) bodies.delete(b.id);
+}
+// A planet changing orbit slots into the widest gap on its new one.
+function gapOn(ring, self) {
+  const as = [...bodies.values()].filter((o) => o !== self && !o.leaving && o.ring === ring).map((o) => wrapAngle(o.theta + o.dtheta))
+    .concat(ring === 'busy' ? [...rockets.values()].filter((r) => !r.body && !r.done).map((r) => wrapAngle(r.theta)) : []) // a rocket's slot is taken
+    .sort((a, b) => a - b);
+  if (!as.length) return START[ring];
+  let best = -1, at = 0;
+  as.forEach((a, i) => { const nx = i + 1 < as.length ? as[i + 1] : as[0] + TAU; if (nx - a > best) { best = nx - a; at = a + best / 2; } });
+  return at;
+}
+function paintBody(b, s) {
+  const st = stateOf(s), ask = st === 'waiting' || st === 'stopping';
+  b.el.dataset.state = st;
+  b.el.setAttribute('aria-current', String(open === s.sessionId));
+  b.el.setAttribute('aria-label', `${label(s)}, ${LABEL[st].toLowerCase()}: ${textOf(lineOf(s))}`);
+  b.base = 9 + 2.5 * Math.min(s.subagents.length, 3);
+  b.el.style.setProperty('--r', b.base + 'px');
+  b.name.textContent = label(s);
+  b.ask.hidden = !ask;
+  const askText = ask ? textOf(lineOf(s)) : '';
+  if (b.askShown !== askText) { b.askShown = askText; b.ask.replaceChildren(...(ask ? lineOf(s) : [])); }
+  const keep = new Set();
+  s.subagents.forEach((a, i) => {
+    keep.add(a.agentId);
+    let m = b.moons.get(a.agentId);
+    if (!m) {
+      m = { el: el('span', { class: 'moon' }, el('span', { class: 'mi' }, el('i', { class: 'mw l' }), el('i', { class: 'mc' }), el('i', { class: 'mw r' }))),
+            orbit: svg('path', { class: 'moon-orbit' }), phi: 0.9 + i * 2.4 };
+      b.moons.set(a.agentId, m);
+      $('planets').append(m.el);
+      $('moon-orbits').append(m.orbit);
+    }
+    m.i = i;
+    m.el.dataset.state = subState(s, a);
+  });
+  for (const [aid, m] of b.moons) if (!keep.has(aid)) { m.el.remove(); m.orbit.remove(); b.moons.delete(aid); }
+}
+function renderSpace(g) {
+  const seen = new Set(), fresh = !bodies.size;
+  side = !$('drawer').hidden && size.w > 980 ? $('drawer').offsetWidth : 0;
+  for (const k of RINGS) g[k].forEach((s, i) => {
+    seen.add(s.sessionId);
+    let b = bodies.get(s.sessionId);
+    if (!b) {
+      b = makeBody(s.sessionId, s.kind);
+      b.ring = k;
+      b.theta = fresh ? START[k] + (TAU * i) / g[k].length : gapOn(k, b);
+      b.f = fresh ? RING_AT[k] : 1.35;   // a new session drifts in from beyond the outer orbit
+      bodies.set(s.sessionId, b);
+      $('planets').append(b.el);
+      const rk = [...rockets.values()].find((r) => !r.body && !r.done && s.sessionId.startsWith(r.id));
+      if (rk) { if (k === 'busy') b.theta = rk.theta; carry(rk, b); } // launched from Earth: it waits, unseen, for its rocket
+    } else if (b.ring !== k) {
+      b.ring = k;
+      b.dtheta = wrapAngle(gapOn(k, b) - b.theta);
+    }
+    paintBody(b, s);
+  });
+  for (const b of bodies.values()) if (!seen.has(b.id) && !b.leaving) {
+    b.leaving = true;
+    b.el.classList.add('leaving');
+    for (const m of b.moons.values()) m.el.classList.add('leaving');
+    setTimeout(() => dropBody(b), 650);
+  }
+  const n = g.waiting.length;
+  $('sun-n').textContent = n ? `${n} need${n === 1 ? 's' : ''} you` : 'Nothing needs you';
+  $('sun-n').className = n ? 'hot' : '';
+  RINGS.forEach((k, i) => { ringEls[i].count = g[k].length; });
+  countsInto($('sp-counts'), g);
+  showTip();
+}
+function showTip() {
+  const id = hoverId ?? focusId, s = id ? sessionOf(id) : null, tip = $('sp-tip');
+  tip.hidden = !s;
+  if (!s) return;
+  const st = stateOf(s), n = s.subagents.length;
+  const where = whereOf(s.git);
+  const sig = JSON.stringify([id, st, textOf(lineOf(s)), n, where?.long]);
+  if (tip._sig === sig) return;
+  tip._sig = sig;
+  tip.replaceChildren(...[
+    el('span', { class: 't-name', text: label(s) }),
+    el('span', { class: 'tag', 'data-s': st }, glyph(st), LABEL[st]),
+    textOf(lineOf(s)) !== LABEL[st] ? el('span', { class: 't-line' }, ...lineOf(s)) : null,
+    el('span', { class: 't-meta', text: `${s.kind === 'background' ? 'Background' : s.kind === 'interactive' ? 'Terminal' : 'Headless'}${s.startedAt ? ', up ' + ago(snap.now - s.startedAt) : ''}${n ? `, ${n} subagent${n > 1 ? 's' : ''}` : ''}${s.mode ? ', ' + modeOf(s.mode).toLowerCase() : ''}` }),
+    where ? el('span', { class: 't-meta', text: where.long }) : null].filter(Boolean));
+}
+function frame(t) {
+  raf = requestAnimationFrame(frame);
+  const dt = last ? Math.min(0.05, (t - last) / 1000) : 0;
+  last = t;
+  const still = calm.matches, T = targetGeom();
+  const ease = (rate) => (still ? 1 : Math.min(1, dt * rate));
+  if (!G) G = { ...T };
+  for (const k in T) G[k] += (T[k] - G[k]) * ease(4);
+  const K = Math.max(0.7, Math.min(1, G.rx / 520)), sp = $('space');
+  sp.style.setProperty('--k', K.toFixed(3));
+  sp.classList.toggle('compact', G.ry * (RING_AT.busy - RING_AT.waiting) < 50 || size.w - side < 640);
+  sp.classList.toggle('tight', G.rx * RING_AT.waiting < 150);
+  // Hovering or focusing a planet holds the orbits still, so it stays where you are about to click.
+  const turn = hoverId || focusId || still ? 0 : 1;
+  RINGS.forEach((k, i) => {
+    const r = ringEls[i], rx = G.rx * RING_AT[k], ry = G.ry * RING_AT[k], text = `${LABEL[k]}  ${r.count}`;
+    r.e.setAttribute('d', orbitPath(G.cx, G.cy, rx, ry));
+    r.t.setAttribute('x', G.cx); r.t.setAttribute('y', G.cy - ry - 7);
+    if (r.shown !== text) r.t.textContent = r.shown = text;
+  });
+  $('sun').style.transform = `translate(${G.cx}px, ${G.cy}px)`;
+  const pulls = [];
+  for (const b of bodies.values()) {
+    b.theta += SPIN[b.ring] * dt * turn;
+    if (b.dtheta) { const step = b.dtheta * ease(2.5); b.theta += step; b.dtheta = Math.abs(b.dtheta - step) < 1e-3 ? 0 : b.dtheta - step; }
+    b.f += (RING_AT[b.ring] - b.f) * ease(2.2);
+    const sin = Math.sin(b.theta), depth = 1 + 0.12 * sin, z = 50 + Math.round(sin * 30);
+    [b.x, b.y] = orbitAt(G.cx, G.cy, G.rx * b.f, G.ry * b.f, b.theta);
+    // It flies along its orbit: wings along the tangent, turned so its top (the dish) stays up.
+    let rot = Math.atan2(G.ry * Math.cos(b.theta), -G.rx * Math.sin(b.theta));
+    if (rot > Math.PI / 2) rot -= Math.PI; else if (rot < -Math.PI / 2) rot += Math.PI;
+    b.ext = b.base * K * depth * Math.max(0.8, 2.15 * Math.abs(Math.sin(rot)) + 0.42 * Math.abs(Math.cos(rot)));
+    b.el.style.transform = `translate(${b.x.toFixed(1)}px, ${b.y.toFixed(1)}px)`;
+    b.el.style.zIndex = b.id === (hoverId ?? focusId) ? 95 : z;
+    b.el.style.setProperty('--d', depth.toFixed(3));
+    b.el.style.setProperty('--rot', rot.toFixed(3) + 'rad');
+    b.el.style.setProperty('--ext', b.ext.toFixed(1) + 'px');
+    let moonAsks = false;
+    for (const m of b.moons.values()) {
+      const ms = m.el.dataset.state;
+      if (ms === 'running' && !still) m.phi += MOON_SPIN * dt;
+      const rr = b.base * K * depth * 2.3 + 6 + m.i * 6, [mx, my] = orbitAt(b.x, b.y, rr, rr * 0.45, m.phi); // clear of its wings
+      m.orbit.setAttribute('d', orbitPath(b.x, b.y, rr, rr * 0.45));
+      let mrot = Math.atan2(rr * 0.45 * Math.cos(m.phi), -rr * Math.sin(m.phi));
+      if (mrot > Math.PI / 2) mrot -= Math.PI; else if (mrot < -Math.PI / 2) mrot += Math.PI;
+      m.el.style.transform = `translate(${mx.toFixed(1)}px, ${my.toFixed(1)}px) rotate(${mrot.toFixed(3)}rad)`;
+      m.el.style.zIndex = z + (Math.sin(m.phi) > 0 ? 1 : -1);
+      if (ms === 'waiting') { moonAsks = true; pulls.push([mx, my]); }
+    }
+    if (!moonAsks && !b.leaving && !b.incoming && b.el.dataset.state === 'waiting') pulls.push([b.x, b.y]);
+  }
+  flyRockets(dt, turn);
+  // A dashed line runs from whatever is asking to you.
+  const pool = $('tethers');
+  while (pool.childElementCount < pulls.length) pool.append(svg('line', { class: 'tether' }));
+  [...pool.children].forEach((l, i) => {
+    const p = pulls[i];
+    l.style.display = p ? '' : 'none';
+    if (p) { l.setAttribute('x1', p[0]); l.setAttribute('y1', p[1]); l.setAttribute('x2', G.cx); l.setAttribute('y2', G.cy); }
+  });
+  const tip = $('sp-tip'), tb = bodies.get(hoverId ?? focusId);
+  if (tb && !tip.hidden) {
+    // Above the planet, so its own label stays readable; below the label when there is no room above.
+    const tw = tip.offsetWidth, th = tip.offsetHeight, r = tb.ext ?? tb.base * K;
+    const tx = Math.min(Math.max(8, tb.x - tw / 2), size.w - side - tw - 8);
+    let ty = tb.y - r - th - 14;
+    if (ty < size.top + 8) ty = tb.y + r + 44;
+    tip.style.transform = `translate(${tx}px, ${ty}px)`;
+  }
+}
+function enterSpace() {
+  spaceOn = true;
+  $('space').hidden = false;
+  $('space').append($('drawer'));
+  document.body.classList.add('in-space');
+  layoutSpace();
+  render();
+  raf = requestAnimationFrame(frame);
+  $('sp-exit').focus({ preventScroll: true });
+  document.documentElement.requestFullscreen?.().catch(() => {});
+}
+function exitSpace() {
+  if (!spaceOn) return;
+  spaceOn = false;
+  cancelAnimationFrame(raf);
+  last = 0;
+  G = null;
+  hoverId = focusId = null;
+  $('space').hidden = true;
+  document.querySelector('.stage').append($('drawer'));
+  document.body.classList.remove('in-space');
+  for (const b of [...bodies.values()]) dropBody(b);
+  for (const r of rockets.values()) r.el.remove();
+  rockets.clear();
+  $('trails').replaceChildren();
+  $('tethers').replaceChildren();
+  $('sp-tip').hidden = true;
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  render();
+  $('space-btn').focus({ preventScroll: true });
+}
+$('space-btn').onclick = enterSpace;
+$('sp-exit').onclick = exitSpace;
+$('sp-full').hidden = !document.fullscreenEnabled;
+$('sp-full').onclick = () => {
+  if (document.fullscreenElement) { keepSpace = true; document.exitFullscreen().catch(() => {}); }
+  else document.documentElement.requestFullscreen?.().catch(() => toast('Full screen is blocked here. Space view still fills the window.'));
+};
+// Leaving full screen (Esc) leaves Space view too, unless you only asked to leave full screen.
+document.addEventListener('fullscreenchange', () => {
+  $('sp-full').textContent = document.fullscreenElement ? 'Leave full screen' : 'Full screen';
+  if (!document.fullscreenElement && spaceOn && !keepSpace) exitSpace();
+  keepSpace = false;
+});
+// The sun opens the next request, and each click moves on to the one after.
+$('sun').onclick = () => {
+  const ids = asking(), id = ids.find((x) => x !== open) ?? ids[0];
+  if (!id) { toast('Nothing needs you.'); return; }
+  cancelAdvance();
+  open = id;
+  render();
+};
+$('planets').addEventListener('click', (e) => { if (e.target === e.currentTarget && open) { cancelAdvance(); open = null; render(); } });
+
+// ---------- Earth: a new agent launches from here by rocket, and its planet appears where the rocket reaches its orbit ----------
+$('earth').onclick = openLauncher;
+const FLIGHT = 2.6; // seconds from Earth to its orbit
+const ROCKET = '<svg viewBox="0 0 16 28" width="16" height="28" aria-hidden="true"><path class="r-flame" d="M5.6 20.5Q8 31 10.4 20.5Z"/>'
+  + '<path class="r-fin" d="M4.2 14.5 1 21l3.6-1.2zM11.8 14.5 15 21l-3.6-1.2z"/><path class="r-body" d="M8 1c3.4 3.6 4 8.6 3.9 13.5l-.5 6H4.6l-.5-6C4 9.6 4.6 4.6 8 1z"/>'
+  + '<circle class="r-window" cx="8" cy="9.5" r="1.9"/></svg>';
+/** Sends a rocket up for a session just launched; false when there is no flight to show (board view, reduced motion). */
+function launchRocket(id) {
+  if (!spaceOn || calm.matches || !G) return false;
+  const g = $('earth-globe').getBoundingClientRect(), s = $('space').getBoundingClientRect();
+  const x = g.left - s.left + g.width / 2, y = g.top - s.top + g.height / 2;
+  const r = { id, x0: x, y0: y, x, y, t: 0, dur: FLIGHT, climb: 150, angle: -Math.PI / 2, theta: gapOn('busy', null), tx: null, ty: null, body: null, done: false, trail: [], el: el('div', { class: 'rocket' }) };
+  r.el.innerHTML = ROCKET;
+  r.el.style.transform = `translate(${x}px, ${y}px) rotate(0rad)`;
+  $('planets').parentElement.append(r.el);
+  rockets.set(id, r);
+  // It may already be in the sky (its first hook event can beat the launch reply): hide it until the rocket gets there.
+  const b = [...bodies.values()].find((o) => o.id.startsWith(id) && !o.leaving);
+  if (b) { r.theta = b.theta; carry(r, b); }
+  return true;
+}
+function carry(r, b) {
+  // Already waiting in orbit, and its session turned up somewhere else: a short hop over to it.
+  if (r.t >= r.dur) Object.assign(r, { x0: r.x, y0: r.y, t: 0, dur: 1.1, climb: 30 });
+  r.body = b;
+  b.incoming = true;
+  b.f = RING_AT[b.ring];
+  b.el.classList.add('incoming');
+}
+function arrive(r) {
+  r.done = true;
+  r.el.style.opacity = '0';
+  const b = r.body;
+  b.incoming = false;
+  b.el.classList.remove('incoming');
+  b.el.classList.add('born');
+  const burst = el('span', { class: 'burst' });
+  b.el.append(burst);
+  setTimeout(() => { burst.remove(); b.el.classList.remove('born'); }, 900);
+  // Its panel opens, as after a launch on the board, unless you are typing in the one that is open.
+  if (!document.activeElement?.closest?.('#drawer textarea, #drawer input')) { cancelAdvance(); open = b.id; render(); }
+}
+function flyRockets(dt, turn) {
+  const dots = [];
+  for (const r of [...rockets.values()]) {
+    r.t += dt;
+    if (!r.done) {
+      // Until its session shows up, it heads for a free slot on the Working orbit, which turns with that orbit.
+      r.theta += SPIN.busy * dt * turn;
+      const live = r.body && !r.body.leaving;
+      const [px, py] = live ? [r.body.x, r.body.y] : orbitAt(G.cx, G.cy, G.rx * RING_AT.busy, G.ry * RING_AT.busy, r.theta);
+      if (r.tx == null) { r.tx = px; r.ty = py; }
+      r.tx += (px - r.tx) * Math.min(1, dt * 6);
+      r.ty += (py - r.ty) * Math.min(1, dt * 6);
+      // Straight up off Earth, then over into its orbit: a quadratic curve whose control point sits above the pad.
+      const p = Math.min(1, r.t / r.dur), e = p < 0.5 ? 4 * p ** 3 : 1 - (-2 * p + 2) ** 3 / 2, u = 1 - e;
+      const cx = r.x0 + (r.tx - r.x0) * 0.08, cy = Math.min(r.y0, r.ty) - r.climb;
+      r.x = u * u * r.x0 + 2 * u * e * cx + e * e * r.tx;
+      r.y = u * u * r.y0 + 2 * u * e * cy + e * e * r.ty;
+      const dx = 2 * u * (cx - r.x0) + 2 * e * (r.tx - cx), dy = 2 * u * (cy - r.y0) + 2 * e * (r.ty - cy);
+      if (Math.hypot(dx, dy) > 1e-3) r.angle = Math.atan2(dy, dx);
+      r.el.style.transform = `translate(${r.x.toFixed(1)}px, ${r.y.toFixed(1)}px) rotate(${(r.angle + Math.PI / 2).toFixed(3)}rad)`;
+      r.el.classList.toggle('coast', p >= 1);
+      if (p >= 1 && live) arrive(r);
+      else if (p >= 1 && r.body?.leaving) { r.done = true; r.el.style.opacity = '0'; }
+      else if (r.t > 30) { r.done = true; r.el.style.opacity = '0'; } // no session showed up: it fades out
+      // Exhaust: puffs left behind its tail while the engine burns.
+      const tail = [r.x - Math.cos(r.angle) * 13, r.y - Math.sin(r.angle) * 13], prev = r.trail.at(-1);
+      if (p < 1 && (!prev || Math.hypot(tail[0] - prev.x, tail[1] - prev.y) > 5)) r.trail.push({ x: tail[0], y: tail[1], t: r.t });
+    }
+    r.trail = r.trail.filter((d) => r.t - d.t < 0.9);
+    for (const d of r.trail) dots.push([d.x, d.y, 1 - (r.t - d.t) / 0.9]);
+    if (r.done && !r.trail.length && r.t > 0.5) { r.el.remove(); rockets.delete(r.id); }
+  }
+  const pool = $('trails');
+  while (pool.childElementCount < dots.length) pool.append(svg('circle'));
+  [...pool.children].forEach((c, i) => {
+    const d = dots[i];
+    c.style.display = d ? '' : 'none';
+    if (d) { c.setAttribute('cx', d[0].toFixed(1)); c.setAttribute('cy', d[1].toFixed(1)); c.setAttribute('r', (0.6 + 1.8 * d[2]).toFixed(2)); c.setAttribute('opacity', (0.6 * d[2]).toFixed(2)); }
+  });
+}
+new ResizeObserver(() => { if (spaceOn) layoutSpace(); }).observe($('space'));
+
+// Esc closes the session panel, then leaves Space view.
+// ---------- the profile: which Claude Code config folder's sessions this shows, and switching to another ----------
+let profArmed = null; // a profile whose switch would send waiting requests back, awaiting a second click
+function renderProfile() {
+  const p = snap.profile;
+  if (!p) return;
+  const name = p.label ?? p.id;
+  setText($('prof-name'), name);
+  $('sp-sub').textContent = `Space view, ${name} profile`;
+  $('prof-banner').hidden = p.connected;
+  setText($('pb-name'), name);
+  setText($('pb-file'), `Adds its hooks to ${p.where}/settings.json and keeps a copy of the old file.`);
+}
+async function openProfiles() {
+  const menu = $('prof-menu'), r = await api('/api/profiles', {});
+  if (!r.ok) { toast(r.error || 'The profiles did not load.', true); return; }
+  profArmed = null;
+  menu.replaceChildren(...r.profiles.map((p) => {
+    const who = p.account ? [p.account.email, p.account.org].filter(Boolean).join(', ') : 'Not signed in';
+    const plan = p.account?.plan ? p.account.plan[0].toUpperCase() + p.account.plan.slice(1) : null;
+    const item = el('button', { class: 'prof-item', type: 'button', role: 'menuitemradio', 'aria-checked': String(p.id === r.active), 'data-id': p.id },
+      el('span', { class: 'p1' }, p.label ?? p.id, plan ? el('span', { class: 'prof-plan', title: 'Its Claude plan', text: plan }) : null,
+        p.id === r.active ? el('span', { class: 'chip', text: 'Shown' }) : null,
+        p.connected ? null : el('span', { class: 'chip off', title: 'Its hooks don’t point at this panel', text: 'Not connected' })),
+      el('span', { class: 'p2', text: who }),
+      el('span', { class: 'p3', text: p.command }));
+    item.onclick = () => chooseProfile(p, item);
+    return item;
+  }));
+  menu.hidden = false;
+  $('prof-btn').setAttribute('aria-expanded', 'true');
+  (menu.querySelector('[aria-checked="true"]') ?? menu.firstElementChild)?.focus();
+}
+function closeProfiles() {
+  $('prof-menu').hidden = true;
+  $('prof-btn').setAttribute('aria-expanded', 'false');
+  profArmed = null;
+}
+async function chooseProfile(p, item) {
+  if (p.id === snap.profile?.id) { closeProfiles(); return; }
+  const r = await api('/api/profile', { id: p.id, force: profArmed === p.id });
+  if (r.confirm) {
+    // Held requests and unsent messages belong to this profile's sessions: switching hands the requests back to their
+    // terminals and drops the messages.
+    profArmed = p.id;
+    item.classList.add('armed');
+    const lost = [r.held && `${r.held} waiting request${r.held > 1 ? 's go back to their terminals' : ' goes back to its terminal'}`,
+      r.queued && `${r.queued} unsent message${r.queued > 1 ? 's are' : ' is'} dropped`].filter(Boolean).join(', and ');
+    item.querySelector('.p2').textContent = `Switch anyway: ${lost}.`;
+    return;
+  }
+  closeProfiles();
+  if (!r.ok) { toast(r.error || 'It did not switch.', true); return; }
+  open = undefined;
+  drafts.clear();
+  toast(`Showing the ${p.label ?? p.id} profile.`);
+}
+$('prof-btn').onclick = () => ($('prof-menu').hidden ? openProfiles() : closeProfiles());
+document.addEventListener('pointerdown', (e) => { if (!$('prof-menu').hidden && !e.target.closest('.prof')) closeProfiles(); });
+$('prof-menu').addEventListener('keydown', (e) => {
+  const items = [...$('prof-menu').children], i = items.indexOf(document.activeElement);
+  if (e.key === 'Escape') { e.stopPropagation(); closeProfiles(); $('prof-btn').focus(); }
+  else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus(); }
+});
+$('pb-connect').onclick = async () => {
+  const b = $('pb-connect');
+  b.disabled = true;
+  const r = await api('/api/profile/connect', { id: snap.profile.id });
+  b.disabled = false;
+  if (!r.ok) { toast(r.error || 'It did not connect.', true); return; }
+  toast(r.added ? `Connected. Its sessions report here once Claude Code reloads their settings.${r.backup ? ' The old file is kept at ' + r.backup + '.' : ''}` : 'It was already connected.');
+};
+
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || dlg.open || e.target.closest?.('textarea, input, select')) return;
+  if (open) { cancelAdvance(); open = null; render(); } else if (spaceOn) exitSpace();
+});
+
+// ---------- the panel's width: drag its left edge, arrow keys on the edge, double-click to reset ----------
+const W_KEY = 'acp.drawerWidth';
+const widthBounds = () => [360, Math.max(360, window.innerWidth - 480)]; // the board keeps ~120px a column
+function setDrawerWidth(w, save = true) {
+  const root = document.documentElement.style;
+  if (w == null) { root.removeProperty('--drawer-user'); try { localStorage.removeItem(W_KEY); } catch {} return; }
+  const [lo, hi] = widthBounds();
+  w = Math.round(Math.min(hi, Math.max(lo, w)));
+  root.setProperty('--drawer-user', w + 'px');
+  if (save) try { localStorage.setItem(W_KEY, String(w)); } catch {}
+}
+const savedWidth = () => { try { return Number(localStorage.getItem(W_KEY)) || 0; } catch { return 0; } };
+if (savedWidth()) setDrawerWidth(savedWidth(), false);
+// A smaller window narrows it for now; the width you chose comes back when the window does.
+addEventListener('resize', () => { if (savedWidth()) setDrawerWidth(savedWidth(), false); });
+{
+  const grip = $('d-grip');
+  grip.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    grip.setPointerCapture(e.pointerId);
+    grip.classList.add('drag');
+    document.body.classList.add('resizing');
+    const right = $('drawer').getBoundingClientRect().right;
+    const move = (ev) => setDrawerWidth(right - ev.clientX);
+    const up = () => { grip.classList.remove('drag'); document.body.classList.remove('resizing'); grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', up); grip.removeEventListener('pointercancel', up); };
+    grip.addEventListener('pointermove', move);
+    grip.addEventListener('pointerup', up);
+    grip.addEventListener('pointercancel', up);
+  });
+  grip.addEventListener('dblclick', () => setDrawerWidth(null));
+  grip.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    setDrawerWidth($('drawer').offsetWidth + (e.key === 'ArrowLeft' ? 32 : -32));
+  });
+}
+
+connect();
+setInterval(() => { if (snap) { snap.now += 1000; render(); } }, 1000);
+</script>
+</body>
+</html>

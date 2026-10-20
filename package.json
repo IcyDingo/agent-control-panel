@@ -1,0 +1,21 @@
+{
+  "name": "agent-control-panel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local browser panel for Claude Code sessions, subagents and permission requests",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/IcyDingo/agent-control-panel.git"
+  },
+  "os": [
+    "darwin"
+  ]
+}
