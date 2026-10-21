@@ -1,6 +1,7 @@
 // World: a universe your agents' work pays for. The page opens it (window.AgentWorld.enter) with the server's summary
-// and passes each later one to update(). Close up you see Home, the planet the work builds up; zoomed out, the map, where
-// the work lights the dark around Home. It draws from the summary alone: `grown` (0..1) and the world's `seed`.
+// and passes each later one to update(). Close up you see Home, the planet the work terraforms; zoomed out, the map, where
+// the work lights the dark around Home. It draws from the summary alone: `terraform.days` (the days worked; 20 terraforms
+// Home) and the world's `seed`.
 (() => {
   const $ = (id) => document.getElementById(id);
   const calm = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -15,12 +16,13 @@
   const MAP = 900, ZMAX = 40, scaleOf = (v) => Math.pow(ZMAX, 1 - v); // the map spans MAP px zoomed out, ×40 close up
 
   function make(seed) {
-    const r = rng(seed), stars = [], land = [], cities = [], craters = [];
+    const r = rng(seed), stars = [], land = [], cities = [], craters = [], clouds = [];
     for (let i = 0; i < 900; i++) stars.push({ x: (r() - 0.5) * MAP * 1.6, y: (r() - 0.5) * MAP, b: r() });
     for (let i = 0; i < 26; i++) land.push({ u: r(), v: 0.15 + r() * 0.7, s: 0.04 + r() * 0.09, at: r() });
-    for (let i = 0; i < 90; i++) cities.push({ u: r(), v: 0.2 + r() * 0.6, at: r() });
+    for (let i = 0; i < 90; i++) cities.push({ on: land[Math.floor(r() * land.length)], a: r() * 7, d: Math.sqrt(r()) * 0.8, at: r() }); // each on a continent
     for (let i = 0; i < 26; i++) craters.push({ u: r(), v: r(), s: 3 + r() * 9 });
-    return { seed, stars, land, cities, craters };
+    for (let i = 0; i < 14; i++) clouds.push({ u: r(), v: 0.1 + r() * 0.8, w: 0.12 + r() * 0.2, at: r() });
+    return { seed, stars, land, cities, craters, clouds };
   }
 
   // ---------- the view's size; the side panel takes the right edge when there is room
@@ -32,7 +34,10 @@
   }
 
   // ---------- drawing
-  const g = () => world?.grown ?? 0;
+  const days = () => world?.terraform?.days ?? 0;
+  /** 0 before day `a`, 1 from day `b`, linear between: each stage eases in over the days before it is named. */
+  const ramp = (a, b) => Math.min(1, Math.max(0, (days() - a) / (b - a)));
+  const g = () => Math.sqrt(Math.min(1, days() / 20)); // how far the lit map reaches: quick at first
   const litRadius = () => 46 + 120 * g();
   const lit = (mx, my) => Math.max(0, Math.min(1, (1 - Math.hypot(mx, my) / litRadius()) * 1.6));
   function mix(a, b, k) {
@@ -56,12 +61,15 @@
     x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high';
     x.drawImage(glowCanvas, cx - sw / 2 * s, cy - sh / 2 * s, sw * s, sh * s);
   }
-  /** Home: a bare rock that the work turns into a world (oceans, land, city lights, an atmosphere). */
+  /** Home, stage by stage (world.mjs STAGES): clouds over the rock, oceans, continents, green coasts, forests,
+   *  settlements with lights at night, cities under an atmosphere, and a moon when it is terraformed. */
   function drawHome(cx, cy, R, t, detail) {
-    const p = g(), ocean = Math.min(1, Math.max(0, (p - 0.03) / 0.3)), spin = calm.matches ? 0 : t / 60000;
-    if (p > 0.08) {
+    const spin = calm.matches ? 0 : t / 60000, drift = calm.matches ? 0 : t / 40000;
+    const clouds = ramp(0.03, 0.6), ocean = ramp(0.4, 1), land = ramp(1.5, 4.2), green = ramp(4, 6.2), forest = ramp(6.5, 9.5);
+    const towns = ramp(10.5, 19), air = ramp(13, 17), moon = ramp(19, 20);
+    if (air > 0) {
       const a = x.createRadialGradient(cx, cy, R * 0.95, cx, cy, R * 1.25);
-      a.addColorStop(0, `rgba(110,160,240,${0.35 * p})`); a.addColorStop(1, 'rgba(110,160,240,0)');
+      a.addColorStop(0, `rgba(110,160,240,${0.4 * air})`); a.addColorStop(1, 'rgba(110,160,240,0)');
       x.fillStyle = a; x.beginPath(); x.arc(cx, cy, R * 1.25, 0, 7); x.fill();
     }
     x.save(); x.beginPath(); x.arc(cx, cy, R, 0, 7); x.clip();
@@ -70,21 +78,40 @@
       x.fillStyle = `rgba(40,38,36,${0.5 * (1 - ocean)})`;
       x.beginPath(); x.arc(cx - R + ((c.u + spin) % 1) * 2 * R, cy - R + c.v * 2 * R, c.s * R / 240, 0, 7); x.fill();
     }
+    const at = (l) => [cx - R + ((l.u + spin) % 1) * 2.2 * R - 0.1 * R, cy - R + l.v * 2 * R]; // a continent's centre now
     for (const l of made.land) {
-      if (l.at > p * 1.15) continue;
-      x.fillStyle = mix('#7b7569', '#4f7a52', ocean);
-      x.beginPath(); x.ellipse(cx - R + ((l.u + spin) % 1) * 2.2 * R - 0.1 * R, cy - R + l.v * 2 * R, l.s * 2 * R, l.s * 1.2 * R, 0.3, 0, 7); x.fill();
+      if (l.at > land * 1.05) continue; // continents rise one by one
+      const [lx, ly] = at(l);
+      x.fillStyle = mix('#7b7569', '#4f7a52', green);
+      x.beginPath(); x.ellipse(lx, ly, l.s * 2 * R, l.s * 1.2 * R, 0.3, 0, 7); x.fill();
+      if (forest > l.at * 0.9) { // forests spread inland
+        x.fillStyle = `rgba(36,74,46,${0.85 * forest})`;
+        x.beginPath(); x.ellipse(lx + l.s * 0.2 * R, ly, l.s * 1.1 * R, l.s * 0.62 * R, 0.3, 0, 7); x.fill();
+      }
+    }
+    for (const c of made.clouds) {
+      if (c.at > clouds * 1.05) continue;
+      x.fillStyle = `rgba(235,240,250,${0.22 * clouds})`;
+      x.beginPath(); x.ellipse(cx - R + ((c.u + drift) % 1) * 2.4 * R - 0.2 * R, cy - R + c.v * 2 * R, c.w * R, c.w * 0.32 * R, -0.15, 0, 7); x.fill();
     }
     const sh = x.createRadialGradient(cx - R * 0.45, cy - R * 0.4, R * 0.2, cx, cy, R * 1.05);
     sh.addColorStop(0, 'rgba(255,255,255,.12)'); sh.addColorStop(0.55, 'rgba(0,0,0,0)'); sh.addColorStop(1, 'rgba(2,4,10,.82)');
     x.fillStyle = sh; x.fillRect(cx - R, cy - R, 2 * R, 2 * R);
     if (R > 30 && detail > 0) for (const c of made.cities) {
-      if (c.at > p) continue;
-      const lx = cx - R + ((c.u + spin) % 1) * 2.2 * R - 0.1 * R, ly = cy - R + c.v * 2 * R;
-      if (Math.hypot(lx - cx, ly - cy) > R * 0.96 || lx - cx < R * 0.05) continue; // lights show on the night side
-      x.fillStyle = 'rgba(255,205,120,.85)'; x.fillRect(lx, ly, 2, 2);
+      if (c.at > towns || c.on.at > land * 1.05) continue;
+      const [ox, oy] = at(c.on), ex = Math.cos(c.a) * c.d * c.on.s * 2 * R, ey = Math.sin(c.a) * c.d * c.on.s * 1.2 * R;
+      const lx = ox + ex * Math.cos(0.3) - ey * Math.sin(0.3), ly = oy + ex * Math.sin(0.3) + ey * Math.cos(0.3);
+      if (Math.hypot(lx - cx, ly - cy) > R * 0.96) continue;
+      const night = lx - cx > R * 0.05, d = Math.max(2, R / 110); // pale by day, lit at night
+      x.fillStyle = night ? 'rgba(255,205,120,.9)' : 'rgba(228,224,212,.55)'; x.fillRect(lx, ly, d, d);
     }
     x.restore();
+    if (moon > 0) { // terraformed: a moon arrives and circles Home
+      const a = (calm.matches ? 0 : t / 30000) - 0.6, mx = cx + Math.cos(a) * R * 1.75, my = cy + Math.sin(a) * R * 0.55;
+      const m = x.createRadialGradient(mx - R * 0.05, my - R * 0.05, R * 0.02, mx, my, R * 0.16);
+      m.addColorStop(0, `rgba(222,226,232,${moon})`); m.addColorStop(1, `rgba(96,102,112,${moon})`);
+      x.fillStyle = m; x.beginPath(); x.arc(mx, my, R * 0.15, 0, 7); x.fill();
+    }
   }
 
   function frame(now) {
@@ -141,13 +168,20 @@
     new ResizeObserver(() => { if (raf) fit(); }).observe(cv);
   }
 
-  // ---------- the side panel: today's numbers, and what the world has earned
+  // ---------- the side panel: terraforming, today's numbers, and what the world has earned
   function row(name, value) {
     const dt = document.createElement('dt'), dd = document.createElement('dd');
     dt.textContent = name; dd.textContent = value;
     return [dt, dd];
   }
   function show(w) {
+    const tf = w.terraform ?? { days: 0, today: 0, stage: 'Bare rock', next: null }, pct = (v) => Math.round(Math.min(1, v) * 100);
+    $('w-stage').textContent = tf.stage;
+    $('w-days').textContent = `· day ${tf.days.toFixed(1)} of 20`;
+    $('w-bar').style.width = pct(tf.days / 20) + '%';
+    $('w-next').textContent = tf.next ? `Next: ${tf.next.name} at day ${tf.next.at}.` : 'Home is terraformed. The frontier opens next.';
+    $('w-tf-today').textContent = tf.today >= 1 ? "Today's full day is done. More work still earns credit." : `Today: ${pct(tf.today)}% of a full day.`;
+    $('w-bar-today').style.width = pct(tf.today) + '%';
     $('w-credit').textContent = fmt(Math.max(0, w.balance));
     const t = w.today;
     $('w-today').replaceChildren(
@@ -158,7 +192,7 @@
       ...row('Credit earned', fmt(t.credit)));
     const since = new Date(w.startedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'long' });
     $('w-total').textContent = w.earned > 0 ? `${fmt(w.earned)} credit earned since ${since}.`
-      : `Your world started on ${since} as a bare rock. Commits and tokens earn credit, and it grows as they come in.`;
+      : `Your world started on ${since} as a bare rock. Each day you work terraforms it, up to one full day a day.`;
     const names = (list) => (list ?? []).map((r) => r.split('/').filter(Boolean).at(-1)).join(', ');
     const notes = [];
     if (w.noEmail?.length) notes.push(`No commits counted in ${names(w.noEmail)}: git has no user.email there.`);

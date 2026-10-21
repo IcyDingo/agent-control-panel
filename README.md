@@ -331,13 +331,20 @@ Every control that stops something asks for a second click.
 
 ## World
 
-World starts the first time you open it, as a bare rock called Home in the dark, and grows from the credit your
-agents' work earns from then on: oceans, land, city lights and an atmosphere close up, and lit space around Home when
-you zoom out (scroll, or **Home** and **Map**; drag to look around). No agents in it: their work only arrives as credit.
-While it is open, its top bar says how many sessions need you, and takes you back to the board at the first.
+World starts the first time you open it, as a bare rock called Home in the dark, and terraforms on the days you work
+from then on, with lit space widening around Home when you zoom out (scroll, or **Home** and **Map**; drag to look
+around). No agents in it: their work only arrives as credit. While it is open, its top bar says how many sessions need
+you, and takes you back to the board at the first.
 
 Credit is earned per calendar day: `(lines added ÷ 10 + tokens ÷ 10,000) × multiplier`, where lines removed raise the
 multiplier from ×1 up to ×4, so a cleanup day pays best. The side panel shows today's numbers.
+
+**Terraforming** runs on days worked, not on how much: each day adds its credit ÷ 300, at most one full day (300
+credit is about an hour of one agent working). Thinking and iterating count through their tokens, shipping through
+commits. More work that day still earns credit, but can't rush Home; a day off pauses it, and nothing ever goes back.
+Clouds form within the first hour, then oceans (day 1), continents (3), green coasts (5), forests (8), settlements
+with lights at night (12), cities under an atmosphere (16), and at day 20, about a month of weekdays, a moon: Home is
+terraformed. The side panel shows the stage, what comes next, and how much of today's full day is done.
 
 - **Tokens** come from the transcripts of every Claude Code profile on this Mac, sessions and subagents: what was
   sent and written, once per reply. Cache reads don't count. There is one World, whichever profile the board shows.

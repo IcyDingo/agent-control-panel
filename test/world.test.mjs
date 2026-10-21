@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
-import { dayKey, multiplier, dayCredit, grown, commitKey, countsFile, readTokens, parseLog, createWorld } from '../world.mjs';
+import { dayKey, multiplier, dayCredit, dayFill, terraform, STAGES, FULL_DAY, commitKey, countsFile, readTokens, parseLog, createWorld } from '../world.mjs';
 
 const START = Date.UTC(2026, 9, 21, 9, 0);
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'world-'));
@@ -29,10 +29,28 @@ test('a day of work earns credit', () => {
 
 test('day keys are calendar days', () => assert.equal(dayKey(Date.UTC(2026, 9, 21, 23, 59)), '2026-10-21'));
 
-test('growth starts at nothing and never ends', () => {
-  assert.equal(grown(0), 0);
-  assert.ok(grown(30000) > 0.6 && grown(30000) < 0.64);
-  assert.ok(grown(300_000) < 1); // about a year of work
+test('a full day is 300 credit; more work does not rush the world', () => {
+  assert.equal(FULL_DAY, 300);
+  assert.equal(dayFill({ tokens: 3_000_000 }), 1); // about an hour of one agent working
+  assert.equal(dayFill({ tokens: 30_000_000 }), 1);
+  assert.equal(dayFill({ tokens: 1_500_000 }), 0.5);
+  assert.equal(dayFill({ added: 600 }), 0.2); // ideas without commits count through tokens, commits through lines
+  assert.equal(dayFill({}), 0); // a day you only looked counts nothing
+  assert.equal(dayFill(undefined), 0);
+});
+
+test('terraforming adds up the days worked and names the stage', () => {
+  const days = { '2026-10-19': { tokens: 9e6 }, '2026-10-20': { tokens: 1.5e6 }, '2026-10-21': { added: 600 } };
+  assert.deepEqual(terraform(days, '2026-10-21'), { days: 1.7, today: 0.2, stage: 'Oceans', next: { name: 'Continents', at: 3 } });
+  assert.deepEqual(terraform({}, '2026-10-21'), { days: 0, today: 0, stage: 'Bare rock', next: { name: 'Clouds', at: 0.15 } });
+});
+
+test('twenty full days take a bare rock to terraformed', () => {
+  assert.deepEqual(STAGES.map(([at]) => at), [0, 0.15, 1, 3, 5, 8, 12, 16, 20]);
+  const full = (n) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`2026-11-${String(i + 1).padStart(2, '0')}`, { tokens: 3e6 }]));
+  assert.equal(terraform(full(19), '2026-11-19').stage, 'Cities');
+  assert.deepEqual(terraform(full(20), '2026-11-20'), { days: 20, today: 1, stage: 'Terraformed', next: null });
+  assert.equal(terraform(full(25), '2026-11-25').stage, 'Terraformed');
 });
 
 test('a rebased or amended commit keeps its key', () => {
@@ -231,6 +249,17 @@ test('nothing is stored until World is opened, and it survives a restart', async
   const again = createWorld({ file: f2, configDirs: [c2], run, gitPlace: () => null, now: () => T0 });
   assert.equal(again.started(), true);
   assert.deepEqual(again.summary(), before);
+});
+
+test('the summary carries the terraforming clock, today filling as work comes in', async () => {
+  const configDir = tmp(), file = path.join(tmp(), 'w.json');
+  fs.mkdirSync(path.join(configDir, 'projects', 'p'), { recursive: true });
+  const world = createWorld({ file, configDirs: [configDir], run, gitPlace: () => null, now: () => T0 });
+  world.open();
+  fs.writeFileSync(path.join(configDir, 'projects', 'p', 's.jsonl'), reply('m1', T0 + 5000, { output_tokens: 1_500_000 }));
+  await world.scan({ git: false });
+  assert.deepEqual(world.summary().terraform, { days: 0.5, today: 0.5, stage: 'Clouds', next: { name: 'Oceans', at: 1 } });
+  assert.equal('grown' in world.summary(), false);
 });
 
 test('one repository reached under two spellings of its path counts once', async () => {

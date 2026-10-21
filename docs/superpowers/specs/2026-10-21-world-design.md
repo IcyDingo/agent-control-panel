@@ -103,11 +103,19 @@ choice. With the owner's last week (about 30 commits and 11,000 added lines on a
 
 ## How the world grows
 
-**On its own**, from credit *earned* (spending never shrinks it):
+**On its own**, from the days you work (spending never shrinks it). Revised 2026-10-21 after slice 1: growth by
+lifetime credit let one heavy week nearly finish Home, and the owner wants it to build "as the days and weeks go",
+from work, not from logging in, and to hook a newcomer on a normal workload: "after a month close to terraformed".
 
-- Home goes through stages: bare rock, oceans, land, cities with lights, an atmosphere. The mockup's stages are a
-  fine start.
-- The lit area of the map widens around Home.
+- **The terraforming clock (owner)**: each local day adds `min(1, that day's credit ÷ 300)`. A full day, 300 credit,
+  is about an hour of one agent working **(owner: "yeah")**, so most real working days fill it; more work that day only
+  earns credit. Ideas and iteration count through tokens, shipped work through commits. Days off pause it; nothing
+  decays. Today's share fills live.
+- Home's stages by days worked: clouds (0.15, within the first hour), oceans (1), continents (3), green coasts (5),
+  forests (8), settlements with lights at night (12), cities under an atmosphere (16), terraformed with a moon (20,
+  about a month of weekdays). Each eases in over the days before it is named **(call)**.
+- The lit area of the map widens around Home with the clock (quick at first, its full reach at day 20) **(call)**.
+  After that the frontier (slice 2) is how the universe keeps growing.
 - Moments appear as their stretch of work ends (a week closes, a cleanup day ends).
 
 **By your choice**, from credit *spent*:
@@ -189,7 +197,8 @@ words into pieces the renderer knows how to draw, then draws them:
 Each slice ships on its own and is usable:
 
 1. Earning and persistence: credit from tokens and commits, the balance, the World view with Home growing by itself,
-   the lit map, and the side panel's numbers.
+   the lit map, and the side panel's numbers. Then the terraforming clock (Home grows on days worked, 20 to
+   terraformed) and the credit on the top bar's World button.
 2. The frontier and moments.
 3. Rockets and colonies.
 4. Building from a description.

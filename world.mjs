@@ -1,7 +1,8 @@
 // World: a universe your agents' work pays for (docs/superpowers/specs/2026-10-21-world-design.md).
 //
 // Credit is earned per local calendar day from the tokens the shown profile's sessions use and the lines in your own
-// commits; lines removed multiply it. Only work after World's first open counts.
+// commits; lines removed multiply it. Only work after World's first open counts. Home terraforms on the days you work,
+// at most one full day per calendar day, so it unfolds over weeks; credit is what you spend.
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -23,8 +24,20 @@ export function dayCredit({ added = 0, removed = 0, tokens = 0 }) {
   return Math.round((added / 10 + tokens / 10_000) * multiplier(added, removed));
 }
 
-/** How far Home and the lit map have grown, 0..1: quick at first, slower later, never done. */
-export const grown = (earned) => 1 - Math.exp(-Math.max(0, earned) / 30_000);
+/** A full day of terraforming: about an hour of one agent working. Work past it still earns credit. */
+export const FULL_DAY = 300;
+/** How much of a full day a day's work is, 0..1. */
+export const dayFill = (x) => Math.min(1, dayCredit(x ?? {}) / FULL_DAY);
+/** Home's stages by days worked: something shows within the first hour, and about a month of weekdays terraforms it. */
+export const STAGES = [[0, 'Bare rock'], [0.15, 'Clouds'], [1, 'Oceans'], [3, 'Continents'], [5, 'Green coasts'], [8, 'Forests'],
+  [12, 'Settlements'], [16, 'Cities'], [20, 'Terraformed']];
+const r2 = (n) => Math.round(n * 100) / 100;
+/** The terraforming clock: the days worked so far (`days`: per-day work), today's share of a full day, the stage, the next. */
+export function terraform(days, today) {
+  const sum = r2(Object.values(days).reduce((s, x) => s + dayFill(x), 0)), i = STAGES.findLastIndex(([at]) => sum >= at);
+  const next = STAGES[i + 1];
+  return { days: sum, today: r2(dayFill(days[today])), stage: STAGES[i][1], next: next ? { name: next[1], at: next[0] } : null };
+}
 
 /** A commit as you wrote it: a rebase, an amend or a cherry-pick keeps its author time and subject. */
 export const commitKey = (authorTimeSec, subject) =>
@@ -127,7 +140,6 @@ const most = (a, b) => ({ added: Math.max(a.added, b.added), removed: Math.max(a
 /** A folder's true path. The Mac's disk ignores case, and git names a repository the way it was asked, so one repository
  *  can turn up as ~/Documents/x and ~/documents/x. */
 const real = (p) => { try { return fs.realpathSync.native(p); } catch { return p; } };
-
 
 /** The one World on this Mac, kept in `file`, fed by every profile's sessions (`configDirs`: the profile folders, or a
  *  function returning them). Nothing is written until open(). `run` is the server's execFile wrapper and `gitPlace` its
@@ -252,7 +264,7 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
       }
       const earned = Object.values(days).reduce((sum, x) => sum + dayCredit(x), 0);
       const spent = st.purchases.reduce((sum, p) => sum + (p.price ?? 0), 0), t = days[today] ?? blank();
-      const summary = { started: true, startedAt: st.startedAt, seed: st.seed, earned, spent, balance: earned - spent, grown: grown(earned),
+      const summary = { started: true, startedAt: st.startedAt, seed: st.seed, earned, spent, balance: earned - spent, terraform: terraform(days, today),
         today: { day: today, commits: t.commits, added: t.added, removed: t.removed, multiplier: multiplier(t.added, t.removed), tokens: t.tokens, credit: dayCredit(t) },
         noEmail: st.noEmail ?? [], gitFailed: st.gitFailed ?? [] };
       memo = { today, summary };

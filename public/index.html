@@ -425,6 +425,12 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .w-box dd { margin: 0; font: 12.5px var(--mono); text-align: right; }
 .w-box p { margin: 0; color: var(--fg-dim); font-size: 12.5px; }
 .w-box p.warn { color: var(--amber); }
+/* Terraforming: the days worked toward 20, and today's share of a full day. */
+.w-box p.w-stage { color: var(--fg); font-size: 13.5px; }
+.w-stage span { color: var(--fg-dim); font: 12px var(--mono); }
+.w-bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.w-bar i { display: block; height: 100%; width: 0; border-radius: inherit; background: var(--ok); transition: width .6s ease-out; }
+.w-bar.today i { background: var(--amber); }
 .w-zoom { position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); z-index: 2; display: flex; gap: 6px; }
 .w-zoom .btn.on { border-color: var(--amber); color: var(--amber); }
 @media (max-width: 760px) { .w-side { position: static; width: auto; margin: calc(var(--sp-top, 52px) + 10px) 16px 0; } }
@@ -737,6 +743,14 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
     <button class="btn small" type="button" id="w-exit" title="Esc">Back to board</button>
   </div>
   <aside class="w-side" id="w-side">
+    <section class="w-box">
+      <h2>Terraforming</h2>
+      <p class="w-stage"><b id="w-stage"></b> <span id="w-days"></span></p>
+      <div class="w-bar"><i id="w-bar"></i></div>
+      <p id="w-next"></p>
+      <p id="w-tf-today" title="A full day is 300 credit: about an hour of one agent working. Work past it still earns credit."></p>
+      <div class="w-bar today"><i id="w-bar-today"></i></div>
+    </section>
     <section class="w-box">
       <h2>Today's work</h2>
       <dl id="w-today"></dl>
