@@ -233,8 +233,39 @@ button, input, textarea, select { font: inherit; color: inherit; }
 body.resizing { cursor: col-resize; user-select: none; }
 body.resizing .drawer { transition: none; }
 @keyframes slide { from { transform: translateX(14px); opacity: .5; } }
-.d-scroll { flex: 1; min-height: 0; overflow: auto; padding: 18px 24px 28px; }
+.d-cols { flex: 1; min-height: 0; display: flex; }
+.d-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+/* One column at reading width, centred once the panel is wider than that. */
+.d-col { width: 100%; max-width: 820px; margin-inline: auto; padding-inline: 24px; }
+.d-top-band { flex: none; max-height: 45%; overflow: auto; padding-block: 16px 12px; border-bottom: 1px solid var(--line); }
+.d-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding-block: 16px 20px; }
+.d-foot { flex: none; max-height: 62%; overflow: auto; padding-block: 10px 14px; border-top: 1px solid var(--line); }
+.d-foot .sec.needs { margin: 2px 0 12px; }
+.d-now { margin-bottom: 8px; }
+.d-now:last-child { margin-bottom: 0; }
+.d-earlier { display: block; margin: 0 auto 14px; }
+.d-scroll .sec:first-child { margin-top: 0; }
+/* Its subagents, in a column of their own beside a wide panel. The tab folds it to a strip. */
+.d-side { flex: none; width: 300px; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--line); }
+.d-side-tab { flex: none; display: flex; align-items: center; gap: 8px; padding: 16px 16px 10px; border: 0; background: none; font-size: 12px; font-weight: 600; color: var(--fg-dim); text-align: left; cursor: pointer; }
+.d-side-tab:hover { color: var(--fg); }
+.d-side-tab .n { font: 500 11.5px var(--mono); color: var(--fg-faint); }
+.d-side-tab::after { content: "\203A"; margin-left: auto; font-size: 15px; line-height: 1; }
+.d-side-body { flex: 1; min-height: 0; overflow: auto; padding: 0 16px 16px; }
+.d-side .sec { margin-top: 0; }
+.d-side .sec > .rule { display: none; }
+.d-side .b-now { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6; overflow: hidden; } /* a finished one's whole report is in its chat */
+.d-side.folded { width: 40px; }
+.d-side.folded .d-side-body { display: none; }
+.d-side.folded .d-side-tab { writing-mode: vertical-rl; padding: 16px 12px; }
+.d-side.folded .d-side-tab::after { content: "\2039"; margin: 6px 0 0; }
+/* Folded details leave the name, its state and what you can do; Expand hides the board beside it. */
+.drawer.brief .d-meta, .drawer.brief .d-where { display: none; }
+.drawer.brief .d-name { margin-bottom: 0; }
+body.wide-session .stage:has(> .drawer:not([hidden])) > .board, body.wide-session .stage:has(> .drawer:not([hidden])) > .r-grip { display: none; }
+.space .d-expand { display: none; }
 .d-top { display: flex; align-items: center; gap: 12px; }
+.d-top .btn.quiet[aria-pressed="true"] { color: var(--fg); }
 .d-top .age { font: 12px var(--mono); color: var(--fg-faint); }
 .d-name { margin: 10px 0 3px; font-size: 20px; line-height: 1.2; font-weight: 600; letter-spacing: -0.015em; overflow-wrap: anywhere; text-wrap: balance; }
 .d-meta { margin: 0; color: var(--fg-dim); font-size: 12.5px; overflow-wrap: anywhere; }
@@ -345,7 +376,7 @@ textarea.field { flex-basis: 100%; height: auto; min-height: 3.4em; padding: 6px
 .m-who { display: flex; gap: 8px; align-items: baseline; margin-bottom: 4px; font-size: 11.5px; color: var(--fg-faint); }
 .m-who b { font-weight: 600; color: var(--fg-dim); }
 .m-body { font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
-.msg.claude .m-body { max-height: 320px; overflow: auto; padding: 11px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--raise); }
+.msg.claude .m-body { padding: 11px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--raise); }
 .msg.claude .m-body > :first-child { margin-top: 0; }
 .msg.claude .m-body > :last-child { margin-bottom: 0; }
 .msg.claude .m-body h4, .msg.claude .m-body h5 { margin: 10px 0 4px; font-size: 13px; font-weight: 600; }
@@ -356,6 +387,8 @@ textarea.field { flex-basis: 100%; height: auto; min-height: 3.4em; padding: 6px
 .msg.you { justify-self: end; max-width: 88%; }
 .msg.you .m-body { padding: 8px 13px; border: 1px solid transparent; border-radius: 10px; background: var(--hover); white-space: pre-wrap; }
 .msg.you.waiting .m-body { border: 1px dashed var(--line-strong); background: transparent; }
+.msg.you.sending .m-body { opacity: .65; }
+.msg.note { justify-self: center; font-size: 11.5px; color: var(--fg-faint); }
 .msg.you .m-who { justify-content: flex-end; margin: 4px 0 0; }
 .msg.out .m-body { max-height: 260px; overflow: auto; margin: 0; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--raise); font: 11.5px/1.45 var(--mono); white-space: pre-wrap; }
 .linkish { padding: 0; border: 0; background: none; color: var(--fg-dim); font-size: 11.5px; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
@@ -686,29 +719,46 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
   <div class="ws-empty" id="empty" hidden></div>
   <aside class="drawer" id="drawer" aria-label="Session" hidden>
     <div class="d-grip" id="d-grip" role="separator" aria-orientation="vertical" aria-label="Panel width" tabindex="0" title="Drag to resize. Double-click for the default width."></div>
-    <div class="d-scroll" id="d-scroll">
-      <div id="d-head"></div>
-      <section class="sec needs" id="d-needs" hidden><h4 class="rule">Needs you <span class="n" id="d-needs-n"></span></h4><div class="cards" id="d-cards"></div></section>
-      <section class="sec"><h4 class="rule">Now</h4><div id="d-line"></div></section>
-      <section class="sec" id="d-chat" hidden>
-        <h4 class="rule">Chat</h4>
-        <div class="thread" id="d-thread"></div>
-        <div id="d-compose" hidden>
-          <div class="chips" id="d-chips"></div>
-          <div class="composer">
-            <textarea id="d-reply" rows="2" placeholder="Answer it, or tell it what to do next" aria-label="Your message"></textarea>
-            <div class="c-bar">
-              <select class="c-mode" id="d-mode" aria-label="Its permission mode"></select>
-              <select class="c-mode" id="d-model" aria-label="Its model"></select>
-              <select class="c-mode" id="d-effort" aria-label="Its effort level"></select>
-              <span class="grow"></span>
-              <button class="btn primary small" type="button" id="d-send" disabled>Send</button>
+    <!-- The session in three bands: its header on top, the conversation scrolling in the middle, and what needs you,
+         what it is doing and the box to write in pinned at the bottom. Its subagents get a column of their own when
+         the panel is wide, and sit under the conversation when it isn't. -->
+    <div class="d-cols">
+      <div class="d-main">
+        <div class="d-top-band"><div class="d-col" id="d-head"></div></div>
+        <div class="d-scroll" id="d-scroll">
+          <div class="d-col">
+            <section class="sec" id="d-chat" hidden>
+              <button class="linkish d-earlier" type="button" id="d-earlier" hidden>Show earlier</button>
+              <div class="thread" id="d-thread" aria-live="polite"></div>
+            </section>
+            <div class="d-subs-in" id="d-subs-in"><div id="d-subs"></div></div>
+          </div>
+        </div>
+        <div class="d-foot">
+          <div class="d-col">
+            <section class="sec needs" id="d-needs" hidden><h4 class="rule">Needs you <span class="n" id="d-needs-n"></span></h4><div class="cards" id="d-cards"></div></section>
+            <div class="d-now" id="d-line"></div>
+            <div id="d-compose" hidden>
+              <div class="chips" id="d-chips"></div>
+              <div class="composer">
+                <textarea id="d-reply" rows="2" placeholder="Answer it, or tell it what to do next" aria-label="Your message"></textarea>
+                <div class="c-bar">
+                  <select class="c-mode" id="d-mode" aria-label="Its permission mode"></select>
+                  <select class="c-mode" id="d-model" aria-label="Its model"></select>
+                  <select class="c-mode" id="d-effort" aria-label="Its effort level"></select>
+                  <span class="grow"></span>
+                  <button class="btn primary small" type="button" id="d-send" disabled>Send</button>
+                </div>
+              </div>
+              <p class="quiet c-hint" id="d-send-hint"></p>
             </div>
           </div>
-          <p class="quiet c-hint" id="d-send-hint"></p>
         </div>
-      </section>
-      <div id="d-subs"></div>
+      </div>
+      <aside class="d-side" id="d-side" aria-label="Subagents" hidden>
+        <button class="d-side-tab" type="button" id="d-side-tab" aria-expanded="true"><span>Subagents</span> <span class="n" id="d-side-n"></span></button>
+        <div class="d-side-body" id="d-side-body"></div>
+      </aside>
     </div>
     <div id="d-advance"></div>
   </aside>
@@ -1268,7 +1318,7 @@ function renderDrawer(vis) {
     d.classList.remove('enter');
     void d.offsetWidth;
     d.classList.add('enter');
-    $('d-scroll').scrollTop = 0;
+    stick = true; // a session opens at its newest message, like a chat
     drawerWas = s.sessionId;
     $('d-reply').value = drafts.get(s.sessionId) ?? '';
   }
@@ -1278,9 +1328,13 @@ function renderDrawer(vis) {
   const n = notes.get(s.sessionId), noteText = n && Date.now() - n.at < 15_000 ? n.text : null;
   const where = whereOf(s.git), sharers = sharersOf(s);
   const elsewhere = (s.elsewhere ?? []).map((g) => elsewhereOf(g, s.git)), here = s.workCwd ?? s.cwd;
-  patch($('d-head'), JSON.stringify([s.sessionId, st, label(s), s.cwd, here, s.kind, s.id, s.inRoster, Boolean(s.leftRosterAt), s.state, armedHere, noteText, s.bgTasks, s.hostsPanel, s.mode, s.git, sharers, elsewhere, s.oldVersion, snap.profile?.command]), () => [
+  patch($('d-head'), JSON.stringify([s.sessionId, st, label(s), s.cwd, here, s.kind, s.id, s.inRoster, Boolean(s.leftRosterAt), s.state, armedHere, noteText, s.bgTasks, s.hostsPanel, s.mode, s.git, sharers, elsewhere, s.oldVersion, snap.profile?.command, brief, wideSession]), () => [
     el('div', { class: 'd-top' }, el('span', { class: 'tag', 'data-s': st }, glyph(st), s.leftRosterAt ? 'Closed' : s.state === 'stopped' ? 'Ended' : LABEL[st]),
       el('span', { class: 'age' }), el('span', { class: 'grow' }),
+      el('button', { class: 'btn quiet small', type: 'button', text: 'Details', 'aria-pressed': String(!brief), title: brief ? 'Show its folder and branch' : 'Fold away its folder and branch',
+        onclick: () => setLayout('brief', !brief) }),
+      el('button', { class: 'btn quiet small d-expand', type: 'button', text: wideSession ? 'Collapse' : 'Expand', 'aria-pressed': String(wideSession),
+        title: wideSession ? 'Show the board beside it again' : 'Give it the whole window', onclick: () => setLayout('wideSession', !wideSession) }),
       el('button', { class: 'btn quiet small', type: 'button', text: 'Close', onclick: () => { cancelAdvance(); open = null; render(); } })),
     el('h2', { class: 'd-name', text: label(s) }),
     el('p', { class: 'd-meta' }, (KIND[s.kind] || 'Headless session') + ' in ',
@@ -1328,6 +1382,7 @@ function renderDrawer(vis) {
     const node = subNows.get(a.agentId);
     if (node) patch(node, JSON.stringify([subState(s, a), a.lastTool?.text, a.result]), () => subNow(s, a));
   }
+  placeSubs(s);
   patch($('d-advance'), JSON.stringify(advance?.from === s.sessionId ? advance.to : null), () => (advance?.from === s.sessionId
     ? el('div', { class: 'advance', role: 'status' }, `Done here. Next: ${label(sessionOf(advance.to))}`,
       el('button', { class: 'linkish', type: 'button', text: 'Stay here', onclick: () => { cancelAdvance(); render(); } }))
@@ -1389,22 +1444,101 @@ function ranHow(m) {
   return m.status === 'waiting' ? `Ran${as}. It opened something on its screen: claude attach shows it`
     : m.status === 'busy' ? `Ran${as}. It is working on it` : m.ran ? `Ran${as} at its prompt` : 'Typed at its prompt. Nothing came back in its conversation';
 }
+// ---------- the conversation: read back from its transcript, plus what you sent from here until it shows there ----------
+const chats = new Map(); // sessionId → { items, more, limit, key, busy }
+// Read again when it said something, you sent something, or (while it works) every quarter minute.
+const chatKey = (s) => JSON.stringify([s.lastMessageAt ?? 0, (s.sent ?? []).length, (s.queued ?? []).length, s.state, s.status, s.working ? Math.floor((s.lastEventAt ?? 0) / 15_000) : 0]);
+async function loadChat(s, limit) {
+  const c = chats.get(s.sessionId) ?? { items: [], more: false, limit: 60 };
+  chats.set(s.sessionId, c);
+  if (c.busy) return;
+  c.busy = true; c.key = chatKey(s);
+  const r = await api('/api/history', { sessionId: s.sessionId, limit: limit ?? c.limit });
+  c.busy = false;
+  if (r.ok) Object.assign(c, { items: r.items, more: r.more, limit: limit ?? c.limit });
+  if (open === s.sessionId) render();
+}
+const outbox = new Map(); // sessionId → messages on their way: shown at once, and put back in the box if they fail
+let stick = false, keepBelow = null; // scroll to the newest message; or keep your place when older ones load above
+// Whether you are at the newest message, from your own scrolling: the bands around the chat grow and shrink (a note, a
+// card, the box), and that alone must not stop new messages from staying in view.
+let followEnd = true;
+$('d-scroll').addEventListener('scroll', () => { const n = $('d-scroll'); followEnd = n.scrollHeight - n.scrollTop - n.clientHeight < 48; }, { passive: true });
+new ResizeObserver(() => { if (followEnd) $('d-scroll').scrollTop = $('d-scroll').scrollHeight; }).observe($('d-scroll'));
+const norm = (t) => String(t ?? '').replace(/\s+/g, ' ').trim();
 function renderThread(s) {
-  const items = [
-    ...(s.sent ?? []).flatMap((m) => [{ who: 'you', text: m.text, at: m.at, note: m.how === 'command' ? ranHow(m) : SENT_HOW[m.how] ?? 'Sent' },
+  const c = chats.get(s.sessionId);
+  if (!c || (!c.busy && c.key !== chatKey(s))) loadChat(s);
+  const hist = c?.items ?? [], yours = new Set(hist.filter((m) => m.who === 'you').map((m) => norm(m.text)));
+  const claude = hist.filter((m) => m.who === 'claude').map((m) => norm(m.text)), sentTexts = new Set((s.sent ?? []).map((m) => norm(m.text)));
+  const local = [
+    // What you sent from here shows with how it went until its transcript has it (a command's printout stays).
+    ...(s.sent ?? []).flatMap((m) => [...(yours.has(norm(m.text)) ? [] : [{ who: 'you', text: m.text, at: m.at, note: m.how === 'command' ? ranHow(m) : SENT_HOW[m.how] ?? 'Sent' }]),
       ...(m.output ? [{ who: 'out', text: m.output, at: m.at + 1, title: m.ran ?? m.text.split(' ')[0] }] : [])]),
     ...(s.queued ?? []).map((m) => ({ who: 'you', text: m.text, at: m.at, held: m })),
-    ...(s.lastMessage ? [{ who: 'claude', text: s.lastMessage, at: s.lastMessageAt ?? 0 }] : []),
-  ].sort((a, b) => a.at - b.at).slice(-4);
-  patch($('d-thread'), JSON.stringify([s.sessionId, items.map((m) => [m.who, m.at, m.text, m.note]), s.queueError]), () => items.map((m) => (m.who === 'claude'
-    ? el('div', { class: 'msg claude' }, el('div', { class: 'm-who' }, el('b', { text: 'Claude' })), el('div', { class: 'm-body' }, md(m.text)))
+    ...(outbox.get(s.sessionId) ?? []).filter((m) => !(m.done && (sentTexts.has(norm(m.text)) || yours.has(norm(m.text)) || (s.queued ?? []).some((q) => norm(q.text) === norm(m.text)))))
+      .map((m) => ({ who: 'you', text: m.text, at: m.at, note: m.done ? 'Sent' : 'Sending…', sending: !m.done })),
+    // Its newest reply, from the Stop hook, until the transcript read has caught up with it.
+    ...(s.lastMessage && !claude.some((t) => t.includes(norm(s.lastMessage))) && (s.lastMessageAt ?? 0) >= (hist.at(-1)?.at ?? 0)
+      ? [{ who: 'claude', text: s.lastMessage, at: s.lastMessageAt ?? 0 }] : []),
+  ].sort((a, b) => a.at - b.at);
+  const items = [...hist, ...local], sc = $('d-scroll');
+  $('d-earlier').hidden = !c?.more;
+  patch($('d-thread'), JSON.stringify([s.sessionId, hist.length, hist[0]?.at, hist.at(-1)?.at, local.map((m) => [m.who, m.at, m.text, m.note]), s.queueError]), () => items.map((m) => (m.who === 'claude'
+    ? el('div', { class: 'msg claude', title: m.at ? new Date(m.at).toLocaleString() : null }, el('div', { class: 'm-who' }, el('b', { text: 'Claude' })), el('div', { class: 'm-body' }, md(m.text)))
+    : m.who === 'note' ? el('div', { class: 'msg note', text: m.text })
     : m.who === 'out' ? el('div', { class: 'msg out' }, el('div', { class: 'm-who' }, el('b', { text: m.title }), 'printed'), el('pre', { class: 'm-body', text: m.text }))
-    : el('div', { class: 'msg you' + (m.held ? ' waiting' : '') }, el('div', { class: 'm-body', text: m.text }),
-      el('div', { class: 'm-who' },
+    : el('div', { class: 'msg you' + (m.held ? ' waiting' : '') + (m.sending ? ' sending' : ''), title: m.at ? new Date(m.at).toLocaleString() : null }, el('div', { class: 'm-body', text: m.text }),
+      m.note || m.held ? el('div', { class: 'm-who' },
         m.held && s.queueError ? el('span', { class: 'wait', text: 'Not sent yet: ' + s.queueError }) : el('span', { text: m.held ? 'Waiting until it is done' : m.note }),
-        m.held ? el('button', { class: 'linkish', type: 'button', text: 'Cancel', onclick: () => unqueue(s, m.held) }) : null)))));
+        m.held ? el('button', { class: 'linkish', type: 'button', text: 'Cancel', onclick: () => unqueue(s, m.held) }) : null) : null))));
+  if (keepBelow != null) { sc.scrollTop = sc.scrollHeight - keepBelow; keepBelow = null; }
+  else if (stick || followEnd) { sc.scrollTop = sc.scrollHeight; followEnd = true; if (c && !c.busy) stick = false; }
   return items.length;
 }
+/** What it said last: its transcript's newest reply, unless the Stop hook brought a newer one (a profile that doesn't
+ *  report here never does). */
+function lastSaidOf(s) {
+  const h = chats.get(s.sessionId)?.items.findLast((m) => m.who === 'claude');
+  return h && h.at >= (s.lastMessageAt ?? 0) ? h.text : s.lastMessage;
+}
+$('d-earlier').onclick = () => {
+  const s = sessionOf(open), c = s && chats.get(s.sessionId);
+  if (!c || c.busy) return;
+  keepBelow = $('d-scroll').scrollHeight - $('d-scroll').scrollTop;
+  loadChat(s, c.limit + 100);
+};
+
+// ---------- the panel's layout: details folded, the whole window, subagents in a column of their own ----------
+function pref(key, value) {
+  try { if (value === undefined) return localStorage.getItem(key); localStorage.setItem(key, value); } catch {}
+  return null;
+}
+let brief = pref('acp.brief') === '1', wideSession = pref('acp.wideSession') === '1', sideFolded = pref('acp.subsFolded') === '1';
+function setLayout(which, on) {
+  if (which === 'brief') brief = on; else wideSession = on;
+  pref(which === 'brief' ? 'acp.brief' : 'acp.wideSession', on ? '1' : '0');
+  applyLayout();
+  render();
+}
+function applyLayout() {
+  $('drawer').classList.toggle('brief', brief);
+  document.body.classList.toggle('wide-session', wideSession);
+}
+applyLayout();
+/** A panel with room for a column beside the chat gets its subagents there; a narrower one keeps them under it. */
+function placeSubs(s) {
+  const roomy = s.subagents.length > 0 && !document.body.classList.contains('in-space') && $('drawer').clientWidth >= 1100;
+  const home = roomy ? $('d-side-body') : $('d-subs-in');
+  if ($('d-subs').parentElement !== home) home.append($('d-subs'));
+  $('d-side').hidden = !roomy;
+  $('d-side').classList.toggle('folded', sideFolded);
+  $('d-side-tab').setAttribute('aria-expanded', String(!sideFolded));
+  $('d-side-tab').title = sideFolded ? 'Show its subagents' : 'Fold its subagents away';
+  setText($('d-side-n'), String(s.subagents.length));
+}
+$('d-side-tab').onclick = () => { sideFolded = !sideFolded; pref('acp.subsFolded', sideFolded ? '1' : '0'); render(); };
+new ResizeObserver(() => { const s = open && sessionOf(open); if (s && !$('drawer').hidden) placeSubs(s); }).observe($('drawer'));
 function renderCompose(s, st) {
   const live = bgLive(s), queue = willQueue(s, st), show = live || queue || canReply(s, st);
   $('d-chat').hidden = !renderThread(s) && !show;
@@ -1412,7 +1546,8 @@ function renderCompose(s, st) {
   if (!show) return;
   const running = s.inRoster && !isOver(s), term = s.kind === 'interactive';
   setAttr($('d-reply'), 'placeholder', s.working ? 'Tell it something while it works' : 'Answer it, or tell it what to do next');
-  patch($('d-chips'), s.lastMessage ?? '', () => optionsIn(s.lastMessage).map((o) => el('button', { class: 'chip', type: 'button', title: o.text,
+  const said = lastSaidOf(s);
+  patch($('d-chips'), said ?? '', () => optionsIn(said).map((o) => el('button', { class: 'chip', type: 'button', title: o.text,
     onclick: () => { const ta = $('d-reply'); ta.value = `${o.key}. ${o.text}`; ta.focus(); fit(ta); syncSend(); } }, el('b', { text: o.key }), o.text)));
   // Its mode: a background job switches the moment you pick; a terminal session carries on in it once your message restarts it.
   const to = switching.get(s.sessionId), picked = live ? null : modePicks.get(s.sessionId);
@@ -1492,7 +1627,7 @@ const sending = new Set();
 function syncSend() { const s = sessionOf(open); $('d-send').disabled = !$('d-reply').value.trim() || !s || sending.has(s.sessionId); }
 $('d-reply').addEventListener('input', syncSend);
 // Enter sends; Shift+Enter starts a new line (and Enter that confirms an IME composition is left alone).
-$('d-reply').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.isComposing) { e.preventDefault(); $('d-send').click(); } });
+$('d-reply').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); $('d-send').click(); } });
 $('d-send').onclick = () => {
   const s = sessionOf(open);
   if (!s || !$('d-reply').value.trim()) return;
@@ -1500,16 +1635,27 @@ $('d-send').onclick = () => {
   if (s.kind === 'interactive' && s.inRoster && !isOver(s)) confirmOr(`reply:${s.sessionId}`, () => doReply(s));
   else doReply(s);
 };
+// Sending is optimistic: the message leaves the box and shows in the chat at once. If it doesn't go through, it goes back
+// into the box, ahead of anything typed since, so nothing is lost.
 async function doReply(s) {
-  const text = $('d-reply').value.trim();
+  const ta = $('d-reply'), text = ta.value.trim(), msg = { text, at: Date.now() };
+  outbox.set(s.sessionId, [...(outbox.get(s.sessionId) ?? []).filter((m) => !m.done || Date.now() - m.done < 10_000), msg]);
+  ta.value = ''; fit(ta); drafts.delete(s.sessionId);
+  stick = true;
   sending.add(s.sessionId);
   render();
   const mode = bgLive(s) ? null : modePicks.get(s.sessionId), model = modelPicks.get(s.sessionId), effort = effortPicks.get(s.sessionId);
   const r = await api('/api/reply', { sessionId: s.sessionId, text, ...(mode ? { mode } : {}), ...(model ? { model } : {}), ...(effort ? { effort } : {}) });
   sending.delete(s.sessionId);
-  if (!r.ok) { toast(r.error || 'Your reply was not sent.', true); render(); return; }
-  if (open === s.sessionId) { $('d-reply').value = ''; fit($('d-reply')); }
-  drafts.delete(s.sessionId);
+  if (!r.ok) {
+    outbox.set(s.sessionId, (outbox.get(s.sessionId) ?? []).filter((m) => m !== msg));
+    const back = (now) => (now.trim() ? `${text}\n${now}` : text);
+    if (open === s.sessionId) { ta.value = back(ta.value); fit(ta); ta.focus(); } else drafts.set(s.sessionId, back(drafts.get(s.sessionId) ?? ''));
+    toast((r.error || 'Your reply was not sent.') + ' It is back in the box.', true);
+    render();
+    return;
+  }
+  msg.done = Date.now(); // shown as sent until the session's own record of it arrives
   for (const m of [modePicks, modelPicks, effortPicks]) m.delete(s.sessionId);
   if (r.queued) return note(s.sessionId, 'Queued. It goes in once it is done.');
   if (r.command) return;
