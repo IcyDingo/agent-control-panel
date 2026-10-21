@@ -233,6 +233,30 @@ test('nothing is stored until World is opened, and it survives a restart', async
   assert.deepEqual(again.summary(), before);
 });
 
+test('one repository reached under two spellings of its path counts once', async () => {
+  const r = repo(), upper = r.replace(/world-/, 'WORLD-'); // the Mac's disk ignores case: the same folder
+  assert.ok(fs.existsSync(upper) && upper !== r);
+  commit(r, 'a.txt', 3, 10);
+  const configDir = tmp(), file = path.join(tmp(), 'w.json');
+  fs.mkdirSync(path.join(configDir, 'projects', 'p'), { recursive: true });
+  const gitPlace = (d) => (d.toLowerCase().startsWith(r.toLowerCase()) ? { repo: d.slice(0, r.length) } : null); // git echoes the spelling it was given
+  const world = createWorld({ file, configDirs: [configDir], run, gitPlace, now: () => T0 });
+  world.open();
+  fs.writeFileSync(path.join(configDir, 'projects', 'p', 's.jsonl'), reply('m1', T0 + 5000, { output_tokens: 1 }, r) + reply('m2', T0 + 6000, { output_tokens: 1 }, upper));
+  await world.scan({ git: true });
+  assert.equal(world.summary().today.added, 3);
+});
+
+test('a world that counted one repository twice is mended when it loads', () => {
+  const r = repo(), upper = r.replace(/world-/, 'WORLD-'), file = path.join(tmp(), 'w.json'), day = dayKey(T0);
+  const twice = { [day]: { added: 150, removed: 41, commits: 2 } };
+  fs.writeFileSync(file, JSON.stringify({ v: 2, startedAt: T0, seed: 1, files: {}, tokens: {}, repos: [r, upper], noEmail: [], gitFailed: [],
+    purchases: [], lines: { [r]: twice, [upper]: { [day]: { added: 120, removed: 41, commits: 2 } } } }));
+  const world = createWorld({ file, configDirs: [], run, gitPlace: () => null, now: () => T0 });
+  assert.equal(world.summary().today.added, 150);
+  assert.equal(world.summary().today.commits, 2);
+});
+
 test('every profile on the Mac feeds one World', async () => {
   const a = tmp(), b = tmp(), file = path.join(tmp(), 'world', 'world.json');
   for (const [dir, n] of [[a, 100], [b, 50]]) {

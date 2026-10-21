@@ -122,6 +122,12 @@ const blank = () => ({ added: 0, removed: 0, tokens: 0, commits: 0 });
 const VERSION = 2;
 const valid = (st) => st && st.v === VERSION && Number.isFinite(st.startedAt) && [st.files, st.tokens, st.lines].every((o) => o && typeof o === 'object')
   && [st.repos, st.purchases].every(Array.isArray);
+/** The most two counts of one repository's day have seen. */
+const most = (a, b) => ({ added: Math.max(a.added, b.added), removed: Math.max(a.removed, b.removed), commits: Math.max(a.commits, b.commits) });
+/** A folder's true path. The Mac's disk ignores case, and git names a repository the way it was asked, so one repository
+ *  can turn up as ~/Documents/x and ~/documents/x. */
+const real = (p) => { try { return fs.realpathSync.native(p); } catch { return p; } };
+
 
 /** The one World on this Mac, kept in `file`, fed by every profile's sessions (`configDirs`: the profile folders, or a
  *  function returning them). Nothing is written until open(). `run` is the server's execFile wrapper and `gitPlace` its
@@ -133,6 +139,15 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
     if (valid(loaded)) st = loaded;
     else fs.renameSync(file, `${file}.bad-${now()}`); // kept for a look, never overwritten
   } catch {}
+  if (st) { // a World that found one repository under two spellings counted it twice: keep it once, at its most
+    const lines = {};
+    for (const [repo, perDay] of Object.entries(st.lines)) {
+      const kept = (lines[real(repo)] ??= {});
+      for (const [day, c] of Object.entries(perDay)) kept[day] = kept[day] ? most(kept[day], c) : c;
+    }
+    st.lines = lines;
+    st.repos = [...new Set(st.repos.map(real))];
+  }
 
   function save() {
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -174,7 +189,7 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
       changed = true;
       for (const [day, n] of Object.entries(r.tokens)) st.tokens[day] = (st.tokens[day] ?? 0) + n;
       for (const dir of r.dirs) {
-        if (!seenDirs.has(dir)) seenDirs.set(dir, gitPlace(dir)?.repo ?? null);
+        if (!seenDirs.has(dir)) { const repo = gitPlace(dir)?.repo; seenDirs.set(dir, repo ? real(repo) : null); }
         const repo = seenDirs.get(dir);
         if (repo) repos.add(repo);
       }
@@ -206,10 +221,7 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
         x.added += c.added; x.removed += c.removed; x.commits++;
       }
       const kept = (st.lines[repo] ??= {});
-      for (const [day, x] of Object.entries(days)) {
-        const old = kept[day] ?? { added: 0, removed: 0, commits: 0 };
-        kept[day] = { added: Math.max(old.added, x.added), removed: Math.max(old.removed, x.removed), commits: Math.max(old.commits, x.commits) };
-      }
+      for (const [day, x] of Object.entries(days)) kept[day] = most(kept[day] ?? { added: 0, removed: 0, commits: 0 }, x);
     }
     st.noEmail = noEmail;
     st.gitFailed = failed;
