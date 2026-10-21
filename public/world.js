@@ -15,7 +15,7 @@
   let world = null, made = null, sky = null, skySig = ''; // the summary, what its seed makes, and its light (drawn once per change)
   let z = 0, zTo = 0, pan = { x: 0, y: 0 }, drag = null, focus = { x: 0, y: 0 }, focusTo = { x: 0, y: 0 }, here = 'home';
   let aiming = false, aimAng = null, picked = null, hover = null;
-  let flight = null, sending = false, rocketSig = '', coloniesSig = ''; // a rocket on its way: its colony shows once it lands
+  let flight = null, sending = false, rocketSig = '', rocketHere = null, coloniesSig = '', momentsSig = ''; // a rocket on its way: its colony shows once it lands
   const MAP = 900, ZMAX = 40, scaleOf = (v) => Math.pow(ZMAX, 1 - v); // the map spans MAP px zoomed out, ×40 close up
   const LOBE_START = 60, lobeRadius = (along, tip) => 34 + 26 * along / (tip + 40); // world.mjs's lobe shape
   const BODY = { home: 6, planet: 4.5 }; // radius on the map, map px
@@ -468,6 +468,8 @@
     if (Math.hypot(px - cx, py - cy) < 6 * s) return;
     showPush();
   }
+  /** An Enter that only finishes an accent or an input method's word (WebKit says so with keyCode 229). */
+  const composing = (e) => e.isComposing || e.keyCode === 229;
   function wire() {
     cv = $('w-canvas'); x = cv.getContext('2d');
     cv.addEventListener('wheel', (e) => { e.preventDefault(); zoomTo(zTo + e.deltaY * 0.0015); }, { passive: false });
@@ -500,11 +502,11 @@
     $('w-push').onclick = push;
     $('w-m-close').onclick = () => pick(null);
     $('w-rocket-name').oninput = showRocket;
-    $('w-rocket-name').onkeydown = (e) => { if (e.key === 'Enter' && !$('w-rocket').disabled) sendRocket(); };
+    $('w-rocket-name').onkeydown = (e) => { if (e.key === 'Enter' && !composing(e) && !$('w-rocket').disabled) sendRocket(); };
     $('w-rocket-show').onclick = () => flyTo($('w-rocket-to').value);
     $('w-rocket').onclick = sendRocket;
     $('w-build-text').oninput = showBuild;
-    $('w-build-text').onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (!$('w-build').disabled) build(); } };
+    $('w-build-text').onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey && !composing(e)) { e.preventDefault(); if (!$('w-build').disabled) build(); } };
     $('w-build').onclick = build;
   }
 
@@ -532,7 +534,8 @@
   function showPush() {
     const price = world.prices?.frontier ?? 0;
     $('w-push-price').textContent = `${fmt(price)} credit`;
-    if (aimAng != null) $('w-dir').value = String(COMPASS.indexOf(compass(aimAng)) * Math.PI / 4 - Math.PI / 2);
+    // No direction (none yet, or just pushed) shows the list's placeholder, so any direction can be picked again.
+    $('w-dir').value = aimAng == null ? '' : String(COMPASS.indexOf(compass(aimAng)) * Math.PI / 4 - Math.PI / 2);
     const b = $('w-push');
     b.textContent = aimAng == null ? 'Pick a direction' : `Push ${compass(aimAng)}`;
     b.disabled = aimAng == null || !can(price);
@@ -596,7 +599,10 @@
       }));
       sel.value = list.some((p) => p.id === keep) ? keep : list[0].id;
     }
-    if (list.some((p) => p.id === here)) sel.value = here;
+    if (here !== rocketHere) { // flying to a bare planet picks it; otherwise the list keeps what you picked
+      rocketHere = here;
+      if (list.some((p) => p.id === here)) sel.value = here;
+    }
     $('w-rocket-text').textContent = list.length === 1 ? 'The frontier found a bare planet. A rocket lands a colony there, and you name it.'
       : `The frontier found ${list.length} bare planets. A rocket lands a colony on one, and you name it.`;
     const price = world.prices?.rocket ?? 0;
@@ -614,7 +620,9 @@
     sending = false;
     if (!r.ok) { err.textContent = r.error || 'That did not go through.'; err.hidden = false; showRocket(); return; }
     $('w-rocket-name').value = '';
-    const p = r.world.planets.find((q) => q.id === id), from = placeOf(here) ?? { x: 0, y: 0 };
+    // It lifts off from where you are when people live there (Home or a colony), else from Home.
+    const p = r.world.planets.find((q) => q.id === id), at = placeOf(here);
+    const from = here !== id && (here === 'home' || (at && colonyOf(at))) ? at : { x: 0, y: 0 };
     if (calm.matches || !p) { AgentWorld.update(r.world); land({ id, name: p?.colony?.name ?? 'The colony' }); return; }
     flight = { id, name: p.colony.name, from: { x: from.x, y: from.y }, to: { x: p.x, y: p.y }, at: performance.now() + 1100 };
     AgentWorld.update(r.world);
@@ -658,7 +666,10 @@
   function showMoments(list) {
     $('w-moments-box').hidden = !list.length;
     $('w-moments-n').textContent = list.length ? String(list.length) : '';
-    $('w-moments').replaceChildren(...list.slice(-6).reverse().map((m) => {
+    const newest = list.slice(-6).reverse(), sig = newest.map((m) => m.id).join();
+    if (sig === momentsSig) return; // rebuilt only when they change, so focus and clicks survive updates
+    momentsSig = sig;
+    $('w-moments').replaceChildren(...newest.map((m) => {
       const li = document.createElement('li'), b = document.createElement('button');
       b.type = 'button'; b.className = 'linkish'; b.dataset.kind = m.kind; b.textContent = momentTitle(m);
       b.onclick = () => pick(m.id);
