@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>World mockup</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --void: #03050a; --panel: #12151a; --raise: #171b21; --line: #252b33; --line-strong: #39414c;
+  --fg: #e3e7ed; --fg-dim: #8c96a4; --fg-faint: #5f6875; --amber: #e3ab3e; --amber-dim: rgba(227, 171, 62, .1);
+  --sans: "Geist", ui-sans-serif, -apple-system, system-ui, sans-serif; --mono: "Geist Mono", ui-monospace, Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: #0d0f12; color: var(--fg); font: 14px/1.5 var(--sans); }
+main { max-width: 1380px; margin: 0 auto; padding: 22px max(16px, env(safe-area-inset-right, 0px)) 32px max(16px, env(safe-area-inset-left, 0px)); display: grid; gap: 14px; }
+h1 { margin: 0; font-size: 19px; font-weight: 600; }
+.sub { margin: 2px 0 0; color: var(--fg-dim); max-width: 85ch; }
+.stage { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; align-items: start; }
+@media (max-width: 900px) { .stage { grid-template-columns: 1fr; } }
+.view { position: relative; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--void); }
+.view canvas { display: block; width: 100%; height: min(68vh, 640px); cursor: grab; }
+.view canvas:active { cursor: grabbing; }
+.top { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; gap: 16px; padding: 10px 14px; background: linear-gradient(rgba(3, 5, 10, .85), rgba(3, 5, 10, 0)); pointer-events: none; }
+.top b { font-weight: 600; }
+.top .where { color: var(--fg-dim); font-size: 12.5px; }
+.top .credit { margin-left: auto; font: 12.5px var(--mono); color: var(--fg-dim); }
+.top .credit span { color: var(--amber); }
+.zoom { position: absolute; right: 12px; bottom: 12px; display: flex; gap: 6px; }
+.zoom button, .time button { height: 28px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 6px; background: rgba(18, 21, 26, .85); color: var(--fg); font: 500 12.5px var(--sans); cursor: pointer; }
+.zoom button.on { border-color: var(--amber); color: var(--amber); }
+.time { position: absolute; left: 12px; bottom: 12px; display: flex; align-items: center; gap: 10px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: rgba(18, 21, 26, .85); }
+.time input { width: 200px; accent-color: var(--amber); }
+.time span { font: 12px var(--mono); color: var(--fg-dim); min-width: 6ch; }
+aside { display: grid; gap: 12px; align-content: start; }
+.box { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: 14px; display: grid; gap: 8px; }
+.box h2 { margin: 0; font-size: 14px; font-weight: 600; }
+.box p { margin: 0; color: var(--fg-dim); font-size: 13px; }
+.box textarea { width: 100%; min-height: 58px; resize: vertical; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--raise); color: var(--fg); font: 13px var(--sans); }
+.box .act { display: flex; justify-content: space-between; align-items: center; font: 12px var(--mono); color: var(--fg-faint); }
+.box .act button { height: 28px; padding: 0 12px; border: 1px solid var(--amber); border-radius: 6px; background: var(--amber-dim); color: var(--amber); font: 500 12.5px var(--sans); }
+.earn { font: 12px/1.6 var(--mono); color: var(--fg-dim); }
+.earn b { color: var(--fg); font-weight: 500; }
+.note { color: var(--fg-faint); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<main>
+  <div>
+    <h1>World: a universe your work pays for</h1>
+    <p class="sub">No agents in here: their work only arrives as credit. Zoom between Home and the map, drag to look
+      around, send a rocket to the planet the frontier found, then build on it. Click a planet on the map to fly there.</p>
+  </div>
+  <div class="stage">
+    <div class="view">
+      <canvas id="w"></canvas>
+      <div class="top"><b>World</b><span class="where" id="where">Home</span><span class="credit"><span id="credit">0</span> credit</span></div>
+      <div class="time"><button type="button" id="play">Play</button><input type="range" id="days" min="1" max="30" value="12" aria-label="Day"><span id="day">Day 12</span></div>
+      <div class="zoom"><button type="button" id="z-home" class="on">Home</button><button type="button" id="z-colony" hidden>Vesta</button><button type="button" id="z-map">Map</button></div>
+    </div>
+    <aside>
+      <div class="box">
+        <h2>Today's work</h2>
+        <div class="earn" id="earn"></div>
+      </div>
+      <div class="box">
+        <h2 id="build-title">Build on Home</h2>
+        <p>Describe something and it is built on or around the planet you're looking at: a moon, a ring city, a forest
+          that covers a continent.</p>
+        <textarea placeholder="A ring city along the equator, lit at night"></textarea>
+        <div class="act"><span>6,000 credit</span><button type="button">Build it</button></div>
+      </div>
+      <div class="box">
+        <h2>Send a rocket</h2>
+        <p id="rocket-text">The frontier found a bare planet. A rocket lands a colony there, and from then on you can build
+          on it like on Home.</p>
+        <div class="act"><span>8,000 credit</span><button type="button" id="send">Send a rocket</button></div>
+      </div>
+      <div class="box">
+        <h2>Push the frontier</h2>
+        <p>On the map, drag from Home in the direction you want to explore. The dark lights up that way as you keep working.</p>
+        <div class="act"><span>4,000 credit</span><button type="button" id="go-map">Pick a direction</button></div>
+      </div>
+      <p class="note">Stars on the map are moments: a week of work, a big cleanup, a merged PR. Open one to see what was
+        done.</p>
+    </aside>
+  </div>
+</main>
+<script>
+function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const DAYS = (() => {
+  const r = rng(7), out = []; let credit = 0, adds = 0, dels = 0;
+  for (let d = 1; d <= 30; d++) {
+    const weekend = d % 7 === 6 || d % 7 === 0, commits = Math.round((weekend ? 8 : 30) * (0.6 + r() * 0.8));
+    const add = Math.round((weekend ? 2500 : 11000) * (0.5 + r())), del = Math.round(add * (0.04 + r() * 0.22));
+    const mult = 1 + Math.round(del / (add + del) * 30) / 10, earned = Math.round((add / 10) * mult);
+    credit += earned; adds += add; dels += del;
+    out.push({ d, commits, add, del, mult, earned, credit });
+  }
+  return out;
+})();
+const TOTAL = DAYS.at(-1).credit, grow = (d) => DAYS[d - 1].credit / TOTAL, fmt = (n) => n.toLocaleString('en-US');
+
+const cv = document.getElementById('w'), x = cv.getContext('2d');
+let W = 0, H = 0, dpr = 1, day = 12, z = 0, zTo = 0, pan = { x: 0, y: 0 }, t0 = performance.now();
+let focus = { x: 0, y: 0 }, focusTo = { x: 0, y: 0 }, focused = 'home', spent = 0, colony = false, rocket = null;
+function fit() { dpr = window.devicePixelRatio || 1; W = cv.clientWidth; H = cv.clientHeight; cv.width = W * dpr; cv.height = H * dpr; }
+addEventListener('resize', fit); fit();
+
+// The map at full zoom-out spans MAP x MAP px around Home; zoomed in it is scaled up 40 times.
+const MAP = 900, ZMAX = 40, scaleOf = (z) => Math.pow(ZMAX, 1 - z);
+const STARS = (() => { const r = rng(23), s = []; for (let i = 0; i < 900; i++) s.push({ x: (r() - 0.5) * MAP * 1.6, y: (r() - 0.5) * MAP, b: r() }); return s; })();
+const LOBES = [{ from: 8, ang: -0.55, rate: 13 }, { from: 19, ang: 2.8, rate: 15 }];
+function lit(mx, my) {
+  const home = 46 + 120 * grow(day); let best = 1 - Math.hypot(mx, my) / home;
+  for (const l of LOBES) {
+    if (day < l.from) continue;
+    const len = (day - l.from + 1) * l.rate, ux = Math.cos(l.ang), uy = Math.sin(l.ang);
+    const along = Math.max(0, Math.min(len + home * 0.6, mx * ux + my * uy));
+    best = Math.max(best, 1 - Math.hypot(mx - ux * along, my - uy * along) / (34 + 26 * along / (len + home)));
+  }
+  return Math.max(0, Math.min(1, best * 1.6));
+}
+const GLOW = Object.assign(document.createElement('canvas'), { width: 96, height: 60 });
+function drawGlow(cx, cy, s) {
+  const g = GLOW.getContext('2d'), gw = GLOW.width, gh = GLOW.height, span = { w: MAP * 1.6, h: MAP };
+  g.clearRect(0, 0, gw, gh);
+  for (let j = 0; j < gh; j++) for (let i = 0; i < gw; i++) {
+    const l = lit(((i + 0.5) / gw - 0.5) * span.w, ((j + 0.5) / gh - 0.5) * span.h);
+    if (l > 0) { g.fillStyle = `rgba(36,62,110,${0.45 * l})`; g.fillRect(i, j, 1, 1); }
+  }
+  x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high';
+  x.drawImage(GLOW, cx - span.w / 2 * s, cy - span.h / 2 * s, span.w * s, span.h * s);
+}
+// moments the frontier has uncovered (map px), and a planet waiting to be claimed
+const MOMENTS = [
+  { x: 70, y: 28, d: 7, name: 'Week 1', info: '163 commits, +61,204 −7,102' },
+  { x: -40, y: 34, d: 10, name: 'Big cleanup', info: '−4,180 lines in a day, ×1.9' },
+  { x: 120, y: -78, d: 14, name: 'Week 2', info: '171 commits, +64,880 −8,015' },
+  { x: 205, y: -128, d: 18, name: 'PR #212 merged', info: 'dark mode, with a theme menu' },
+  { x: -170, y: 64, d: 23, name: 'Week 3', info: '158 commits, +58,310 −9,904' },
+  { x: -260, y: 92, d: 28, name: 'Week 4', info: '166 commits, +62,477 −8,590' },
+];
+const CLAIM = { x: 255, y: -160, name: 'Unclaimed planet', info: 'send a rocket to build here' };
+const NEBULA = { x: 175, y: -112 };
+
+const LAND = (() => { const r = rng(41), o = []; for (let i = 0; i < 26; i++) o.push({ u: r(), v: 0.15 + r() * 0.7, s: 0.04 + r() * 0.09, at: r() }); return o; })();
+const CITIES = (() => { const r = rng(43), o = []; for (let i = 0; i < 90; i++) o.push({ u: r(), v: 0.2 + r() * 0.6, at: r() }); return o; })();
+function mix(a, b, k) { const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16); return `rgb(${[16, 8, 0].map((s) => Math.round((pa >> s & 255) * (1 - k) + (pb >> s & 255) * k)).join(',')})`; }
+function ball(cx, cy, r, c0, c1, c2) { const g = x.createRadialGradient(cx - r * .35, cy - r * .35, 0, cx, cy, r); g.addColorStop(0, c0); g.addColorStop(.6, c1); g.addColorStop(1, c2); x.fillStyle = g; x.beginPath(); x.arc(cx, cy, r, 0, 7); x.fill(); }
+function label(text, lx, ly, color = '#8c96a4', size = 12) { x.font = `500 ${size}px Geist, system-ui, sans-serif`; x.textAlign = 'center'; x.fillStyle = 'rgba(3,5,10,.8)'; x.fillText(text, lx + 1, ly + 1); x.fillStyle = color; x.fillText(text, lx, ly); }
+function sat(sx, sy, a, c) { x.save(); x.translate(sx, sy); x.rotate(a); x.fillStyle = '#345a91'; x.fillRect(-9, -2, 5, 4); x.fillRect(4, -2, 5, 4); x.fillStyle = c; x.fillRect(-3, -3, 6, 6); x.restore(); }
+
+function drawHome(cx, cy, R, t, detail) {
+  const p = grow(day), ocean = Math.min(1, Math.max(0, (p - 0.06) / 0.4)), spin = t / 60000;
+  if (p > 0.08) { const a = x.createRadialGradient(cx, cy, R * .95, cx, cy, R * 1.25); a.addColorStop(0, `rgba(110,160,240,${.35 * p})`); a.addColorStop(1, 'rgba(110,160,240,0)'); x.fillStyle = a; x.beginPath(); x.arc(cx, cy, R * 1.25, 0, 7); x.fill(); }
+  const ring = day >= 22 && detail > 0.2;
+  if (ring) { x.globalAlpha = detail; x.strokeStyle = 'rgba(220,210,180,.5)'; x.lineWidth = Math.max(1, R / 80); x.beginPath(); x.ellipse(cx, cy, R * 1.6, R * .32, -.25, Math.PI, 2 * Math.PI); x.stroke(); x.lineWidth = 1; x.globalAlpha = 1; }
+  x.save(); x.beginPath(); x.arc(cx, cy, R, 0, 7); x.clip();
+  x.fillStyle = mix('#6b6660', '#24507f', ocean); x.fillRect(cx - R, cy - R, 2 * R, 2 * R);
+  const rr = rng(3); for (let i = 0; i < 26; i++) { const u = (rr() + spin) % 1, v = rr(), s = (3 + rr() * 9) * R / 240; x.fillStyle = `rgba(40,38,36,${.5 * (1 - ocean)})`; x.beginPath(); x.arc(cx - R + u * 2 * R, cy - R + v * 2 * R, s, 0, 7); x.fill(); }
+  LAND.forEach((l) => { if (l.at > p * 1.15) return; const u = (l.u + spin) % 1; x.fillStyle = mix('#7b7569', '#4f7a52', ocean); x.beginPath(); x.ellipse(cx - R + u * 2.2 * R - .1 * R, cy - R + l.v * 2 * R, l.s * 2 * R, l.s * 1.2 * R, .3, 0, 7); x.fill(); });
+  const sh = x.createRadialGradient(cx - R * .45, cy - R * .4, R * .2, cx, cy, R * 1.05); sh.addColorStop(0, 'rgba(255,255,255,.12)'); sh.addColorStop(.55, 'rgba(0,0,0,0)'); sh.addColorStop(1, 'rgba(2,4,10,.82)'); x.fillStyle = sh; x.fillRect(cx - R, cy - R, 2 * R, 2 * R);
+  if (R > 30) CITIES.forEach((c) => { if (c.at > p) return; const u = (c.u + spin) % 1, lx = cx - R + u * 2.2 * R - .1 * R, ly = cy - R + c.v * 2 * R; if (Math.hypot(lx - cx, ly - cy) > R * .96 || lx - cx < R * .05) return; x.fillStyle = 'rgba(255,205,120,.85)'; x.fillRect(lx, ly, 2, 2); });
+  x.restore();
+  if (ring) { x.globalAlpha = detail; x.strokeStyle = 'rgba(230,220,190,.7)'; x.lineWidth = Math.max(1, R / 80); x.beginPath(); x.ellipse(cx, cy, R * 1.6, R * .32, -.25, 0, Math.PI); x.stroke(); x.lineWidth = 1; if (detail > .6) label('Ring city (you described it)', cx + R * 1.15, cy + R * .6); x.globalAlpha = 1; }
+  if (day >= 15) { const a = t / 16000; ball(cx + Math.cos(a) * R * 1.9, cy + Math.sin(a) * R * .55, Math.max(1.5, R * .055), '#e8e2d6', '#b8b2a6', '#4a463f'); }
+  if (detail > .5) {
+    if (day >= 26) { const sx = cx - R * 1.45, sy = cy - R * .85; x.strokeStyle = 'rgba(200,215,235,.6)'; x.beginPath(); x.moveTo(cx - R * .55, cy - R * .55); x.lineTo(sx, sy); x.stroke(); x.fillStyle = '#dfe5ee'; x.fillRect(sx - 6, sy - 3, 12, 6); label('Space elevator', sx, sy - 10); }
+  }
+}
+
+function drawColony(cx, cy, R, t, detail) {
+  const g = x.createRadialGradient(cx - R * .35, cy - R * .35, 0, cx, cy, R); g.addColorStop(0, '#c9b9a4'); g.addColorStop(.6, '#8a6f58'); g.addColorStop(1, '#2a1f18');
+  x.fillStyle = g; x.beginPath(); x.arc(cx, cy, R, 0, 7); x.fill();
+  if (!colony) return;
+  const a = x.createRadialGradient(cx, cy, R * .95, cx, cy, R * 1.18); a.addColorStop(0, 'rgba(240,180,120,.25)'); a.addColorStop(1, 'rgba(240,180,120,0)'); x.fillStyle = a; x.beginPath(); x.arc(cx, cy, R * 1.18, 0, 7); x.fill();
+  // domes, with lights
+  const r = rng(77); x.save(); x.beginPath(); x.arc(cx, cy, R, 0, 7); x.clip();
+  for (let i = 0; i < 7; i++) { const dx = cx + (r() - .6) * R * .9, dy = cy + (r() - .3) * R * .8, dr = R * (.05 + r() * .06); x.fillStyle = 'rgba(190,225,255,.35)'; x.beginPath(); x.ellipse(dx, dy, dr * 1.4, dr, 0, Math.PI, 2 * Math.PI); x.fill(); x.fillStyle = 'rgba(255,205,120,.9)'; x.fillRect(dx - 1, dy - 2, 2, 2); }
+  x.restore();
+  if (detail > .5) { label('Vesta (you named it)', cx, cy + R + 26, '#e3e7ed', 13); label('Colony landed on day ' + day + '. Describe what to build here.', cx, cy + R + 44, '#5f6875', 11.5); }
+}
+function rocketAt(k) { // along a curve from Home to the planet, in map coordinates
+  const cx = CLAIM.x * .5 - 80, cy = CLAIM.y * .5 - 60, u = 1 - k;
+  return { x: 2 * u * k * cx + k * k * CLAIM.x, y: 2 * u * k * cy + k * k * CLAIM.y, dx: 2 * u * cx + 2 * k * (CLAIM.x - cx), dy: 2 * u * cy + 2 * k * (CLAIM.y - cy) };
+}
+function frame(now) {
+  const t = now - t0;
+  z += (zTo - z) * 0.08; if (Math.abs(zTo - z) < 0.001) z = zTo;
+  focus.x += (focusTo.x - focus.x) * .08; focus.y += (focusTo.y - focus.y) * .08;
+  const s = scaleOf(z), cx = W / 2 + pan.x - focus.x * s, cy = H / 2 + pan.y - focus.y * s;
+  x.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const bg = x.createRadialGradient(W / 2, H / 2, 10, W / 2, H / 2, Math.max(W, H) * .7); bg.addColorStop(0, '#0b1526'); bg.addColorStop(1, '#03050a'); x.fillStyle = bg; x.fillRect(0, 0, W, H);
+  // far background stars, always there, faintly
+  const far = rng(99); for (let i = 0; i < 140; i++) { x.fillStyle = `rgba(220,230,255,${.08 + far() * .18})`; x.fillRect(far() * W, far() * H, 1, 1); }
+  const mapA = Math.min(1, Math.max(0, (z - .15) / .5));
+  x.globalAlpha = mapA; drawGlow(cx, cy, s);
+  const nl = lit(NEBULA.x, NEBULA.y);
+  if (nl > .05) { const nx = cx + NEBULA.x * s, ny = cy + NEBULA.y * s, nr = 70 * s; const g = x.createRadialGradient(nx, ny, 0, nx, ny, nr); g.addColorStop(0, `rgba(190,110,200,${.35 * nl})`); g.addColorStop(1, 'rgba(190,110,200,0)'); x.fillStyle = g; x.beginPath(); x.arc(nx, ny, nr, 0, 7); x.fill(); }
+  STARS.forEach((st) => { const l = lit(st.x, st.y); if (l <= .02) return; const sx = cx + st.x * s, sy = cy + st.y * s; if (sx < -4 || sy < -4 || sx > W + 4 || sy > H + 4) return; x.fillStyle = `rgba(225,235,255,${(.25 + .6 * st.b) * l})`; const sz = st.b > .93 ? 2.2 : st.b > .75 ? 1.5 : 1; x.fillRect(sx, sy, sz, sz); });
+  x.globalAlpha = 1;
+  if (z > .45) {
+    const a = Math.min(1, (z - .45) / .3); x.globalAlpha = a;
+    MOMENTS.forEach((m) => { if (day < m.d || lit(m.x, m.y) < .25) return; const mx = cx + m.x * s, my = cy + m.y * s; x.fillStyle = '#ffe9b8'; x.beginPath(); x.arc(mx, my, 2.6, 0, 7); x.fill(); label(m.name, mx, my + 16, '#c7cfda'); label(m.info, mx, my + 30, '#5f6875', 11); });
+    if (lit(CLAIM.x, CLAIM.y) > .2 && !colony) { const px = cx + CLAIM.x * s, py = cy + CLAIM.y * s; x.strokeStyle = 'rgba(227,171,62,.6)'; x.setLineDash([3, 4]); x.beginPath(); x.arc(px, py, 12, 0, 7); x.stroke(); x.setLineDash([]); label(CLAIM.name, px, py - 32, '#e3ab3e'); label(CLAIM.info, px, py - 18, '#5f6875', 11); }
+    if (colony) label('Vesta', cx + CLAIM.x * s, cy + CLAIM.y * s + 22, '#e3e7ed');
+    const home = 46 + 120 * grow(day), next = day < 8 ? -.55 : day < 19 ? 2.8 : 1.3;
+    const ax = cx + Math.cos(next) * (home + 50) * s, ay = cy + Math.sin(next) * (home + 50) * s;
+    x.strokeStyle = '#e3ab3e'; x.setLineDash([4, 6]); x.beginPath(); x.moveTo(cx + Math.cos(next) * 14, cy + Math.sin(next) * 14); x.lineTo(ax, ay); x.stroke(); x.setLineDash([]);
+    label('push this way: 4,000 credit', ax, ay + (Math.sin(next) > 0 ? 18 : -10), '#e3ab3e');
+    x.globalAlpha = 1;
+  }
+  const R = Math.min(Math.min(W, H) * .3, 6 * s), detail = Math.min(1, Math.max(0, (.5 - z) / .35));
+  drawHome(cx, cy, R, t, focused === 'home' ? detail : 0);
+  if (lit(CLAIM.x, CLAIM.y) > .2 || colony) drawColony(cx + CLAIM.x * s, cy + CLAIM.y * s, Math.min(Math.min(W, H) * .26, 4.5 * s), t, focused === 'colony' ? detail : 0);
+  if (rocket) {
+    const k = Math.min(1, (now - rocket.at) / 2800), p = rocketAt(k), rx = cx + p.x * s, ry = cy + p.y * s;
+    x.strokeStyle = 'rgba(255,210,138,.35)'; x.setLineDash([2, 5]); x.beginPath();
+    for (let i = 0; i <= 30; i++) { const q = rocketAt(i / 30 * k); i ? x.lineTo(cx + q.x * s, cy + q.y * s) : x.moveTo(cx + q.x * s, cy + q.y * s); } x.stroke(); x.setLineDash([]);
+    x.save(); x.translate(rx, ry); x.rotate(Math.atan2(p.dy, p.dx) + Math.PI / 2);
+    x.fillStyle = '#ffc56a'; x.beginPath(); x.moveTo(-3, 7); x.lineTo(0, 13 + Math.random() * 4); x.lineTo(3, 7); x.fill();
+    x.fillStyle = '#dfe5ee'; x.beginPath(); x.moveTo(0, -9); x.quadraticCurveTo(5, -2, 4, 7); x.lineTo(-4, 7); x.quadraticCurveTo(-5, -2, 0, -9); x.fill();
+    x.fillStyle = '#c9584a'; x.fillRect(-6, 3, 3, 5); x.fillRect(3, 3, 3, 5); x.restore();
+    if (k >= 1) { rocket = null; colony = true; document.getElementById('z-colony').hidden = false; setTimeout(() => flyTo('colony'), 500); }
+  }
+  if (z > .5) label('Home', cx, cy - R - 10, '#e3e7ed', 13);
+  const here = focused === 'colony' ? 'Vesta' : 'Home';
+  document.getElementById('where').textContent = z < .3 ? here : z > .7 ? 'Map' : 'Leaving ' + here;
+  requestAnimationFrame(frame);
+}
+
+function setDay(d) {
+  day = d; const D = DAYS[d - 1];
+  document.getElementById('days').value = d; document.getElementById('day').textContent = `Day ${d}`;
+  document.getElementById('credit').textContent = fmt(Math.max(0, D.credit - spent));
+  document.getElementById('earn').innerHTML = `<b>${D.commits}</b> commits<br><b>+${fmt(D.add)}</b> lines written<br><b>−${fmt(D.del)}</b> lines removed, so <b>×${D.mult.toFixed(1)}</b><br><b>${fmt(D.earned)}</b> credit earned today`;
+}
+function zoomTo(v) { zTo = Math.max(0, Math.min(1, v)); if (zTo < .2) pan = { x: 0, y: 0 }; marks(); }
+function marks() {
+  document.getElementById('z-home').classList.toggle('on', zTo < .5 && focused === 'home');
+  document.getElementById('z-colony').classList.toggle('on', zTo < .5 && focused === 'colony');
+  document.getElementById('z-map').classList.toggle('on', zTo >= .5);
+  document.getElementById('build-title').textContent = 'Build on ' + (focused === 'colony' ? 'Vesta' : 'Home');
+}
+function flyTo(which) {
+  focused = which; focusTo = which === 'colony' ? { x: CLAIM.x, y: CLAIM.y } : { x: 0, y: 0 };
+  pan = { x: 0, y: 0 }; zTo = 1; marks();
+  setTimeout(() => zoomTo(0), 700);
+}
+document.getElementById('days').oninput = (e) => setDay(Number(e.target.value));
+document.getElementById('z-home').onclick = () => flyTo('home');
+document.getElementById('z-colony').onclick = () => flyTo('colony');
+document.getElementById('send').onclick = (e) => {
+  if (colony || rocket) return;
+  if (day < 22) { setDay(22); }
+  spent += 8000; setDay(day); e.target.disabled = true; e.target.textContent = 'On its way';
+  focused = 'home'; focusTo = { x: CLAIM.x * .45, y: CLAIM.y * .45 }; pan = { x: 0, y: 0 }; zoomTo(1);
+  document.getElementById('rocket-text').textContent = 'A rocket is on its way to the bare planet. Once it lands, Vesta is yours to build on.';
+  setTimeout(() => { rocket = { at: performance.now() }; }, 1300);
+};
+cv.addEventListener('click', (e) => { // a planet on the map: fly there
+  if (z < .5 || !colony) return;
+  const r = cv.getBoundingClientRect(), s = scaleOf(z), cx = W / 2 + pan.x - focus.x * s, cy = H / 2 + pan.y - focus.y * s;
+  const mx = e.clientX - r.left, my = e.clientY - r.top;
+  if (Math.hypot(mx - (cx + CLAIM.x * s), my - (cy + CLAIM.y * s)) < 18) flyTo('colony');
+  else if (Math.hypot(mx - cx, my - cy) < 18) flyTo('home');
+});
+document.getElementById('z-map').onclick = document.getElementById('go-map').onclick = () => { focusTo = { x: focused === 'colony' ? CLAIM.x * .5 : 0, y: focused === 'colony' ? CLAIM.y * .5 : 0 }; zoomTo(1); };
+cv.addEventListener('wheel', (e) => { e.preventDefault(); zoomTo(zTo + e.deltaY * .0015); }, { passive: false });
+let drag = null;
+cv.addEventListener('pointerdown', (e) => { drag = { x: e.clientX - pan.x, y: e.clientY - pan.y }; cv.setPointerCapture(e.pointerId); });
+cv.addEventListener('pointermove', (e) => { if (drag && z > .3) pan = { x: e.clientX - drag.x, y: e.clientY - drag.y }; });
+cv.addEventListener('pointerup', () => { drag = null; });
+let timer = 0;
+document.getElementById('play').onclick = (e) => {
+  if (timer) { clearInterval(timer); timer = 0; e.target.textContent = 'Play'; return; }
+  if (day >= 30) setDay(1);
+  e.target.textContent = 'Pause';
+  timer = setInterval(() => { setDay(Math.min(30, day + 1)); if (day >= 30) { clearInterval(timer); timer = 0; e.target.textContent = 'Play'; } }, 450);
+};
+setDay(12); requestAnimationFrame(frame);
+</script>
+</body>
+</html>
