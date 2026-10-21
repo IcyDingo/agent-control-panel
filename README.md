@@ -60,7 +60,9 @@ orbit, and the satellite appears where the rocket arrives and opens its wings. I
 unless you are typing in the open one. With reduced motion there is no flight: the satellite simply
 appears.
 
-**World**, next to Space view, is a world your agents' work builds (see World, below).
+**World**, next to Space view, is a world your agents' work builds (see World, below). Once it has
+started, its button shows the credit you have to spend; hover it for today's commits, lines, tokens and
+credit earned.
 
 When a session or subagent asks for something, the request appears in its panel:
 

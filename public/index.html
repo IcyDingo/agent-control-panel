@@ -411,6 +411,9 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .w-credit { font: 12.5px var(--mono); color: var(--fg-dim); }
 .w-needs { border-color: var(--amber-line); color: var(--amber); }
 .w-credit b { font-weight: 500; color: var(--amber); }
+/* The top bar keeps World's credit to spend in view. */
+.wb { margin-left: 2px; padding-left: 9px; border-left: 1px solid var(--line-strong); font: 12px var(--mono); color: var(--fg-dim); }
+.wb b { font-weight: 500; color: var(--amber); }
 .w-side {
   position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); top: calc(var(--sp-top, 52px) + 14px); z-index: 2; width: 288px;
   display: grid; gap: 12px; align-content: start;
@@ -650,7 +653,7 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
     <div class="prof-menu theme-menu" id="theme-menu" role="menu" aria-label="Theme" hidden></div>
   </div>
   <button class="btn orbit" type="button" id="space-btn">Space view</button>
-  <button class="btn globe" type="button" id="world-btn" title="A world your agents' work builds">World</button>
+  <button class="btn globe" type="button" id="world-btn" title="A world your agents' work builds">World<span class="wb" id="wb" hidden><b id="wb-bal"></b> credit</span></button>
   <button class="btn primary" type="button" id="new-agent">New agent</button>
 </header>
 <p class="banner" id="roster-err" hidden></p>
@@ -1524,6 +1527,7 @@ function render() {
   renderBoard(g, vis);
   renderDrawer(vis);
   renderEmpty(g.waiting);
+  renderWorldBtn(snap.world);
   if (spaceOn) renderSpace(g);
   document.title = snap.pending.length ? `(${snap.pending.length}) Agent panel` : 'Agent panel';
   // A two-click control keeps the keyboard focus through a redraw.
@@ -2167,6 +2171,16 @@ async function enterWorld() {
   AgentWorld.enter(r.world);
   worldNeeds();
   $('w-exit').focus({ preventScroll: true });
+}
+/** World's credit on its button in the top bar; the tooltip holds today's numbers. Just "World" until it starts. */
+function renderWorldBtn(w) {
+  const b = $('world-btn'), fmt = (n) => Math.round(n).toLocaleString('en-US');
+  $('wb').hidden = !w?.started;
+  if (!w?.started) { setAttr(b, 'title', 'A world your agents\' work builds'); return; }
+  const t = w.today, x = t.multiplier > 1 ? ` ×${t.multiplier.toFixed(1)}` : '';
+  setText($('wb-bal'), fmt(Math.max(0, w.balance)));
+  setAttr(b, 'title', `${fmt(Math.max(0, w.balance))} credit to spend in World. Today: ${fmt(t.commits)} commit${t.commits === 1 ? '' : 's'}, `
+    + `+${fmt(t.added)} / −${fmt(t.removed)} lines${x}, ${fmt(t.tokens)} tokens, ${fmt(t.credit)} credit earned.`);
 }
 /** How many sessions wait on you, shown in World's top bar; it takes you to the first. */
 function worldNeeds() {
