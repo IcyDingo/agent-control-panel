@@ -385,8 +385,18 @@ XP; the board says so when Home reaches a new level.
 - Work from before the first open doesn't count. World is kept in
   `~/Library/Application Support/Agent Panel/world/world.json`. Git is only read.
 
-Spending credit comes next: pushing the frontier into the dark, rockets to the planets it finds, and building what you
-describe ([design](docs/superpowers/specs/2026-10-21-world-design.md)).
+**Push the frontier** to spend credit. Pick a direction (from the list, or **Aim on the map**) and the dark that way
+lights up as you keep working: a push opens 150 px of map and is fully lit after 3,000 more credit earned, about ten
+normal days. A push within 20° of an earlier one makes that stretch longer. The first push always finds a planet and
+each later one finds one half the time; it shows once the light reaches it, and a click flies there. The first push
+costs 4,000, and each one after costs a quarter more. Light never goes back, even when a day's multiplier moves.
+
+**Moments** mark the map where they happened: each finished week with work (Monday to Sunday), each finished day that
+removed 500 lines or more and more than it added ("Big cleanup"), and each Home level from 3 up. The side panel lists
+the newest; a click opens its card with what was done and flies to it.
+
+Rockets to the planets the frontier finds and building what you describe come next
+([design](docs/superpowers/specs/2026-10-21-world-design.md)).
 
 ## Security
 

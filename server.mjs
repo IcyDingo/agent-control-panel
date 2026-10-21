@@ -1321,6 +1321,13 @@ function openWorld() {
   scanWorld(true);
   return { ok: true, world: worldSummary() };
 }
+/** Spend World's credit: push the frontier (world.mjs decides the price and whether it can). */
+function buyInWorld(body) {
+  const r = world.buy({ kind: body?.kind, ang: body?.ang });
+  if (!r.ok) return r;
+  broadcast();
+  return { ok: true, world: worldSummary() };
+}
 
 // ---------------------------------------------------------------- deleted versions
 
@@ -1488,7 +1495,7 @@ async function handle(req, res) {
     const ACTIONS = { '/api/end': end, '/api/remove': remove, '/api/reply': reply, '/api/unqueue': unqueue, '/api/mode': switchMode,
                       '/api/folders': listFolders, '/api/folder': folderInfo, '/api/pick-folder': pickFolder,
                       '/api/profiles': profiles, '/api/profile': switchProfile, '/api/profile/connect': connectProfile,
-                      '/api/answer-open': answerOpen, '/api/world/open': openWorld };
+                      '/api/answer-open': answerOpen, '/api/world/open': openWorld, '/api/world/buy': buyInWorld };
     if (Object.hasOwn(ACTIONS, url.pathname)) {
       let r;
       try { r = await ACTIONS[url.pathname](body); } catch (err) { r = { ok: false, error: String(err?.message ?? err).slice(0, 300) }; }

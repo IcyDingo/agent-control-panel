@@ -44,6 +44,107 @@ export function homeLevel(days, today) {
     next: next ? { level: i + 2, name: next[1], at: next[0] } : null };
 }
 
+/** How far Home's light reaches on the map (map px; the map is 900 across zoomed out): quick at first, all of it at the
+ *  ladder's top. */
+export const homeReach = (xp) => 46 + 120 * Math.sqrt(Math.min(1, xp / 100 / 40));
+
+// ---------------------------------------------------------------- spending: the frontier, and the moments on the map
+
+/** What each kind costs first; each one bought of a kind makes the next of that kind a quarter dearer. */
+export const PRICES = { frontier: 4000, rocket: 8000, build: 6000 };
+export const priceOf = (kind, purchases) =>
+  Math.round(PRICES[kind] * 1.25 ** purchases.filter((p) => p.kind === kind).length / 100) * 100;
+/** A push buys this much lobe (map px) from Home outward, lit as this much credit is earned after it. */
+export const PUSH_LEN = 150, LIGHT_CREDIT = 3000;
+/** Lobes start this far out, inside Home's light, and widen toward their tip (the mockup's shape). */
+export const LOBE_START = 60;
+export const lobeRadius = (along, tip) => 34 + 26 * along / (tip + 40);
+const JOIN = 20 * Math.PI / 180; // a push this close to a lobe's direction extends it
+const normAng = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+const angDiff = (a, b) => Math.abs(normAng(a - b));
+/** A number in [0, 1) that is always the same for this World and this name. */
+const hash = (seed, name) => parseInt(crypto.createHash('sha1').update(`${seed}:${name}`).digest('hex').slice(0, 8), 16) / 2 ** 32;
+const toMap = (ang, along, off) => ({ x: Math.cos(ang) * along - Math.sin(ang) * off, y: Math.sin(ang) * along + Math.cos(ang) * off });
+/** Local midnight after a day (YYYY-MM-DD). */
+const dayEnd = (day) => { const [y, m, d] = day.split('-').map(Number); return new Date(y, m - 1, d + 1).getTime(); };
+const addDays = (day, n) => { const [y, m, d] = day.split('-').map(Number); return dayKey(new Date(y, m - 1, d + n).getTime()); };
+const LOOKS = ['rust', 'ice', 'sand', 'violet'];
+
+/** The frontier from the pushes bought: its lobes, each lit as far as the credit earned since each push reaches (`peak`
+ *  is the most World has seen earned, so the light never goes back), and the planets they hold, found or not yet. */
+export function frontierOf(purchases, peak, seed) {
+  const lobes = [], planets = [];
+  purchases.filter((p) => p.kind === 'frontier').forEach((p, i) => {
+    let lobe = lobes.find((l) => angDiff(l.ang, p.ang) <= JOIN);
+    if (!lobe) lobes.push(lobe = { ang: p.ang, pushes: [] });
+    const before = lobe.pushes.length * PUSH_LEN;
+    lobe.pushes.push(p);
+    if (i === 0 || hash(seed, `planet ${i}`) < 0.5) {
+      const along = LOBE_START + before + PUSH_LEN * (0.55 + 0.35 * hash(seed, `planet ${i} along`));
+      planets.push({ id: `p${i}`, lobe, along, ...toMap(lobe.ang, along, (hash(seed, `planet ${i} off`) - 0.5) * 36),
+        look: LOOKS[Math.floor(hash(seed, `planet ${i} look`) * LOOKS.length)] });
+    }
+  });
+  const litBy = (pushes, earned) => pushes.reduce((sum, p) => sum + PUSH_LEN * Math.min(1, Math.max(0, (earned - p.earnedAt) / LIGHT_CREDIT)), 0);
+  for (const l of lobes) { l.lit = litBy(l.pushes, peak); l.tip = LOBE_START + l.lit; }
+  return { lobes, planets: planets.map((p) => ({ ...p, found: p.lobe.tip >= p.along + 8 })), litBy };
+}
+
+/** The stretches of work the map marks: each finished week with work in it, each finished day that removed 500 lines or
+ *  more and more than it added, and each level Home reached from 3 up (at once). Each sits in the light as it was then:
+ *  along the lobe growing at the time, else in Home's light. Never about repositories. */
+export function momentsOf(days, today, purchases, seed) {
+  const sorted = Object.keys(days).sort(), out = [];
+  const pushes = purchases.filter((p) => p.kind === 'frontier'), { lobes, litBy } = frontierOf(purchases, 0, seed);
+  let earned = 0, xp = 0;
+  const through = {}; // day → { earned, xp } up to and including it
+  for (const d of sorted) {
+    earned += dayCredit(days[d]); xp += dayXp(days[d]);
+    through[d] = { earned, xp };
+  }
+  const upTo = (day) => through[sorted.filter((d) => d <= day).at(-1)] ?? { earned: 0, xp: 0 };
+  function place(id, day) {
+    const end = dayEnd(day), last = pushes.filter((p) => p.at < end).at(-1), r1 = hash(seed, `${id} r`), r2 = hash(seed, `${id} a`);
+    const lobe = last && lobes.find((l) => l.pushes.includes(last));
+    const tip = lobe ? LOBE_START + litBy(lobe.pushes.filter((p) => p.at < end), upTo(day).earned) : 0;
+    if (lobe && tip > LOBE_START + 10) {
+      const from = LOBE_START * 0.6;
+      return toMap(lobe.ang, from + (tip - from) * (0.3 + 0.65 * r1), (r2 - 0.5) * 40);
+    }
+    const r = homeReach(upTo(day).xp) * (0.25 + 0.55 * r1), a = 2 * Math.PI * r2;
+    return { x: Math.cos(a) * r, y: Math.sin(a) * r };
+  }
+  const add = (m) => out.push({ ...m, ...place(m.id, m.day) });
+
+  const weeks = new Map(); // Monday → its days
+  for (const d of sorted) {
+    const [y, m, dd] = d.split('-').map(Number), monday = addDays(d, -((new Date(y, m - 1, dd).getDay() + 6) % 7));
+    weeks.set(monday, [...(weeks.get(monday) ?? []), d]);
+  }
+  for (const [monday, list] of weeks) {
+    const sunday = addDays(monday, 6), worked = list.filter((d) => dayCredit(days[d]) > 0);
+    if (sunday >= today || !worked.length) continue;
+    const sum = (k) => list.reduce((s, d) => s + days[d][k], 0);
+    add({ id: `week ${monday}`, kind: 'week', name: 'A week of work', day: sunday, from: monday,
+      info: { commits: sum('commits'), added: sum('added'), removed: sum('removed'), credit: list.reduce((s, d) => s + dayCredit(days[d]), 0), days: worked.length } });
+  }
+  for (const d of sorted) {
+    const x = days[d];
+    if (d >= today || x.removed < 500 || x.removed <= x.added) continue;
+    add({ id: `cleanup ${d}`, kind: 'cleanup', name: 'Big cleanup', day: d,
+      info: { added: x.added, removed: x.removed, multiplier: multiplier(x.added, x.removed), credit: dayCredit(x) } });
+  }
+  let before = 0;
+  for (const d of sorted) {
+    const now = through[d].xp;
+    LEVELS.forEach(([at, stage], i) => {
+      if (i >= 2 && before < at && now >= at) add({ id: `level ${i + 1}`, kind: 'level', name: `Home: ${stage}`, day: d, info: { level: i + 1, xp: now } });
+    });
+    before = now;
+  }
+  return out.sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
+}
+
 /** A commit as you wrote it: a rebase, an amend or a cherry-pick keeps its author time and subject. */
 export const commitKey = (authorTimeSec, subject) =>
   `${authorTimeSec}:${crypto.createHash('sha1').update(subject).digest('hex').slice(0, 12)}`;
@@ -244,6 +345,38 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
     st.gitFailed = failed;
   }
 
+  /** The work per day: tokens, and every repository's lines and commits. */
+  function daysOf() {
+    const days = {};
+    for (const [d, n] of Object.entries(st.tokens)) (days[d] ??= blank()).tokens += n;
+    for (const perDay of Object.values(st.lines)) for (const [d, c] of Object.entries(perDay)) {
+      const x = (days[d] ??= blank());
+      x.added += c.added; x.removed += c.removed; x.commits += c.commits;
+    }
+    return days;
+  }
+  const earnedIn = (days) => Object.values(days).reduce((sum, x) => sum + dayCredit(x), 0);
+  const fail = (error) => ({ ok: false, error });
+  const fmt = (n) => Math.round(n).toLocaleString('en-US');
+
+  function summary() {
+    if (!st) return { started: false };
+    const today = dayKey(now());
+    if (memo?.today === today) return memo.summary;
+    const days = daysOf(), earned = earnedIn(days), peak = Math.max(st.peak ?? 0, earned);
+    const spent = st.purchases.reduce((sum, p) => sum + (p.price ?? 0), 0), t = days[today] ?? blank(), home = homeLevel(days, today);
+    const { lobes, planets } = frontierOf(st.purchases, peak, st.seed);
+    const s = { started: true, startedAt: st.startedAt, seed: st.seed, earned, spent, balance: earned - spent, home, reach: homeReach(home.xp),
+      today: { day: today, commits: t.commits, added: t.added, removed: t.removed, multiplier: multiplier(t.added, t.removed), tokens: t.tokens, credit: dayCredit(t) },
+      prices: { frontier: priceOf('frontier', st.purchases), rocket: priceOf('rocket', st.purchases), build: priceOf('build', st.purchases) },
+      frontier: lobes.map((l) => ({ ang: l.ang, bought: l.pushes.length * PUSH_LEN, lit: l.lit, tip: l.tip })),
+      planets: planets.filter((p) => p.found).map((p) => ({ id: p.id, x: p.x, y: p.y, look: p.look, colony: null })),
+      moments: momentsOf(days, today, st.purchases, st.seed),
+      noEmail: st.noEmail ?? [], gitFailed: st.gitFailed ?? [] };
+    memo = { today, summary: s };
+    return s;
+  }
+
   return {
     started: () => Boolean(st),
     open() {
@@ -255,25 +388,26 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
       if (!st) return;
       const changed = await scanTokens();
       if (git) await scanCommits();
-      if (changed || git) save();
+      // The most ever earned: the frontier lights by it, so a day that counts for less later never dims it.
+      const earned = earnedIn(daysOf()), higher = earned > (st.peak ?? 0);
+      if (higher) st.peak = earned;
+      if (changed || git || higher) save();
     },
-    summary() {
-      if (!st) return { started: false };
-      const today = dayKey(now());
-      if (memo?.today === today) return memo.summary;
-      const days = {};
-      for (const [d, n] of Object.entries(st.tokens)) (days[d] ??= blank()).tokens += n;
-      for (const perDay of Object.values(st.lines)) for (const [d, c] of Object.entries(perDay)) {
-        const x = (days[d] ??= blank());
-        x.added += c.added; x.removed += c.removed; x.commits += c.commits;
-      }
-      const earned = Object.values(days).reduce((sum, x) => sum + dayCredit(x), 0);
-      const spent = st.purchases.reduce((sum, p) => sum + (p.price ?? 0), 0), t = days[today] ?? blank();
-      const summary = { started: true, startedAt: st.startedAt, seed: st.seed, earned, spent, balance: earned - spent, home: homeLevel(days, today),
-        today: { day: today, commits: t.commits, added: t.added, removed: t.removed, multiplier: multiplier(t.added, t.removed), tokens: t.tokens, credit: dayCredit(t) },
-        noEmail: st.noEmail ?? [], gitFailed: st.gitFailed ?? [] };
-      memo = { today, summary };
-      return summary;
+    summary,
+    /** Spend credit: `{ kind: 'frontier', ang }` pushes the frontier toward an angle (radians, map space). Purchases are
+     *  final and keep what they cost. */
+    buy({ kind, ang } = {}) {
+      if (!st) return fail('Open World first.');
+      if (kind !== 'frontier') return fail('That is not something World sells.');
+      if (typeof ang !== 'number' || !Number.isFinite(ang)) return fail('Pick a direction to push.');
+      const s = summary(), price = priceOf(kind, st.purchases);
+      if (s.balance < price) return fail(`It costs ${fmt(price)} credit, and you have ${fmt(Math.max(0, s.balance))}.`);
+      const peak = Math.max(st.peak ?? 0, s.earned);
+      const p = { kind, at: now(), price, earnedAt: peak, ang: normAng(ang) };
+      st.peak = peak;
+      st.purchases.push(p);
+      save();
+      return { ok: true, purchase: p };
     },
   };
 }
