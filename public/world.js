@@ -37,7 +37,7 @@
   const days = () => world?.terraform?.days ?? 0;
   /** 0 before day `a`, 1 from day `b`, linear between: each stage eases in over the days before it is named. */
   const ramp = (a, b) => Math.min(1, Math.max(0, (days() - a) / (b - a)));
-  const g = () => Math.sqrt(Math.min(1, days() / 20)); // how far the lit map reaches: quick at first
+  const g = () => Math.sqrt(Math.min(1, days() / 40)); // how far the lit map reaches: quick at first, all of it at the ladder's top
   const litRadius = () => 46 + 120 * g();
   const lit = (mx, my) => Math.max(0, Math.min(1, (1 - Math.hypot(mx, my) / litRadius()) * 1.6));
   function mix(a, b, k) {
@@ -62,11 +62,20 @@
     x.drawImage(glowCanvas, cx - sw / 2 * s, cy - sh / 2 * s, sw * s, sh * s);
   }
   /** Home, stage by stage (world.mjs STAGES): clouds over the rock, oceans, continents, green coasts, forests,
-   *  settlements with lights at night, cities under an atmosphere, and a moon when it is terraformed. */
+   *  settlements with lights at night, cities under an atmosphere, and a moon when it is terraformed; then an orbital
+   *  ring, a star port on it, and a second moon. */
   function drawHome(cx, cy, R, t, detail) {
     const spin = calm.matches ? 0 : t / 60000, drift = calm.matches ? 0 : t / 40000;
     const clouds = ramp(0.03, 0.6), ocean = ramp(0.4, 1), land = ramp(1.5, 4.2), green = ramp(4, 6.2), forest = ramp(6.5, 9.5);
-    const towns = ramp(10.5, 19), air = ramp(13, 17), moon = ramp(19, 20);
+    const towns = ramp(10.5, 19), air = ramp(13, 17), moon = ramp(19, 20), ring = ramp(21, 26), port = ramp(28, 33), moon2 = ramp(36, 40);
+    // The ring is tilted; its far half passes behind Home, its near half in front.
+    const ringArc = (from, to) => {
+      x.strokeStyle = `rgba(200,212,232,${0.5 * ring})`; x.lineWidth = Math.max(1.5, R * 0.05);
+      x.beginPath(); x.ellipse(cx, cy, R * 1.65, R * 0.36, -0.25, from, to); x.stroke();
+      x.strokeStyle = `rgba(160,176,204,${0.35 * ring})`; x.lineWidth = Math.max(1, R * 0.02);
+      x.beginPath(); x.ellipse(cx, cy, R * 1.5, R * 0.32, -0.25, from, to); x.stroke();
+    };
+    if (ring > 0) ringArc(Math.PI, 2 * Math.PI);
     if (air > 0) {
       const a = x.createRadialGradient(cx, cy, R * 0.95, cx, cy, R * 1.25);
       a.addColorStop(0, `rgba(110,160,240,${0.4 * air})`); a.addColorStop(1, 'rgba(110,160,240,0)');
@@ -111,6 +120,20 @@
       const m = x.createRadialGradient(mx - R * 0.05, my - R * 0.05, R * 0.02, mx, my, R * 0.16);
       m.addColorStop(0, `rgba(222,226,232,${moon})`); m.addColorStop(1, `rgba(96,102,112,${moon})`);
       x.fillStyle = m; x.beginPath(); x.arc(mx, my, R * 0.15, 0, 7); x.fill();
+    }
+    if (ring > 0) ringArc(0, Math.PI);
+    if (port > 0) { // a star port on the ring's near side, its beacon blinking
+      const th = 0.35 * Math.PI, ex = Math.cos(th) * R * 1.65, ey = Math.sin(th) * R * 0.36;
+      const px = cx + ex * Math.cos(-0.25) - ey * Math.sin(-0.25), py = cy + ex * Math.sin(-0.25) + ey * Math.cos(-0.25), u = Math.max(3, R * 0.05);
+      x.fillStyle = `rgba(214,220,230,${port})`; x.fillRect(px - u * 1.6, py - u * 0.5, u * 3.2, u); x.fillRect(px - u * 0.4, py - u * 1.4, u * 0.8, u * 2.8);
+      x.fillStyle = `rgba(255,190,90,${port * (calm.matches ? 1 : 0.55 + 0.45 * Math.sin(t / 380))})`;
+      x.beginPath(); x.arc(px, py - u * 1.5, Math.max(1.5, u * 0.35), 0, 7); x.fill();
+    }
+    if (moon2 > 0) { // a second, smaller moon on a wider orbit
+      const a = (calm.matches ? 0 : t / 45000) + 2.4, mx = cx + Math.cos(a) * R * 2.15, my = cy + Math.sin(a) * R * 0.75;
+      const m = x.createRadialGradient(mx - R * 0.03, my - R * 0.03, R * 0.01, mx, my, R * 0.1);
+      m.addColorStop(0, `rgba(226,204,186,${moon2})`); m.addColorStop(1, `rgba(110,86,74,${moon2})`);
+      x.fillStyle = m; x.beginPath(); x.arc(mx, my, R * 0.09, 0, 7); x.fill();
     }
   }
 
@@ -177,10 +200,14 @@
   function show(w) {
     const tf = w.terraform ?? { days: 0, today: 0, stage: 'Bare rock', next: null }, pct = (v) => Math.round(Math.min(1, v) * 100);
     $('w-stage').textContent = tf.stage;
-    $('w-days').textContent = `· day ${tf.days.toFixed(1)} of 20`;
-    $('w-bar').style.width = pct(tf.days / 20) + '%';
-    $('w-next').textContent = tf.next ? `Next: ${tf.next.name} at day ${tf.next.at}.` : 'Home is terraformed. The frontier opens next.';
-    $('w-tf-today').textContent = tf.today >= 1 ? "Today's full day is done. More work still earns credit." : `Today: ${pct(tf.today)}% of a full day.`;
+    // Toward terraformed first, at day 20; past it, toward the next stage.
+    const past = tf.days >= 20;
+    $('w-days').textContent = `· day ${tf.days.toFixed(1)}${past ? '' : ' of 20'}`;
+    $('w-bar').style.width = pct(!past ? tf.days / 20 : tf.next ? (tf.days - tf.at) / (tf.next.at - tf.at) : 1) + '%';
+    $('w-next').textContent = tf.next ? `Next: ${tf.next.name} at day ${tf.next.at}.` : 'Home has climbed the whole ladder. The frontier opens next.';
+    $('w-tf-today').textContent = tf.today >= 3 ? 'Today: 3 days, the most one day adds. More work still earns credit.'
+      : tf.today >= 1 ? `Today: ${tf.today === 1 ? 'a full day' : tf.today.toFixed(1) + ' days'}. More work adds more, up to 3.`
+      : `Today: ${pct(tf.today)}% of a full day.`;
     $('w-bar-today').style.width = pct(tf.today) + '%';
     $('w-credit').textContent = fmt(Math.max(0, w.balance));
     const t = w.today;

@@ -1,8 +1,8 @@
 // World: a universe your agents' work pays for (docs/superpowers/specs/2026-10-21-world-design.md).
 //
 // Credit is earned per local calendar day from the tokens the shown profile's sessions use and the lines in your own
-// commits; lines removed multiply it. Only work after World's first open counts. Home terraforms on the days you work,
-// at most one full day per calendar day, so it unfolds over weeks; credit is what you spend.
+// commits; lines removed multiply it. Only work after World's first open counts. Home terraforms on the days you work:
+// more work moves it further, but no day adds more than three, so it unfolds over weeks; credit is what you spend.
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -24,19 +24,26 @@ export function dayCredit({ added = 0, removed = 0, tokens = 0 }) {
   return Math.round((added / 10 + tokens / 10_000) * multiplier(added, removed));
 }
 
-/** A full day of terraforming: about an hour of one agent working. Work past it still earns credit. */
+/** A full day of terraforming: about an hour of one agent working. */
 export const FULL_DAY = 300;
-/** How much of a full day a day's work is, 0..1. */
-export const dayFill = (x) => Math.min(1, dayCredit(x ?? {}) / FULL_DAY);
-/** Home's stages by days worked: something shows within the first hour, and about a month of weekdays terraforms it. */
+/** The most days of terraforming one day's work adds, so a marathon can't finish Home at once. */
+export const MAX_DAY = 3;
+/** How many days of terraforming a day's work is: its share of a full day, and past one, half a day more for each
+ *  doubling of the work (600 credit is 1.5, 1,200 is 2), up to MAX_DAY. Productive days move Home further. */
+export function dayFill(x) {
+  const c = dayCredit(x ?? {});
+  return c <= FULL_DAY ? c / FULL_DAY : Math.min(MAX_DAY, 1 + 0.5 * Math.log2(c / FULL_DAY));
+}
+/** Home's stages by days worked: something shows within the first hour, about a month of normal weekdays terraforms
+ *  it, and the ladder goes on past that for the productive. */
 export const STAGES = [[0, 'Bare rock'], [0.15, 'Clouds'], [1, 'Oceans'], [3, 'Continents'], [5, 'Green coasts'], [8, 'Forests'],
-  [12, 'Settlements'], [16, 'Cities'], [20, 'Terraformed']];
+  [12, 'Settlements'], [16, 'Cities'], [20, 'Terraformed'], [26, 'Orbital ring'], [33, 'Star port'], [40, 'Twin moons']];
 const r2 = (n) => Math.round(n * 100) / 100;
-/** The terraforming clock: the days worked so far (`days`: per-day work), today's share of a full day, the stage, the next. */
+/** The terraforming clock: the days of terraforming so far (`days`: per-day work), today's, the stage, the next. */
 export function terraform(days, today) {
   const sum = r2(Object.values(days).reduce((s, x) => s + dayFill(x), 0)), i = STAGES.findLastIndex(([at]) => sum >= at);
   const next = STAGES[i + 1];
-  return { days: sum, today: r2(dayFill(days[today])), stage: STAGES[i][1], next: next ? { name: next[1], at: next[0] } : null };
+  return { days: sum, today: r2(dayFill(days[today])), stage: STAGES[i][1], at: STAGES[i][0], next: next ? { name: next[1], at: next[0] } : null };
 }
 
 /** A commit as you wrote it: a rebase, an amend or a cherry-pick keeps its author time and subject. */

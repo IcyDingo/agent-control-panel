@@ -107,14 +107,19 @@ choice. With the owner's last week (about 30 commits and 11,000 added lines on a
 lifetime credit let one heavy week nearly finish Home, and the owner wants it to build "as the days and weeks go",
 from work, not from logging in, and to hook a newcomer on a normal workload: "after a month close to terraformed".
 
-- **The terraforming clock (owner)**: each local day adds `min(1, that day's credit ÷ 300)`. A full day, 300 credit,
-  is about an hour of one agent working **(owner: "yeah")**, so most real working days fill it; more work that day only
-  earns credit. Ideas and iteration count through tokens, shipped work through commits. Days off pause it; nothing
-  decays. Today's share fills live.
-- Home's stages by days worked: clouds (0.15, within the first hour), oceans (1), continents (3), green coasts (5),
-  forests (8), settlements with lights at night (12), cities under an atmosphere (16), terraformed with a moon (20,
-  about a month of weekdays). Each eases in over the days before it is named **(call)**.
-- The lit area of the map widens around Home with the clock (quick at first, its full reach at day 20) **(call)**.
+- **The terraforming clock (owner)**: each local day adds its credit ÷ 300 up to one full day; past that, half a day
+  more per doubling of the day's credit, at most 3 days from one day: `c ≤ 300 ? c/300 : min(3, 1 + ½·log2(c/300))`.
+  A full day, 300 credit, is about an hour of one agent working **(owner: "yeah")**, so most real working days fill
+  it. A first cut capped a day at 1; the owner rejected that: "we should not punish productive people". The curve
+  rewards more work without letting one marathon finish Home **(call: half a day per doubling, 3 at most)**. On the
+  owner's last two weeks it gives about 31 days of terraforming in 15 (terraformed in about 10 working days), while a
+  normal 300-a-day workload still takes about a month. Ideas and iteration count through tokens, shipped work through
+  commits. Days off pause it; nothing decays. Today's share fills live.
+- Home's stages by days of terraforming: clouds (0.15, within the first hour), oceans (1), continents (3), green
+  coasts (5), forests (8), settlements with lights at night (12), cities under an atmosphere (16), terraformed with a
+  moon (20, about a month of normal weekdays). The ladder goes on so productive people always have a next stage: an
+  orbital ring (26), a star port on it (33), twin moons (40) **(call)**. Each eases in over the days before it is named.
+- The lit area of the map widens around Home with the clock (quick at first, its full reach at day 40) **(call)**.
   After that the frontier (slice 2) is how the universe keeps growing.
 - Moments appear as their stretch of work ends (a week closes, a cleanup day ends).
 
@@ -198,7 +203,7 @@ Each slice ships on its own and is usable:
 
 1. Earning and persistence: credit from tokens and commits, the balance, the World view with Home growing by itself,
    the lit map, and the side panel's numbers. Then the terraforming clock (Home grows on days worked, 20 to
-   terraformed) and the credit on the top bar's World button.
+   terraformed, more for productive days, a ladder to 40) and the credit on the top bar's World button.
 2. The frontier and moments.
 3. Rockets and colonies.
 4. Building from a description.

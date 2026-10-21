@@ -339,12 +339,14 @@ you, and takes you back to the board at the first.
 Credit is earned per calendar day: `(lines added ÷ 10 + tokens ÷ 10,000) × multiplier`, where lines removed raise the
 multiplier from ×1 up to ×4, so a cleanup day pays best. The side panel shows today's numbers.
 
-**Terraforming** runs on days worked, not on how much: each day adds its credit ÷ 300, at most one full day (300
-credit is about an hour of one agent working). Thinking and iterating count through their tokens, shipping through
-commits. More work that day still earns credit, but can't rush Home; a day off pauses it, and nothing ever goes back.
-Clouds form within the first hour, then oceans (day 1), continents (3), green coasts (5), forests (8), settlements
-with lights at night (12), cities under an atmosphere (16), and at day 20, about a month of weekdays, a moon: Home is
-terraformed. The side panel shows the stage, what comes next, and how much of today's full day is done.
+**Terraforming** runs on the days you work. A full day is 300 credit, about an hour of one agent working; past it,
+each doubling of the day's work adds half a day more (600 credit is 1.5 days, 1,200 is 2), up to 3 from one day. So a
+productive day moves Home further, but no marathon finishes it at once. Thinking and iterating count through their
+tokens, shipping through commits. A day off pauses it, and nothing ever goes back. Clouds form within the first hour,
+then oceans (day 1), continents (3), green coasts (5), forests (8), settlements with lights at night (12), cities under
+an atmosphere (16), and at day 20, about a month of normal weekdays, a moon: Home is terraformed. The ladder goes on:
+an orbital ring (26), a star port on it (33), and twin moons (40). The side panel shows the stage, what comes next, and
+how much terraforming today's work has added.
 
 - **Tokens** come from the transcripts of every Claude Code profile on this Mac, sessions and subagents: what was
   sent and written, once per reply. Cache reads don't count. There is one World, whichever profile the board shows.

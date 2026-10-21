@@ -29,10 +29,14 @@ test('a day of work earns credit', () => {
 
 test('day keys are calendar days', () => assert.equal(dayKey(Date.UTC(2026, 9, 21, 23, 59)), '2026-10-21'));
 
-test('a full day is 300 credit; more work does not rush the world', () => {
+test('a full day is 300 credit, and more work moves Home further: half a day per doubling, at most 3', () => {
   assert.equal(FULL_DAY, 300);
   assert.equal(dayFill({ tokens: 3_000_000 }), 1); // about an hour of one agent working
-  assert.equal(dayFill({ tokens: 30_000_000 }), 1);
+  assert.equal(dayFill({ tokens: 6_000_000 }), 1.5);
+  assert.equal(dayFill({ tokens: 12_000_000 }), 2);
+  assert.equal(dayFill({ tokens: 24_000_000 }), 2.5);
+  assert.equal(dayFill({ tokens: 48_000_000 }), 3);
+  assert.equal(dayFill({ tokens: 500_000_000 }), 3); // one marathon day can't finish it
   assert.equal(dayFill({ tokens: 1_500_000 }), 0.5);
   assert.equal(dayFill({ added: 600 }), 0.2); // ideas without commits count through tokens, commits through lines
   assert.equal(dayFill({}), 0); // a day you only looked counts nothing
@@ -41,16 +45,17 @@ test('a full day is 300 credit; more work does not rush the world', () => {
 
 test('terraforming adds up the days worked and names the stage', () => {
   const days = { '2026-10-19': { tokens: 9e6 }, '2026-10-20': { tokens: 1.5e6 }, '2026-10-21': { added: 600 } };
-  assert.deepEqual(terraform(days, '2026-10-21'), { days: 1.7, today: 0.2, stage: 'Oceans', next: { name: 'Continents', at: 3 } });
-  assert.deepEqual(terraform({}, '2026-10-21'), { days: 0, today: 0, stage: 'Bare rock', next: { name: 'Clouds', at: 0.15 } });
+  assert.deepEqual(terraform(days, '2026-10-21'), { days: 2.49, today: 0.2, stage: 'Oceans', at: 1, next: { name: 'Continents', at: 3 } }); // 1.79 + 0.5 + 0.2
+  assert.deepEqual(terraform({}, '2026-10-21'), { days: 0, today: 0, stage: 'Bare rock', at: 0, next: { name: 'Clouds', at: 0.15 } });
 });
 
-test('twenty full days take a bare rock to terraformed', () => {
-  assert.deepEqual(STAGES.map(([at]) => at), [0, 0.15, 1, 3, 5, 8, 12, 16, 20]);
-  const full = (n) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`2026-11-${String(i + 1).padStart(2, '0')}`, { tokens: 3e6 }]));
-  assert.equal(terraform(full(19), '2026-11-19').stage, 'Cities');
-  assert.deepEqual(terraform(full(20), '2026-11-20'), { days: 20, today: 1, stage: 'Terraformed', next: null });
-  assert.equal(terraform(full(25), '2026-11-25').stage, 'Terraformed');
+test('twenty full days terraform Home, and the ladder goes on for the productive', () => {
+  assert.deepEqual(STAGES.map(([at]) => at), [0, 0.15, 1, 3, 5, 8, 12, 16, 20, 26, 33, 40]);
+  const days = (n, tokens = 3e6) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`2026-11-${String(i + 1).padStart(2, '0')}`, { tokens }]));
+  assert.equal(terraform(days(19), '2026-11-19').stage, 'Cities');
+  assert.deepEqual(terraform(days(20), '2026-11-20'), { days: 20, today: 1, stage: 'Terraformed', at: 20, next: { name: 'Orbital ring', at: 26 } });
+  assert.equal(terraform(days(10, 12e6), '2026-11-10').stage, 'Terraformed'); // four times the work a day: there in ten days
+  assert.deepEqual(terraform(days(14, 48e6), '2026-11-14'), { days: 42, today: 3, stage: 'Twin moons', at: 40, next: null });
 });
 
 test('a rebased or amended commit keeps its key', () => {
@@ -258,7 +263,7 @@ test('the summary carries the terraforming clock, today filling as work comes in
   world.open();
   fs.writeFileSync(path.join(configDir, 'projects', 'p', 's.jsonl'), reply('m1', T0 + 5000, { output_tokens: 1_500_000 }));
   await world.scan({ git: false });
-  assert.deepEqual(world.summary().terraform, { days: 0.5, today: 0.5, stage: 'Clouds', next: { name: 'Oceans', at: 1 } });
+  assert.deepEqual(world.summary().terraform, { days: 0.5, today: 0.5, stage: 'Clouds', at: 0.15, next: { name: 'Oceans', at: 1 } });
   assert.equal('grown' in world.summary(), false);
 });
 
