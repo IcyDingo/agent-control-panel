@@ -21,7 +21,9 @@ someone organises their work: one repository or twenty, one profile or several *
 ## What the person sees
 
 **A separate view called World**, opened from its own button next to Space view in the header **(call: Space view
-stays exactly as it is, for watching agents)**. Full screen like Space view, with the same night sky in both themes, a
+stays exactly as it is, for watching agents)**. While it is open, its top bar says how many sessions need you and
+takes you back to the board at the first (added after review: World covers the board, and agents must not wait
+unseen). Full screen like Space view, with the same night sky in both themes, a
 top bar (World, where you are, your credit, Back to board) and a side panel.
 
 **No agents in it (owner).** Agents may drift across the sky as decoration (small satellites for sessions that are
@@ -68,22 +70,21 @@ choice. With the owner's last week (about 30 commits and 11,000 added lines on a
 
 ### Where the numbers come from
 
-- **Tokens**: the transcripts of the profile the panel is showing, main sessions and subagents
+- **Tokens**: the transcripts of every profile on the Mac **(owner, after the first build: one World across
+  profiles)**, main sessions and subagents
   (`<projects>/<project>/<session>.jsonl` and `<session>/subagents/*.jsonl`), summing each assistant entry's
   `message.usage`: `output_tokens + input_tokens + cache_creation_input_tokens`. Cache reads are left out
   **(call)**: they run to millions per session and would drown every other number.
-- **Commits**: the repositories that profile's sessions worked in (the panel already resolves each session's working
-  folder and edited files to a git top; worktrees count as their main repository). In each, the commits since World
-  started whose **author and committer** both match that repository's `user.email`, with `--no-merges`, each commit
-  hash counted once even when several worktrees hold it. Author and committer both being you is what keeps a squash or
-  merge made on GitHub (committer GitHub) from counting a second time **(call)**.
+- **Commits**: the repositories those sessions worked in or edited files in (worktrees count as their main
+  repository). In each, the commits since World started whose **author and committer** both match that repository's
+  `user.email`, with `--no-merges`, on every branch and remote but not the stash. Author and committer both being you
+  is what keeps a squash or merge made on GitHub (committer GitHub) from counting a second time **(call)**. Git does
+  the identity filtering and reads the last 30 days, so a busy repository stays quick.
 - **Lines**: `git log --numstat` for those commits. Binary files are skipped. Lockfiles and other generated files
   must not swamp the numbers; how (an ignore list, a per-file cap, or both) is the builder's.
 - **Your identity** in a repository is the email git itself resolves there (`git config user.email` run inside it,
   so global settings and `includeIf` count) **(call)**. A repository where git resolves none counts nothing, and the
   side panel says so rather than silently showing zero.
-- **Profiles count on their own (call).** A repository used from two profiles can earn in both Worlds; keeping them
-  apart would need state shared across profiles, which isn't worth it.
 
 ### The balance (call)
 
@@ -92,9 +93,11 @@ choice. With the owner's last week (about 30 commits and 11,000 added lines on a
   multiplier is recomputed with them.
 - **Purchases are final.** Each one stores the price paid; later price changes never rewrite it, and nothing is
   refunded.
-- Commits are remembered once counted, keyed by author time and subject (added while building slice 1): a branch
-  deleted after a squash merge keeps its credit, and a rebased or amended commit replaces its earlier count rather
-  than adding to it. Tokens are counted as they are read and never recounted. So the balance only drops by spending;
+- Each repository's lines per day are the highest any scan has counted there, from the commits reachable at that
+  scan, with versions of one commit (same author time and subject) counted once, newest first (decided while building
+  slice 1, after review). A branch deleted after a squash merge keeps its credit, and an amended, reworded or rebased
+  commit replaces its earlier count rather than adding to it. Known leftover: a `fixup!` commit squashed away after a
+  scan counted it keeps its lines. Tokens are counted as they are read and never recounted. So the balance only drops by spending;
   should it ever go below zero, it shows as 0 and buying waits until work brings it back. The world itself never
   shrinks: what was bought or grown stays.
 
@@ -143,10 +146,10 @@ words into pieces the renderer knows how to draw, then draws them:
 
 - **Starts from nothing (call, not objected to)**: the first time someone opens World, it records that moment, and
   only work after it counts. No backfill from older transcripts or commits.
-- **One World per Claude Code profile (call)**, since the credit comes from that profile's sessions. Switching
-  profile in the header switches World.
-- Kept in `~/Library/Application Support/Agent Panel/` next to `prefs.json`: a start time, a random seed, the earned
-  totals per day (recomputed and replaced, so a recount never double counts), and an append-only list of what was
+- **One World for every profile on the Mac (owner).** Switching profile in the header changes what the board shows,
+  not World.
+- Kept in `~/Library/Application Support/Agent Panel/world/world.json`, next to `prefs.json`: a start time, a random
+  seed, the tokens per day, the lines per repository and day, and an append-only list of what was
   bought (frontier pushes with their direction, rockets, builds with the description and the pieces Claude chose). The
   world is drawn from the seed plus that list, so it looks the same after every restart.
 

@@ -318,20 +318,24 @@ Every control that stops something asks for a second click.
 World starts the first time you open it, as a bare rock called Home in the dark, and grows from the credit your
 agents' work earns from then on: oceans, land, city lights and an atmosphere close up, and lit space around Home when
 you zoom out (scroll, or **Home** and **Map**; drag to look around). No agents in it: their work only arrives as credit.
+While it is open, its top bar says how many sessions need you, and takes you back to the board at the first.
 
 Credit is earned per calendar day: `(lines added ÷ 10 + tokens ÷ 10,000) × multiplier`, where lines removed raise the
 multiplier from ×1 up to ×4, so a cleanup day pays best. The side panel shows today's numbers.
 
-- **Tokens** come from the transcripts of the profile the panel shows, sessions and subagents: what was sent and
-  written, once per reply. Cache reads don't count.
-- **Lines** come from your commits in the repositories those sessions worked in: commits whose author and committer
-  are the `user.email` git uses there. Others' commits, merges, and squashes GitHub makes for you don't count, and
-  neither do lockfiles; a file counts at most 2,000 lines each way per commit. A repository where git has no
-  `user.email` counts nothing, and World says so.
-- A commit counts once and stays counted: deleting its branch after a merge keeps the credit, and a rebased or amended
-  commit replaces itself rather than counting again.
-- Work from before the first open doesn't count. Each profile has its own World, kept in
-  `~/Library/Application Support/Agent Panel/world/<profile>.json`. Git is only read.
+- **Tokens** come from the transcripts of every Claude Code profile on this Mac, sessions and subagents: what was
+  sent and written, once per reply. Cache reads don't count. There is one World, whichever profile the board shows.
+- **Lines** come from your commits in the repositories those sessions worked in or edited files in: commits whose
+  author and committer are the `user.email` git uses there, on any branch or remote. Others' commits, merges, the
+  stash, and squashes GitHub makes for you don't count, and neither do lockfiles; a file counts at most 2,000 lines
+  each way per commit. A repository where git has no `user.email` counts nothing, and World says so; so does one
+  whose history git doesn't read out in time.
+- Each repository's lines per day are the most any count has seen there. So deleting a branch after it was merged
+  keeps its credit, and an amended, reworded or rebased commit replaces its old count instead of adding to it. (A
+  `fixup!` commit squashed away after World counted it keeps its lines.) Git is asked for the last 30 days; older
+  days keep what was counted.
+- Work from before the first open doesn't count. World is kept in
+  `~/Library/Application Support/Agent Panel/world/world.json`. Git is only read.
 
 Spending credit comes next: pushing the frontier into the dark, rockets to the planets it finds, and building what you
 describe ([design](docs/superpowers/specs/2026-10-21-world-design.md)).
