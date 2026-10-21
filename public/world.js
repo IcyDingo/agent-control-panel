@@ -15,6 +15,7 @@
   let world = null, made = null, sky = null, skySig = ''; // the summary, what its seed makes, and its light (drawn once per change)
   let z = 0, zTo = 0, pan = { x: 0, y: 0 }, drag = null, focus = { x: 0, y: 0 }, focusTo = { x: 0, y: 0 }, here = 'home';
   let aiming = false, aimAng = null, picked = null, hover = null;
+  let flight = null, sending = false, rocketSig = '', coloniesSig = ''; // a rocket on its way: its colony shows once it lands
   const MAP = 900, ZMAX = 40, scaleOf = (v) => Math.pow(ZMAX, 1 - v); // the map spans MAP px zoomed out, ×40 close up
   const LOBE_START = 60, lobeRadius = (along, tip) => 34 + 26 * along / (tip + 40); // world.mjs's lobe shape
   const BODY = { home: 6, planet: 4.5 }; // radius on the map, map px
@@ -164,17 +165,54 @@
       x.fillStyle = m; x.beginPath(); x.arc(mx, my, R * 0.09, 0, 7); x.fill();
     }
   }
-  /** A planet the frontier found: a bare world in its own colours, with craters. */
-  function drawPlanet(cx, cy, R, p) {
+  const idSeed = (id) => [...id].reduce((h, ch) => h * 31 + ch.charCodeAt(0), made.seed) | 0;
+  /** A planet the frontier found: a bare world in its own colours, with craters. A colony on it adds a warm air and
+   *  domes lit from inside. */
+  function drawPlanet(cx, cy, R, p, colony) {
+    if (colony) {
+      const a = x.createRadialGradient(cx, cy, R * 0.95, cx, cy, R * 1.2);
+      a.addColorStop(0, 'rgba(240,180,120,.3)'); a.addColorStop(1, 'rgba(240,180,120,0)');
+      x.fillStyle = a; x.beginPath(); x.arc(cx, cy, R * 1.2, 0, 7); x.fill();
+    }
     const [c0, c1, c2] = LOOK[p.look] ?? LOOK.rust, gr = x.createRadialGradient(cx - R * 0.35, cy - R * 0.35, 0, cx, cy, R);
     gr.addColorStop(0, c0); gr.addColorStop(0.6, c1); gr.addColorStop(1, c2);
     x.fillStyle = gr; x.beginPath(); x.arc(cx, cy, R, 0, 7); x.fill();
     if (R > 12) {
-      const r = rng([...p.id].reduce((h, ch) => h * 31 + ch.charCodeAt(0), made.seed));
+      const r = rng(idSeed(p.id));
       x.save(); x.beginPath(); x.arc(cx, cy, R, 0, 7); x.clip();
       for (let i = 0; i < 14; i++) { x.fillStyle = 'rgba(20,14,10,.28)'; x.beginPath(); x.arc(cx + (r() - 0.5) * 1.8 * R, cy + (r() - 0.5) * 1.8 * R, R * (0.03 + r() * 0.07), 0, 7); x.fill(); }
+      if (colony) {
+        const d = rng(idSeed(p.id) + 5), u = Math.max(1.5, R / 110);
+        for (let i = 0; i < 7; i++) {
+          const dx = cx + (d() - 0.6) * R * 0.9, dy = cy + (d() - 0.3) * R * 0.8, dr = R * (0.05 + d() * 0.06);
+          x.fillStyle = 'rgba(190,225,255,.38)'; x.beginPath(); x.ellipse(dx, dy, dr * 1.4, dr, 0, Math.PI, 2 * Math.PI); x.fill();
+          x.fillStyle = 'rgba(255,205,120,.9)'; x.fillRect(dx - u / 2, dy - u * 1.4, u, u);
+        }
+      }
       x.restore();
-    }
+    } else if (colony) { x.fillStyle = 'rgba(255,205,120,.95)'; x.fillRect(cx + R * 0.15, cy - R * 0.2, 1.5, 1.5); }
+  }
+  /** Where a rocket is `k` of the way along its flight (map px), and which way it points: a curve, bowed to one side. */
+  function rocketAt(f, k) {
+    const { from: a, to: b } = f, c = { x: (a.x + b.x) / 2 - (b.y - a.y) * 0.25, y: (a.y + b.y) / 2 + (b.x - a.x) * 0.25 }, u = 1 - k;
+    return { x: u * u * a.x + 2 * u * k * c.x + k * k * b.x, y: u * u * a.y + 2 * u * k * c.y + k * k * b.y,
+      dx: 2 * u * (c.x - a.x) + 2 * k * (b.x - c.x), dy: 2 * u * (c.y - a.y) + 2 * k * (b.y - c.y) };
+  }
+  const FLIGHT_MS = 2800;
+  /** The rocket and its trail; true once it has landed. */
+  function drawRocket(f, now, to) {
+    if (now < f.at) return false; // the view is still pulling out
+    const k = clamp((now - f.at) / FLIGHT_MS);
+    x.strokeStyle = 'rgba(255,210,138,.4)'; x.lineWidth = 1.2; x.setLineDash([2, 5]); x.beginPath();
+    for (let i = 0; i <= 30; i++) { const q = rocketAt(f, i / 30 * k), [qx, qy] = to(q.x, q.y); if (i) x.lineTo(qx, qy); else x.moveTo(qx, qy); }
+    x.stroke(); x.setLineDash([]);
+    const p = rocketAt(f, k), [rx, ry] = to(p.x, p.y);
+    x.save(); x.translate(rx, ry); x.rotate(Math.atan2(p.dy, p.dx) + Math.PI / 2);
+    x.fillStyle = '#ffc56a'; x.beginPath(); x.moveTo(-3, 7); x.lineTo(0, 13 + Math.random() * 4); x.lineTo(3, 7); x.fill();
+    x.fillStyle = '#dfe5ee'; x.beginPath(); x.moveTo(0, -9); x.quadraticCurveTo(5, -2, 4, 7); x.lineTo(-4, 7); x.quadraticCurveTo(-5, -2, 0, -9); x.fill();
+    x.fillStyle = '#c9584a'; x.fillRect(-6, 3, 3, 5); x.fillRect(3, 3, 3, 5);
+    x.restore();
+    return k >= 1;
   }
   /** A moment: a four-pointed star in its kind's colour. */
   function drawMoment(px, py, m, on) {
@@ -243,17 +281,19 @@
     if (seen(hx, hy, hr * 2.3)) drawHome(hx, hy, hr, t, here === 'home' ? detail : 0);
     if (z > 0.5) label('Home', hx, hy - hr - 10, '#e3e7ed', 13);
     for (const p of planets()) {
-      const [px, py] = to(p.x, p.y), r = bodyR(BODY.planet);
+      const [px, py] = to(p.x, p.y), r = bodyR(BODY.planet), colony = colonyOf(p);
       if (!seen(px, py, r * 2.5)) continue;
-      drawPlanet(px, py, r, p);
-      if (z > 0.5) {
+      drawPlanet(px, py, r, p, colony);
+      if (z > 0.5 && colony) label(colony.name, px, py + r + 20, '#e3e7ed', 12.5);
+      else if (z > 0.5) {
         x.strokeStyle = 'rgba(227,171,62,.6)'; x.setLineDash([3, 4]); x.lineWidth = 1;
         x.beginPath(); x.arc(px, py, r + 7, 0, 7); x.stroke(); x.setLineDash([]);
         label('Bare planet', px, py + r + 20, '#8c96a4', 11.5);
       }
     }
+    if (flight && drawRocket(flight, now, to)) land(flight);
     if (aimAng != null && z > 0.4) drawArrow(hx, hy, aimAng, Math.max(90, Math.min(220, (LOBE_START + PUSH_PX) * s)), aiming ? 0.95 : 0.6);
-    const name = here === 'home' ? 'Home' : 'Bare planet';
+    const name = placeName(here);
     $('w-where').textContent = z < 0.3 ? name : z > 0.7 ? 'Map' : `Leaving ${name}`;
     raf = requestAnimationFrame(frame);
   }
@@ -268,11 +308,16 @@
   function zoomTo(v) {
     zTo = clamp(v, 0, zFit());
     if (zTo < 0.2) pan = { x: 0, y: 0 };
-    $('w-home').classList.toggle('on', zTo < 0.5 && here === 'home');
+    for (const b of document.querySelectorAll('.w-zoom [data-place]')) b.classList.toggle('on', zTo < 0.5 && b.dataset.place === here);
     $('w-map').classList.toggle('on', zTo >= 0.5);
   }
+  /** A place you can fly to: Home, or a planet the frontier found (map px). */
+  const placeOf = (id) => (id === 'home' ? { x: 0, y: 0 } : planets().find((q) => q.id === id));
+  /** A planet's colony, once its rocket has landed. */
+  const colonyOf = (p) => (p.colony && flight?.id !== p.id ? p.colony : null);
+  const placeName = (id) => { const p = placeOf(id); return id === 'home' ? 'Home' : (p && colonyOf(p)?.name) ?? 'Bare planet'; };
   function flyTo(id) {
-    const p = id === 'home' ? { x: 0, y: 0 } : planets().find((q) => q.id === id);
+    const p = placeOf(id);
     if (!p) return;
     here = id; focusTo = { x: p.x, y: p.y }; pan = { x: 0, y: 0 };
     zoomTo(0);
@@ -324,6 +369,10 @@
     $('w-dir').onchange = () => { aimAng = Number($('w-dir').value); showPush(); };
     $('w-push').onclick = push;
     $('w-m-close').onclick = () => pick(null);
+    $('w-rocket-name').oninput = showRocket;
+    $('w-rocket-name').onkeydown = (e) => { if (e.key === 'Enter' && !$('w-rocket').disabled) sendRocket(); };
+    $('w-rocket-show').onclick = () => flyTo($('w-rocket-to').value);
+    $('w-rocket').onclick = sendRocket;
   }
 
   // ---------- the side panel: Home's level, what to spend on, moments, and today's numbers
@@ -369,6 +418,64 @@
     setAim(false);
     AgentWorld.update(r.world);
     showMap({ x: Math.cos(ang) * 90, y: Math.sin(ang) * 90 });
+  }
+  /** Send a rocket: shown while the frontier has found a planet nobody lives on. */
+  function showRocket() {
+    const list = planets().filter((p) => !p.colony), box = $('w-rocket-box');
+    box.hidden = !list.length;
+    if (!list.length) return;
+    const sel = $('w-rocket-to'), sig = list.map((p) => p.id).join();
+    if (sig !== rocketSig) { // rebuilt only when the planets change, so an open list stays open
+      rocketSig = sig;
+      const seenAs = {}, keep = sel.value;
+      sel.replaceChildren(...list.map((p) => {
+        const dir = compass(Math.atan2(p.y, p.x)), n = (seenAs[dir] = (seenAs[dir] ?? 0) + 1);
+        return new Option(`Bare planet, ${dir}${n > 1 ? ` ${n}` : ''}`, p.id);
+      }));
+      sel.value = list.some((p) => p.id === keep) ? keep : list[0].id;
+    }
+    if (list.some((p) => p.id === here)) sel.value = here;
+    $('w-rocket-text').textContent = list.length === 1 ? 'The frontier found a bare planet. A rocket lands a colony there, and you name it.'
+      : `The frontier found ${list.length} bare planets. A rocket lands a colony on one, and you name it.`;
+    const price = world.prices?.rocket ?? 0;
+    $('w-rocket-price').textContent = `${fmt(price)} credit`;
+    $('w-rocket').disabled = sending || !$('w-rocket-name').value.trim() || !can(price);
+    $('w-rocket-why').hidden = can(price);
+    $('w-rocket-why').textContent = `You have ${fmt(Math.max(0, world.balance))}. Work earns more.`;
+  }
+  /** The set piece: the view pulls out, the rocket flies from where you are to the planet, and the view flies in to the
+   *  new colony. With reduced motion it goes straight there. */
+  async function sendRocket() {
+    const id = $('w-rocket-to').value, err = $('w-rocket-err');
+    sending = true; err.hidden = true; showRocket();
+    const r = await opts.api('/api/world/buy', { kind: 'rocket', planet: id, name: $('w-rocket-name').value });
+    sending = false;
+    if (!r.ok) { err.textContent = r.error || 'That did not go through.'; err.hidden = false; showRocket(); return; }
+    $('w-rocket-name').value = '';
+    const p = r.world.planets.find((q) => q.id === id), from = placeOf(here) ?? { x: 0, y: 0 };
+    if (calm.matches || !p) { AgentWorld.update(r.world); land({ id, name: p?.colony?.name ?? 'The colony' }); return; }
+    flight = { id, name: p.colony.name, from: { x: from.x, y: from.y }, to: { x: p.x, y: p.y }, at: performance.now() + 1100 };
+    AgentWorld.update(r.world);
+    showMap({ x: (from.x + p.x) / 2, y: (from.y + p.y) / 2 });
+  }
+  function land(f) {
+    flight = null;
+    showColonies();
+    opts.toast?.(`The rocket landed. ${f.name} is your colony now.`);
+    if (calm.matches) flyTo(f.id); else setTimeout(() => { if (raf) flyTo(f.id); }, 500);
+  }
+  /** The zoom bar: Home, each colony, the map. */
+  function showColonies() {
+    const list = planets().filter(colonyOf), sig = list.map((p) => `${p.id}:${p.colony.name}`).join();
+    if (sig === coloniesSig) return;
+    coloniesSig = sig;
+    $('w-colonies').replaceChildren(...list.map((p) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'btn small'; b.dataset.place = p.id; b.textContent = p.colony.name;
+      b.onclick = () => flyTo(p.id);
+      return b;
+    }));
+    zoomTo(zTo);
   }
   function pick(id) {
     picked = id;
@@ -424,6 +531,8 @@
     $('w-noemail').hidden = !notes.length;
     $('w-noemail').textContent = notes.join(' ');
     showPush();
+    showRocket();
+    showColonies();
     showMoments(w.moments ?? []);
     if (picked && !(w.moments ?? []).some((m) => m.id === picked)) pick(null);
   }
@@ -435,9 +544,9 @@
       world = summary;
       if (made?.seed !== (summary.seed ?? 1)) { made = make(summary.seed ?? 1); sky = null; }
       paint();
+      here = 'home'; flight = null; focus = { x: 0, y: 0 }; focusTo = { x: 0, y: 0 };
       show(summary);
       fit();
-      here = 'home'; focus = { x: 0, y: 0 }; focusTo = { x: 0, y: 0 };
       zoomTo(0); z = 0; pan = { x: 0, y: 0 };
       t0 = performance.now();
       cancelAnimationFrame(raf);
@@ -449,7 +558,7 @@
       paint();
       show(summary);
     },
-    exit() { cancelAnimationFrame(raf); raf = 0; drag = null; if (aiming) setAim(false); },
+    exit() { cancelAnimationFrame(raf); raf = 0; drag = null; flight = null; if (aiming) setAim(false); },
     /** Where a point on the map (map px, Home at 0,0) is on the canvas now. */
     at(mx, my) { return view ? [view.cx + mx * view.s, view.cy + my * view.s] : null; },
   };

@@ -1321,9 +1321,9 @@ function openWorld() {
   scanWorld(true);
   return { ok: true, world: worldSummary() };
 }
-/** Spend World's credit: push the frontier (world.mjs decides the price and whether it can). */
+/** Spend World's credit: push the frontier, or send a rocket (world.mjs decides the price and whether it can). */
 function buyInWorld(body) {
-  const r = world.buy({ kind: body?.kind, ang: body?.ang });
+  const r = world.buy({ kind: body?.kind, ang: body?.ang, planet: body?.planet, name: body?.name });
   if (!r.ok) return r;
   broadcast();
   return { ok: true, world: worldSummary() };

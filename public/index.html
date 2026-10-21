@@ -442,7 +442,8 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .w-bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
 .w-bar i { display: block; height: 100%; width: 0; border-radius: inherit; background: var(--ok); transition: width .6s ease-out; }
 .w-bar.today i { background: var(--amber); }
-.w-zoom { position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); z-index: 2; display: flex; gap: 6px; }
+.w-zoom { position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); z-index: 2; display: flex; flex-wrap: wrap-reverse; gap: 6px; max-width: calc(100% - 340px); }
+.w-zoom > span { display: contents; } /* the colonies, between Home and Map */
 .w-zoom .btn.on { border-color: var(--amber); color: var(--amber); }
 /* Spending and moments: a row of controls, a price beside its button, and the moments as a list of stars. */
 .w-side { max-height: calc(100% - var(--sp-top, 52px) - 28px); overflow-y: auto; overscroll-behavior: contain; }
@@ -453,13 +454,14 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .w-box .btn.on { border-color: var(--amber); color: var(--amber); }
 .w-box .btn:disabled { opacity: .5; cursor: default; }
 .w-box .err { margin: 0; }
+.w-box > input.field { flex: none; height: 26px; font-size: 12.5px; }
 .w-list { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
 .w-list .linkish { display: inline-flex; align-items: center; gap: 7px; color: var(--fg-dim); font-size: 12.5px; text-decoration: none; text-align: left; }
 .w-list .linkish:hover { color: var(--fg); }
 .w-list .linkish::before { content: ""; flex: none; width: 7px; height: 7px; background: var(--m, #cfe0ff); clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%); }
 .w-list [data-kind="cleanup"] { --m: #7ee0a8; }
 .w-list [data-kind="level"] { --m: #ffcf7a; }
-@media (max-width: 760px) { .w-side { position: static; width: auto; max-height: none; margin: calc(var(--sp-top, 52px) + 10px) 16px 0; } }
+@media (max-width: 760px) { .w-side { position: static; width: auto; max-height: none; margin: calc(var(--sp-top, 52px) + 10px) 16px 0; } .w-zoom { max-width: calc(100% - 32px); } }
 
 /* ---------- space view: the same sessions as an orrery. You sit at the centre; the closer a session orbits, the sooner it needs you. ---------- */
 body.in-space { overflow: hidden; }
@@ -784,6 +786,15 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
       <p id="w-xp-today" title="A full day's work, 300 credit, is about an hour of one agent working. Past it, each doubling of the work gives 50 XP more."></p>
       <div class="w-bar today"><i id="w-bar-today"></i></div>
     </section>
+    <section class="w-box" id="w-rocket-box" hidden>
+      <h2>Send a rocket</h2>
+      <p id="w-rocket-text"></p>
+      <div class="w-row"><select class="field" id="w-rocket-to" aria-label="Planet to send it to"></select><button class="btn small" type="button" id="w-rocket-show">Show</button></div>
+      <input class="field" id="w-rocket-name" maxlength="24" placeholder="Name the colony" aria-label="The colony's name" autocomplete="off" spellcheck="false">
+      <div class="w-act"><span id="w-rocket-price"></span><button class="btn small go" type="button" id="w-rocket" disabled>Send a rocket</button></div>
+      <p id="w-rocket-why" hidden></p>
+      <p class="err" id="w-rocket-err" role="alert" hidden></p>
+    </section>
     <section class="w-box" id="w-push-box">
       <h2>Push the frontier</h2>
       <p>Pick a direction from Home. The dark lights up that way as you keep working, and it can find a planet.</p>
@@ -807,7 +818,7 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
         Home reached. Click one to see what was done.</p>
     </section>
   </aside>
-  <div class="w-zoom"><button class="btn small on" type="button" id="w-home">Home</button><button class="btn small" type="button" id="w-map">Map</button></div>
+  <div class="w-zoom"><button class="btn small on" type="button" id="w-home" data-place="home">Home</button><span id="w-colonies"></span><button class="btn small" type="button" id="w-map">Map</button></div>
 </div>
 
 <dialog class="launcher" id="launcher" aria-labelledby="launch-title">

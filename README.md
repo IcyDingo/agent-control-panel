@@ -395,8 +395,12 @@ costs 4,000, and each one after costs a quarter more. Light never goes back, eve
 removed 500 lines or more and more than it added ("Big cleanup"), and each Home level from 3 up. The side panel lists
 the newest; a click opens its card with what was done and flies to it.
 
-Rockets to the planets the frontier finds and building what you describe come next
-([design](docs/superpowers/specs/2026-10-21-world-design.md)).
+**Send a rocket** to a bare planet the frontier found, and name the colony it lands (up to 24 letters, digits,
+spaces, apostrophes or hyphens; not Home, and not another colony's name). The view pulls out, the rocket flies from
+where you are, and the view flies in to the colony; with reduced motion it goes straight there. Colonies have a
+button each beside **Home** and **Map**. A rocket costs 8,000 at first, and each one after costs a quarter more.
+
+Building what you describe comes next ([design](docs/superpowers/specs/2026-10-21-world-design.md)).
 
 ## Security
 

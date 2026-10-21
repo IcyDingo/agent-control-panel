@@ -145,6 +145,14 @@ export function momentsOf(days, today, purchases, seed) {
   return out.sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
 }
 
+/** A colony's name as it will be kept (spaces tidied), or null when it isn't one: 1–24 letters, digits, spaces,
+ *  apostrophes or hyphens, with at least one letter or digit. Any language. */
+export function colonyName(raw) {
+  if (typeof raw !== 'string') return null;
+  const name = raw.normalize('NFC').trim().replace(/\s+/g, ' ');
+  return name.length <= 24 && /^[\p{L}\p{M}\p{N} '’-]+$/u.test(name) && /[\p{L}\p{N}]/u.test(name) ? name : null;
+}
+
 /** A commit as you wrote it: a rebase, an amend or a cherry-pick keeps its author time and subject. */
 export const commitKey = (authorTimeSec, subject) =>
   `${authorTimeSec}:${crypto.createHash('sha1').update(subject).digest('hex').slice(0, 12)}`;
@@ -365,12 +373,13 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
     if (memo?.today === today) return memo.summary;
     const days = daysOf(), earned = earnedIn(days), peak = Math.max(st.peak ?? 0, earned);
     const spent = st.purchases.reduce((sum, p) => sum + (p.price ?? 0), 0), t = days[today] ?? blank(), home = homeLevel(days, today);
-    const { lobes, planets } = frontierOf(st.purchases, peak, st.seed);
+    const { lobes, planets } = frontierOf(st.purchases, peak, st.seed), colonies = new Map();
+    for (const p of st.purchases) if (p.kind === 'rocket') colonies.set(p.planet, { name: p.name, at: p.at });
     const s = { started: true, startedAt: st.startedAt, seed: st.seed, earned, spent, balance: earned - spent, home, reach: homeReach(home.xp),
       today: { day: today, commits: t.commits, added: t.added, removed: t.removed, multiplier: multiplier(t.added, t.removed), tokens: t.tokens, credit: dayCredit(t) },
       prices: { frontier: priceOf('frontier', st.purchases), rocket: priceOf('rocket', st.purchases), build: priceOf('build', st.purchases) },
       frontier: lobes.map((l) => ({ ang: l.ang, bought: l.pushes.length * PUSH_LEN, lit: l.lit, tip: l.tip })),
-      planets: planets.filter((p) => p.found).map((p) => ({ id: p.id, x: p.x, y: p.y, look: p.look, colony: null })),
+      planets: planets.filter((p) => p.found).map((p) => ({ id: p.id, x: p.x, y: p.y, look: p.look, colony: colonies.get(p.id) ?? null })),
       moments: momentsOf(days, today, st.purchases, st.seed),
       noEmail: st.noEmail ?? [], gitFailed: st.gitFailed ?? [] };
     memo = { today, summary: s };
@@ -394,16 +403,30 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
       if (changed || git || higher) save();
     },
     summary,
-    /** Spend credit: `{ kind: 'frontier', ang }` pushes the frontier toward an angle (radians, map space). Purchases are
-     *  final and keep what they cost. */
-    buy({ kind, ang } = {}) {
+    /** Spend credit: `{ kind: 'frontier', ang }` pushes the frontier toward an angle (radians, map space);
+     *  `{ kind: 'rocket', planet, name }` lands a colony on a planet the frontier found. Purchases are final and keep
+     *  what they cost. */
+    buy({ kind, ang, planet, name } = {}) {
       if (!st) return fail('Open World first.');
-      if (kind !== 'frontier') return fail('That is not something World sells.');
-      if (typeof ang !== 'number' || !Number.isFinite(ang)) return fail('Pick a direction to push.');
-      const s = summary(), price = priceOf(kind, st.purchases);
+      const s = summary();
+      let item;
+      if (kind === 'frontier') {
+        if (typeof ang !== 'number' || !Number.isFinite(ang)) return fail('Pick a direction to push.');
+        item = { ang: normAng(ang) };
+      } else if (kind === 'rocket') {
+        const there = s.planets.find((p) => p.id === planet);
+        if (!there) return fail("The frontier hasn't found that planet yet.");
+        if (there.colony) return fail(`${there.colony.name} is already there.`);
+        const named = colonyName(name), lower = named?.toLocaleLowerCase();
+        if (!named) return fail('Name the colony: up to 24 letters, digits, spaces, apostrophes or hyphens.');
+        const taken = lower === 'home' ? 'Home' : s.planets.find((p) => p.colony?.name.toLocaleLowerCase() === lower)?.colony.name;
+        if (taken) return fail(`${taken} is taken. Pick another name.`);
+        item = { planet, name: named };
+      } else return fail('That is not something World sells.');
+      const price = priceOf(kind, st.purchases);
       if (s.balance < price) return fail(`It costs ${fmt(price)} credit, and you have ${fmt(Math.max(0, s.balance))}.`);
       const peak = Math.max(st.peak ?? 0, s.earned);
-      const p = { kind, at: now(), price, earnedAt: peak, ang: normAng(ang) };
+      const p = { kind, at: now(), price, earnedAt: peak, ...item };
       st.peak = peak;
       st.purchases.push(p);
       save();
