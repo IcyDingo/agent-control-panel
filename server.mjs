@@ -83,9 +83,14 @@ function listProfiles() {
 function describeProfile(p) {
   let account = null;
   try { const a = JSON.parse(small(p.config, 8 << 20)).oauthAccount; if (a) account = { email: a.emailAddress ?? null, org: a.organizationName ?? null }; } catch {}
-  let connected = false;
-  try { connected = small(path.join(p.dir, 'settings.json'), 4 << 20).includes(HOOK_URL); } catch {}
+  let connected = false, effort = null;
+  try {
+    const text = small(path.join(p.dir, 'settings.json'), 4 << 20);
+    connected = text.includes(HOOK_URL);
+    effort = JSON.parse(text).effortLevel ?? null; // its default for new sessions, which /effort saves there
+  } catch {}
   return { id: p.id, label: path.basename(p.dir).slice(1), dir: p.dir, where: p.dir.startsWith(HOME + path.sep) ? '~' + p.dir.slice(HOME.length) : p.dir, account, connected,
+           effort: EFFORTS.has(effort) ? effort : null,
            command: p.plain ? 'claude' : `CLAUDE_CONFIG_DIR=~/${path.basename(p.dir)} claude` };
 }
 let profile = null, profileInfo = null, profileGen = 0, polls = 0, configDir = null, childEnv = baseEnv;
@@ -286,7 +291,9 @@ async function pollRoster() {
       s.mode ??= lastTurn(s.sessionId).mode ?? null;
     }
     const on = ranOn(s.sessionId);
-    Object.assign(s, { model: on.model ?? null, effort: on.effort ?? null });
+    Object.assign(s, { model: on.model ?? null, effort: on.effort ?? null, editTops: on.edits ?? [] });
+    // Where it works now (its hook events update this between reads, and a panel restart forgets them).
+    if (on.cwd && on.cwd !== s.ranCwd) { s.ranCwd = on.cwd; s.hereCwd = on.cwd; }
     loadSubagents(s);
     if (over) { settleSubagents(s); clearStops(s.sessionId); }
     // An interrupted session that has gone idle is done stopping. (A continue:false ends the turn without a Stop event.)
@@ -675,8 +682,11 @@ function lastTurn(sessionId) {
 const modelOf = (d) => [d.requestedModel, d.message?.model].find((m) => typeof m === 'string' && /^[\w.\-[\]]{1,80}$/.test(m)) ?? null;
 const effortOf = (d) => (EFFORTS.has(d.effort) ? d.effort : null);
 /** The model and effort its replies run on now, for the panel to show: from its newest reply, read again only when the
- *  transcript has grown. Neither changes without a restart, so a tail with no reply in it keeps the last read. */
-const ran = new Map(); // sessionId → { size, mtimeMs, model, effort }
+ *  transcript has grown. Neither changes without a restart, so a tail with no reply in it keeps the last read. Also the
+ *  folder of its newest step, which follows it into a worktree it entered mid-session (the roster keeps the folder it
+ *  started in), and the checkouts it last edited files in, newest first. */
+const EDITS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
+const ran = new Map(); // sessionId → { size, mtimeMs, model, effort, cwd, edits }
 function ranOn(sessionId) {
   const file = transcriptFile(sessionId);
   let st;
@@ -684,12 +694,23 @@ function ranOn(sessionId) {
   const c = ran.get(sessionId);
   if (!st) return c ?? {};
   if (c && c.size === st.size && c.mtimeMs === st.mtimeMs) return c;
-  const out = { size: st.size, mtimeMs: st.mtimeMs, model: c?.model ?? null, effort: c?.effort ?? null };
+  const out = { size: st.size, mtimeMs: st.mtimeMs, model: c?.model ?? null, effort: c?.effort ?? null, cwd: c?.cwd ?? null };
+  let model = false, cwd = false;
+  const edits = [];
   for (const line of tailOf(file, c ? 128_000 : 512_000)) {
     let d;
     try { d = JSON.parse(line); } catch { continue; }
-    if (d.type === 'assistant' && !d.isSidechain && modelOf(d)) { Object.assign(out, { model: modelOf(d), effort: effortOf(d) }); break; }
+    if (d.isSidechain) continue;
+    if (!cwd && typeof d.cwd === 'string' && path.isAbsolute(d.cwd)) { out.cwd = d.cwd; cwd = true; }
+    if (d.type !== 'assistant') continue;
+    if (!model && modelOf(d)) { Object.assign(out, { model: modelOf(d), effort: effortOf(d) }); model = true; }
+    for (const b of Array.isArray(d.message?.content) ? d.message.content : []) {
+      const f = b?.type === 'tool_use' && EDITS.has(b.name) ? b.input?.file_path ?? b.input?.notebook_path : null;
+      if (typeof f === 'string' && path.isAbsolute(f)) edits.push(f);
+    }
   }
+  const tops = edits.map((f) => gitPlace(path.dirname(f))?.top).filter(Boolean);
+  out.edits = [...new Set([...tops, ...(c?.edits ?? [])])].slice(0, 4);
   ran.set(sessionId, out);
   return out;
 }
@@ -784,7 +805,7 @@ const delivering = new Set();
 const hasRunningSub = (s) => [...s.subagents.values()].some((a) => !a.stoppedAt);
 const isWorking = (s) => !isEnded(s) && (s.inRoster || !s.kind) && !atPrompt(s)
   && ([...pending.values()].some((p) => p.sessionId === s.sessionId) || hasRunningSub(s)
-      || (s.inRoster ? s.status !== 'idle' : Date.now() - (s.lastTool?.at ?? 0) < 60_000));
+      || (s.inRoster ? Boolean(s.status) && s.status !== 'idle' : Date.now() - (s.lastTool?.at ?? 0) < 60_000));
 async function deliverQueued() {
   for (const [id, q] of inbox) {
     const s = sessions.get(id);
@@ -1213,11 +1234,14 @@ function snapshot() {
   const now = Date.now();
   return {
     now, armed, rosterError, port: PORT, profile: profileInfo,
-    sessions: [...sessions.values()].map(({ spawns, hereCwd, rosterCwd, ...s }) => ({
-      ...s, git: placeOut(gitPlace(hereCwd ?? s.cwd)), stopping: stops.has(stopKey(s.sessionId, null)), hostsPanel: hostPids.has(s.pid),
+    sessions: [...sessions.values()].map(({ spawns, hereCwd, rosterCwd, ranCwd, editTops, ...s }) => {
+      const git = placeOut(gitPlace(hereCwd ?? s.cwd));
+      return {
+      ...s, git, workCwd: hereCwd ?? s.cwd, elsewhere: (editTops ?? []).filter((t) => t !== git?.top).slice(0, 3).map((t) => placeOut(gitPlace(t))).filter(Boolean),
+      stopping: stops.has(stopKey(s.sessionId, null)), hostsPanel: hostPids.has(s.pid),
       queued: inbox.get(s.sessionId) ?? [], working: isWorking(s),
       subagents: [...s.subagents.values()].map((a) => ({ ...a, stopping: !a.stoppedAt && stops.has(stopKey(s.sessionId, a.agentId)) })),
-    })),
+    }; }),
     pending: [...[...pending.values()].map(({ res, timer, ...p }) => p), ...openRequests()],
     _ts: now,
   };

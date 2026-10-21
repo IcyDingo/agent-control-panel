@@ -37,10 +37,13 @@ holds what it's asking, what it's doing now, a reply box, and its subagents, eac
 task its parent gave it.
 
 Each tile also shows the session's **branch**: a branch mark when it works in a repository's main
-checkout, a folder mark when it is in a worktree. The panel says which worktree, and names the other
-live sessions in the same checkout, since they share its branch and files. The branch follows a
-session that moves into a worktree after it starts. It is read from the files under `.git`, never by
-running git.
+checkout, a folder mark when it is in a worktree. The panel says which worktree of which repository, and
+names the other live sessions in the same checkout, since they share its branch and files (one that
+switches the branch switches it for all of them). Where a session works comes from its transcript, so it
+follows a session that moves into a worktree after it starts, which `claude agents` doesn't (it keeps the
+folder the session started in). When a session edits files in other checkouts, its panel lists those too
+("Also edits files in agent-control-panel (main)"). Branches are read from the files under `.git`, never
+by running git.
 
 **Space view** shows the same sessions full screen, as satellites orbiting you, each one a body in its
 state's colour between two solar wings, flying along its orbit. Its orbit is its state: the inner
@@ -59,8 +62,9 @@ When a session or subagent asks for something, the request appears in its panel:
 - **Plan** (`ExitPlanMode`): read the plan, then approve it (in auto mode, or asking before edits)
   or send it back with what to change.
 
-**New agent** launches a background session (`claude --bg`) with a prompt, folder, name, model,
-agent type and permission mode. The folder can be any folder: **Choose…** opens the Mac's folder
+**New agent** launches a background session (`claude --bg`) with a prompt, folder, name, agent type,
+model and permission mode (rows of buttons), and effort (a slider; **Default** leaves it to your profile's
+own default). The folder can be any folder: **Choose…** opens the Mac's folder
 dialog, and typing a path suggests the folders under it. A folder Claude Code hasn't been trusted in
 yet needs `claude` run there once first, to accept its trust prompt.
 
