@@ -142,8 +142,8 @@ export function createWorld({ file, configDir, gitPlace, run, now = Date.now }) 
     return out;
   }
 
-  function scanTokens() {
-    let changed = false;
+  async function scanTokens() {
+    let changed = false, read = 0;
     const repos = new Set(st.repos), seenCwds = new Map();
     for (const f of transcripts()) {
       const seen = st.files[f];
@@ -152,6 +152,7 @@ export function createWorld({ file, configDir, gitPlace, run, now = Date.now }) 
       if (seen ? seen.offset === size : mtimeMs < st.startedAt) continue; // nothing new, or from before World
       let r;
       try { r = readTokens(f, seen, st.startedAt); } catch { continue; }
+      if (++read % 8 === 0) await new Promise((resolve) => setImmediate(resolve)); // let the panel answer in between
       st.files[f] = r.state;
       changed = true;
       for (const [day, n] of Object.entries(r.tokens)) st.tokens[day] = (st.tokens[day] ?? 0) + n;
@@ -190,7 +191,7 @@ export function createWorld({ file, configDir, gitPlace, run, now = Date.now }) 
     },
     async scan({ git = true } = {}) {
       if (!st) return;
-      const changed = scanTokens();
+      const changed = await scanTokens();
       if (git) await scanCommits();
       if (changed || git) save();
     },

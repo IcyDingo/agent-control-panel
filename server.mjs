@@ -16,6 +16,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { execFile, spawn } from 'node:child_process';
+import { createWorld } from './world.mjs';
 
 const PORT = Number(process.env.ACP_PORT ?? 4747);
 const ROSTER_MS = 3000;
@@ -93,13 +94,15 @@ function describeProfile(p) {
            effort: EFFORTS.has(effort) ? effort : null,
            command: p.plain ? 'claude' : `CLAUDE_CONFIG_DIR=~/${path.basename(p.dir)} claude` };
 }
-let profile = null, profileInfo = null, profileGen = 0, polls = 0, configDir = null, childEnv = baseEnv;
+let profile = null, profileInfo = null, profileGen = 0, polls = 0, configDir = null, childEnv = baseEnv, world = null;
 function useProfile(p) {
   profile = p;
   profileInfo = describeProfile(p);
   configDir = p.dir;
   childEnv = p.plain ? baseEnv : { ...baseEnv, CLAUDE_CONFIG_DIR: p.dir };
   profileGen++;
+  // Each profile has its own World, kept beside the prefs (so a second panel with its own ACP_PREFS has its own too).
+  world = createWorld({ file: path.join(path.dirname(PREFS), 'world', `${p.id}.json`), configDir: p.dir, gitPlace, run: (...a) => run(...a) });
 }
 {
   const all = listProfiles();
@@ -1248,12 +1251,32 @@ async function pickFolder(body) {
   return { ok: true, path: tilde(r.stdout.trim().replace(/(.)\/$/, '$1')) };
 }
 
+// ---------------------------------------------------------------- world
+
+// World counts tokens every minute and commits every fifth time; a scan never overlaps another.
+const WORLD_MS = 60_000;
+let worldScans = 0, worldScanning = false;
+async function scanWorld(git) {
+  const w = world;
+  if (!w?.started() || worldScanning) return;
+  worldScanning = true;
+  const before = w.summary().earned;
+  try { await w.scan({ git }); } catch (err) { console.error('world scan failed:', err?.message ?? err); }
+  finally { worldScanning = false; }
+  if (w === world && w.summary().earned !== before) broadcast();
+}
+function openWorld() {
+  world.open();
+  scanWorld(true);
+  return { ok: true, world: world.summary() };
+}
+
 // ---------------------------------------------------------------- snapshot + SSE
 
 function snapshot() {
   const now = Date.now();
   return {
-    now, armed, rosterError, port: PORT, profile: profileInfo,
+    now, armed, rosterError, port: PORT, profile: profileInfo, world: world?.summary() ?? { started: false },
     sessions: [...sessions.values()].map(({ spawns, hereCwd, rosterCwd, ranCwd, editTops, ...s }) => {
       const here = ranCwd ?? hereCwd ?? s.cwd, git = placeOut(gitPlace(here));
       return {
@@ -1335,6 +1358,10 @@ async function handle(req, res) {
     return send(res, 200, page().replace('__ACP_TOKEN__', TOKEN), 'text/html; charset=utf-8');
   }
 
+  if (req.method === 'GET' && url.pathname === '/world.js') {
+    return send(res, 200, fs.readFileSync(new URL('./public/world.js', import.meta.url), 'utf8'), 'text/javascript; charset=utf-8');
+  }
+
   if (req.method === 'GET' && url.pathname === '/events') {
     if (url.searchParams.get('t') !== TOKEN) return send(res, 403, { error: 'token' });
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
@@ -1369,7 +1396,7 @@ async function handle(req, res) {
     const ACTIONS = { '/api/end': end, '/api/remove': remove, '/api/reply': reply, '/api/unqueue': unqueue, '/api/mode': switchMode,
                       '/api/folders': listFolders, '/api/folder': folderInfo, '/api/pick-folder': pickFolder,
                       '/api/profiles': profiles, '/api/profile': switchProfile, '/api/profile/connect': connectProfile,
-                      '/api/answer-open': answerOpen };
+                      '/api/answer-open': answerOpen, '/api/world/open': openWorld };
     if (Object.hasOwn(ACTIONS, url.pathname)) {
       let r;
       try { r = await ACTIONS[url.pathname](body); } catch (err) { r = { ok: false, error: String(err?.message ?? err).slice(0, 300) }; }
@@ -1390,4 +1417,5 @@ server.listen(PORT, '127.0.0.1', () => {
   pollRoster();
   setInterval(pollRoster, ROSTER_MS);
   setInterval(() => { prune(); broadcast(); }, 10_000);
+  setInterval(() => scanWorld(worldScans++ % 5 === 0), WORLD_MS);
 });
