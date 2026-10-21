@@ -455,6 +455,10 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .w-box .btn:disabled { opacity: .5; cursor: default; }
 .w-box .err { margin: 0; }
 .w-box > input.field { flex: none; height: 26px; font-size: 12.5px; }
+.w-box > textarea.field { flex: none; font-size: 12.5px; }
+.w-built { padding-top: 2px; border-top: 1px solid var(--line); }
+.w-built li { color: var(--fg-dim); font-size: 12px; }
+.w-built li::before { content: "▪ "; color: var(--amber); }
 .w-list { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
 .w-list .linkish { display: inline-flex; align-items: center; gap: 7px; color: var(--fg-dim); font-size: 12.5px; text-decoration: none; text-align: left; }
 .w-list .linkish:hover { color: var(--fg); }
@@ -785,6 +789,15 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
       <p id="w-next"></p>
       <p id="w-xp-today" title="A full day's work, 300 credit, is about an hour of one agent working. Past it, each doubling of the work gives 50 XP more."></p>
       <div class="w-bar today"><i id="w-bar-today"></i></div>
+    </section>
+    <section class="w-box" id="w-build-box">
+      <h2 id="w-build-title">Build on Home</h2>
+      <p>Describe something to build here, on the ground or in orbit. Claude picks what to draw.</p>
+      <textarea class="field" id="w-build-text" maxlength="300" rows="2" placeholder="A ring city along the equator, lit at night" aria-label="What to build"></textarea>
+      <div class="w-act"><span id="w-build-price"></span><button class="btn small go" type="button" id="w-build" disabled>Build it</button></div>
+      <p id="w-build-why" hidden></p>
+      <p class="err" id="w-build-err" role="alert" hidden></p>
+      <ul class="w-list w-built" id="w-built" aria-label="Built here" hidden></ul>
     </section>
     <section class="w-box" id="w-rocket-box" hidden>
       <h2>Send a rocket</h2>

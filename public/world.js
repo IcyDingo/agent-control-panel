@@ -85,6 +85,11 @@
     const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
     return `rgb(${[16, 8, 0].map((s) => Math.round((pa >> s & 255) * (1 - k) + (pb >> s & 255) * k)).join(',')})`;
   }
+  /** A #rrggbb colour at an opacity, darkened toward black by `dark` (0–1). */
+  function rgba(hex, a, dark = 0) {
+    const v = parseInt(hex.slice(1), 16);
+    return `rgba(${[16, 8, 0].map((s) => Math.round((v >> s & 255) * (1 - dark))).join(',')},${a})`;
+  }
   function label(text, lx, ly, color = '#8c96a4', size = 12) {
     x.font = `500 ${size}px Geist, system-ui, sans-serif`; x.textAlign = 'center';
     x.fillStyle = 'rgba(3,5,10,.8)'; x.fillText(text, lx + 1, ly + 1);
@@ -93,9 +98,11 @@
   /** Home, level by level (world.mjs LEVELS): clouds over the rock, oceans, continents, green coasts, forests,
    *  settlements with lights at night, cities under an atmosphere, and a moon when it is terraformed; then an orbital
    *  ring, a star port on it, and a second moon. */
-  function drawHome(cx, cy, R, t, detail) {
+  function drawHome(cx, cy, R, t, detail, look = {}) {
     const spin = calm.matches ? 0 : t / 60000, drift = calm.matches ? 0 : t / 40000;
-    const clouds = ramp(0.03, 0.6), ocean = ramp(0.4, 1), land = ramp(1.5, 4.2), green = ramp(4, 6.2), forest = ramp(6.5, 9.5);
+    // A land or ocean colour that was built shows at once, whatever the level.
+    const clouds = ramp(0.03, 0.6), ocean = look.ocean ? 1 : ramp(0.4, 1), land = look.land ? Math.max(0.6, ramp(1.5, 4.2)) : ramp(1.5, 4.2);
+    const green = look.land ? 1 : ramp(4, 6.2), forest = ramp(6.5, 9.5);
     const towns = ramp(10.5, 19), air = ramp(13, 17), moon = ramp(19, 20), ring = ramp(21, 26), port = ramp(28, 33), moon2 = ramp(36, 40);
     // The ring is tilted; its far half passes behind Home, its near half in front.
     const ringArc = (from, to) => {
@@ -111,7 +118,7 @@
       x.fillStyle = a; x.beginPath(); x.arc(cx, cy, R * 1.25, 0, 7); x.fill();
     }
     x.save(); x.beginPath(); x.arc(cx, cy, R, 0, 7); x.clip();
-    x.fillStyle = mix('#6b6660', '#24507f', ocean); x.fillRect(cx - R, cy - R, 2 * R, 2 * R);
+    x.fillStyle = mix('#6b6660', look.ocean ?? '#24507f', ocean); x.fillRect(cx - R, cy - R, 2 * R, 2 * R);
     for (const c of made.craters) {
       x.fillStyle = `rgba(40,38,36,${0.5 * (1 - ocean)})`;
       x.beginPath(); x.arc(cx - R + ((c.u + spin) % 1) * 2 * R, cy - R + c.v * 2 * R, c.s * R / 240, 0, 7); x.fill();
@@ -120,10 +127,10 @@
     for (const l of made.land) {
       if (l.at > land * 1.05) continue; // continents rise one by one
       const [lx, ly] = at(l);
-      x.fillStyle = mix('#7b7569', '#4f7a52', green);
+      x.fillStyle = mix('#7b7569', look.land ?? '#4f7a52', green);
       x.beginPath(); x.ellipse(lx, ly, l.s * 2 * R, l.s * 1.2 * R, 0.3, 0, 7); x.fill();
       if (forest > l.at * 0.9) { // forests spread inland
-        x.fillStyle = `rgba(36,74,46,${0.85 * forest})`;
+        x.fillStyle = look.land ? rgba(look.land, 0.85 * forest, 0.45) : `rgba(36,74,46,${0.85 * forest})`;
         x.beginPath(); x.ellipse(lx + l.s * 0.2 * R, ly, l.s * 1.1 * R, l.s * 0.62 * R, 0.3, 0, 7); x.fill();
       }
     }
@@ -168,13 +175,14 @@
   const idSeed = (id) => [...id].reduce((h, ch) => h * 31 + ch.charCodeAt(0), made.seed) | 0;
   /** A planet the frontier found: a bare world in its own colours, with craters. A colony on it adds a warm air and
    *  domes lit from inside. */
-  function drawPlanet(cx, cy, R, p, colony) {
+  function drawPlanet(cx, cy, R, p, colony, look = {}) {
     if (colony) {
       const a = x.createRadialGradient(cx, cy, R * 0.95, cx, cy, R * 1.2);
       a.addColorStop(0, 'rgba(240,180,120,.3)'); a.addColorStop(1, 'rgba(240,180,120,0)');
       x.fillStyle = a; x.beginPath(); x.arc(cx, cy, R * 1.2, 0, 7); x.fill();
     }
-    const [c0, c1, c2] = LOOK[p.look] ?? LOOK.rust, gr = x.createRadialGradient(cx - R * 0.35, cy - R * 0.35, 0, cx, cy, R);
+    const [c0, c1, c2] = look.land ? [mix(look.land, '#ffffff', 0.35), look.land, mix(look.land, '#000000', 0.8)] : LOOK[p.look] ?? LOOK.rust;
+    const gr = x.createRadialGradient(cx - R * 0.35, cy - R * 0.35, 0, cx, cy, R);
     gr.addColorStop(0, c0); gr.addColorStop(0.6, c1); gr.addColorStop(1, c2);
     x.fillStyle = gr; x.beginPath(); x.arc(cx, cy, R, 0, 7); x.fill();
     if (R > 12) {
@@ -191,6 +199,119 @@
       }
       x.restore();
     } else if (colony) { x.fillStyle = 'rgba(255,205,120,.95)'; x.fillRect(cx + R * 0.15, cy - R * 0.2, 1.5, 1.5); }
+  }
+  // ---------- what was built: Claude's pieces from world.mjs's CATALOGUE, at any size from a map dot to close up
+  const SIZE = { small: 0.6, medium: 1, large: 1.45 };
+  /** Where on the face a place is, from the top (-1) to the bottom (1). */
+  const BAND = { north: [-0.82, -0.38], south: [0.38, 0.82], equator: [-0.22, 0.22], everywhere: [-0.82, 0.82], orbit: [-0.82, 0.82] };
+  /** What was built on a place, each piece with a seed of its own so it stays where it was put. */
+  const piecesOn = (id) => (world?.builds ?? []).filter((b) => b.on === id).flatMap((b) => b.pieces.map((p, i) => ({ ...p, seed: idSeed(`${b.id}:${i}`) })));
+  /** The newest land and ocean colours built there: they recolour the planet itself. */
+  const lookOf = (pieces) => ({ land: pieces.findLast((p) => p.kind === 'land_colour')?.colour, ocean: pieces.findLast((p) => p.kind === 'ocean_colour')?.colour });
+  /** A piece's spots on the ground, the same every frame: across (scrolling with the planet's spin) and down its band. */
+  function spots(p, k, cx, cy, R, spin) {
+    const r = rng(p.seed), [a, b] = BAND[p.place] ?? BAND.everywhere, out = [];
+    for (let i = 0; i < k; i++) {
+      const u = r(), v = a + (b - a) * r(), w = r();
+      out.push({ x: cx - R + ((u + spin) % 1) * 2.2 * R - 0.1 * R, y: cy + v * R, w });
+    }
+    return out.filter((s) => Math.hypot(s.x - cx, s.y - cy) < R * 0.94);
+  }
+  /** Things in orbit: where each one is now, and whether it is behind the planet. */
+  function orbits(p, k, cx, cy, R, t, near, far) {
+    const r = rng(p.seed), out = [];
+    for (let i = 0; i < k; i++) {
+      const orb = R * (near + (far - near) * (k > 1 ? i / (k - 1) : 0.5) + 0.12 * r()), speed = 24000 + 16000 * r(), a = (calm.matches ? 0 : t / speed) + r() * 7;
+      out.push({ x: cx + Math.cos(a) * orb, y: cy + Math.sin(a) * orb * 0.32, behind: Math.sin(a) < 0, i });
+    }
+    return out;
+  }
+  /** Built pieces in three passes around the planet's own drawing: 'back' (behind it), 'ground' (on its face, clipped),
+   *  'front'. `home` says whether this is Home, whose own land and seas take the colours instead. */
+  function drawBuilt(cx, cy, R, pieces, t, layer, spin, home) {
+    if (!pieces.length) return;
+    const dot = Math.max(1, R / 110), blink = (i) => (calm.matches ? 1 : 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(t / 350 + i * 1.7)));
+    const lit = (sx, sy) => clamp(1.25 - Math.hypot(sx - (cx - 0.45 * R), sy - (cy - 0.4 * R)) / (1.5 * R), 0.25, 1); // daylight from the top left
+    if (layer === 'ground') { x.save(); x.beginPath(); x.arc(cx, cy, R, 0, 7); x.clip(); }
+    for (const p of pieces) {
+      const S = SIZE[p.size] ?? 1, n = p.count, c = p.colour;
+      if (p.kind === 'atmosphere' && layer === 'back') {
+        const out = R * (1.12 + 0.12 * S), g = x.createRadialGradient(cx, cy, R * 0.95, cx, cy, out);
+        g.addColorStop(0, rgba(c, 0.5)); g.addColorStop(1, rgba(c, 0));
+        x.fillStyle = g; x.beginPath(); x.arc(cx, cy, out, 0, 7); x.fill();
+      } else if ((p.kind === 'rings' || p.kind === 'ring_city') && layer !== 'ground') {
+        const tilt = (rng(p.seed)() - 0.5) * 0.7, city = p.kind === 'ring_city', from = layer === 'back' ? Math.PI : 0;
+        for (let i = 0; i < (city ? 1 : Math.min(n, 4)); i++) {
+          const rx = R * (1.3 + 0.22 * S + 0.13 * i), ry = rx * 0.24;
+          x.strokeStyle = city ? 'rgba(200,208,220,.6)' : rgba(c, 0.55); x.lineWidth = Math.max(1, R * (city ? 0.05 : 0.03) * S);
+          x.beginPath(); x.ellipse(cx, cy, rx, ry, tilt, from, from + Math.PI); x.stroke();
+          if (city) for (let j = 0, m = 6 * n; j < m; j++) { // its lights, along the half on this side
+            const th = from + (j + 0.5) / m * Math.PI, ex = Math.cos(th) * rx, ey = Math.sin(th) * ry;
+            x.fillStyle = rgba(c, 0.95); x.fillRect(cx + ex * Math.cos(tilt) - ey * Math.sin(tilt) - dot / 2, cy + ex * Math.sin(tilt) + ey * Math.cos(tilt) - dot / 2, dot * 1.3, dot * 1.3);
+          }
+        }
+      } else if (p.kind === 'moon' && layer !== 'ground') {
+        for (const o of orbits(p, Math.min(n, 6), cx, cy, R, t, 1.7, 2.5)) {
+          if (o.behind !== (layer === 'back')) continue;
+          const mr = Math.max(1, R * 0.075 * S), g = x.createRadialGradient(o.x - mr * 0.3, o.y - mr * 0.3, mr * 0.1, o.x, o.y, mr);
+          g.addColorStop(0, mix(c, '#ffffff', 0.35)); g.addColorStop(1, mix(c, '#000000', 0.55));
+          x.fillStyle = g; x.beginPath(); x.arc(o.x, o.y, mr, 0, 7); x.fill();
+        }
+      } else if (p.kind === 'space_station' && layer !== 'ground') {
+        for (const o of orbits(p, Math.min(n, 6), cx, cy, R, t * 0.6, 1.4, 1.9)) {
+          if (o.behind !== (layer === 'back')) continue;
+          const u = Math.max(1.2, R * 0.03 * S);
+          x.fillStyle = rgba(c, 0.95); x.fillRect(o.x - u * 0.6, o.y - u * 0.6, u * 1.2, u * 1.2);
+          x.fillStyle = rgba(c, 0.6); x.fillRect(o.x - u * 3, o.y - u * 0.35, u * 2, u * 0.7); x.fillRect(o.x + u, o.y - u * 0.35, u * 2, u * 0.7);
+        }
+      } else if (p.kind === 'beacon' && p.place === 'orbit' && layer !== 'ground') {
+        for (const o of orbits(p, Math.min(n, 6), cx, cy, R, t * 0.8, 1.35, 1.8)) {
+          if (o.behind !== (layer === 'back')) continue;
+          x.fillStyle = rgba(c, blink(o.i)); x.beginPath(); x.arc(o.x, o.y, Math.max(1.2, R * 0.02 * S), 0, 7); x.fill();
+        }
+      } else if (p.kind === 'space_elevator' && layer === 'front') {
+        const r = rng(p.seed);
+        for (let i = 0; i < Math.min(n, 4); i++) { // from the rim up: north, south, at the equator's edges, or anywhere
+          const j = (r() - 0.5), a = p.place === 'north' ? -Math.PI / 2 + j * 1.2 : p.place === 'south' ? Math.PI / 2 + j * 1.2
+            : p.place === 'equator' ? (r() < 0.5 ? 0 : Math.PI) + j * 0.6 : r() * 2 * Math.PI;
+          const bx = cx + Math.cos(a) * R, by = cy + Math.sin(a) * R, len = R * (0.7 + 0.4 * S), u = Math.max(1.2, R * 0.03);
+          x.strokeStyle = rgba(c, 0.85); x.lineWidth = Math.max(0.8, R * 0.012);
+          x.beginPath(); x.moveTo(bx, by); x.lineTo(bx + Math.cos(a) * len, by + Math.sin(a) * len); x.stroke();
+          x.fillStyle = rgba(c, 0.95); x.fillRect(bx + Math.cos(a) * len - u, by + Math.sin(a) * len - u, 2 * u, 2 * u);
+        }
+      } else if (p.kind === 'aurora' && layer === 'front') {
+        const poles = p.place === 'north' ? [-1] : p.place === 'south' ? [1] : [-1, 1], m = 12 + 2 * n;
+        for (const pole of poles) for (let k = 0; k < m; k++) { // a curtain: many soft strands, rising and falling
+          const th = pole * Math.PI / 2 + (k / (m - 1) - 0.5) * 1.4, wave = 0.05 * Math.sin((calm.matches ? 0 : t / 700) + k * 0.8);
+          const bx = cx + Math.cos(th) * R * 1.01, by = cy + Math.sin(th) * R * 1.01, top = R * (1.1 + 0.1 * S + wave);
+          const g = x.createLinearGradient(bx, by, cx + Math.cos(th) * top, cy + Math.sin(th) * top);
+          g.addColorStop(0, rgba(c, 0.38)); g.addColorStop(0.4, rgba(c, 0.22)); g.addColorStop(1, rgba(c, 0));
+          x.strokeStyle = g; x.lineWidth = Math.max(1, R * 0.04);
+          x.beginPath(); x.moveTo(bx, by); x.lineTo(cx + Math.cos(th) * top, cy + Math.sin(th) * top); x.stroke();
+        }
+      } else if (layer === 'ground') {
+        if (p.kind === 'ocean_colour' && !home) for (const s of spots(p, 3 + n, cx, cy, R, spin)) { // seas on a colony
+          x.fillStyle = rgba(c, 0.8 * lit(s.x, s.y)); x.beginPath(); x.ellipse(s.x, s.y, R * (0.1 + 0.12 * s.w) * S, R * (0.06 + 0.07 * s.w) * S, 0.3, 0, 7); x.fill();
+        } else if (p.kind === 'mountains') for (const s of spots(p, Math.min(24, n * 2), cx, cy, R, spin)) {
+          const h = Math.max(1.5, R * 0.05 * S), k = lit(s.x, s.y);
+          for (const [dx, sc] of [[-0.8, 0.7], [0, 1], [0.7, 0.8]]) {
+            x.fillStyle = rgba(c, 0.9 * k); x.beginPath(); x.moveTo(s.x + (dx - 0.6 * sc) * h, s.y); x.lineTo(s.x + dx * h, s.y - h * sc); x.lineTo(s.x + (dx + 0.6 * sc) * h, s.y); x.fill();
+          }
+        } else if (p.kind === 'domes') for (const s of spots(p, n, cx, cy, R, spin)) {
+          const dr = Math.max(1.2, R * 0.05 * S);
+          x.fillStyle = rgba(c, 0.45 * lit(s.x, s.y) + 0.1); x.beginPath(); x.ellipse(s.x, s.y, dr * 1.4, dr, 0, Math.PI, 2 * Math.PI); x.fill();
+          x.fillStyle = 'rgba(255,214,140,.9)'; x.fillRect(s.x - dot / 2, s.y - dot * 1.5, dot, dot);
+        } else if (p.kind === 'city_lights') for (const s of spots(p, Math.min(72, n * 6), cx, cy, R, spin)) {
+          const night = s.x > cx + R * 0.05, d = dot * (0.8 + 0.4 * S);
+          x.fillStyle = rgba(c, night ? 0.95 : 0.35); x.fillRect(s.x - d / 2, s.y - d / 2, d, d);
+        } else if (p.kind === 'beacon' && p.place !== 'orbit') for (const s of spots(p, Math.min(n, 6), cx, cy, R, spin)) {
+          const b = blink(s.w * 9), d = Math.max(1.2, R * 0.02 * S);
+          x.fillStyle = rgba(c, 0.25 * b); x.beginPath(); x.arc(s.x, s.y, d * 3, 0, 7); x.fill();
+          x.fillStyle = rgba(c, b); x.beginPath(); x.arc(s.x, s.y, d, 0, 7); x.fill();
+        }
+      }
+    }
+    if (layer === 'ground') x.restore();
   }
   /** Where a rocket is `k` of the way along its flight (map px), and which way it points: a curve, bowed to one side. */
   function rocketAt(f, k) {
@@ -277,13 +398,21 @@
       x.globalAlpha = 1;
     }
     const detail = clamp((0.5 - z) / 0.35);
-    const [hx, hy] = to(0, 0), hr = bodyR(BODY.home);
-    if (seen(hx, hy, hr * 2.3)) drawHome(hx, hy, hr, t, here === 'home' ? detail : 0);
+    const [hx, hy] = to(0, 0), hr = bodyR(BODY.home), hp = piecesOn('home'), spin = calm.matches ? 0 : t / 60000;
+    if (seen(hx, hy, hr * 3.2)) {
+      drawBuilt(hx, hy, hr, hp, t, 'back', spin, true);
+      drawHome(hx, hy, hr, t, here === 'home' ? detail : 0, lookOf(hp));
+      drawBuilt(hx, hy, hr, hp, t, 'ground', spin, true);
+      drawBuilt(hx, hy, hr, hp, t, 'front', spin, true);
+    }
     if (z > 0.5) label('Home', hx, hy - hr - 10, '#e3e7ed', 13);
     for (const p of planets()) {
-      const [px, py] = to(p.x, p.y), r = bodyR(BODY.planet), colony = colonyOf(p);
-      if (!seen(px, py, r * 2.5)) continue;
-      drawPlanet(px, py, r, p, colony);
+      const [px, py] = to(p.x, p.y), r = bodyR(BODY.planet), colony = colonyOf(p), pp = colony ? piecesOn(p.id) : [];
+      if (!seen(px, py, r * 3.2)) continue;
+      drawBuilt(px, py, r, pp, t, 'back', 0, false);
+      drawPlanet(px, py, r, p, colony, lookOf(pp));
+      drawBuilt(px, py, r, pp, t, 'ground', 0, false);
+      drawBuilt(px, py, r, pp, t, 'front', 0, false);
       if (z > 0.5 && colony) label(colony.name, px, py + r + 20, '#e3e7ed', 12.5);
       else if (z > 0.5) {
         x.strokeStyle = 'rgba(227,171,62,.6)'; x.setLineDash([3, 4]); x.lineWidth = 1;
@@ -321,6 +450,7 @@
     if (!p) return;
     here = id; focusTo = { x: p.x, y: p.y }; pan = { x: 0, y: 0 };
     zoomTo(0);
+    if (world) { showBuild(); showRocket(); }
   }
   function showMap(at = { x: 0, y: 0 }) { focusTo = { ...at }; pan = { x: 0, y: 0 }; zoomTo(zFit()); }
   /** What is under a point on the canvas: a planet, Home, or a moment. */
@@ -373,6 +503,9 @@
     $('w-rocket-name').onkeydown = (e) => { if (e.key === 'Enter' && !$('w-rocket').disabled) sendRocket(); };
     $('w-rocket-show').onclick = () => flyTo($('w-rocket-to').value);
     $('w-rocket').onclick = sendRocket;
+    $('w-build-text').oninput = showBuild;
+    $('w-build-text').onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (!$('w-build').disabled) build(); } };
+    $('w-build').onclick = build;
   }
 
   // ---------- the side panel: Home's level, what to spend on, moments, and today's numbers
@@ -418,6 +551,35 @@
     setAim(false);
     AgentWorld.update(r.world);
     showMap({ x: Math.cos(ang) * 90, y: Math.sin(ang) * 90 });
+  }
+  /** Build on the place you are looking at: Home or a colony. Claude takes a few seconds; one build at a time. */
+  let buildingOn = null;
+  function showBuild() {
+    const box = $('w-build-box'), p = placeOf(here), yours = here === 'home' || (p && colonyOf(p));
+    box.hidden = !yours;
+    if (!yours) return;
+    $('w-build-title').textContent = `Build on ${placeName(here)}`;
+    const price = world.prices?.build ?? 0, b = $('w-build'), text = $('w-build-text');
+    $('w-build-price').textContent = `${fmt(price)} credit`;
+    b.textContent = buildingOn ? `Building on ${placeName(buildingOn)}…` : 'Build it';
+    b.disabled = Boolean(buildingOn) || !text.value.trim() || !can(price);
+    text.disabled = Boolean(buildingOn);
+    $('w-build-why').hidden = can(price);
+    $('w-build-why').textContent = `You have ${fmt(Math.max(0, world.balance))}. Work earns more.`;
+    const done = (world.builds ?? []).filter((d) => d.on === here);
+    $('w-built').hidden = !done.length;
+    $('w-built').replaceChildren(...done.slice(-4).reverse().map((d) => { const li = document.createElement('li'); li.textContent = d.caption; return li; }));
+  }
+  async function build() {
+    const on = here, err = $('w-build-err');
+    buildingOn = on; err.hidden = true; showBuild();
+    const r = await opts.api('/api/world/build', { on, description: $('w-build-text').value });
+    buildingOn = null;
+    if (!r.ok) { err.textContent = r.error || 'That did not go through.'; err.hidden = false; showBuild(); return; }
+    $('w-build-text').value = '';
+    opts.toast?.(`Built on ${placeName(on)}: ${r.caption}`);
+    AgentWorld.update(r.world);
+    if (here !== on || zTo > 0.3) flyTo(on);
   }
   /** Send a rocket: shown while the frontier has found a planet nobody lives on. */
   function showRocket() {
@@ -531,6 +693,7 @@
     $('w-noemail').hidden = !notes.length;
     $('w-noemail').textContent = notes.join(' ');
     showPush();
+    showBuild();
     showRocket();
     showColonies();
     showMoments(w.moments ?? []);

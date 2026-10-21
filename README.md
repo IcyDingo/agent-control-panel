@@ -400,7 +400,17 @@ spaces, apostrophes or hyphens; not Home, and not another colony's name). The vi
 where you are, and the view flies in to the colony; with reduced motion it goes straight there. Colonies have a
 button each beside **Home** and **Map**. A rocket costs 8,000 at first, and each one after costs a quarter more.
 
-Building what you describe comes next ([design](docs/superpowers/specs/2026-10-21-world-design.md)).
+**Build** on Home or a colony: describe it (up to 300 characters) and press **Build it** or Enter. Claude turns the
+words into pieces World can draw: moons, rings, a ring city, city lights, land and ocean colours, an atmosphere,
+mountains, domes, space stations, a space elevator, aurora and beacons, each with a colour, size, place and count.
+A build costs 6,000 at first, and each one after costs a quarter more. Credit is taken only when the answer draws: if
+Claude can't be reached, the profile isn't signed in, or the answer doesn't fit, nothing is spent and the side panel
+says why. One build at a time.
+
+That call is the only time World uses Claude: `claude -p --model haiku` with a JSON schema, under the profile the
+board shows, with hooks off, no tools, MCP servers or slash commands, and no session saved. It runs in
+`~/Library/Application Support/Agent Panel/world/build`, and the board leaves it out
+([design](docs/superpowers/specs/2026-10-21-world-design.md)).
 
 ## Security
 

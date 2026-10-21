@@ -16,7 +16,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { execFile, spawn } from 'node:child_process';
-import { createWorld } from './world.mjs';
+import { createWorld, claudeArgs, readAnswer } from './world.mjs';
 import { findRemoved } from './versions.mjs';
 
 const PORT = Number(process.env.ACP_PORT ?? 4747);
@@ -166,7 +166,7 @@ function clearStops(sessionId) {
 
 /** Record a hook event. Returns the hook's reply: only an interrupted agent's PreToolUse gets one. */
 function onHookEvent(e) {
-  if (!e?.session_id) return null;
+  if (!e?.session_id || quietIds.has(e.session_id)) return null;
   if (dismissed.has(e.session_id)) {
     if (e.hook_event_name === 'SessionEnd' || e.hook_event_name === 'Stop') return null;
     dismissed.delete(e.session_id); // it is running again
@@ -282,7 +282,7 @@ async function pollRoster() {
   rosterError = null;
   const seen = new Set();
   for (const r of list) {
-    if (!r.sessionId) continue;
+    if (!r.sessionId || quietIds.has(r.sessionId)) continue;
     const over = r.state === 'done' || r.state === 'failed' || r.state === 'stopped';
     if (dismissed.has(r.sessionId)) { if (over) continue; dismissed.delete(r.sessionId); }
     seen.add(r.sessionId);
@@ -1328,6 +1328,28 @@ function buyInWorld(body) {
   broadcast();
   return { ok: true, world: worldSummary() };
 }
+// The Claude calls behind Build it. `claude agents` lists one while it runs, so the roster and the hooks skip these.
+const quietIds = new Set();
+/** Ask Claude (under the profile the board shows) to turn a description into pieces World can draw. */
+async function askClaude(prompt) {
+  const id = crypto.randomUUID(), cwd = path.join(path.dirname(PREFS), 'world', 'build');
+  quietIds.add(id);
+  try {
+    fs.mkdirSync(cwd, { recursive: true });
+    const r = await new Promise((resolve) => {
+      const child = execFile('claude', claudeArgs(id, prompt), { cwd, env: childEnv, timeout: 120_000, maxBuffer: 4_000_000 },
+        (err, stdout, stderr) => resolve({ err, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') }));
+      child.stdin?.end(); // left open, `claude -p` waits for more input first
+    });
+    return readAnswer(r);
+  } finally { setTimeout(() => quietIds.delete(id), 120_000); } // until the roster has seen it go
+}
+async function buildInWorld(body) {
+  const r = await world.build({ on: body?.on, description: body?.description, ask: askClaude });
+  if (!r.ok) return r;
+  broadcast();
+  return { ok: true, caption: r.purchase.caption, world: worldSummary() };
+}
 
 // ---------------------------------------------------------------- deleted versions
 
@@ -1441,8 +1463,8 @@ async function handle(req, res) {
     if (otherProfile(e)) return send(res, 200, '');
     if (url.pathname === '/hook/event') { const reply = onHookEvent(e); return send(res, 200, reply ?? ''); }
     if (url.pathname === '/hook/permission') {
-      // Nobody watching, or paused: answer nothing, the terminal decides.
-      if (!armed || !watched()) return send(res, 200, '');
+      // Nobody watching, or paused, or World's own Claude call: answer nothing, the terminal decides.
+      if (!armed || !watched() || quietIds.has(e?.session_id)) return send(res, 200, '');
       return holdPermission(e, res);
     }
     return send(res, 404, '');
@@ -1495,7 +1517,8 @@ async function handle(req, res) {
     const ACTIONS = { '/api/end': end, '/api/remove': remove, '/api/reply': reply, '/api/unqueue': unqueue, '/api/mode': switchMode,
                       '/api/folders': listFolders, '/api/folder': folderInfo, '/api/pick-folder': pickFolder,
                       '/api/profiles': profiles, '/api/profile': switchProfile, '/api/profile/connect': connectProfile,
-                      '/api/answer-open': answerOpen, '/api/world/open': openWorld, '/api/world/buy': buyInWorld };
+                      '/api/answer-open': answerOpen, '/api/world/open': openWorld, '/api/world/buy': buyInWorld,
+                      '/api/world/build': buildInWorld };
     if (Object.hasOwn(ACTIONS, url.pathname)) {
       let r;
       try { r = await ACTIONS[url.pathname](body); } catch (err) { r = { ok: false, error: String(err?.message ?? err).slice(0, 300) }; }
