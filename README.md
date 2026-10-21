@@ -160,7 +160,8 @@ without touching your settings, run a single session with the hooks:
 - A permission request appears here **and** in the session's terminal at the same time.
   Whichever answers first wins.
 - The panel holds a request only while a panel tab is open and **Answer prompts here** is on.
-  Otherwise it answers nothing and the terminal decides as usual.
+  Otherwise it answers nothing and the terminal decides as usual. A reload (yours, or the app's when
+  its health check is slow) isn't a closed tab: held requests wait 15 seconds for a page to come back.
 - If the server isn't running, the hooks fail silently and Claude Code behaves as if they weren't there.
 - **Allow edited command** sends your edit as the tool's input. **Edit full input** does the same
   for any tool, as JSON.

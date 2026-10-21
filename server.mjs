@@ -22,6 +22,9 @@ const PORT = Number(process.env.ACP_PORT ?? 4747);
 const ROSTER_MS = 3000;
 // Just under the hook's own timeout (hooks.example.json: 3600 s); past it Claude Code drops the request anyway.
 const HOLD_MS = Number(process.env.ACP_HOLD_MS ?? 3590_000);
+// A reload (yours, or the app's when a health check is slow) leaves the panel unwatched for a moment. Held requests
+// wait this long for a page to come back: let go, a background session's plan can't be answered from here again.
+const RECONNECT_MS = Number(process.env.ACP_RECONNECT_MS ?? 15_000);
 const SUBAGENT_LINGER_MS = 600_000;
 const STOP_TTL_MS = 15 * 60_000;
 const STOP_REASON = 'Interrupted from the agent panel.';
@@ -52,6 +55,9 @@ const stops = new Map();
 /** Sessions removed or hidden from the panel. One comes back only if it runs again (a resumed terminal session). */
 const dismissed = new Set();
 const clients = new Set();
+/** Set while no page is connected but one may still come back (RECONNECT_MS). */
+let releaseTimer = null;
+const watched = () => clients.size > 0 || releaseTimer !== null;
 let armed = true;
 let rosterError = null;
 
@@ -1352,7 +1358,7 @@ async function handle(req, res) {
     if (url.pathname === '/hook/event') { const reply = onHookEvent(e); return send(res, 200, reply ?? ''); }
     if (url.pathname === '/hook/permission') {
       // Nobody watching, or paused: answer nothing, the terminal decides.
-      if (!armed || clients.size === 0) return send(res, 200, '');
+      if (!armed || !watched()) return send(res, 200, '');
       return holdPermission(e, res);
     }
     return send(res, 404, '');
@@ -1371,12 +1377,17 @@ async function handle(req, res) {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
     res.write(`retry: 2000\ndata: ${JSON.stringify(snapshot())}\n\n`);
     clients.add(res);
+    clearTimeout(releaseTimer);
+    releaseTimer = null;
     const ping = setInterval(() => res.write(': ping\n\n'), 20_000);
     req.on('close', () => {
       clearInterval(ping);
       clients.delete(res);
-      // Last tab gone: hand every held request back to the terminal.
-      if (clients.size === 0) for (const id of [...pending.keys()]) settle(id, null, 'panel closed');
+      // Last tab gone and not back in time: hand every held request back to the terminal.
+      if (clients.size === 0 && releaseTimer === null) releaseTimer = setTimeout(() => {
+        releaseTimer = null;
+        if (clients.size === 0) for (const id of [...pending.keys()]) settle(id, null, 'panel closed');
+      }, RECONNECT_MS);
     });
     return;
   }
