@@ -219,6 +219,7 @@ test('nothing is stored until World is opened, and it survives a restart', async
   await world.scan({ git: true });
   const before = world.summary();
   assert.ok(before.earned > 0);
+  assert.equal(typeof before.seed, "number"); // the view draws the same world from it every time
   const again = createWorld({ file: f2, configDir: c2, run, gitPlace: () => null, now: () => T0 });
   assert.equal(again.started(), true);
   assert.deepEqual(again.summary(), before);

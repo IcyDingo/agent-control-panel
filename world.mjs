@@ -207,7 +207,7 @@ export function createWorld({ file, configDir, gitPlace, run, now = Date.now }) 
       }
       const earned = Object.values(days).reduce((sum, x) => sum + dayCredit(x), 0);
       const spent = st.purchases.reduce((sum, p) => sum + (p.price ?? 0), 0), t = days[today] ?? blank();
-      const summary = { started: true, startedAt: st.startedAt, earned, spent, balance: earned - spent, grown: grown(earned),
+      const summary = { started: true, startedAt: st.startedAt, seed: st.seed, earned, spent, balance: earned - spent, grown: grown(earned),
         today: { day: today, commits: t.commits, added: t.added, removed: t.removed, multiplier: multiplier(t.added, t.removed), tokens: t.tokens, credit: dayCredit(t) },
         noEmail: st.noEmail };
       memo = { today, summary };

@@ -395,6 +395,27 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .toast { max-width: min(560px, calc(100vw - 32px)); padding: 8px 13px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--raise); color: var(--fg); font-size: 12.5px; box-shadow: 0 12px 28px -16px var(--shade); }
 .toast.bad { border-color: var(--stop-line); color: var(--stop); }
 
+/* ---------- world: a universe your agents' work pays for (public/world.js draws it). It shares Space view's night sky. ---------- */
+.btn.globe::before { content: ""; width: 11px; height: 11px; border-radius: 50%; border: 1px solid currentColor; background: linear-gradient(currentColor, currentColor) 50% 50% / 100% 1px no-repeat; }
+.world canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+.world canvas:active { cursor: grabbing; }
+.w-credit { font: 12.5px var(--mono); color: var(--fg-dim); }
+.w-credit b { font-weight: 500; color: var(--amber); }
+.w-side {
+  position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); top: calc(var(--sp-top, 52px) + 14px); z-index: 2; width: 288px;
+  display: grid; gap: 12px; align-content: start;
+}
+.w-box { display: grid; gap: 8px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--panel) 90%, transparent); backdrop-filter: blur(8px); }
+.w-box h2 { margin: 0; font-size: 13.5px; font-weight: 600; }
+.w-box dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; margin: 0; font-size: 12.5px; }
+.w-box dt { color: var(--fg-dim); }
+.w-box dd { margin: 0; font: 12.5px var(--mono); text-align: right; }
+.w-box p { margin: 0; color: var(--fg-dim); font-size: 12.5px; }
+.w-box p.warn { color: var(--amber); }
+.w-zoom { position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); z-index: 2; display: flex; gap: 6px; }
+.w-zoom .btn.on { border-color: var(--amber); color: var(--amber); }
+@media (max-width: 760px) { .w-side { position: static; width: auto; margin: calc(var(--sp-top, 52px) + 10px) 16px 0; } }
+
 /* ---------- space view: the same sessions as an orrery. You sit at the centre; the closer a session orbits, the sooner it needs you. ---------- */
 body.in-space { overflow: hidden; }
 .space {
@@ -616,6 +637,7 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
     <div class="prof-menu theme-menu" id="theme-menu" role="menu" aria-label="Theme" hidden></div>
   </div>
   <button class="btn orbit" type="button" id="space-btn">Space view</button>
+  <button class="btn globe" type="button" id="world-btn" title="A world your agents' work builds">World</button>
   <button class="btn primary" type="button" id="new-agent">New agent</button>
 </header>
 <p class="banner" id="roster-err" hidden></p>
@@ -686,6 +708,30 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
   </div>
 </div>
 
+<div class="space world" id="world" role="dialog" aria-modal="true" aria-label="World" hidden>
+  <canvas id="w-canvas" aria-label="Your world. Scroll or use Home and Map to zoom, drag to look around."></canvas>
+  <div class="sp-top">
+    <span class="brand">World</span>
+    <span class="sp-sub" id="w-where">Home</span>
+    <span class="grow"></span>
+    <span class="w-credit"><b id="w-credit">0</b> credit</span>
+    <button class="btn small" type="button" id="w-exit" title="Esc">Back to board</button>
+  </div>
+  <aside class="w-side" id="w-side">
+    <section class="w-box">
+      <h2>Today's work</h2>
+      <dl id="w-today"></dl>
+      <p class="warn" id="w-noemail" hidden></p>
+    </section>
+    <section class="w-box">
+      <p id="w-total"></p>
+      <p>Lines removed multiply the day's credit. Spending it comes next: pushing the frontier, rockets to new planets,
+        and building what you describe.</p>
+    </section>
+  </aside>
+  <div class="w-zoom"><button class="btn small on" type="button" id="w-home">Home</button><button class="btn small" type="button" id="w-map">Map</button></div>
+</div>
+
 <dialog class="launcher" id="launcher" aria-labelledby="launch-title">
   <form id="launch-form">
     <h2 id="launch-title">New agent</h2>
@@ -729,6 +775,7 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
 </dialog>
 <div id="toasts" role="status" aria-live="polite"></div>
 
+<script src="/world.js"></script>
 <script>
 const TOKEN = '__ACP_TOKEN__';
 const COLS = [['waiting', 'Needs you'], ['busy', 'Working'], ['idle', 'Idle'], ['finished', 'Finished']];
@@ -845,6 +892,7 @@ function connect() {
   es.onmessage = (m) => {
     const prev = snap;
     snap = JSON.parse(m.data);
+    if (worldOn) AgentWorld.update(snap.world);
     for (const p of snap.pending) if (prev && !prev.pending.some((q) => q.id === p.id)) alertNew(p);
     const ev = snap.event;
     if (ev?.type === 'settled' && cards.has(ev.id)) {
@@ -2056,6 +2104,28 @@ $('sun').onclick = () => {
 };
 $('planets').addEventListener('click', (e) => { if (e.target === e.currentTarget && open) { cancelAdvance(); open = null; render(); } });
 
+// ---------- World: a universe your agents' work pays for (public/world.js draws it) ----------
+let worldOn = false;
+async function enterWorld() {
+  const r = await api('/api/world/open', {});
+  if (!r.ok) { toast(r.error || 'World did not open.', true); return; }
+  worldOn = true;
+  $('world').hidden = false;
+  document.body.classList.add('in-space');
+  AgentWorld.enter(r.world);
+  $('w-exit').focus({ preventScroll: true });
+}
+function exitWorld() {
+  if (!worldOn) return;
+  worldOn = false;
+  AgentWorld.exit();
+  $('world').hidden = true;
+  if (!spaceOn) document.body.classList.remove('in-space');
+  $('world-btn').focus({ preventScroll: true });
+}
+$('world-btn').onclick = enterWorld;
+$('w-exit').onclick = exitWorld;
+
 // ---------- Earth: a new agent launches from here by rocket, and its planet appears where the rocket reaches its orbit ----------
 $('earth').onclick = openLauncher;
 const FLIGHT = 2.6; // seconds from Earth to its orbit
@@ -2251,7 +2321,8 @@ $('pb-connect').onclick = async () => {
 
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || dlg.open || e.target.closest?.('textarea, input, select')) return;
-  if (open) { cancelAdvance(); open = null; render(); } else if (spaceOn) exitSpace();
+  if (worldOn) exitWorld();
+  else if (open) { cancelAdvance(); open = null; render(); } else if (spaceOn) exitSpace();
 });
 
 // ---------- the panel's width: drag its left edge, arrow keys on the edge, double-click to reset ----------
