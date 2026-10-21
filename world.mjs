@@ -4,6 +4,7 @@
 // commits; lines removed multiply it. Only work after World's first open counts.
 
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import path from 'node:path';
 
 /** A local calendar day, YYYY-MM-DD. */
@@ -35,3 +36,51 @@ export const countsFile = (file) => !LOCKFILES.has(path.basename(file));
 
 /** A file's lines in one commit count at most this many each way (generated files would swamp everything else). */
 export const FILE_CAP = 2000;
+
+// ---------------------------------------------------------------- tokens
+
+const CHUNK = 4 << 20;
+const KEEP_IDS = 50;
+/** The tokens one reply used: what was sent and written, not what came from the prompt cache. */
+const tokensOf = (u) => (u.output_tokens ?? 0) + (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
+
+/** Reads what a transcript gained since `seen` (whole lines only) and returns the tokens per day it adds, counting each
+ *  reply once (Claude Code writes one reply as several entries that repeat its message id and usage), and the folders
+ *  those entries worked in. A file untouched since before World started is skipped, not read. */
+export function readTokens(file, seen, startedAt) {
+  const tokens = {}, cwds = new Set(), ids = [...(seen?.ids ?? [])];
+  const st = fs.statSync(file);
+  if (!seen && st.mtimeMs < startedAt) return { state: { offset: st.size, ids: [] }, tokens, cwds: [] };
+  let offset = seen?.offset ?? 0;
+  if (offset > st.size) return { state: { offset: st.size, ids }, tokens, cwds: [] }; // shrank: never recount
+  const fd = fs.openSync(file, 'r');
+  try {
+    // Split on newline bytes, never on decoded text: a chunk can end inside a multi-byte character.
+    let rest = Buffer.alloc(0);
+    while (offset + rest.length < st.size) {
+      const buf = Buffer.alloc(Math.min(CHUNK, st.size - offset - rest.length));
+      const n = fs.readSync(fd, buf, 0, buf.length, offset + rest.length);
+      if (!n) break;
+      const bytes = Buffer.concat([rest, buf.subarray(0, n)]), end = bytes.lastIndexOf(0x0a);
+      if (end < 0) { rest = bytes; continue; }
+      for (const line of bytes.toString('utf8', 0, end).split('\n')) count(line);
+      offset += end + 1;
+      rest = bytes.subarray(end + 1);
+    }
+  } finally { fs.closeSync(fd); }
+  return { state: { offset, ids: ids.slice(-KEEP_IDS) }, tokens, cwds: [...cwds] };
+
+  function count(line) {
+    if (!line.includes('"usage"') && !line.includes('"cwd"')) return;
+    let d;
+    try { d = JSON.parse(line); } catch { return; }
+    const at = Date.parse(d.timestamp);
+    if (!(at >= startedAt)) return;
+    if (typeof d.cwd === 'string' && path.isAbsolute(d.cwd)) cwds.add(d.cwd);
+    const u = d.type === 'assistant' ? d.message?.usage : null, id = d.message?.id;
+    if (!u || typeof u !== 'object' || (id && ids.includes(id))) return;
+    if (id) ids.push(id);
+    const day = dayKey(at);
+    tokens[day] = (tokens[day] ?? 0) + tokensOf(u);
+  }
+}
