@@ -4,6 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agent panel</title>
+<script>
+// Dark unless you picked Light or Match the Mac (the theme menu, top right). Set before the page paints.
+try { const t = localStorage.getItem('acp.theme'); if (t !== 'system') document.documentElement.dataset.theme = t === 'light' ? 'light' : 'dark'; }
+catch { document.documentElement.dataset.theme = 'dark'; }
+</script>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
 <style>
 /* One board, four state columns divided by hairlines; a session opens in a flush right-hand panel.
@@ -86,6 +91,13 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 .prof-item { display: grid; gap: 2px; padding: 8px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--fg); text-align: left; cursor: pointer; }
 .prof-item:hover, .prof-item:focus-visible { background: var(--hover); outline: none; }
+.theme-menu { left: auto; right: 0; min-width: 190px; }
+.theme-btn { width: 28px; justify-content: center; padding: 0; }
+.theme-btn::after { display: none; }
+.theme-btn::before { content: ""; width: 14px; height: 14px; background: currentColor; -webkit-mask: var(--i-theme) center / contain no-repeat; mask: var(--i-theme) center / contain no-repeat; }
+.theme-btn[data-shows="dark"] { --i-theme: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M13.6 10.1A6 6 0 0 1 5.9 2.4a6 6 0 1 0 7.7 7.7z'/%3E%3C/svg%3E"); }
+.theme-btn[data-shows="light"] { --i-theme: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' stroke='%23000' stroke-width='1.5' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='3'/%3E%3Cpath d='M8 1v1.6M8 13.4V15M1 8h1.6M13.4 8H15M3 3l1.1 1.1M11.9 11.9 13 13M3 13l1.1-1.1M11.9 4.1 13 3'/%3E%3C/svg%3E"); }
+.theme-btn[data-shows="system"] { --i-theme: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='5.6' fill='none' stroke='%23000' stroke-width='1.5'/%3E%3Cpath d='M8 2.4a5.6 5.6 0 0 1 0 11.2z'/%3E%3C/svg%3E"); }
 .prof-item[aria-checked="true"] { box-shadow: inset 2px 0 0 var(--fg); }
 .prof-item .p1 { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
 .prof-item .p1 .prof-plan { margin-left: -2px; color: var(--fg-dim); font-weight: 400; }
@@ -599,6 +611,10 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
   <span class="paused" id="paused" hidden>Paused: the terminal answers everything</span>
   <button class="linkish" type="button" id="notify" hidden>Turn on desktop alerts</button>
   <label class="switch" title="When off, requests go to the terminal only"><input type="checkbox" id="armed" checked><i></i>Answer prompts here</label>
+  <div class="prof">
+    <button class="prof-btn theme-btn" type="button" id="theme-btn" aria-haspopup="menu" aria-expanded="false"></button>
+    <div class="prof-menu theme-menu" id="theme-menu" role="menu" aria-label="Theme" hidden></div>
+  </div>
   <button class="btn orbit" type="button" id="space-btn">Space view</button>
   <button class="btn primary" type="button" id="new-agent">New agent</button>
 </header>
@@ -2179,6 +2195,42 @@ async function chooseProfile(p, item) {
   toast(`Showing the ${p.label ?? p.id} profile.`);
 }
 $('prof-btn').onclick = () => ($('prof-menu').hidden ? openProfiles() : closeProfiles());
+
+// ---------- theme: dark unless you pick Light or Match the Mac; remembered in this browser (or the app) ----------
+const THEMES = [['dark', 'Dark', 'Always dark'], ['light', 'Light', 'Always light'], ['system', 'Match the Mac', 'Follows its Light or Dark appearance']];
+const macDark = matchMedia('(prefers-color-scheme: dark)');
+let theme = 'dark';
+try { const t = localStorage.getItem('acp.theme'); if (THEMES.some(([k]) => k === t)) theme = t; } catch {}
+function applyTheme() {
+  if (theme === 'system') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = theme;
+  const name = THEMES.find(([k]) => k === theme)[1];
+  $('theme-btn').dataset.shows = theme;
+  setAttr($('theme-btn'), 'aria-label', `Theme: ${name}`);
+  setAttr($('theme-btn'), 'title', `Theme: ${name}`);
+  // The app's title bar follows the page.
+  try { window.webkit?.messageHandlers?.theme?.postMessage(theme === 'system' ? (macDark.matches ? 'dark' : 'light') : theme); } catch {}
+}
+macDark.addEventListener('change', () => theme === 'system' && applyTheme());
+function openThemes() {
+  $('theme-menu').replaceChildren(...THEMES.map(([k, name, say]) => {
+    const item = el('button', { class: 'prof-item', type: 'button', role: 'menuitemradio', 'aria-checked': String(k === theme) },
+      el('span', { class: 'p1', text: name }), el('span', { class: 'p2', text: say }));
+    item.onclick = () => { theme = k; try { localStorage.setItem('acp.theme', k); } catch {} applyTheme(); closeThemes(); };
+    return item;
+  }));
+  $('theme-menu').hidden = false;
+  $('theme-btn').setAttribute('aria-expanded', 'true');
+  $('theme-menu').querySelector('[aria-checked="true"]')?.focus();
+}
+function closeThemes() { $('theme-menu').hidden = true; $('theme-btn').setAttribute('aria-expanded', 'false'); }
+$('theme-btn').onclick = () => ($('theme-menu').hidden ? openThemes() : closeThemes());
+document.addEventListener('pointerdown', (e) => { if (!$('theme-menu').hidden && !e.target.closest('#theme-btn, #theme-menu')) closeThemes(); });
+$('theme-menu').addEventListener('keydown', (e) => {
+  const items = [...$('theme-menu').children], i = items.indexOf(document.activeElement);
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeThemes(); $('theme-btn').focus(); }
+  else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus(); }
+});
+applyTheme();
 document.addEventListener('pointerdown', (e) => { if (!$('prof-menu').hidden && !e.target.closest('.prof')) closeProfiles(); });
 $('prof-menu').addEventListener('keydown', (e) => {
   const items = [...$('prof-menu').children], i = items.indexOf(document.activeElement);

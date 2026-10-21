@@ -79,6 +79,7 @@ final class Panel: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
     config.userContentController.addUserScript(
       WKUserScript(source: "window.agentPanelApp = { newAgent: '⌘T' };", injectionTime: .atDocumentStart, forMainFrameOnly: true))
     config.userContentController.add(self, name: "notify")
+    config.userContentController.add(self, name: "theme")
     config.userContentController.addScriptMessageHandler(self, contentWorld: .page, name: "notifyPermission")
     web = WKWebView(frame: .zero, configuration: config)
     web.navigationDelegate = self
@@ -92,6 +93,7 @@ final class Panel: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
     window = NSWindow(contentRect: screen.insetBy(dx: min(80, screen.width * 0.05), dy: min(60, screen.height * 0.05)),
                       styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
     window.title = "Agent Panel"
+    window.appearance = NSAppearance(named: .darkAqua)   // the page's default theme, until it says otherwise
     window.titleVisibility = .hidden    // the page shows its own; macOS 26 would put this one beside the window buttons
     // The page sits in a box rather than being the window's content view: Space view's full screen swaps it out of its
     // superview and back, and inside the box it can't come back under the title bar.
@@ -283,6 +285,8 @@ final class Panel: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
   func webViewWebContentProcessDidTerminate(_ w: WKWebView) { connect() }
 
   func userContentController(_ u: WKUserContentController, didReceive m: WKScriptMessage) {
+    // The page's theme (dark unless picked otherwise): the title bar follows it rather than the Mac's appearance.
+    if m.name == "theme" { window.appearance = NSAppearance(named: m.body as? String == "light" ? .aqua : .darkAqua); return }
     guard m.name == "notify", let b = m.body as? [String: Any], let id = b["id"] as? String else { return }
     if b["kind"] as? String == "close" { return notes.removeDeliveredNotifications(withIdentifiers: [id]) }
     let c = UNMutableNotificationContent()

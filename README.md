@@ -77,6 +77,9 @@ folder outside git. For the first few seconds the session is still in the folder
 Claude Code fetches and makes the worktree. Removing the session later removes its worktree too,
 unless the worktree holds work.
 
+The panel is dark unless you pick otherwise: the moon button, top right, offers **Dark**, **Light** or **Match
+the Mac**, remembered in that browser (or the app).
+
 It fills the gaps in `claude agents` (agent view): agent view can't answer a permission prompt
 without attaching, it doesn't list sessions in other terminals until you `/bg` them, and it gives
 subagents no rows of their own.
@@ -106,6 +109,7 @@ its own icon. Open it like any app, or keep it in the Dock.
   in another app. Closing the window keeps the panel connected: the count stays live and requests are
   still held. Click the Dock icon to bring the window back; ⌘Q quits.
 - **Turn on desktop alerts** gives you the Mac's own notifications. Clicking one opens that session.
+- The title bar follows the panel's theme.
 - **File › New Agent** (⌘T) opens the launcher, and the **New agent** button shows the shortcut. In a
   browser ⌘T opens a new tab, so there the button shows none.
 - Links to other sites open in your browser. ⌘R reloads, and starts a server if none answers;
