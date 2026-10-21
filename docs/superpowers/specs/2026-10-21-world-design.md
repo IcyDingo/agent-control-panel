@@ -92,9 +92,11 @@ choice. With the owner's last week (about 30 commits and 11,000 added lines on a
   multiplier is recomputed with them.
 - **Purchases are final.** Each one stores the price paid; later price changes never rewrite it, and nothing is
   refunded.
-- A recount can lower a past day (a rebase drops commits, transcripts get cleaned up). That lowers the balance, which
-  may go below zero; it shows as 0 and buying waits until work brings it back. The world itself never shrinks: what
-  was bought or grown stays.
+- Commits are remembered once counted, keyed by author time and subject (added while building slice 1): a branch
+  deleted after a squash merge keeps its credit, and a rebased or amended commit replaces its earlier count rather
+  than adding to it. Tokens are counted as they are read and never recounted. So the balance only drops by spending;
+  should it ever go below zero, it shows as 0 and buying waits until work brings it back. The world itself never
+  shrinks: what was bought or grown stays.
 
 ## How the world grows
 
@@ -173,8 +175,8 @@ words into pieces the renderer knows how to draw, then draws them:
 
 ## Constraints
 
-- The panel's own rules: Node standard library only, one `public/index.html` with no build step, macOS, the
-  profile model, and the security model (every new `/api` route takes the per-start token; nothing new listens beyond
+- The panel's own rules: Node standard library only, no build step (World's drawing lives in its own plain script,
+  `public/world.js`, beside `public/index.html`), macOS, the profile model, and the security model (every new `/api` route takes the per-start token; nothing new listens beyond
   127.0.0.1).
 - Fits a 13" screen, like the rest of the panel; respects reduced motion.
 - Public repository: no personal data in code, fixtures or docs.
