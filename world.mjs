@@ -1,8 +1,9 @@
 // World: a universe your agents' work pays for (docs/superpowers/specs/2026-10-21-world-design.md).
 //
 // Credit is earned per local calendar day from the tokens the shown profile's sessions use and the lines in your own
-// commits; lines removed multiply it. Only work after World's first open counts. Home terraforms on the days you work:
-// more work moves it further, but no day adds more than three, so it unfolds over weeks; credit is what you spend.
+// commits; lines removed multiply it. Only work after World's first open counts. The days you work also give Home XP,
+// which levels it up from a bare rock: more work gives more, but no day more than 300, so it unfolds over weeks. XP is
+// never spent; credit is what you spend.
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -24,26 +25,23 @@ export function dayCredit({ added = 0, removed = 0, tokens = 0 }) {
   return Math.round((added / 10 + tokens / 10_000) * multiplier(added, removed));
 }
 
-/** A full day of terraforming: about an hour of one agent working. */
+/** The credit of a full day's work, worth 100 XP: about an hour of one agent working. */
 export const FULL_DAY = 300;
-/** The most days of terraforming one day's work adds, so a marathon can't finish Home at once. */
-export const MAX_DAY = 3;
-/** How many days of terraforming a day's work is: its share of a full day, and past one, half a day more for each
- *  doubling of the work (600 credit is 1.5, 1,200 is 2), up to MAX_DAY. Productive days move Home further. */
-export function dayFill(x) {
+/** The XP a day's work gives Home: its share of 100 up to a full day, and past one, 50 more for each doubling of the
+ *  work (600 credit is 150, 1,200 is 200), up to 300, so a marathon can't finish Home at once. */
+export function dayXp(x) {
   const c = dayCredit(x ?? {});
-  return c <= FULL_DAY ? c / FULL_DAY : Math.min(MAX_DAY, 1 + 0.5 * Math.log2(c / FULL_DAY));
+  return Math.round(100 * (c <= FULL_DAY ? c / FULL_DAY : Math.min(3, 1 + 0.5 * Math.log2(c / FULL_DAY))));
 }
-/** Home's stages by days worked: something shows within the first hour, about a month of normal weekdays terraforms
- *  it, and the ladder goes on past that for the productive. */
-export const STAGES = [[0, 'Bare rock'], [0.15, 'Clouds'], [1, 'Oceans'], [3, 'Continents'], [5, 'Green coasts'], [8, 'Forests'],
-  [12, 'Settlements'], [16, 'Cities'], [20, 'Terraformed'], [26, 'Orbital ring'], [33, 'Star port'], [40, 'Twin moons']];
-const r2 = (n) => Math.round(n * 100) / 100;
-/** The terraforming clock: the days of terraforming so far (`days`: per-day work), today's, the stage, the next. */
-export function terraform(days, today) {
-  const sum = r2(Object.values(days).reduce((s, x) => s + dayFill(x), 0)), i = STAGES.findLastIndex(([at]) => sum >= at);
-  const next = STAGES[i + 1];
-  return { days: sum, today: r2(dayFill(days[today])), stage: STAGES[i][1], at: STAGES[i][0], next: next ? { name: next[1], at: next[0] } : null };
+/** Home's levels by XP: something shows within the first hour, about a month of normal weekdays reaches level 9
+ *  (terraformed), and the levels go on past that for the productive. */
+export const LEVELS = [[0, 'Bare rock'], [15, 'Clouds'], [100, 'Oceans'], [300, 'Continents'], [500, 'Green coasts'], [800, 'Forests'],
+  [1200, 'Settlements'], [1600, 'Cities'], [2000, 'Terraformed'], [2600, 'Orbital ring'], [3300, 'Star port'], [4000, 'Twin moons']];
+/** Home from the work per day (`days`): its XP, today's XP, its level and stage, where that level began, and the next. */
+export function homeLevel(days, today) {
+  const xp = Object.values(days).reduce((s, x) => s + dayXp(x), 0), i = LEVELS.findLastIndex(([at]) => xp >= at), next = LEVELS[i + 1];
+  return { xp, today: dayXp(days[today]), level: i + 1, stage: LEVELS[i][1], at: LEVELS[i][0],
+    next: next ? { level: i + 2, name: next[1], at: next[0] } : null };
 }
 
 /** A commit as you wrote it: a rebase, an amend or a cherry-pick keeps its author time and subject. */
@@ -271,7 +269,7 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
       }
       const earned = Object.values(days).reduce((sum, x) => sum + dayCredit(x), 0);
       const spent = st.purchases.reduce((sum, p) => sum + (p.price ?? 0), 0), t = days[today] ?? blank();
-      const summary = { started: true, startedAt: st.startedAt, seed: st.seed, earned, spent, balance: earned - spent, terraform: terraform(days, today),
+      const summary = { started: true, startedAt: st.startedAt, seed: st.seed, earned, spent, balance: earned - spent, home: homeLevel(days, today),
         today: { day: today, commits: t.commits, added: t.added, removed: t.removed, multiplier: multiplier(t.added, t.removed), tokens: t.tokens, credit: dayCredit(t) },
         noEmail: st.noEmail ?? [], gitFailed: st.gitFailed ?? [] };
       memo = { today, summary };

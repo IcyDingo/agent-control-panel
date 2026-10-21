@@ -1,7 +1,7 @@
 // World: a universe your agents' work pays for. The page opens it (window.AgentWorld.enter) with the server's summary
 // and passes each later one to update(). Close up you see Home, the planet the work terraforms; zoomed out, the map, where
-// the work lights the dark around Home. It draws from the summary alone: `terraform.days` (the days worked; 20 terraforms
-// Home) and the world's `seed`.
+// the work lights the dark around Home. It draws from the summary alone: `home.xp` (Home's XP; a full day's work is 100,
+// 2,000 terraforms it) and the world's `seed`.
 (() => {
   const $ = (id) => document.getElementById(id);
   const calm = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -34,7 +34,7 @@
   }
 
   // ---------- drawing
-  const days = () => world?.terraform?.days ?? 0;
+  const days = () => (world?.home?.xp ?? 0) / 100; // in full days' work: the stages below are drawn on that scale
   /** 0 before day `a`, 1 from day `b`, linear between: each stage eases in over the days before it is named. */
   const ramp = (a, b) => Math.min(1, Math.max(0, (days() - a) / (b - a)));
   const g = () => Math.sqrt(Math.min(1, days() / 40)); // how far the lit map reaches: quick at first, all of it at the ladder's top
@@ -61,7 +61,7 @@
     x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high';
     x.drawImage(glowCanvas, cx - sw / 2 * s, cy - sh / 2 * s, sw * s, sh * s);
   }
-  /** Home, stage by stage (world.mjs STAGES): clouds over the rock, oceans, continents, green coasts, forests,
+  /** Home, level by level (world.mjs LEVELS): clouds over the rock, oceans, continents, green coasts, forests,
    *  settlements with lights at night, cities under an atmosphere, and a moon when it is terraformed; then an orbital
    *  ring, a star port on it, and a second moon. */
   function drawHome(cx, cy, R, t, detail) {
@@ -191,24 +191,22 @@
     new ResizeObserver(() => { if (raf) fit(); }).observe(cv);
   }
 
-  // ---------- the side panel: terraforming, today's numbers, and what the world has earned
+  // ---------- the side panel: Home's level, today's numbers, and what the world has earned
   function row(name, value) {
     const dt = document.createElement('dt'), dd = document.createElement('dd');
     dt.textContent = name; dd.textContent = value;
     return [dt, dd];
   }
   function show(w) {
-    const tf = w.terraform ?? { days: 0, today: 0, stage: 'Bare rock', next: null }, pct = (v) => Math.round(Math.min(1, v) * 100);
-    $('w-stage').textContent = tf.stage;
-    // Toward terraformed first, at day 20; past it, toward the next stage.
-    const past = tf.days >= 20;
-    $('w-days').textContent = `· day ${tf.days.toFixed(1)}${past ? '' : ' of 20'}`;
-    $('w-bar').style.width = pct(!past ? tf.days / 20 : tf.next ? (tf.days - tf.at) / (tf.next.at - tf.at) : 1) + '%';
-    $('w-next').textContent = tf.next ? `Next: ${tf.next.name} at day ${tf.next.at}.` : 'Home has climbed the whole ladder. The frontier opens next.';
-    $('w-tf-today').textContent = tf.today >= 3 ? 'Today: 3 days, the most one day adds. More work still earns credit.'
-      : tf.today >= 1 ? `Today: ${tf.today === 1 ? 'a full day' : tf.today.toFixed(1) + ' days'}. More work adds more, up to 3.`
-      : `Today: ${pct(tf.today)}% of a full day.`;
-    $('w-bar-today').style.width = pct(tf.today) + '%';
+    const h = w.home ?? { xp: 0, today: 0, level: 1, stage: 'Bare rock', at: 0, next: null }, pct = (v) => Math.round(Math.min(1, v) * 100);
+    $('w-level').textContent = `Level ${h.level}`;
+    $('w-stage').textContent = h.stage;
+    $('w-xp').textContent = h.next ? `${fmt(h.xp)} / ${fmt(h.next.at)} XP` : `${fmt(h.xp)} XP`;
+    $('w-bar').style.width = pct(h.next ? (h.xp - h.at) / (h.next.at - h.at) : 1) + '%';
+    $('w-next').textContent = h.next ? `Next: level ${h.next.level}, ${h.next.name}.` : 'The top level. The frontier opens next.';
+    $('w-xp-today').textContent = `+${fmt(h.today)} XP today. ` + (h.today >= 300 ? 'That is the most one day gives; more work still earns credit.'
+      : h.today >= 100 ? 'More work gives more, up to 300.' : 'A full day gives 100.');
+    $('w-bar-today').style.width = pct(h.today / 100) + '%';
     $('w-credit').textContent = fmt(Math.max(0, w.balance));
     const t = w.today;
     $('w-today').replaceChildren(
@@ -219,7 +217,7 @@
       ...row('Credit earned', fmt(t.credit)));
     const since = new Date(w.startedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'long' });
     $('w-total').textContent = w.earned > 0 ? `${fmt(w.earned)} credit earned since ${since}.`
-      : `Your world started on ${since} as a bare rock. Each day you work terraforms it, up to one full day a day.`;
+      : `Your world started on ${since} as a bare rock. Each day you work gives Home XP, and it levels up.`;
     const names = (list) => (list ?? []).map((r) => r.split('/').filter(Boolean).at(-1)).join(', ');
     const notes = [];
     if (w.noEmail?.length) notes.push(`No commits counted in ${names(w.noEmail)}: git has no user.email there.`);

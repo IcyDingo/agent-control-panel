@@ -425,9 +425,10 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .w-box dd { margin: 0; font: 12.5px var(--mono); text-align: right; }
 .w-box p { margin: 0; color: var(--fg-dim); font-size: 12.5px; }
 .w-box p.warn { color: var(--amber); }
-/* Terraforming: the days worked toward 20, and today's share of a full day. */
-.w-box p.w-stage { color: var(--fg); font-size: 13.5px; }
-.w-stage span { color: var(--fg-dim); font: 12px var(--mono); }
+/* Home's level: its stage, the XP toward the next level, and today's XP toward a full day. */
+.w-box h2 span { margin-left: 6px; color: var(--amber); font: 500 12px var(--mono); }
+.w-box p.w-stage { display: flex; justify-content: space-between; gap: 10px; color: var(--fg); font-size: 13.5px; }
+.w-stage span { color: var(--fg-dim); font: 12px var(--mono); white-space: nowrap; }
 .w-bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
 .w-bar i { display: block; height: 100%; width: 0; border-radius: inherit; background: var(--ok); transition: width .6s ease-out; }
 .w-bar.today i { background: var(--amber); }
@@ -744,11 +745,11 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
   </div>
   <aside class="w-side" id="w-side">
     <section class="w-box">
-      <h2>Terraforming</h2>
-      <p class="w-stage"><b id="w-stage"></b> <span id="w-days"></span></p>
+      <h2>Home <span id="w-level"></span></h2>
+      <p class="w-stage"><b id="w-stage"></b> <span id="w-xp"></span></p>
       <div class="w-bar"><i id="w-bar"></i></div>
       <p id="w-next"></p>
-      <p id="w-tf-today" title="A full day is 300 credit: about an hour of one agent working. Work past it still earns credit."></p>
+      <p id="w-xp-today" title="A full day's work, 300 credit, is about an hour of one agent working. Past it, each doubling of the work gives 50 XP more, up to 300."></p>
       <div class="w-bar today"><i id="w-bar-today"></i></div>
     </section>
     <section class="w-box">
@@ -932,6 +933,8 @@ function connect() {
       for (const p of snap.pending) if (prev && !prev.pending.some((q) => q.id === p.id)) toast(`${label(sessionOf(p.sessionId))} needs you.`);
     }
     for (const p of snap.pending) if (prev && !prev.pending.some((q) => q.id === p.id)) alertNew(p);
+    const was = prev?.world?.home, home = snap.world?.home;
+    if (was && home && home.level > was.level) toast(`Home reached level ${home.level}: ${home.stage}.`);
     const ev = snap.event;
     if (ev?.type === 'settled' && cards.has(ev.id)) {
       const r = cards.get(ev.id).req;
@@ -2194,7 +2197,8 @@ function renderWorldBtn(w) {
   const t = w.today, x = t.multiplier > 1 ? ` ×${t.multiplier.toFixed(1)}` : '';
   setText($('wb-bal'), fmt(Math.max(0, w.balance)));
   setAttr(b, 'title', `${fmt(Math.max(0, w.balance))} credit to spend in World. Today: ${fmt(t.commits)} commit${t.commits === 1 ? '' : 's'}, `
-    + `+${fmt(t.added)} / −${fmt(t.removed)} lines${x}, ${fmt(t.tokens)} tokens, ${fmt(t.credit)} credit earned.`);
+    + `+${fmt(t.added)} / −${fmt(t.removed)} lines${x}, ${fmt(t.tokens)} tokens, ${fmt(t.credit)} credit earned.`
+    + (w.home ? ` Home is level ${w.home.level}, ${w.home.stage}.` : ''));
 }
 /** How many sessions wait on you, shown in World's top bar; it takes you to the first. */
 function worldNeeds() {

@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
-import { dayKey, multiplier, dayCredit, dayFill, terraform, STAGES, FULL_DAY, commitKey, countsFile, readTokens, parseLog, createWorld } from '../world.mjs';
+import { dayKey, multiplier, dayCredit, dayXp, homeLevel, LEVELS, FULL_DAY, commitKey, countsFile, readTokens, parseLog, createWorld } from '../world.mjs';
 
 const START = Date.UTC(2026, 9, 21, 9, 0);
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'world-'));
@@ -29,33 +29,33 @@ test('a day of work earns credit', () => {
 
 test('day keys are calendar days', () => assert.equal(dayKey(Date.UTC(2026, 9, 21, 23, 59)), '2026-10-21'));
 
-test('a full day is 300 credit, and more work moves Home further: half a day per doubling, at most 3', () => {
-  assert.equal(FULL_DAY, 300);
-  assert.equal(dayFill({ tokens: 3_000_000 }), 1); // about an hour of one agent working
-  assert.equal(dayFill({ tokens: 6_000_000 }), 1.5);
-  assert.equal(dayFill({ tokens: 12_000_000 }), 2);
-  assert.equal(dayFill({ tokens: 24_000_000 }), 2.5);
-  assert.equal(dayFill({ tokens: 48_000_000 }), 3);
-  assert.equal(dayFill({ tokens: 500_000_000 }), 3); // one marathon day can't finish it
-  assert.equal(dayFill({ tokens: 1_500_000 }), 0.5);
-  assert.equal(dayFill({ added: 600 }), 0.2); // ideas without commits count through tokens, commits through lines
-  assert.equal(dayFill({}), 0); // a day you only looked counts nothing
-  assert.equal(dayFill(undefined), 0);
+test('a full day is 100 XP; more work earns more, half a day per doubling, at most 300 a day', () => {
+  assert.equal(FULL_DAY, 300); // credit: about an hour of one agent working
+  assert.equal(dayXp({ tokens: 3_000_000 }), 100);
+  assert.equal(dayXp({ tokens: 6_000_000 }), 150);
+  assert.equal(dayXp({ tokens: 12_000_000 }), 200);
+  assert.equal(dayXp({ tokens: 24_000_000 }), 250);
+  assert.equal(dayXp({ tokens: 48_000_000 }), 300);
+  assert.equal(dayXp({ tokens: 500_000_000 }), 300); // one marathon day can't finish Home
+  assert.equal(dayXp({ tokens: 1_500_000 }), 50);
+  assert.equal(dayXp({ added: 600 }), 20); // ideas without commits count through tokens, commits through lines
+  assert.equal(dayXp({}), 0); // a day you only looked counts nothing
+  assert.equal(dayXp(undefined), 0);
 });
 
-test('terraforming adds up the days worked and names the stage', () => {
+test("Home's level adds up the XP of the days worked", () => {
   const days = { '2026-10-19': { tokens: 9e6 }, '2026-10-20': { tokens: 1.5e6 }, '2026-10-21': { added: 600 } };
-  assert.deepEqual(terraform(days, '2026-10-21'), { days: 2.49, today: 0.2, stage: 'Oceans', at: 1, next: { name: 'Continents', at: 3 } }); // 1.79 + 0.5 + 0.2
-  assert.deepEqual(terraform({}, '2026-10-21'), { days: 0, today: 0, stage: 'Bare rock', at: 0, next: { name: 'Clouds', at: 0.15 } });
+  assert.deepEqual(homeLevel(days, '2026-10-21'), { xp: 249, today: 20, level: 3, stage: 'Oceans', at: 100, next: { level: 4, name: 'Continents', at: 300 } }); // 179 + 50 + 20
+  assert.deepEqual(homeLevel({}, '2026-10-21'), { xp: 0, today: 0, level: 1, stage: 'Bare rock', at: 0, next: { level: 2, name: 'Clouds', at: 15 } });
 });
 
-test('twenty full days terraform Home, and the ladder goes on for the productive', () => {
-  assert.deepEqual(STAGES.map(([at]) => at), [0, 0.15, 1, 3, 5, 8, 12, 16, 20, 26, 33, 40]);
+test('level 9 is terraformed after twenty full days, and the levels go on for the productive', () => {
+  assert.deepEqual(LEVELS.map(([at]) => at), [0, 15, 100, 300, 500, 800, 1200, 1600, 2000, 2600, 3300, 4000]);
   const days = (n, tokens = 3e6) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`2026-11-${String(i + 1).padStart(2, '0')}`, { tokens }]));
-  assert.equal(terraform(days(19), '2026-11-19').stage, 'Cities');
-  assert.deepEqual(terraform(days(20), '2026-11-20'), { days: 20, today: 1, stage: 'Terraformed', at: 20, next: { name: 'Orbital ring', at: 26 } });
-  assert.equal(terraform(days(10, 12e6), '2026-11-10').stage, 'Terraformed'); // four times the work a day: there in ten days
-  assert.deepEqual(terraform(days(14, 48e6), '2026-11-14'), { days: 42, today: 3, stage: 'Twin moons', at: 40, next: null });
+  assert.equal(homeLevel(days(19), '2026-11-19').stage, 'Cities');
+  assert.deepEqual(homeLevel(days(20), '2026-11-20'), { xp: 2000, today: 100, level: 9, stage: 'Terraformed', at: 2000, next: { level: 10, name: 'Orbital ring', at: 2600 } });
+  assert.equal(homeLevel(days(10, 12e6), '2026-11-10').level, 9); // four times the work a day: there in ten days
+  assert.deepEqual(homeLevel(days(14, 48e6), '2026-11-14'), { xp: 4200, today: 300, level: 12, stage: 'Twin moons', at: 4000, next: null });
 });
 
 test('a rebased or amended commit keeps its key', () => {
@@ -256,15 +256,15 @@ test('nothing is stored until World is opened, and it survives a restart', async
   assert.deepEqual(again.summary(), before);
 });
 
-test('the summary carries the terraforming clock, today filling as work comes in', async () => {
+test("the summary carries Home's level and XP, today's filling as work comes in", async () => {
   const configDir = tmp(), file = path.join(tmp(), 'w.json');
   fs.mkdirSync(path.join(configDir, 'projects', 'p'), { recursive: true });
   const world = createWorld({ file, configDirs: [configDir], run, gitPlace: () => null, now: () => T0 });
   world.open();
   fs.writeFileSync(path.join(configDir, 'projects', 'p', 's.jsonl'), reply('m1', T0 + 5000, { output_tokens: 1_500_000 }));
   await world.scan({ git: false });
-  assert.deepEqual(world.summary().terraform, { days: 0.5, today: 0.5, stage: 'Clouds', at: 0.15, next: { name: 'Oceans', at: 1 } });
-  assert.equal('grown' in world.summary(), false);
+  assert.deepEqual(world.summary().home, { xp: 50, today: 50, level: 2, stage: 'Clouds', at: 15, next: { level: 3, name: 'Oceans', at: 100 } });
+  assert.equal('terraform' in world.summary(), false);
 });
 
 test('one repository reached under two spellings of its path counts once', async () => {

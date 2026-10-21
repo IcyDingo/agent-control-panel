@@ -339,14 +339,21 @@ you, and takes you back to the board at the first.
 Credit is earned per calendar day: `(lines added ÷ 10 + tokens ÷ 10,000) × multiplier`, where lines removed raise the
 multiplier from ×1 up to ×4, so a cleanup day pays best. The side panel shows today's numbers.
 
-**Terraforming** runs on the days you work. A full day is 300 credit, about an hour of one agent working; past it,
-each doubling of the day's work adds half a day more (600 credit is 1.5 days, 1,200 is 2), up to 3 from one day. So a
-productive day moves Home further, but no marathon finishes it at once. Thinking and iterating count through their
-tokens, shipping through commits. A day off pauses it, and nothing ever goes back. Clouds form within the first hour,
-then oceans (day 1), continents (3), green coasts (5), forests (8), settlements with lights at night (12), cities under
-an atmosphere (16), and at day 20, about a month of normal weekdays, a moon: Home is terraformed. The ladder goes on:
-an orbital ring (26), a star port on it (33), and twin moons (40). The side panel shows the stage, what comes next, and
-how much terraforming today's work has added.
+**Home levels up with XP** from the days you work. XP is never spent; credit is what you spend. A full day's work
+(300 credit, about an hour of one agent working) gives 100 XP; past it, each doubling of the work gives 50 more (600
+credit is 150 XP, 1,200 is 200), up to 300 a day. So a productive day moves Home further, but no marathon finishes it
+at once. Thinking and iterating count through their tokens, shipping through commits. A day off pauses it, and XP
+never goes back. The levels:
+
+| Level | Home | XP |
+|---|---|---|
+| 1–3 | bare rock, clouds (within the first hour), oceans | 0, 15, 100 |
+| 4–6 | continents, green coasts, forests | 300, 500, 800 |
+| 7–9 | settlements with lights at night, cities under an atmosphere, terraformed with a moon | 1,200, 1,600, 2,000 |
+| 10–12 | an orbital ring, a star port on it, twin moons | 2,600, 3,300, 4,000 |
+
+Level 9 takes about a month of normal weekdays. World's side panel shows the level, the XP toward the next, and today's
+XP; the board says so when Home reaches a new level.
 
 - **Tokens** come from the transcripts of every Claude Code profile on this Mac, sessions and subagents: what was
   sent and written, once per reply. Cache reads don't count. There is one World, whichever profile the board shows.
