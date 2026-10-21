@@ -1282,7 +1282,8 @@ const modelPicks = new Map(), effortPicks = new Map(); // sessionId → the mode
 // restart that would leave a worktree of its own, so those stay as they are for one that works in one.
 const keepsOptions = (s) => s.kind === 'background' && s.inRoster && /\/\.claude\/worktrees\//.test(s.workCwd ?? s.cwd ?? '');
 const switching = new Map(); // sessionId → the mode a background job is being switched to
-const SENT_HOW = { now: 'Sent', 'once it was done': 'Sent once it was done', restarted: 'Sent. It carries on in the background' };
+const SENT_HOW = { now: 'Sent', 'once it was done': 'Sent once it was done', restarted: 'Sent. It carries on in the background',
+                   'on its screen': 'Pressed on its screen', 'as what to change in its plan': 'Sent back with its plan' };
 // What a /command did, from what its transcript recorded and where Claude Code says it is now.
 function ranHow(m) {
   const as = m.ran && m.ran !== m.text.split(' ')[0] ? ` as ${m.ran}` : '';
@@ -1636,8 +1637,8 @@ function cardShell(p, name) {
 }
 function buildCard(p) {
   if (p.toolName === 'AskUserQuestion') return buildQuestionCard(p);
-  if (p.open) return buildOpenCard(p);
   if (p.toolName === 'ExitPlanMode') return buildPlanCard(p);
+  if (p.open) return buildOpenCard(p);
   const i = p.toolInput || {};
   const body = [];
   let primary = null; // the one field edited inline
@@ -1762,8 +1763,10 @@ function buildPlanCard(p) {
   feedback.addEventListener('input', () => { back.disabled = !feedback.value.trim(); });
   feedback.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !back.disabled) { e.preventDefault(); back.click(); } });
   const approve = (mode) => send({ behavior: 'approve-plan', mode });
+  // One the panel no longer holds is answered on its own screen, as if you picked there.
   card.append(...[...head,
-    el('p', { class: 'req-desc', text: 'It is ready to start. Approve the plan, or send it back with what to change.' }),
+    el('p', { class: 'req-desc', text: p.open ? 'The panel stopped holding this plan, so your choice goes in on its own screen, as if you picked it there.'
+      : 'It is ready to start. Approve the plan, or send it back with what to change.' }),
     el('div', { class: 'plan', tabindex: '0', role: 'region', 'aria-label': 'The plan' }, md(i.plan || 'The plan is empty.')),
     i.planFilePath ? el('p', { class: 'plan-file', text: 'Saved at ' + i.planFilePath }) : null,
     el('div', { class: 'row' },
@@ -1774,15 +1777,13 @@ function buildPlanCard(p) {
   card._fit = () => {};
   return card;
 }
-// A plan or permission prompt the panel no longer holds: it is open on its own screen, and is answered there.
+// A permission prompt the panel no longer holds: it is open on its own screen, and is answered there.
 function buildOpenCard(p) {
-  const { card, head } = cardShell(p, p.toolName === 'ExitPlanMode' ? 'Plan' : p.toolName);
+  const { card, head } = cardShell(p, p.toolName);
   const i = p.toolInput || {}, id = sessionOf(p.sessionId)?.id ?? '';
-  const what = p.toolName === 'ExitPlanMode' ? 'plan' : 'permission prompt';
   card.append(...[...head,
-    el('p', { class: 'req-desc', text: `The panel stopped holding this ${what}, and it doesn't answer one on its screen for you. Open it with claude attach ${id}, or in agent view (claude agents).` }),
-    p.toolName === 'ExitPlanMode' ? el('div', { class: 'plan', tabindex: '0', role: 'region', 'aria-label': 'The plan' }, md(i.plan || 'The plan is empty.'))
-      : el('pre', { class: 'block', text: i.command ?? i.file_path ?? i.url ?? JSON.stringify(i, null, 2) }),
+    el('p', { class: 'req-desc', text: `The panel stopped holding this permission prompt, and it doesn't answer one on its screen for you. Open it with claude attach ${id}, or in agent view (claude agents).` }),
+    el('pre', { class: 'block', text: i.command ?? i.file_path ?? i.url ?? JSON.stringify(i, null, 2) }),
   ].filter(Boolean));
   card._fit = () => {};
   return card;

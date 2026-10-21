@@ -176,7 +176,7 @@ When the terminal answers first, Claude Code leaves the panel's request open. Th
 the card when the tool's `PostToolUse` arrives, when Claude Code closes the request (a cancel), or,
 for main-agent requests, when the session list shows the session is no longer waiting.
 
-## A question it no longer holds
+## A question or plan it no longer holds
 
 A held request goes back to the session after an hour, or when the panel server restarts. For a terminal session that
 is fine: its dialog is on your screen. A background session has no screen of yours, so the panel still shows its open
@@ -185,8 +185,16 @@ own screen the way you would: `answer-question.py` attaches in a pseudo-terminal
 shows, presses each answer's number (or "Type something", your words, Enter) and submits. The panel then checks
 that its conversation got exactly the answers you picked.
 
-- Questions only. A plan or a permission prompt it no longer holds is shown, with `claude attach <id>` to answer it
-  there: pressing Yes on a permission prompt from outside would go around Claude Code's permission system.
+An open **plan** (`ExitPlanMode`) gets its usual card too. **Approve** and **Send back** go in on its screen through
+`answer-plan.py`: it finds the choice by its words (they vary: "Yes, and use auto mode", "Yes, manually approve
+edits", "Tell Claude what to change", or "Yes, and switch to default" without a plan file), presses it only while
+`claude agents` says the session waits on a permission prompt and its transcript's open call is that plan, and types
+your feedback after "Tell Claude what to change". The panel then checks its conversation says approved, or carries
+your words.
+
+- Questions and plans only. A permission prompt it no longer holds is shown, with `claude attach <id>` to answer it
+  there: pressing Yes on a permission prompt from outside would go around Claude Code's permission system. A plan's
+  choices are the ones its held card offers anyway.
 - A question that takes several picks at once isn't pressed from here either.
 - The question has to be in the transcript, and Claude Code writes it there before a `PreToolUse` hook runs, so this
   works for the sessions that report to the panel.

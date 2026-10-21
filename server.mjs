@@ -985,13 +985,17 @@ async function switchMode(body) {
   return { ok: true, from: out.from };
 }
 
-// ---------------------------------------------------------------- a question nobody holds any more
+// ---------------------------------------------------------------- a question or plan nobody holds any more
 
-// A background session's question (AskUserQuestion) that no hook request holds any more (the hold ran out, or the
-// panel restarted) is still open on its own screen, and a background session has no terminal to answer it in. The
-// panel reads it from the transcript and answers it there: answer-question.py attaches in a pseudo-terminal and presses
-// the numbers you would. Questions only: a permission prompt or a plan is never answered by keys from here.
+// A background session's question (AskUserQuestion) or plan (ExitPlanMode) that no hook request holds any more (the
+// hold ran out, or the panel restarted) is still open on its own screen, and a background session has no terminal to
+// answer it in. The panel reads it from the transcript and answers it there: answer-question.py / answer-plan.py attach
+// in a pseudo-terminal and press the keys you would. A plan's choices are the ones its held card offers anyway. A
+// permission prompt is never answered by keys from here: that would go around Claude Code's permission system.
 const ANSWER_QUESTION = fileURLToPath(new URL('./answer-question.py', import.meta.url));
+const ANSWER_PLAN = fileURLToPath(new URL('./answer-plan.py', import.meta.url));
+// What a plan's own screen approves into: auto mode, or asking before edits.
+const OPEN_PLAN_MODES = new Set(['auto', 'default']);
 const asks = new Map(); // sessionId → { size, mtimeMs, ask }: the last read of its transcript
 /** The tool call a waiting background session's dialog is for, from its transcript, when the panel isn't holding it. */
 function openAsk(s) {
@@ -1043,8 +1047,9 @@ async function answerOpen(body) {
   if (!s) return { ok: false, error: 'That session is gone.' };
   const ask = openAsk(s);
   if (!ask || ask.toolUseId !== body?.toolUseId) return { ok: false, error: 'It is not asking that any more.' };
+  if (ask.toolName === 'ExitPlanMode') return answerOpenPlan(s, ask, body);
   if (ask.toolName !== 'AskUserQuestion')
-    return { ok: false, error: `The panel only answers questions this way. Open it with claude attach ${s.id} to answer its ${ask.toolName === 'ExitPlanMode' ? 'plan' : 'permission prompt'}.` };
+    return { ok: false, error: `The panel only answers questions and plans this way. Open it with claude attach ${s.id} to answer its permission prompt.` };
   const qs = Array.isArray(ask.toolInput.questions) ? ask.toolInput.questions : [];
   if (!qs.length) return { ok: false, error: 'Its question has nothing in it to answer.' };
   if (qs.some((q) => q.multiSelect)) return { ok: false, error: `It asks for several picks at once, which the panel can't press for it. Open it with claude attach ${s.id}.` };
@@ -1076,6 +1081,39 @@ async function answerOpen(body) {
   const wrong = qs.filter((q) => !got.replace(/\s+/g, ' ').includes(String(answers[q.question]).replace(/\s+/g, ' ').trim()));
   if (wrong.length) return { ok: false, error: `It took different answers than you picked: ${trim(got, 300)}` };
   logSent(s, qs.map((q) => `${q.header || q.question}: ${String(answers[q.question]).trim()}`).join('\n'), 'as its answers');
+  return { ok: true };
+}
+/** Approve an open plan into a mode, or send it back with what to change, on its own screen. */
+async function answerOpenPlan(s, ask, body) {
+  let spec;
+  if (body?.behavior === 'approve-plan') {
+    if (!OPEN_PLAN_MODES.has(body.mode)) return { ok: false, error: 'Its screen approves into auto mode or asking before edits.' };
+    spec = { choice: body.mode };
+  } else if (body?.behavior === 'deny') {
+    const text = String(body.message ?? '').replace(/[\x00-\x1f\x7f]+/g, ' ').trim();
+    if (!text || text.length > 5000) return { ok: false, error: 'Say what to change (up to 5,000 characters).' };
+    spec = { choice: 'feedback', text };
+  } else return { ok: false, error: 'Approve the plan or send it back.' };
+  if (sendingTo.has(s.sessionId)) return { ok: false, error: 'Your last message or mode switch is still on its way.' };
+  sendingTo.add(s.sessionId);
+  const r = await run('python3', [ANSWER_PLAN, s.id, JSON.stringify({ ...spec, toolUseId: ask.toolUseId, transcript: transcriptFile(s.sessionId) })],
+    { cwd: os.homedir(), timeout: 60_000 });
+  let out;
+  try { out = JSON.parse(r.stdout.trim().split('\n').pop()); } catch { out = { ok: false, error: firstLine(r) || 'It did not report back.' }; }
+  // Its conversation shows the answer once Claude Code takes it: check it is the one picked.
+  let got = null;
+  for (const end = Date.now() + 15_000; out.ok && got == null && Date.now() < end; await new Promise((r) => setTimeout(r, 500))) got = resultOf(s, ask.toolUseId);
+  sendingTo.delete(s.sessionId);
+  asks.delete(s.sessionId);
+  setTimeout(pollRoster, 500);
+  broadcast();
+  if (!out.ok) return { ok: false, error: out.error };
+  if (got == null) return { ok: false, error: 'Its screen took it, but its conversation does not show it yet. Look again in a moment.' };
+  const approved = got.startsWith('User has approved your plan');
+  if (spec.choice === 'feedback' ? approved || !got.replace(/\s+/g, ' ').includes(spec.text) : !approved)
+    return { ok: false, error: `It took a different answer than you picked: ${trim(got, 300)}` };
+  logSent(s, spec.text ?? `Approved its plan, ${spec.choice === 'auto' ? 'in auto mode' : 'asking before edits'}`,
+    spec.text ? 'as what to change in its plan' : 'on its screen');
   return { ok: true };
 }
 
