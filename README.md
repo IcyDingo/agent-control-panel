@@ -329,6 +329,22 @@ Every control that stops something asks for a second click.
   background sessions (terminal sessions are left alone, in case you're typing in one), and
   **Clear** finished ones.
 
+## Sessions on a deleted version
+
+Claude Code's updater deletes old versions while sessions still run them. Once the version a session runs is gone,
+macOS can no longer name the program behind it when it checks a protected folder, so at its next check it refuses that
+session, and everything it starts, `~/Documents`, `~/Desktop` and cloud folders ("Operation not permitted"). Granting
+Full Disk Access doesn't help. A restart on the installed version does.
+
+Every minute the panel checks each running session, in every profile, and the processes it was started from
+(`versions.mjs`: one `ps` and one `lsof`, comparing each program file with what is on disk now).
+
+- **A banner** over the board lists every one it finds, other profiles' sessions too: the one that loses access is
+  often not the one on screen. A **toast** says when it finds a new one.
+- **Its tile** says **restart**, and **its panel** says why and how.
+- **To restart**: a terminal session quits in its terminal and resumes with the command the panel gives you to copy.
+  A background job is ended in the panel, then sent a message, and comes back on the installed version.
+
 ## World
 
 World starts the first time you open it, as a bare rock called Home in the dark, and terraforms on the days you work

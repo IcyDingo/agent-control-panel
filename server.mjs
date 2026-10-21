@@ -17,6 +17,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { execFile, spawn } from 'node:child_process';
 import { createWorld } from './world.mjs';
+import { findRemoved } from './versions.mjs';
 
 const PORT = Number(process.env.ACP_PORT ?? 4747);
 const ROSTER_MS = 3000;
@@ -86,6 +87,8 @@ function listProfiles() {
   }
   return out;
 }
+/** The command that runs Claude Code on a profile. */
+const cliOf = (p) => (p.plain ? 'claude' : `CLAUDE_CONFIG_DIR=~/${path.basename(p.dir)} claude`);
 /** What the picker shows: whose account it is, and whether its sessions report to this panel. */
 function describeProfile(p) {
   let account = null;
@@ -98,7 +101,7 @@ function describeProfile(p) {
   } catch {}
   return { id: p.id, label: path.basename(p.dir).slice(1), dir: p.dir, where: p.dir.startsWith(HOME + path.sep) ? '~' + p.dir.slice(HOME.length) : p.dir, account, connected,
            effort: EFFORTS.has(effort) ? effort : null,
-           command: p.plain ? 'claude' : `CLAUDE_CONFIG_DIR=~/${path.basename(p.dir)} claude` };
+           command: cliOf(p) };
 }
 let profile = null, profileInfo = null, profileGen = 0, polls = 0, configDir = null, childEnv = baseEnv;
 function useProfile(p) {
@@ -1237,7 +1240,7 @@ function switchProfile(body) {
   rosterError = null;
   try { fs.mkdirSync(path.dirname(PREFS), { recursive: true }); fs.writeFileSync(PREFS, JSON.stringify({ profile: p.id }) + '\n'); } catch {}
   broadcast();
-  pollRoster();
+  pollRoster().then(checkVersions);
   return { ok: true };
 }
 /**
@@ -1319,12 +1322,48 @@ function openWorld() {
   return { ok: true, world: worldSummary() };
 }
 
+// ---------------------------------------------------------------- deleted versions
+
+// Every profile's running sessions, checked each minute for a Claude Code version deleted under them (versions.mjs):
+// macOS can then refuse them ~/Documents at any moment. The shown profile's are marked on their tiles; all of them,
+// other profiles' too, are listed in a banner, since the one that loses access is often not the one on screen.
+const VERSIONS_MS = 60_000;
+let oldVersions = [], checkingVersions = false;
+/** A profile's running sessions: the shown one's as the panel has them, another's from its own roster. */
+async function runningIn(p) {
+  if (p.dir === profile.dir) return [...sessions.values()].filter((s) => s.inRoster && !isEnded(s));
+  const r = await run('claude', ['agents', '--json', '--all'], { timeout: 5000, env: p.plain ? baseEnv : { ...baseEnv, CLAUDE_CONFIG_DIR: p.dir } });
+  try { return JSON.parse(r.stdout).filter((x) => !['done', 'failed', 'stopped'].includes(x.state)); } catch { return []; }
+}
+async function checkVersions() {
+  if (checkingVersions) return;
+  checkingVersions = true;
+  try {
+    const gen = profileGen, rows = [];
+    for (const p of listProfiles()) for (const s of await runningIn(p)) if (Number.isInteger(s.pid) && s.sessionId) rows.push({ s, p });
+    const found = await findRemoved(rows.map(({ s }) => s.pid), { run });
+    if (gen !== profileGen) return; // the profile changed while it looked: the next check sorts it out
+    const next = rows.filter(({ s }) => found.has(s.pid)).map(({ s, p }) => ({
+      sessionId: s.sessionId, id: s.id ?? null, name: s.name ?? null, kind: s.kind ?? null, shown: p.dir === profile.dir,
+      profile: { id: p.id, label: path.basename(p.dir).slice(1), command: cliOf(p) },
+      version: found.get(s.pid).version, self: found.get(s.pid).self }));
+    for (const s of sessions.values()) {
+      const o = next.find((x) => x.shown && x.sessionId === s.sessionId);
+      s.oldVersion = o ? { version: o.version, self: o.self } : null;
+    }
+    const changed = JSON.stringify(next) !== JSON.stringify(oldVersions);
+    oldVersions = next;
+    if (changed) broadcast();
+  } catch (err) { console.error('version check failed:', err?.message ?? err); }
+  finally { checkingVersions = false; }
+}
+
 // ---------------------------------------------------------------- snapshot + SSE
 
 function snapshot() {
   const now = Date.now();
   return {
-    now, armed, rosterError, port: PORT, profile: profileInfo, world: worldSummary(),
+    now, armed, rosterError, port: PORT, profile: profileInfo, world: worldSummary(), oldVersions,
     sessions: [...sessions.values()].map(({ spawns, hereCwd, rosterCwd, ranCwd, editTops, ...s }) => {
       const here = ranCwd ?? hereCwd ?? s.cwd, git = placeOut(gitPlace(here));
       return {
@@ -1467,8 +1506,9 @@ async function handle(req, res) {
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`agent control panel → http://127.0.0.1:${PORT}`);
-  pollRoster();
+  pollRoster().then(checkVersions);
   setInterval(pollRoster, ROSTER_MS);
+  setInterval(checkVersions, VERSIONS_MS);
   setInterval(() => { prune(); broadcast(); }, 10_000);
   setInterval(() => scanWorld(worldScans++ % 5 === 0), WORLD_MS);
 });

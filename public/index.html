@@ -79,6 +79,16 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .banner.connect { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; color: var(--fg-dim); }
 .banner.connect b { color: var(--fg); font-weight: 600; }
 .banner.connect .mono { font: 11.5px var(--mono); color: var(--fg-faint); }
+/* Sessions on a Claude Code version deleted under them: macOS can refuse them ~/Documents at any moment. */
+.banner.old { display: grid; gap: 4px; }
+.banner.old ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; color: var(--fg-dim); }
+.banner.old li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.banner.old li b, .note.old b { color: var(--fg); font-weight: 600; }
+.note.old { display: grid; gap: 8px; justify-items: start; border-color: var(--amber-line); color: var(--fg-dim); }
+.note.old .lead { color: var(--amber); font-weight: 600; }
+.banner.old > *, .banner.old li > *, .note.old > * { min-width: 0; max-width: 100%; }
+.banner.old .btn, .note.old .btn { height: auto; min-height: 26px; white-space: normal; overflow-wrap: anywhere; text-align: left; }
+.told { color: var(--amber); }
 /* The profile: which Claude Code config folder's sessions the panel shows. */
 .prof { position: relative; }
 .prof-btn { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border: 1px solid var(--line-strong); border-radius: 6px; background: transparent; color: var(--fg-dim); font-size: 12.5px; cursor: pointer; }
@@ -664,6 +674,7 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
   <button class="btn primary" type="button" id="new-agent">New agent</button>
 </header>
 <p class="banner" id="roster-err" hidden></p>
+<div class="banner old" id="old-ver" role="status" hidden></div>
 <div class="banner connect" id="prof-banner" hidden>
   <span>The <b id="pb-name"></b> profile doesn't report to this panel yet. Its sessions are listed, but their requests, tools and subagents don't show as they happen.</span>
   <button class="btn small" type="button" id="pb-connect">Connect this profile</button>
@@ -933,6 +944,9 @@ function connect() {
       for (const p of snap.pending) if (prev && !prev.pending.some((q) => q.id === p.id)) toast(`${label(sessionOf(p.sessionId))} needs you.`);
     }
     for (const p of snap.pending) if (prev && !prev.pending.some((q) => q.id === p.id)) alertNew(p);
+    const newOld = prev ? (snap.oldVersions ?? []).filter((o) => !(prev.oldVersions ?? []).some((x) => x.sessionId === o.sessionId)) : [];
+    if (newOld.length === 1) toast(`${newOld[0].name || 'A session'} runs Claude Code ${newOld[0].version}, which has been deleted. Restart it before it loses ~/Documents.`);
+    else if (newOld.length) toast(`${newOld.length} sessions run a Claude Code version that has been deleted. Restart them before they lose ~/Documents.`);
     const was = prev?.world?.home, home = snap.world?.home;
     if (was && home && home.level > was.level) toast(`Home reached level ${home.level}: ${home.stage}.`);
     const ev = snap.event;
@@ -1127,10 +1141,10 @@ function tile(s) {
   let t = tiles.get(id);
   if (!t) {
     t = { glyph: el('span', { class: 'glyph', 'aria-hidden': 'true' }), name: el('span', { class: 'tname' }), subs: el('span'), age: el('span'), line: el('span', { class: 'tline' }),
-          on: el('span') };
+          on: el('span'), old: el('span', { class: 'told', text: 'restart' }) };
     t.where = el('span', { class: 'twhere' }, t.on);
     t.btn = el('button', { class: 'tile', type: 'button', onclick: () => { cancelAdvance(); open = open === id ? null : id; render(); } },
-      t.glyph, t.name, el('span', { class: 'tside' }, t.subs, t.age), t.line, t.where);
+      t.glyph, t.name, el('span', { class: 'tside' }, t.old, t.subs, t.age), t.line, t.where);
     t.q = el('button', { class: 'qstop', type: 'button', onclick: () => t.act && confirmOr(t.key, t.act.run) });
     t.wrap = el('div', { class: 'tile-wrap' }, t.btn, t.q);
     tiles.set(id, t);
@@ -1145,6 +1159,8 @@ function tile(s) {
   setAttr(t.glyph, 'data-s', st);
   setText(t.name, label(s));
   setText(t.subs, running ? `${running} sub${running > 1 ? 's' : ''}` : '');
+  t.old.hidden = !s.oldVersion;
+  setAttr(t.old, 'title', s.oldVersion ? oldWhy(s.oldVersion) : '');
   t.subs.hidden = !running;
   setText(t.age, s.startedAt ? ago(snap.now - s.startedAt) : '');
   const parts = lineOf(s), text = textOf(parts);
@@ -1214,6 +1230,24 @@ function copyBtn(cmd) {
   return el('button', { class: 'btn quiet mono', type: 'button', text: cmd, title: 'Copy the command that opens it in a terminal',
     onclick: () => navigator.clipboard.writeText(cmd).then(() => toast('Copied ' + cmd), () => toast('Copy is blocked here. Select it: ' + cmd, true)) });
 }
+/** Why a session on a deleted Claude Code version needs a restart. */
+const oldWhy = (o) => `${o.self ? 'It runs' : 'It was started by'} Claude Code ${o.version}, which the updater has deleted, so macOS can stop it reading ~/Documents, ~/Desktop and cloud folders at any moment.`;
+/** How to restart one on the installed version: a terminal session from its terminal, a background job from here. */
+function restartHow(o) {
+  if (o.kind === 'interactive') return [el('span', { text: 'Quit it in its terminal, then run:' }), copyBtn(`${o.profile.command} --resume ${o.sessionId}`)];
+  return [el('span', { text: o.shown ? 'End it here, then send it a message: it comes back on the installed version.'
+    : `Switch to the ${o.profile.label} profile, end it, then send it a message: it comes back on the installed version.` })];
+}
+/** Every profile's sessions on a deleted version: the one that loses access is often not on screen. */
+function renderOld(list) {
+  const b = $('old-ver');
+  b.hidden = !list.length;
+  patch(b, JSON.stringify([list, snap.profile?.id]), () => !list.length ? null : [
+    el('span', { text: `${list.length === 1 ? 'A session runs' : `${list.length} sessions run`} a Claude Code version the updater has deleted, so macOS can stop ${list.length === 1 ? 'it' : 'them'} reading ~/Documents at any moment. Restart ${list.length === 1 ? 'it' : 'them'} on the installed version:` }),
+    el('ul', {}, ...list.map((o) => el('li', {}, el('b', { text: o.name || o.id || o.sessionId.slice(0, 8) }),
+      el('span', { text: `${o.shown ? '' : `${o.profile.label} profile, `}Claude Code ${o.version}.` }), ...restartHow(o)))),
+  ]);
+}
 /** The workspace with nothing open: you closed it. It offers the top of Needs you, the one that has waited longest. */
 function renderEmpty(waiting) {
   const e = $('empty'), next = waiting[0], n = waiting.length;
@@ -1244,7 +1278,7 @@ function renderDrawer(vis) {
   const n = notes.get(s.sessionId), noteText = n && Date.now() - n.at < 15_000 ? n.text : null;
   const where = whereOf(s.git), sharers = sharersOf(s);
   const elsewhere = (s.elsewhere ?? []).map((g) => elsewhereOf(g, s.git)), here = s.workCwd ?? s.cwd;
-  patch($('d-head'), JSON.stringify([s.sessionId, st, label(s), s.cwd, here, s.kind, s.id, s.inRoster, Boolean(s.leftRosterAt), s.state, armedHere, noteText, s.bgTasks, s.hostsPanel, s.mode, s.git, sharers, elsewhere]), () => [
+  patch($('d-head'), JSON.stringify([s.sessionId, st, label(s), s.cwd, here, s.kind, s.id, s.inRoster, Boolean(s.leftRosterAt), s.state, armedHere, noteText, s.bgTasks, s.hostsPanel, s.mode, s.git, sharers, elsewhere, s.oldVersion, snap.profile?.command]), () => [
     el('div', { class: 'd-top' }, el('span', { class: 'tag', 'data-s': st }, glyph(st), s.leftRosterAt ? 'Closed' : s.state === 'stopped' ? 'Ended' : LABEL[st]),
       el('span', { class: 'age' }), el('span', { class: 'grow' }),
       el('button', { class: 'btn quiet small', type: 'button', text: 'Close', onclick: () => { cancelAdvance(); open = null; render(); } })),
@@ -1264,6 +1298,8 @@ function renderDrawer(vis) {
       bg && s.id ? copyBtn('claude attach ' + s.id) : s.kind === 'interactive' && s.leftRosterAt ? copyBtn('claude --resume ' + s.sessionId) : null),
     armedHere ? el('p', { class: 'hint', text: HINT[armedHere.split(':')[0]] + (/^(end|close):/.test(armedHere) ? tasksStop(s) : '') }) : null,
     noteText ? el('p', { class: 'note', text: noteText }) : null,
+    s.oldVersion && !ended ? el('div', { class: 'note old', role: 'status' }, el('span', { class: 'lead', text: 'Restart this session.' }),
+      el('span', { text: oldWhy(s.oldVersion) }), ...restartHow({ ...s, shown: true, profile: snap.profile })) : null,
   ]);
   setText($('d-head').querySelector('.age'), s.startedAt ? 'up ' + ago(snap.now - s.startedAt) : '');
 
@@ -1545,6 +1581,7 @@ function render() {
   renderDrawer(vis);
   renderEmpty(g.waiting);
   renderWorldBtn(snap.world);
+  renderOld(snap.oldVersions ?? []);
   if (spaceOn) renderSpace(g);
   document.title = snap.pending.length ? `(${snap.pending.length}) Agent panel` : 'Agent panel';
   // A two-click control keeps the keyboard focus through a redraw.
