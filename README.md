@@ -106,6 +106,8 @@ its own icon. Open it like any app, or keep it in the Dock.
   in another app. Closing the window keeps the panel connected: the count stays live and requests are
   still held. Click the Dock icon to bring the window back; ⌘Q quits.
 - **Turn on desktop alerts** gives you the Mac's own notifications. Clicking one opens that session.
+- **File › New Agent** (⌘T) opens the launcher, and the **New agent** button shows the shortcut. In a
+  browser ⌘T opens a new tab, so there the button shows none.
 - Links to other sites open in your browser. ⌘R reloads, and starts a server if none answers;
   ⌘= / ⌘- / ⌘0 zoom.
 

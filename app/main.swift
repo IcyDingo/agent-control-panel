@@ -75,6 +75,9 @@ final class Panel: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
     config.preferences.inactiveSchedulingPolicy = .none       // keep the live feed and the badge going while hidden
     config.userContentController.addUserScript(
       WKUserScript(source: notificationShim(permission), injectionTime: .atDocumentStart, forMainFrameOnly: true))
+    // Tells the page it runs in the app, whose menu has shortcuts a browser keeps for itself (⌘T opens a tab there).
+    config.userContentController.addUserScript(
+      WKUserScript(source: "window.agentPanelApp = { newAgent: '⌘T' };", injectionTime: .atDocumentStart, forMainFrameOnly: true))
     config.userContentController.add(self, name: "notify")
     config.userContentController.addScriptMessageHandler(self, contentWorld: .page, name: "notifyPermission")
     web = WKWebView(frame: .zero, configuration: config)
@@ -318,6 +321,10 @@ final class Panel: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
   // ---------------------------------------------------------------- menu
 
   @objc func reloadPanel(_ sender: Any?) { connect() }
+  @objc func newAgent(_ sender: Any?) {
+    window.makeKeyAndOrderFront(nil)
+    web.evaluateJavaScript("document.dispatchEvent(new CustomEvent('agent-panel:new-agent'))")
+  }
   @objc func showPanel(_ sender: Any?) { window.makeKeyAndOrderFront(nil) }
   @objc func zoomIn(_ sender: Any?) { setZoom(web.pageZoom + 0.1) }
   @objc func zoomOut(_ sender: Any?) { setZoom(web.pageZoom - 0.1) }
@@ -348,6 +355,7 @@ final class Panel: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
       item("Show All", #selector(NSApplication.unhideAllApplications(_:))), .separator(),
       item("Quit Agent Panel", #selector(NSApplication.terminate(_:)), "q"),
     ])
+    _ = menu("File", [item("New Agent", #selector(newAgent(_:)), "t")])
     _ = menu("Edit", [
       item("Undo", Selector(("undo:")), "z"), item("Redo", Selector(("redo:")), "z", [.command, .shift]), .separator(),
       item("Cut", #selector(NSText.cut(_:)), "x"), item("Copy", #selector(NSText.copy(_:)), "c"),

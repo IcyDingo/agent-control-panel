@@ -105,6 +105,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .btn.danger::before { content: ""; width: 7px; height: 7px; border-radius: 1px; background: currentColor; }
 .btn.danger.armed { background: var(--stop); border-color: var(--stop); color: var(--on-solid); }
 .btn.quiet { border-color: transparent; color: var(--fg-dim); }
+.btn kbd { font: 500 11.5px var(--sans); opacity: .55; }
 .btn.quiet:hover { color: var(--fg); }
 .btn.small { height: 24px; padding: 0 8px; font-size: 12px; }
 .btn.orbit::before { content: ""; width: 11px; height: 11px; border-radius: 50%; border: 1px solid currentColor; background: radial-gradient(circle, currentColor 0 1.5px, transparent 2px); }
@@ -1414,6 +1415,12 @@ function render() {
 const dlg = $('launcher');
 const lErr = $('l-err');
 $('new-agent').onclick = openLauncher;
+// In the app, File › New Agent (⌘T) opens it too; a browser keeps ⌘T for a new tab, so the hint shows only in the app.
+if (window.agentPanelApp?.newAgent) {
+  $('new-agent').append(el('kbd', { text: window.agentPanelApp.newAgent }));
+  setAttr($('new-agent'), 'title', `New agent (${window.agentPanelApp.newAgent})`);
+}
+document.addEventListener('agent-panel:new-agent', () => { if (dlg.open) $('l-prompt').focus(); else openLauncher(); });
 // Effort: Default leaves it to the profile's own default (its effortLevel), and launches without --effort.
 const EFFORT_STOPS = [['', 'Default'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['xhigh', 'Extra high'], ['max', 'Max']];
 const MODE_SAY = { default: 'Asks you before each tool that needs permission.', acceptEdits: 'Edits files without asking; asks for the rest.',
