@@ -159,9 +159,12 @@
     const since = new Date(w.startedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'long' });
     $('w-total').textContent = w.earned > 0 ? `${fmt(w.earned)} credit earned since ${since}.`
       : `Your world started on ${since} as a bare rock. Commits and tokens earn credit, and it grows as they come in.`;
-    const repos = (w.noEmail ?? []).map((r) => r.split('/').filter(Boolean).at(-1));
-    $('w-noemail').hidden = !repos.length;
-    $('w-noemail').textContent = repos.length ? `No commits counted in ${repos.join(', ')}: git has no user.email there.` : '';
+    const names = (list) => (list ?? []).map((r) => r.split('/').filter(Boolean).at(-1)).join(', ');
+    const notes = [];
+    if (w.noEmail?.length) notes.push(`No commits counted in ${names(w.noEmail)}: git has no user.email there.`);
+    if (w.gitFailed?.length) notes.push(`Commits in ${names(w.gitFailed)} couldn't be read this time: git didn't answer in time. What was counted stays.`);
+    $('w-noemail').hidden = !notes.length;
+    $('w-noemail').textContent = notes.join(' ');
   }
 
   window.AgentWorld = {

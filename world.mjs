@@ -44,15 +44,17 @@ const KEEP_IDS = 50;
 /** The tokens one reply used: what was sent and written, not what came from the prompt cache. */
 const tokensOf = (u) => (u.output_tokens ?? 0) + (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
 
+const EDITS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
+
 /** Reads what a transcript gained since `seen` (whole lines only) and returns the tokens per day it adds, counting each
  *  reply once (Claude Code writes one reply as several entries that repeat its message id and usage), and the folders
- *  those entries worked in. A file untouched since before World started is skipped, not read. */
+ *  those entries worked in or edited files in. A file untouched since before World started is skipped, not read. */
 export function readTokens(file, seen, startedAt) {
-  const tokens = {}, cwds = new Set(), ids = [...(seen?.ids ?? [])];
+  const tokens = {}, dirs = new Set(), ids = [...(seen?.ids ?? [])];
   const st = fs.statSync(file);
-  if (!seen && st.mtimeMs < startedAt) return { state: { offset: st.size, ids: [] }, tokens, cwds: [] };
+  if (!seen && st.mtimeMs < startedAt) return { state: { offset: st.size, ids: [] }, tokens, dirs: [] };
   let offset = seen?.offset ?? 0;
-  if (offset > st.size) return { state: { offset: st.size, ids }, tokens, cwds: [] }; // shrank: never recount
+  if (offset > st.size) return { state: { offset: st.size, ids }, tokens, dirs: [] }; // shrank: never recount
   const fd = fs.openSync(file, 'r');
   try {
     // Split on newline bytes, never on decoded text: a chunk can end inside a multi-byte character.
@@ -68,7 +70,7 @@ export function readTokens(file, seen, startedAt) {
       rest = bytes.subarray(end + 1);
     }
   } finally { fs.closeSync(fd); }
-  return { state: { offset, ids: ids.slice(-KEEP_IDS) }, tokens, cwds: [...cwds] };
+  return { state: { offset, ids: ids.slice(-KEEP_IDS) }, tokens, dirs: [...dirs] };
 
   function count(line) {
     if (!line.includes('"usage"') && !line.includes('"cwd"')) return;
@@ -76,7 +78,11 @@ export function readTokens(file, seen, startedAt) {
     try { d = JSON.parse(line); } catch { return; }
     const at = Date.parse(d.timestamp);
     if (!(at >= startedAt)) return;
-    if (typeof d.cwd === 'string' && path.isAbsolute(d.cwd)) cwds.add(d.cwd);
+    if (typeof d.cwd === 'string' && path.isAbsolute(d.cwd)) dirs.add(d.cwd);
+    for (const b of d.type === 'assistant' && Array.isArray(d.message?.content) ? d.message.content : []) {
+      const f = b?.type === 'tool_use' && EDITS.has(b.name) ? b.input?.file_path ?? b.input?.notebook_path : null;
+      if (typeof f === 'string' && path.isAbsolute(f)) dirs.add(path.dirname(f));
+    }
     const u = d.type === 'assistant' ? d.message?.usage : null, id = d.message?.id;
     if (!u || typeof u !== 'object' || (id && ids.includes(id))) return;
     if (id) ids.push(id);
@@ -111,13 +117,22 @@ export function parseLog(text, email, sinceSec = 0) {
 // ---------------------------------------------------------------- the store
 
 const LOG_FORMAT = '--format=%x1e%H%x1f%at%x1f%ae%x1f%ce%x1f%s';
+const WINDOW_DAYS = 30;
 const blank = () => ({ added: 0, removed: 0, tokens: 0, commits: 0 });
+const VERSION = 2;
+const valid = (st) => st && st.v === VERSION && Number.isFinite(st.startedAt) && [st.files, st.tokens, st.lines].every((o) => o && typeof o === 'object')
+  && [st.repos, st.purchases].every(Array.isArray);
 
-/** One profile's World, kept in `file`. Nothing is written until open(). `run` is the server's execFile wrapper and
- *  `gitPlace` its folder → git checkout lookup. */
-export function createWorld({ file, configDir, gitPlace, run, now = Date.now }) {
+/** The one World on this Mac, kept in `file`, fed by every profile's sessions (`configDirs`: the profile folders, or a
+ *  function returning them). Nothing is written until open(). `run` is the server's execFile wrapper and `gitPlace` its
+ *  folder → git checkout lookup. */
+export function createWorld({ file, configDirs, gitPlace, run, now = Date.now }) {
   let st = null, memo = null;
-  try { st = JSON.parse(fs.readFileSync(file, 'utf8')); } catch {}
+  try {
+    const loaded = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (valid(loaded)) st = loaded;
+    else fs.renameSync(file, `${file}.bad-${now()}`); // kept for a look, never overwritten
+  } catch {}
 
   function save() {
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -127,16 +142,18 @@ export function createWorld({ file, configDir, gitPlace, run, now = Date.now }) 
     memo = null;
   }
 
-  /** Every transcript of the profile: sessions, and their subagents. */
+  /** Every transcript of every profile: sessions, and their subagents. */
   function transcripts() {
-    const out = [], root = path.join(configDir, 'projects');
-    const list = (dir) => { try { return fs.readdirSync(dir, { withFileTypes: true }); } catch { return []; } };
-    for (const p of list(root)) {
-      if (!p.isDirectory()) continue;
-      for (const e of list(path.join(root, p.name))) {
-        const f = path.join(root, p.name, e.name);
-        if (e.isFile() && e.name.endsWith('.jsonl')) out.push(f);
-        else if (e.isDirectory()) for (const s of list(path.join(f, 'subagents'))) if (s.isFile() && s.name.endsWith('.jsonl')) out.push(path.join(f, 'subagents', s.name));
+    const out = [], list = (dir) => { try { return fs.readdirSync(dir, { withFileTypes: true }); } catch { return []; } };
+    for (const dir of typeof configDirs === 'function' ? configDirs() : configDirs) {
+      const root = path.join(dir, 'projects');
+      for (const p of list(root)) {
+        if (!p.isDirectory()) continue;
+        for (const e of list(path.join(root, p.name))) {
+          const f = path.join(root, p.name, e.name);
+          if (e.isFile() && e.name.endsWith('.jsonl')) out.push(f);
+          else if (e.isDirectory()) for (const s of list(path.join(f, 'subagents'))) if (s.isFile() && s.name.endsWith('.jsonl')) out.push(path.join(f, 'subagents', s.name));
+        }
       }
     }
     return out;
@@ -144,7 +161,7 @@ export function createWorld({ file, configDir, gitPlace, run, now = Date.now }) 
 
   async function scanTokens() {
     let changed = false, read = 0;
-    const repos = new Set(st.repos), seenCwds = new Map();
+    const repos = new Set(st.repos), seenDirs = new Map();
     for (const f of transcripts()) {
       const seen = st.files[f];
       let size, mtimeMs;
@@ -156,9 +173,9 @@ export function createWorld({ file, configDir, gitPlace, run, now = Date.now }) 
       st.files[f] = r.state;
       changed = true;
       for (const [day, n] of Object.entries(r.tokens)) st.tokens[day] = (st.tokens[day] ?? 0) + n;
-      for (const cwd of r.cwds) {
-        if (!seenCwds.has(cwd)) seenCwds.set(cwd, gitPlace(cwd)?.repo ?? null);
-        const repo = seenCwds.get(cwd);
+      for (const dir of r.dirs) {
+        if (!seenDirs.has(dir)) seenDirs.set(dir, gitPlace(dir)?.repo ?? null);
+        const repo = seenDirs.get(dir);
         if (repo) repos.add(repo);
       }
     }
@@ -166,27 +183,43 @@ export function createWorld({ file, configDir, gitPlace, run, now = Date.now }) 
     return changed;
   }
 
+  /** Each repository's lines per day are the most any scan has seen there. A scan counts what is reachable now (your
+   *  commits on every branch and remote, not the stash), so a branch deleted after a squash merge keeps the credit it
+   *  had, and an amended, reworded or rebased commit replaces its old count instead of adding to it. */
   async function scanCommits() {
-    const noEmail = [];
+    const noEmail = [], failed = [], sinceAuthor = Math.floor(st.startedAt / 1000);
+    const since = Math.max(sinceAuthor, Math.floor(now() / 1000) - WINDOW_DAYS * 86_400); // older days keep their counts
     for (const repo of st.repos) {
       if (!fs.existsSync(repo)) continue;
-      const email = (await run('git', ['-C', repo, 'config', 'user.email'], { timeout: 10_000 })).stdout.trim();
-      if (!email) { noEmail.push(repo); continue; }
-      const since = Math.floor(st.startedAt / 1000);
-      const r = await run('git', ['-C', repo, 'log', '--all', '--no-merges', `--since=${since}`, LOG_FORMAT, '--numstat'], { timeout: 10_000 });
-      if (r.err) continue; // keep what it counted before
-      // Once counted, a commit stays (a branch deleted after a squash merge takes its commits away); a rebased or
-      // amended one has the same key and its newest lines replace the old.
-      for (const c of parseLog(r.stdout, email, since)) st.commits[c.key] = { day: c.day, added: c.added, removed: c.removed };
+      const conf = await run('git', ['-C', repo, 'config', 'user.email'], { timeout: 10_000 });
+      const email = conf.stdout.trim();
+      if (!email) { (conf.err?.killed ? failed : noEmail).push(repo); continue; }
+      const r = await run('git', ['-C', repo, 'log', '--no-show-signature', '--no-textconv', '--no-ext-diff', '--no-merges',
+        '-F', '-i', `--author=<${email}>`, `--committer=<${email}>`, `--since=${since}`, '--exclude=refs/stash', '--all',
+        LOG_FORMAT, '--numstat'], { timeout: 10_000 });
+      if (r.err) { failed.push(repo); continue; } // keep what it counted before
+      const days = {}, keys = new Set();
+      for (const c of parseLog(r.stdout, email, sinceAuthor)) {
+        if (keys.has(c.key)) continue; // an older version of a commit already counted (git lists the newest first)
+        keys.add(c.key);
+        const x = (days[c.day] ??= { added: 0, removed: 0, commits: 0 });
+        x.added += c.added; x.removed += c.removed; x.commits++;
+      }
+      const kept = (st.lines[repo] ??= {});
+      for (const [day, x] of Object.entries(days)) {
+        const old = kept[day] ?? { added: 0, removed: 0, commits: 0 };
+        kept[day] = { added: Math.max(old.added, x.added), removed: Math.max(old.removed, x.removed), commits: Math.max(old.commits, x.commits) };
+      }
     }
     st.noEmail = noEmail;
+    st.gitFailed = failed;
   }
 
   return {
     started: () => Boolean(st),
     open() {
       if (st) return;
-      st = { v: 1, startedAt: now(), seed: crypto.randomInt(2 ** 31), files: {}, tokens: {}, commits: {}, repos: [], noEmail: [], purchases: [] };
+      st = { v: VERSION, startedAt: now(), seed: crypto.randomInt(2 ** 31), files: {}, tokens: {}, lines: {}, repos: [], noEmail: [], gitFailed: [], purchases: [] };
       save();
     },
     async scan({ git = true } = {}) {
@@ -201,15 +234,15 @@ export function createWorld({ file, configDir, gitPlace, run, now = Date.now }) 
       if (memo?.today === today) return memo.summary;
       const days = {};
       for (const [d, n] of Object.entries(st.tokens)) (days[d] ??= blank()).tokens += n;
-      for (const c of Object.values(st.commits)) {
-        const x = (days[c.day] ??= blank());
-        x.added += c.added; x.removed += c.removed; x.commits++;
+      for (const perDay of Object.values(st.lines)) for (const [d, c] of Object.entries(perDay)) {
+        const x = (days[d] ??= blank());
+        x.added += c.added; x.removed += c.removed; x.commits += c.commits;
       }
       const earned = Object.values(days).reduce((sum, x) => sum + dayCredit(x), 0);
       const spent = st.purchases.reduce((sum, p) => sum + (p.price ?? 0), 0), t = days[today] ?? blank();
       const summary = { started: true, startedAt: st.startedAt, seed: st.seed, earned, spent, balance: earned - spent, grown: grown(earned),
         today: { day: today, commits: t.commits, added: t.added, removed: t.removed, multiplier: multiplier(t.added, t.removed), tokens: t.tokens, credit: dayCredit(t) },
-        noEmail: st.noEmail };
+        noEmail: st.noEmail ?? [], gitFailed: st.gitFailed ?? [] };
       memo = { today, summary };
       return summary;
     },

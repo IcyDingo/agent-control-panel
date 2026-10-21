@@ -95,7 +95,15 @@ test('a half-written last line waits', () => {
 test('the folders it worked in are reported', () => {
   const file = path.join(tmp(), 's.jsonl');
   fs.writeFileSync(file, reply('m1', START + 1000, USAGE, '/work/a') + reply('m2', START + 2000, USAGE, '/work/a') + reply('m3', START + 3000, USAGE, '/work/b'));
-  assert.deepEqual(readTokens(file, undefined, START).cwds.sort(), ['/work/a', '/work/b']);
+  assert.deepEqual(readTokens(file, undefined, START).dirs.sort(), ['/work/a', '/work/b']);
+});
+
+test('the folders of files it edited are reported too', () => {
+  const file = path.join(tmp(), 's.jsonl');
+  const edit = { type: 'assistant', timestamp: new Date(START + 1000).toISOString(), cwd: '/work/a',
+    message: { id: 'm1', usage: USAGE, content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/other/repo/src/x.js' } }] } };
+  fs.writeFileSync(file, JSON.stringify(edit) + '\n');
+  assert.deepEqual(readTokens(file, undefined, START).dirs.sort(), ['/other/repo/src', '/work/a']);
 });
 
 test('a long transcript with non-ASCII text is read to the byte', () => {
@@ -140,7 +148,7 @@ function commit(r, file, lines, sec, who = null) {
 function worldOver(cwd) {
   const configDir = tmp(), file = path.join(tmp(), 'world', 'default.json');
   fs.mkdirSync(path.join(configDir, 'projects', 'p'), { recursive: true });
-  const world = createWorld({ file, configDir, run, gitPlace: (d) => (d.startsWith(cwd) ? { repo: cwd } : null), now: () => T0 });
+  const world = createWorld({ file, configDirs: [configDir], run, gitPlace: (d) => (d.startsWith(cwd) ? { repo: cwd } : null), now: () => T0 });
   world.open();
   fs.writeFileSync(path.join(configDir, 'projects', 'p', 's.jsonl'), reply('m1', T0 + 5000, { output_tokens: 10_000 }, cwd));
   return { world, file, configDir };
@@ -210,7 +218,7 @@ test('a repository without user.email is listed, not counted', async () => {
 
 test('nothing is stored until World is opened, and it survives a restart', async () => {
   const configDir = tmp(), file = path.join(tmp(), 'world', 'default.json');
-  const closed = createWorld({ file, configDir, run, gitPlace: () => null, now: () => T0 });
+  const closed = createWorld({ file, configDirs: [configDir], run, gitPlace: () => null, now: () => T0 });
   assert.deepEqual(closed.summary(), { started: false });
   assert.equal(fs.existsSync(file), false);
   const r = repo();
@@ -220,7 +228,109 @@ test('nothing is stored until World is opened, and it survives a restart', async
   const before = world.summary();
   assert.ok(before.earned > 0);
   assert.equal(typeof before.seed, "number"); // the view draws the same world from it every time
-  const again = createWorld({ file: f2, configDir: c2, run, gitPlace: () => null, now: () => T0 });
+  const again = createWorld({ file: f2, configDirs: [c2], run, gitPlace: () => null, now: () => T0 });
   assert.equal(again.started(), true);
   assert.deepEqual(again.summary(), before);
+});
+
+test('every profile on the Mac feeds one World', async () => {
+  const a = tmp(), b = tmp(), file = path.join(tmp(), 'world', 'world.json');
+  for (const [dir, n] of [[a, 100], [b, 50]]) {
+    fs.mkdirSync(path.join(dir, 'projects', 'p'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'projects', 'p', 's.jsonl'), reply(`m${n}`, T0 + 5000, { output_tokens: n }));
+  }
+  const world = createWorld({ file, configDirs: () => [a, b], run, gitPlace: () => null, now: () => T0 });
+  world.open();
+  for (const dir of [a, b]) fs.utimesSync(path.join(dir, 'projects', 'p', 's.jsonl'), new Date(), new Date());
+  await world.scan({ git: false });
+  assert.equal(world.summary().today.tokens, 150);
+});
+
+test('a repository found through an edited file counts', async () => {
+  const r = repo();
+  commit(r, 'a.txt', 3, 10);
+  const { world, configDir } = worldOver('/not/a/repo');
+  const edit = { type: 'assistant', timestamp: new Date(T0 + 6000).toISOString(), cwd: '/not/a/repo',
+    message: { id: 'e1', usage: { output_tokens: 1 }, content: [{ type: 'tool_use', name: 'Write', input: { file_path: path.join(r, 'a.txt') } }] } };
+  fs.appendFileSync(path.join(configDir, 'projects', 'p', 's.jsonl'), JSON.stringify(edit) + '\n');
+  const w2 = createWorld({ file: path.join(tmp(), 'w.json'), configDirs: [configDir], run, gitPlace: (d) => (d.startsWith(r) ? { repo: r } : null), now: () => T0 });
+  w2.open();
+  await w2.scan({ git: true });
+  assert.equal(w2.summary().today.added, 3);
+  void world;
+});
+
+test('stashed work does not count', async () => {
+  const r = repo();
+  commit(r, 'a.txt', 3, 10);
+  fs.appendFileSync(path.join(r, 'a.txt'), 'wip 1\nwip 2\n');
+  fs.writeFileSync(path.join(r, 'new.txt'), Array.from({ length: 50 }, (_, i) => `n${i}`).join('\n') + '\n');
+  git(r, ['stash', '-q', '-u'], 20);
+  const { world } = worldOver(r);
+  await world.scan({ git: true });
+  assert.deepEqual([world.summary().today.commits, world.summary().today.added], [1, 3]);
+});
+
+test('an amend with a new message does not add up', async () => {
+  const r = repo();
+  commit(r, 'a.txt', 3, 10);
+  const { world } = worldOver(r);
+  await world.scan({ git: true });
+  fs.appendFileSync(path.join(r, 'a.txt'), 'one more\n');
+  git(r, ['add', '-A'], 90);
+  git(r, ['commit', '-q', '--amend', '-m', 'a better message'], 90, { GIT_AUTHOR_DATE: at(10) });
+  await world.scan({ git: true });
+  assert.deepEqual([world.summary().today.commits, world.summary().today.added], [1, 4]);
+});
+
+test('when both versions of a commit are reachable, the newest counts', async () => {
+  const r = repo();
+  commit(r, 'a.txt', 1, 10);
+  git(r, ['branch', 'backup'], 20);
+  fs.appendFileSync(path.join(r, 'a.txt'), Array.from({ length: 9 }, (_, i) => `more ${i}`).join('\n') + '\n');
+  git(r, ['add', '-A'], 90);
+  git(r, ['commit', '-q', '--amend', '--no-edit'], 90, { GIT_AUTHOR_DATE: at(10) });
+  const { world } = worldOver(r);
+  await world.scan({ git: true });
+  assert.deepEqual([world.summary().today.commits, world.summary().today.added], [1, 10]);
+});
+
+test('git filters to my commits, leaves the stash out, and reads a bounded window', async () => {
+  const r = repo(), calls = [];
+  const spy = (cmd, args, opts) => { calls.push(args); return run(cmd, args, opts); };
+  const configDir = tmp(), file = path.join(tmp(), 'w.json');
+  fs.mkdirSync(path.join(configDir, 'projects', 'p'), { recursive: true });
+  const NOW = T0 + 90 * 86_400_000, opened = T0; // World opened 90 days before this scan
+  const world = createWorld({ file, configDirs: [configDir], run: spy, gitPlace: () => ({ repo: r }), now: () => opened });
+  world.open();
+  fs.writeFileSync(path.join(configDir, 'projects', 'p', 's.jsonl'), reply('m1', T0 + 5000, { output_tokens: 1 }, r));
+  const later = createWorld({ file, configDirs: [configDir], run: spy, gitPlace: () => ({ repo: r }), now: () => NOW });
+  await later.scan({ git: true });
+  const log = calls.find((a) => a.includes('log'));
+  assert.ok(log.includes('--author=<me@example.com>') && log.includes('--committer=<me@example.com>'));
+  assert.ok(log.indexOf('--exclude=refs/stash') < log.indexOf('--all'));
+  const since = Number(log.find((a) => a.startsWith('--since=')).slice(8));
+  assert.ok(since >= Math.floor(NOW / 1000) - 31 * 86_400);
+});
+
+test('a repository whose log fails is listed', async () => {
+  const r = repo();
+  commit(r, 'a.txt', 3, 10);
+  const failing = (cmd, args, opts) => (args.includes('log') ? Promise.resolve({ err: new Error('timed out'), stdout: '', stderr: '' }) : run(cmd, args, opts));
+  const configDir = tmp();
+  fs.mkdirSync(path.join(configDir, 'projects', 'p'), { recursive: true });
+  const world = createWorld({ file: path.join(tmp(), 'w.json'), configDirs: [configDir], run: failing, gitPlace: () => ({ repo: r }), now: () => T0 });
+  world.open();
+  fs.writeFileSync(path.join(configDir, 'projects', 'p', 's.jsonl'), reply('m1', T0 + 5000, { output_tokens: 1 }, r));
+  await world.scan({ git: true });
+  assert.deepEqual(world.summary().gitFailed, [r]);
+});
+
+test('a broken world file is set aside, not fatal', () => {
+  const dir = tmp(), file = path.join(dir, 'world.json');
+  fs.writeFileSync(file, '{}');
+  const world = createWorld({ file, configDirs: [tmp()], run, gitPlace: () => null, now: () => T0 });
+  assert.deepEqual(world.summary(), { started: false });
+  assert.equal(fs.existsSync(file), false);
+  assert.equal(fs.readdirSync(dir).filter((f) => f.startsWith('world.json.bad-')).length, 1);
 });

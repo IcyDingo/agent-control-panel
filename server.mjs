@@ -94,15 +94,13 @@ function describeProfile(p) {
            effort: EFFORTS.has(effort) ? effort : null,
            command: p.plain ? 'claude' : `CLAUDE_CONFIG_DIR=~/${path.basename(p.dir)} claude` };
 }
-let profile = null, profileInfo = null, profileGen = 0, polls = 0, configDir = null, childEnv = baseEnv, world = null;
+let profile = null, profileInfo = null, profileGen = 0, polls = 0, configDir = null, childEnv = baseEnv;
 function useProfile(p) {
   profile = p;
   profileInfo = describeProfile(p);
   configDir = p.dir;
   childEnv = p.plain ? baseEnv : { ...baseEnv, CLAUDE_CONFIG_DIR: p.dir };
   profileGen++;
-  // Each profile has its own World, kept beside the prefs (so a second panel with its own ACP_PREFS has its own too).
-  world = createWorld({ file: path.join(path.dirname(PREFS), 'world', `${p.id}.json`), configDir: p.dir, gitPlace, run: (...a) => run(...a) });
 }
 {
   const all = listProfiles();
@@ -1253,22 +1251,28 @@ async function pickFolder(body) {
 
 // ---------------------------------------------------------------- world
 
-// World counts tokens every minute and commits every fifth time; a scan never overlaps another.
+// One World for this Mac, fed by every profile's sessions, kept beside the prefs (so a second panel with its own
+// ACP_PREFS has its own). It counts tokens every minute and commits every fifth time; a scan never overlaps another.
+const world = createWorld({ file: path.join(path.dirname(PREFS), 'world', 'world.json'), configDirs: () => listProfiles().map((p) => p.dir),
+  gitPlace, run: (...a) => run(...a) });
 const WORLD_MS = 60_000;
 let worldScans = 0, worldScanning = false;
 async function scanWorld(git) {
-  const w = world;
-  if (!w?.started() || worldScanning) return;
+  if (!world.started() || worldScanning) return;
   worldScanning = true;
-  const before = w.summary().earned;
-  try { await w.scan({ git }); } catch (err) { console.error('world scan failed:', err?.message ?? err); }
+  const before = worldSummary().earned;
+  try { await world.scan({ git }); } catch (err) { console.error('world scan failed:', err?.message ?? err); }
   finally { worldScanning = false; }
-  if (w === world && w.summary().earned !== before) broadcast();
+  if (worldSummary().earned !== before) broadcast();
+}
+/** World's numbers for the page. Nothing in them may take the panel down. */
+function worldSummary() {
+  try { return world.summary(); } catch (err) { console.error('world summary failed:', err?.message ?? err); return { started: false }; }
 }
 function openWorld() {
   world.open();
   scanWorld(true);
-  return { ok: true, world: world.summary() };
+  return { ok: true, world: worldSummary() };
 }
 
 // ---------------------------------------------------------------- snapshot + SSE
@@ -1276,7 +1280,7 @@ function openWorld() {
 function snapshot() {
   const now = Date.now();
   return {
-    now, armed, rosterError, port: PORT, profile: profileInfo, world: world?.summary() ?? { started: false },
+    now, armed, rosterError, port: PORT, profile: profileInfo, world: worldSummary(),
     sessions: [...sessions.values()].map(({ spawns, hereCwd, rosterCwd, ranCwd, editTops, ...s }) => {
       const here = ranCwd ?? hereCwd ?? s.cwd, git = placeOut(gitPlace(here));
       return {

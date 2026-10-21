@@ -400,6 +400,7 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .world canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: grab; touch-action: none; }
 .world canvas:active { cursor: grabbing; }
 .w-credit { font: 12.5px var(--mono); color: var(--fg-dim); }
+.w-needs { border-color: var(--amber-line); color: var(--amber); }
 .w-credit b { font-weight: 500; color: var(--amber); }
 .w-side {
   position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); top: calc(var(--sp-top, 52px) + 14px); z-index: 2; width: 288px;
@@ -714,6 +715,7 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
     <span class="brand">World</span>
     <span class="sp-sub" id="w-where">Home</span>
     <span class="grow"></span>
+    <button class="btn small w-needs" type="button" id="w-needs" title="Back to the board, at the first one" hidden></button>
     <span class="w-credit"><b id="w-credit">0</b> credit</span>
     <button class="btn small" type="button" id="w-exit" title="Esc">Back to board</button>
   </div>
@@ -892,7 +894,12 @@ function connect() {
   es.onmessage = (m) => {
     const prev = snap;
     snap = JSON.parse(m.data);
-    if (worldOn) AgentWorld.update(snap.world);
+    if (worldOn) {
+      AgentWorld.update(snap.world);
+      worldNeeds();
+      // World covers the board: say so when something new needs you.
+      for (const p of snap.pending) if (prev && !prev.pending.some((q) => q.id === p.id)) toast(`${label(sessionOf(p.sessionId))} needs you.`);
+    }
     for (const p of snap.pending) if (prev && !prev.pending.some((q) => q.id === p.id)) alertNew(p);
     const ev = snap.event;
     if (ev?.type === 'settled' && cards.has(ev.id)) {
@@ -926,7 +933,7 @@ function alertNew(p) {
   const title = p.toolName === 'AskUserQuestion' ? `${who} has a question for you`
     : p.toolName === 'ExitPlanMode' ? `${who} has a plan ready for review` : `${who} wants to use ${p.toolName}`;
   const n = new Notification(title, { body: summary(p), tag: p.id });
-  n.onclick = () => { window.focus(); open = p.sessionId; render(); n.close(); };
+  n.onclick = () => { window.focus(); exitWorld(); open = p.sessionId; render(); n.close(); };
 }
 function summary(p) {
   const i = p.toolInput || {};
@@ -2113,8 +2120,20 @@ async function enterWorld() {
   $('world').hidden = false;
   document.body.classList.add('in-space');
   AgentWorld.enter(r.world);
+  worldNeeds();
   $('w-exit').focus({ preventScroll: true });
 }
+/** How many sessions wait on you, shown in World's top bar; it takes you to the first. */
+function worldNeeds() {
+  const n = snap ? asking().length : 0;
+  $('w-needs').hidden = !n;
+  $('w-needs').textContent = n === 1 ? '1 needs you' : `${n} need you`;
+}
+$('w-needs').onclick = () => {
+  const id = asking()[0];
+  exitWorld();
+  if (id) { cancelAdvance(); open = id; render(); }
+};
 function exitWorld() {
   if (!worldOn) return;
   worldOn = false;
