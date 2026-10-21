@@ -341,8 +341,8 @@ multiplier from ×1 up to ×4, so a cleanup day pays best. The side panel shows 
 
 **Home levels up with XP** from the days you work. XP is never spent; credit is what you spend. A full day's work
 (300 credit, about an hour of one agent working) gives 100 XP; past it, each doubling of the work gives 50 more (600
-credit is 150 XP, 1,200 is 200), up to 300 a day. So a productive day moves Home further, but no marathon finishes it
-at once. Thinking and iterating count through their tokens, shipping through commits. A day off pauses it, and XP
+credit is 150 XP, 1,200 is 200), with no daily limit. So a productive day always moves Home further, while a runaway
+loop can't jump far: a hundred times the work is under 5 days' XP. Thinking and iterating count through their tokens, shipping through commits. A day off pauses it, and XP
 never goes back. The levels:
 
 | Level | Home | XP |

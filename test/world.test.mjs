@@ -29,14 +29,14 @@ test('a day of work earns credit', () => {
 
 test('day keys are calendar days', () => assert.equal(dayKey(Date.UTC(2026, 9, 21, 23, 59)), '2026-10-21'));
 
-test('a full day is 100 XP; more work earns more, half a day per doubling, at most 300 a day', () => {
+test('a full day is 100 XP; more work earns more, 50 per doubling, with no daily limit', () => {
   assert.equal(FULL_DAY, 300); // credit: about an hour of one agent working
   assert.equal(dayXp({ tokens: 3_000_000 }), 100);
   assert.equal(dayXp({ tokens: 6_000_000 }), 150);
   assert.equal(dayXp({ tokens: 12_000_000 }), 200);
   assert.equal(dayXp({ tokens: 24_000_000 }), 250);
   assert.equal(dayXp({ tokens: 48_000_000 }), 300);
-  assert.equal(dayXp({ tokens: 500_000_000 }), 300); // one marathon day can't finish Home
+  assert.equal(dayXp({ tokens: 500_000_000 }), 469); // a runaway loop: a hundred and sixty times the work, not even five days' XP
   assert.equal(dayXp({ tokens: 1_500_000 }), 50);
   assert.equal(dayXp({ added: 600 }), 20); // ideas without commits count through tokens, commits through lines
   assert.equal(dayXp({}), 0); // a day you only looked counts nothing

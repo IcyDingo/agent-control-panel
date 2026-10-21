@@ -204,8 +204,7 @@
     $('w-xp').textContent = h.next ? `${fmt(h.xp)} / ${fmt(h.next.at)} XP` : `${fmt(h.xp)} XP`;
     $('w-bar').style.width = pct(h.next ? (h.xp - h.at) / (h.next.at - h.at) : 1) + '%';
     $('w-next').textContent = h.next ? `Next: level ${h.next.level}, ${h.next.name}.` : 'The top level. The frontier opens next.';
-    $('w-xp-today').textContent = `+${fmt(h.today)} XP today. ` + (h.today >= 300 ? 'That is the most one day gives; more work still earns credit.'
-      : h.today >= 100 ? 'More work gives more, up to 300.' : 'A full day gives 100.');
+    $('w-xp-today').textContent = `+${fmt(h.today)} XP today. ` + (h.today >= 100 ? 'More work gives more.' : 'A full day gives 100.');
     $('w-bar-today').style.width = pct(h.today / 100) + '%';
     $('w-credit').textContent = fmt(Math.max(0, w.balance));
     const t = w.today;

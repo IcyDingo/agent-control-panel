@@ -108,12 +108,13 @@ lifetime credit let one heavy week nearly finish Home, and the owner wants it to
 from work, not from logging in, and to hook a newcomer on a normal workload: "after a month close to terraformed".
 
 - **XP and levels (owner: "maybe more do it like xp")**: each local day gives Home XP: 100 for a full day's work, and
-  past that 50 more per doubling of the day's credit, at most 300 from one day:
-  `round(100 × (c ≤ 300 ? c/300 : min(3, 1 + ½·log2(c/300))))`. XP is never spent; credit stays the currency you
-  spend. A full day, 300 credit, is about an hour of one agent working **(owner: "yeah")**, so most real working days
-  fill it. A first cut capped a day at one full day; the owner rejected that: "we should not punish productive
-  people". The curve rewards more work without letting one marathon finish Home **(call: 50 XP per doubling, 300 at
-  most)**. On the owner's last two weeks it gives about 3,100 XP in 15 days (level 9 in about 10 working days), while
+  past that 50 more per doubling of the day's credit, with no daily limit (owner):
+  `round(100 × (c ≤ 300 ? c/300 : 1 + ½·log2(c/300)))`. XP is never spent and is not credit earned (owner); credit
+  stays the currency you spend. A full day, 300 credit, is about an hour of one agent working **(owner: "yeah")**, so
+  most real working days fill it. A first cut capped a day at one full day, and a second at 300 XP; the owner rejected
+  both: "we should not punish productive people", "why are we limiting per day?". The doubling curve alone keeps a
+  runaway loop from jumping far (a hundred times a full day's work is under 5 days' XP) **(call: 50 XP per
+  doubling)**. On the owner's last two weeks it gives about 3,100 XP in 15 days (level 9 in about 10 working days), while
   a normal 300-a-day workload still takes about a month. Ideas and iteration count through tokens, shipped work
   through commits. Days off pause it; nothing decays. Today's XP fills live. A "day 4.3 of 20" counter was dropped:
   once a day could give more than one, it no longer counted days.

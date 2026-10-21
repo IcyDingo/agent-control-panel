@@ -2,8 +2,8 @@
 //
 // Credit is earned per local calendar day from the tokens the shown profile's sessions use and the lines in your own
 // commits; lines removed multiply it. Only work after World's first open counts. The days you work also give Home XP,
-// which levels it up from a bare rock: more work gives more, but no day more than 300, so it unfolds over weeks. XP is
-// never spent; credit is what you spend.
+// which levels it up from a bare rock: more work always gives more, each doubling a little, so it unfolds over weeks.
+// XP is never spent; credit is what you spend.
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -28,10 +28,10 @@ export function dayCredit({ added = 0, removed = 0, tokens = 0 }) {
 /** The credit of a full day's work, worth 100 XP: about an hour of one agent working. */
 export const FULL_DAY = 300;
 /** The XP a day's work gives Home: its share of 100 up to a full day, and past one, 50 more for each doubling of the
- *  work (600 credit is 150, 1,200 is 200), up to 300, so a marathon can't finish Home at once. */
+ *  work (600 credit is 150, 1,200 is 200). No daily limit; the doubling keeps a runaway loop from jumping far. */
 export function dayXp(x) {
   const c = dayCredit(x ?? {});
-  return Math.round(100 * (c <= FULL_DAY ? c / FULL_DAY : Math.min(3, 1 + 0.5 * Math.log2(c / FULL_DAY))));
+  return Math.round(100 * (c <= FULL_DAY ? c / FULL_DAY : 1 + 0.5 * Math.log2(c / FULL_DAY)));
 }
 /** Home's levels by XP: something shows within the first hour, about a month of normal weekdays reaches level 9
  *  (terraformed), and the levels go on past that for the productive. */
