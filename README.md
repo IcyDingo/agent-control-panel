@@ -205,6 +205,11 @@ it works, the message arrives at its next step as "The user sent a new message w
 working", exactly as if you'd typed it. A `/command` goes in another way (see Slash commands), and a
 message that starts with `!` (a shell command) isn't sent from here.
 
+**A background session that has stopped** (ended, finished and closed, or blocked) but is still listed
+wakes up with your message: `claude --bg --resume <session id> -- <message>`, with no other flags,
+starts the same job again under the same id, with the options it started with (name, model, effort,
+mode) and in the same folder or worktree, unpushed work included. Nothing is removed first.
+
 **A terminal session** has no way in from outside its terminal. So:
 
 - **While it works**, the panel holds your message (**Send when it is done** asks twice). When its
@@ -226,8 +231,8 @@ Also:
   that task, and the panel says so before you confirm.
 - What a session last said comes from its `Stop` hook, or from its transcript for a session that
   finished its turn before the panel started.
-- A background session that is no longer listed is restarted the old way (`claude rm`, then
-  `claude --bg --resume`), and refused if it ran in its own worktree, which `claude rm` would remove.
+- A background session that is no longer listed starts again with `claude --bg --resume` and the
+  name, model, effort and mode it last ran with.
 - The session the panel server runs in takes no messages or End from here: closing it would stop the panel.
 
 ## Permission mode
@@ -257,11 +262,13 @@ session on it: Claude Code changes either for a running session only at its own 
 there also make your pick the default for every new session. A restart (`claude --bg --resume ... --model --effort`)
 changes this session alone.
 
-- **A background session** that is running restarts for it: **Restart and send** stops it, then resumes the same
-  conversation under the same id with your message. While it works, the message waits until it is done. One that runs
-  in its own worktree isn't restarted from here (`claude rm` would remove the worktree); use `/model` or `/effort` in
-  `claude attach`.
-- **A terminal session or a stopped one** restarts with your message anyway, now on what you picked.
+- **A background session** restarts for it: **Restart and send** stops it if it is running, removes its job record
+  (`claude rm`; the conversation stays), then resumes the same conversation under the same id with your message. While
+  it works, the message waits until it is done. The record has to go because Claude Code resumes a listed job with the
+  options it started with, and with any others starts a copy under a new id. So one that works in its own worktree
+  keeps its model, effort and mode here (the menus are locked): removing its record would remove the worktree, or
+  refuse to while it holds unpushed work. Message it as it is, or use `/model` and `/effort` in `claude attach`.
+- **A terminal session** restarts with your message anyway, now on what you picked.
 - A restart without a pick keeps what it ran on, `[1m]` included: the model is read as Claude Code asked for it
   (`requestedModel`), since the name a reply carries drops the 1M context.
 

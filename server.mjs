@@ -291,9 +291,9 @@ async function pollRoster() {
       s.mode ??= lastTurn(s.sessionId).mode ?? null;
     }
     const on = ranOn(s.sessionId);
-    Object.assign(s, { model: on.model ?? null, effort: on.effort ?? null, editTops: on.edits ?? [] });
-    // Where it works now (its hook events update this between reads, and a panel restart forgets them).
-    if (on.cwd && on.cwd !== s.ranCwd) { s.ranCwd = on.cwd; s.hereCwd = on.cwd; }
+    // Where it works: the folder its transcript last names, which Claude Code writes itself (hook events and the roster
+    // only stand in until there is one: the roster gives a stopped job its starting folder back).
+    Object.assign(s, { model: on.model ?? null, effort: on.effort ?? null, editTops: on.edits ?? [], ranCwd: on.cwd ?? s.ranCwd ?? null });
     loadSubagents(s);
     if (over) { settleSubagents(s); clearStops(s.sessionId); }
     // An interrupted session that has gone idle is done stopping. (A continue:false ends the turn without a Stop event.)
@@ -726,10 +726,9 @@ async function rosterSettles(sessionId, done, ms = 12_000) {
 }
 
 /** Answer a session that has stopped to ask you something in words. Claude Code has no way to type into a running
- *  session from outside, so it is restarted: stopped (a terminal session closes in its window), its background job
- *  record removed (the transcript stays; with the record, --resume starts a copy instead), then resumed in the
- *  background under the same id with the reply as its next prompt, keeping its name, model, effort and permission
- *  mode unless you picked others. */
+ *  terminal session from outside, so it is restarted: stopped (a terminal session closes in its window), then resumed
+ *  in the background under the same id with the reply as its next prompt, keeping its name, model, effort and
+ *  permission mode unless you picked others. A background job wakes as itself (see below). */
 // Sending to a background session: `claude --resume <id> -- <text>` without --bg hands the text to the running job
 // as your next message (queued if it is working, as if typed in agent view's peek panel), then attaches. It needs a
 // terminal, so it runs under script(1), and the client is closed once the message is in the transcript.
@@ -843,6 +842,20 @@ function unqueue(body) {
   return { ok: true };
 }
 
+/** The worktree a session works in, if any: its roster folder or the folder of its newest step, else the worktree its
+ *  transcript last says it entered (and didn't leave). */
+function worktreeOf(s) {
+  const inTree = [s.ranCwd, s.hereCwd, s.cwd].find((c) => /\/\.claude\/worktrees\/[^/]+/.test(c ?? ''));
+  if (inTree) return inTree;
+  const file = transcriptFile(s.sessionId);
+  if (!file) return null;
+  for (const line of tailOf(file, 2_000_000)) {
+    if (!line.includes('"worktree-state"')) continue;
+    try { const p = JSON.parse(line).worktreeSession?.worktreePath; return typeof p === 'string' && fs.existsSync(p) ? p : null; } catch {}
+  }
+  return null;
+}
+
 async function reply(body) {
   const s = liveSession(body);
   const fail = (error) => ({ ok: false, error });
@@ -868,9 +881,15 @@ async function reply(body) {
   // finished and was stopped stays on the list as done, with no process.)
   const bgUp = s.kind === 'background' && s.inRoster && BG_ID.test(s.id ?? '') && !['stopped', 'failed'].includes(s.state) && s.pid != null;
   if (bgUp && !change && !command) return sendToBackground(s, text);
-  // Removing the job record would take a worktree Claude Code made for it along with it.
-  const ownWorktree = s.kind === 'background' && /\/\.claude\/worktrees\//.test(s.cwd ?? '');
-  if (bgUp && change && ownWorktree) return fail(`It runs in its own worktree, so it isn't restarted from here. Switch it with /model or /effort in claude attach ${s.id}.`);
+  // A background job Claude Code still lists keeps the options it started with (its name, model, effort, mode and
+  // worktree): resumed with none, it wakes as itself under the same id. Passing any starts a copy instead, outside its
+  // worktree. So a model, effort or mode you pick needs its record removed first (claude rm), and that would take a
+  // worktree the job made along with it: refused for one that works in its own worktree.
+  const modePick = RESUME_MODES.has(body?.mode) ? body.mode : null;
+  const keeps = s.kind === 'background' && s.inRoster && BG_ID.test(s.id ?? '');
+  const repick = Boolean(change || modePick);
+  const tree = keeps && repick ? worktreeOf(s) : null;
+  if (tree) return fail(`It works in its own worktree (${path.basename(tree)}), and a restart on another model, effort or mode would leave it. Send without changing them, or switch them in claude attach ${s.id}.`);
   // One that is working keeps your message until it is done: a terminal session always, a background job that is to
   // restart or run a /command.
   if ((s.kind === 'interactive' || bgUp) && isWorking(s) && !body?.fromQueue) {
@@ -886,7 +905,6 @@ async function reply(body) {
   if (bgUp && !change) return runCommand(s, text);
   const cwd = s.cwd;
   if (!cwd || !fs.existsSync(cwd)) return fail(`Its folder is gone (${cwd}), so it can't be resumed.`);
-  if (ownWorktree) return fail(`It runs in its own worktree. Reply in it with claude attach ${s.id}.`);
   // Checked before anything is ended: a session that never saved a conversation has nothing to resume.
   const turn = lastTurn(s.sessionId);
   if (!turn.file || !turn.talked) return fail(s.kind === 'interactive' ? 'It has no saved conversation yet, so it would not come back. Reply in its terminal.' : 'It has no saved conversation yet, so it would not come back.');
@@ -898,21 +916,23 @@ async function reply(body) {
     const gone = await rosterSettles(s.sessionId, (r) => !r || ['stopped', 'failed'].includes(r.state) || (bgUp ? r.pid == null : r.state === 'done'));
     if (!gone) return fail('It did not stop in time, so your reply was not sent. Try again.');
   }
-  if (s.kind === 'background' && BG_ID.test(s.id ?? '')) {
-    const r = await run('claude', ['rm', s.id]);
-    if (r.err && !/No job matching/i.test(firstLine(r))) return fail(`It can't be restarted with your reply: ${firstLine(r)}`);
-  }
   const args = ['--bg', '--resume', s.sessionId];
-  if (s.name && !s.name.startsWith('-')) args.push('--name', s.name.slice(0, 120));
-  const model = want.model ?? turn.model, effort = want.effort ?? turn.effort;
-  if (model && /^[\w.\-[\]]{1,80}$/.test(model)) args.push('--model', model);
-  if (EFFORTS.has(effort)) args.push('--effort', effort);
-  // The mode you picked, else one the panel switched it to since, else the one its transcript last shows (a switch is
-  // written there only with its next message). Never the hook-reported one: hooks carry no token, so a forged event
-  // must not be able to pick the mode a session restarts in.
-  const switched = bgUp && s.switchedTo?.at > (turn.modeAt ?? 0) ? s.switchedTo.mode : null;
-  const mode = [body?.mode, switched, turn.mode].find((m) => RESUME_MODES.has(m));
-  if (mode) args.push('--permission-mode', mode);
+  if (!keeps || repick) {
+    if (keeps) {
+      const r = await run('claude', ['rm', s.id]);
+      if (r.err && !/No job matching/i.test(firstLine(r))) return fail(`It can't be restarted with your reply: ${firstLine(r)}`);
+    }
+    if (s.name && !s.name.startsWith('-')) args.push('--name', s.name.slice(0, 120));
+    const model = want.model ?? turn.model, effort = want.effort ?? turn.effort;
+    if (model && /^[\w.\-[\]]{1,80}$/.test(model)) args.push('--model', model);
+    if (EFFORTS.has(effort)) args.push('--effort', effort);
+    // The mode you picked, else one the panel switched it to since, else the one its transcript last shows (a switch is
+    // written there only with its next message). Never the hook-reported one: hooks carry no token, so a forged event
+    // must not be able to pick the mode a session restarts in.
+    const switched = bgUp && s.switchedTo?.at > (turn.modeAt ?? 0) ? s.switchedTo.mode : null;
+    const mode = [modePick, switched, turn.mode].find((m) => RESUME_MODES.has(m));
+    if (mode) args.push('--permission-mode', mode);
+  }
   args.push('--', text);
   const r = await run('claude', args, { cwd, timeout: 30_000 });
   const id = `${r.stdout}\n${r.stderr}`.match(/backgrounded · (\w+)/)?.[1];
@@ -1235,9 +1255,9 @@ function snapshot() {
   return {
     now, armed, rosterError, port: PORT, profile: profileInfo,
     sessions: [...sessions.values()].map(({ spawns, hereCwd, rosterCwd, ranCwd, editTops, ...s }) => {
-      const git = placeOut(gitPlace(hereCwd ?? s.cwd));
+      const here = ranCwd ?? hereCwd ?? s.cwd, git = placeOut(gitPlace(here));
       return {
-      ...s, git, workCwd: hereCwd ?? s.cwd, elsewhere: (editTops ?? []).filter((t) => t !== git?.top).slice(0, 3).map((t) => placeOut(gitPlace(t))).filter(Boolean),
+      ...s, git, workCwd: here, elsewhere: (editTops ?? []).filter((t) => t !== git?.top).slice(0, 3).map((t) => placeOut(gitPlace(t))).filter(Boolean),
       stopping: stops.has(stopKey(s.sessionId, null)), hostsPanel: hostPids.has(s.pid),
       queued: inbox.get(s.sessionId) ?? [], working: isWorking(s),
       subagents: [...s.subagents.values()].map((a) => ({ ...a, stopping: !a.stoppedAt && stops.has(stopKey(s.sessionId, a.agentId)) })),

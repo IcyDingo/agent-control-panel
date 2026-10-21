@@ -1223,7 +1223,9 @@ const willQueue = (s, st) => (s.kind === 'interactive' || (bgLive(s) && (restart
 const SWITCHABLE = ['default', 'acceptEdits', 'plan', 'auto'];
 const modePicks = new Map(); // sessionId → the mode a terminal session carries on in once your message restarts it
 const modelPicks = new Map(), effortPicks = new Map(); // sessionId → the model / effort your next message restarts it on
-const ownWorktree = (s) => s.kind === 'background' && /\/\.claude\/worktrees\//.test(s.cwd ?? '');
+// A background job Claude Code still lists wakes with the options it started with; another model, effort or mode means a
+// restart that would leave a worktree of its own, so those stay as they are for one that works in one.
+const keepsOptions = (s) => s.kind === 'background' && s.inRoster && /\/\.claude\/worktrees\//.test(s.workCwd ?? s.cwd ?? '');
 const switching = new Map(); // sessionId → the mode a background job is being switched to
 const SENT_HOW = { now: 'Sent', 'once it was done': 'Sent once it was done', restarted: 'Sent. It carries on in the background' };
 // What a /command did, from what its transcript recorded and where Claude Code says it is now.
@@ -1263,7 +1265,7 @@ function renderCompose(s, st) {
     ...(SWITCHABLE.includes(s.mode) ? [] : [el('option', { value: '', text: s.mode ? modeOf(s.mode) : 'Mode unknown' })]),
     ...SWITCHABLE.map((m) => el('option', { value: m, text: modeOf(m) }))]);
   $('d-mode').value = to ?? picked ?? (SWITCHABLE.includes(s.mode) ? s.mode : '');
-  $('d-mode').disabled = Boolean(to);
+  $('d-mode').disabled = Boolean(to) || (!live && keepsOptions(s));
   setAttr($('d-mode'), 'title', live ? 'Its permission mode. Picking one switches it now.' : 'The mode it carries on in once your message restarts it');
   // Its model and effort: another one takes effect when your message restarts it (a background job restarts for it).
   const mPick = modelPicks.get(s.sessionId), ePick = effortPicks.get(s.sessionId), restart = live && Boolean(mPick || ePick);
@@ -1276,10 +1278,11 @@ function renderCompose(s, st) {
     ...(EFFORT[s.effort] ? [] : [el('option', { value: '', text: 'Effort unknown' })]),
     ...Object.entries(EFFORT).map(([v, t]) => el('option', { value: v, text: t }))]);
   $('d-effort').value = ePick ?? (EFFORT[s.effort] ? s.effort : '');
-  const fixed = live && ownWorktree(s);
+  const fixed = keepsOptions(s), stays = `It works in its own worktree, and a restart on another one would leave it. Switch it in claude attach ${s.id}.`;
   $('d-model').disabled = $('d-effort').disabled = fixed || sending.has(s.sessionId);
-  setAttr($('d-model'), 'title', fixed ? `It runs in its own worktree, so it isn't restarted from here. Use /model in claude attach ${s.id}.` : 'Its model. Another one takes effect when your message restarts it.');
-  setAttr($('d-effort'), 'title', fixed ? `It runs in its own worktree, so it isn't restarted from here. Use /effort in claude attach ${s.id}.` : 'How hard it thinks. Another level takes effect when your message restarts it.');
+  setAttr($('d-model'), 'title', fixed ? stays : 'Its model. Another one takes effect when your message restarts it.');
+  setAttr($('d-effort'), 'title', fixed ? stays : 'How hard it thinks. Another level takes effect when your message restarts it.');
+  if (fixed && !live) setAttr($('d-mode'), 'title', stays);
   const key = `reply:${s.sessionId}`, on = armed?.key === key;
   const btn = $('d-send');
   btn.dataset.key = key;
