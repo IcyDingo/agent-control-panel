@@ -11,7 +11,7 @@ catch { document.documentElement.dataset.theme = 'dark'; }
 </script>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
 <style>
-/* One board, four state columns divided by hairlines; a session opens in a flush right-hand panel.
+/* The four state queues stack in a rail on the left; the open session fills the rest of the width.
    Space view shows the same sessions as an orrery. Matte graphite first, hairlines over shadows, soft corners:
    6px on controls, 8px on cards and tiles, 12px on the panel. */
 :root {
@@ -138,25 +138,27 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .tag[data-s="stopping"], .tag[data-s="failed"] { color: var(--stop); }
 .tag[data-s="finished"] { color: var(--ok); }
 
-/* ---------- the board ---------- */
-.stage { flex: 1; min-height: 0; position: relative; display: flex; }
-.board { flex: 1; min-width: 0; min-height: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.col { min-height: 0; min-width: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); }
-.col:last-child { border-right: 0; }
-.col-h { flex: none; display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 14px; border-bottom: 1px solid var(--line); font-size: 12.5px; font-weight: 600; color: var(--fg-dim); }
+/* ---------- the rail: Needs you always open, the other queues fold to their header ---------- */
+.stage { flex: 1; min-height: 0; position: relative; display: flex; overflow: clip; --rail-w: var(--rail-user, 320px); } /* clip: the panel slides in from 14px out */
+.board { flex: none; width: var(--rail-w); min-height: 0; overflow-y: auto; display: flex; flex-direction: column; background: var(--panel); border-right: 1px solid var(--line); }
+/* Open queues share what Needs you leaves, which takes what it needs up to half the rail. */
+.col { flex: 1 1 auto; min-height: 112px; min-width: 0; display: flex; flex-direction: column; border-bottom: 1px solid var(--line); }
+.col[data-col="waiting"] { flex: 0 1 auto; min-height: 0; max-height: 50%; }
+.col.folded { flex: none; min-height: 0; }
+.col.folded .col-body { display: none; }
+.col-h { flex: none; display: flex; align-items: center; gap: 8px; height: 38px; padding-right: 10px; font-size: 12.5px; font-weight: 600; color: var(--fg-dim); }
 .col-h .n { font: 500 12px var(--mono); color: var(--fg-faint); }
 .col[data-col="waiting"] .col-h { color: var(--amber); }
-.col-tools { margin-left: auto; display: flex; }
-/* A narrow column (a wide panel beside it) keeps only the square of its bulk button; armed, it covers the header so
-   its count still shows. */
-.col { container-type: inline-size; }
-.col-h { position: relative; }
-@container (max-width: 215px) {
-  .col-h .btn.danger:not(.armed) { gap: 0; padding: 0 9px; font-size: 0; }
-  .col-h .btn.danger.armed { position: absolute; inset: 5px 8px; display: block; height: auto; padding: 0 8px; overflow: hidden; text-overflow: ellipsis; text-align: center; line-height: 26px; }
-  .col-h .btn.danger.armed::before { display: inline-block; margin-right: 7px; vertical-align: 1px; }
-}
-.col-body { flex: 1; min-height: 0; overflow: auto; padding: 10px; display: grid; gap: 6px; align-content: start; }
+.col-name { flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: 8px; padding: 0 0 0 14px; border: 0; background: none; font-weight: inherit; text-align: left; }
+.col-fold { cursor: pointer; }
+.col-fold:hover { color: var(--fg); }
+.col-fold:focus-visible { outline-offset: -2px; }
+.peek { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; color: var(--fg-faint); }
+.col:not(.folded) .peek { display: none; }
+.chev { flex: none; width: 16px; margin-left: auto; font-size: 16px; line-height: 1; text-align: center; color: var(--fg-dim); transition: transform .15s; }
+.col:not(.folded) .chev { transform: rotate(90deg); }
+.col-tools { display: flex; }
+.col-body { flex: 1; min-height: 0; overflow: auto; padding: 2px 10px 10px; display: grid; gap: 6px; align-content: start; }
 .col-empty { margin: 4px 2px; color: var(--fg-faint); font-size: 12.5px; }
 .col-hint { margin: 0 2px 4px; }
 
@@ -203,16 +205,23 @@ button, input, textarea, select { font: inherit; color: inherit; }
   overflow: hidden; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: -28px 0 48px -36px var(--shade);
 }
 .drawer.enter { animation: slide .18s ease-out; }
-/* Wide enough, the open session takes its own space beside the board instead of covering columns of it. */
-.stage { --drawer-w: var(--drawer-user, clamp(440px, 46vw, 820px)); }
-/* Drag its left edge to size it; double-click puts it back. */
-.d-grip { position: absolute; top: 0; bottom: 0; left: 0; z-index: 6; width: 8px; cursor: col-resize; touch-action: none; }
-.d-grip::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: transparent; transition: background .15s; }
-.d-grip:hover::after, .d-grip:focus-visible::after, .d-grip.drag::after { background: var(--line-strong); }
-.d-grip:focus-visible { outline: none; }
+/* Beside the rail it fills the rest of the width; Space view floats it over the sky instead. */
+.stage > .drawer { position: relative; inset: auto; flex: 1; width: auto; min-width: 0; margin: 8px; box-shadow: none; }
+.stage .d-grip { display: none; }
+.ws-empty { flex: 1; min-width: 0; margin: 8px; display: grid; place-content: center; justify-items: center; gap: 12px; padding: 24px; border: 1px dashed var(--line); border-radius: 12px; color: var(--fg-faint); text-align: center; }
+.ws-empty p { margin: 0; }
+.ws-empty b { color: var(--fg-dim); font-weight: 600; }
+.ws-empty .btn { border-color: var(--amber-line); color: var(--amber); }
+/* Drag an edge to size its pane: the rail's right edge, or the floating panel's left edge in Space view. Double-click
+   puts it back. */
+.d-grip, .r-grip { position: absolute; top: 0; bottom: 0; z-index: 6; width: 8px; cursor: col-resize; touch-action: none; }
+.d-grip { left: 0; }
+.r-grip { left: calc(var(--rail-w) - 4px); }
+.d-grip::after, .r-grip::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: transparent; transition: background .15s; }
+.d-grip:hover::after, .d-grip:focus-visible::after, .d-grip.drag::after, .r-grip:hover::after, .r-grip:focus-visible::after, .r-grip.drag::after { background: var(--line-strong); }
+.d-grip:focus-visible, .r-grip:focus-visible { outline: none; }
 body.resizing { cursor: col-resize; user-select: none; }
-body.resizing .drawer, body.resizing .board { transition: none; }
-@media (min-width: 1100px) { .stage.open .board { margin-right: calc(var(--drawer-w) + 16px); } .stage.open .drawer { box-shadow: none; } }
+body.resizing .drawer { transition: none; }
 @keyframes slide { from { transform: translateX(14px); opacity: .5; } }
 .d-scroll { flex: 1; min-height: 0; overflow: auto; padding: 18px 24px 28px; }
 .d-top { display: flex; align-items: center; gap: 12px; }
@@ -609,11 +618,14 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
 .space { --drawer-w: var(--drawer-user, clamp(440px, 46vw, 820px)); }
 .space .drawer { top: var(--sp-top, 52px); z-index: 5; background: color-mix(in srgb, var(--panel) 93%, transparent); backdrop-filter: blur(10px); }
 
+/* Narrow, the rail takes the width and the open session covers it. */
 @media (max-width: 860px) {
-  .board { grid-template-columns: minmax(0, 1fr); overflow: auto; }
-  .col { border-right: 0; border-bottom: 1px solid var(--line); min-height: auto; }
+  .board { flex: 1; width: auto; border-right: 0; }
+  .col, .col[data-col="waiting"] { flex: none; min-height: auto; max-height: none; }
   .col-body { overflow: visible; }
+  .r-grip, .ws-empty { display: none; }
   .drawer { width: 100%; border-left: 0; }
+  .stage > .drawer { position: absolute; inset: 8px; margin: 0; width: auto; }
 }
 @media (max-width: 520px) { .pair { grid-template-columns: 1fr; } }
 @media (hover: none) { .qstop { opacity: 1; } .tile-wrap.can-act .tside { visibility: hidden; } }
@@ -648,7 +660,9 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
   <span class="mono" id="pb-file"></span>
 </div>
 <main class="stage">
-  <div class="board" id="board"></div>
+  <nav class="board" id="board" aria-label="Sessions by state"></nav>
+  <div class="r-grip" id="r-grip" role="separator" aria-orientation="vertical" aria-label="Queue width" tabindex="0" title="Drag to resize. Double-click for the default width."></div>
+  <div class="ws-empty" id="empty" hidden></div>
   <aside class="drawer" id="drawer" aria-label="Session" hidden>
     <div class="d-grip" id="d-grip" role="separator" aria-orientation="vertical" aria-label="Panel width" tabindex="0" title="Drag to resize. Double-click for the default width."></div>
     <div class="d-scroll" id="d-scroll">
@@ -1044,11 +1058,26 @@ async function bulk(list, act, done) {
 // ---------- the board: tiles are kept and updated in place, so a click never lands on a rebuilt one ----------
 const setText = (n, v) => { if (n.textContent !== v) n.textContent = v; };
 const setAttr = (n, k, v) => { if (n.getAttribute(k) !== v) n.setAttribute(k, v); };
+// Which queues are folded, remembered in this browser. Needs you never folds.
+const FOLD_KEY = 'acp.folded';
+const folded = new Set((() => { try { const v = JSON.parse(localStorage.getItem(FOLD_KEY)); if (Array.isArray(v)) return v; } catch {} return ['idle', 'finished']; })());
+function toggleFold(k) {
+  folded.has(k) ? folded.delete(k) : folded.add(k);
+  try { localStorage.setItem(FOLD_KEY, JSON.stringify([...folded])); } catch {}
+  render();
+}
 const colEls = COLS.map(([k, name]) => {
-  const n = el('span', { class: 'n' }), body = el('div', { class: 'col-body' });
+  const n = el('span', { class: 'n' }), body = el('div', { class: 'col-body', id: 'q-' + k });
   const c = { k, n, body, hint: el('p', { class: 'hint col-hint', hidden: true }), empty: el('p', { class: 'col-empty' }) };
   c.bulk = el('button', { class: 'btn danger', type: 'button', hidden: true, onclick: () => c.b && confirmOr(c.b.key, c.b.run) });
-  $('board').append(el('section', { class: 'col', 'data-col': k, 'aria-label': name }, el('div', { class: 'col-h' }, name, n, el('span', { class: 'col-tools' }, c.bulk)), body));
+  if (k === 'waiting') c.head = el('span', { class: 'col-name' }, name, n);
+  else {
+    c.peek = el('span', { class: 'peek' });
+    c.head = el('button', { class: 'col-name col-fold', type: 'button', 'aria-controls': body.id, onclick: () => toggleFold(k) },
+      name, n, c.peek, el('span', { class: 'chev', 'aria-hidden': 'true', text: '›' }));
+  }
+  c.sec = el('section', { class: 'col', 'data-col': k, 'aria-label': name }, el('div', { class: 'col-h' }, c.head, el('span', { class: 'col-tools' }, c.bulk)), body);
+  $('board').append(c.sec);
   return c;
 });
 function tileAction(s, st) {
@@ -1129,6 +1158,12 @@ function renderBoard(g, vis) {
   for (const c of colEls) {
     const list = g[c.k], b = BULK[c.k] || null, on = Boolean(b) && armed?.key === b.key;
     setText(c.n, String(list.length));
+    if (c.peek) {
+      const shut = folded.has(c.k);
+      c.sec.classList.toggle('folded', shut);
+      setAttr(c.head, 'aria-expanded', String(!shut));
+      setText(c.peek, list[0] ? label(list[0]) : '');
+    }
     c.b = b;
     c.bulk.hidden = !b;
     if (b) {
@@ -1159,12 +1194,20 @@ function copyBtn(cmd) {
   return el('button', { class: 'btn quiet mono', type: 'button', text: cmd, title: 'Copy the command that opens it in a terminal',
     onclick: () => navigator.clipboard.writeText(cmd).then(() => toast('Copied ' + cmd), () => toast('Copy is blocked here. Select it: ' + cmd, true)) });
 }
+/** The workspace with nothing open: you closed it. It offers the top of Needs you, the one that has waited longest. */
+function renderEmpty(waiting) {
+  const e = $('empty'), next = waiting[0], n = waiting.length;
+  e.hidden = !$('drawer').hidden && !spaceOn;
+  if (!e.hidden) patch(e, next ? `${next.sessionId}:${n}:${label(next)}` : '', () => next ? [
+    el('p', {}, el('b', { text: 'Nothing open.' }), ` ${n === 1 ? 'One session needs' : n + ' sessions need'} you.`),
+    el('button', { class: 'btn', type: 'button', id: 'empty-next', onclick: () => { cancelAdvance(); open = next.sessionId; render(); } }, 'Open ' + label(next)),
+  ] : [el('p', {}, el('b', { text: 'Nothing open.' })), el('p', { text: 'Pick a session on the left and it opens here.' })]);
+}
 const subNows = new Map(); // agentId → its "now" line in the subagent tree
 function renderDrawer(vis) {
   const d = $('drawer');
   const s = open ? vis.find((x) => x.sessionId === open) : null;
   d.hidden = !s;
-  document.querySelector('.stage').classList.toggle('open', Boolean(s) && !spaceOn);
   if (!s) { saveDraft(); drawerWas = null; return; }
   if (drawerWas !== s.sessionId) {
     saveDraft();
@@ -1473,13 +1516,14 @@ function render() {
   err.hidden = !snap.rosterError;
   err.textContent = snap.rosterError ? 'Could not read the session list (claude agents --json): ' + snap.rosterError : '';
   const vis = visible(), g = groups(vis);
-  if (open === undefined) open = asking()[0] ?? null;
-  if (open && !vis.some((s) => s.sessionId === open)) open = null;
+  // At the start, and when the open one goes away, the top of Needs you (it has waited longest) takes the workspace.
+  if (open === undefined || (open && !vis.some((s) => s.sessionId === open))) open = g.waiting[0]?.sessionId ?? null;
   if (launchedId) { const s = vis.find((x) => x.id === launchedId); if (s) { launchedId = null; open = s.sessionId; } }
   const live = new Set(snap.pending.map((p) => p.id));
   for (const [id, c] of cards) if (!live.has(id)) { c.el.remove(); cards.delete(id); }
   renderBoard(g, vis);
   renderDrawer(vis);
+  renderEmpty(g.waiting);
   if (spaceOn) renderSpace(g);
   document.title = snap.pending.length ? `(${snap.pending.length}) Agent panel` : 'Agent panel';
   // A two-click control keeps the keyboard focus through a redraw.
@@ -2345,42 +2389,47 @@ document.addEventListener('keydown', (e) => {
   else if (open) { cancelAdvance(); open = null; render(); } else if (spaceOn) exitSpace();
 });
 
-// ---------- the panel's width: drag its left edge, arrow keys on the edge, double-click to reset ----------
-const W_KEY = 'acp.drawerWidth';
-const widthBounds = () => [360, Math.max(360, window.innerWidth - 480)]; // the board keeps ~120px a column
-function setDrawerWidth(w, save = true) {
-  const root = document.documentElement.style;
-  if (w == null) { root.removeProperty('--drawer-user'); try { localStorage.removeItem(W_KEY); } catch {} return; }
-  const [lo, hi] = widthBounds();
-  w = Math.round(Math.min(hi, Math.max(lo, w)));
-  root.setProperty('--drawer-user', w + 'px');
-  if (save) try { localStorage.setItem(W_KEY, String(w)); } catch {}
+// ---------- pane widths: drag an edge, arrow keys on the edge, double-click to reset ----------
+/** Sizes a pane through a CSS variable on the page, within bounds, and remembers what you chose. */
+function widthOf(key, prop, bounds) {
+  const saved = () => { try { return Number(localStorage.getItem(key)) || 0; } catch { return 0; } };
+  function set(w, save = true) {
+    const root = document.documentElement.style;
+    if (w == null) { root.removeProperty(prop); try { localStorage.removeItem(key); } catch {} return; }
+    const [lo, hi] = bounds();
+    w = Math.round(Math.min(hi, Math.max(lo, w)));
+    root.setProperty(prop, w + 'px');
+    if (save) try { localStorage.setItem(key, String(w)); } catch {}
+  }
+  if (saved()) set(saved(), false);
+  // A smaller window narrows it for now; the width you chose comes back when the window does.
+  addEventListener('resize', () => { if (saved()) set(saved(), false); });
+  return set;
 }
-const savedWidth = () => { try { return Number(localStorage.getItem(W_KEY)) || 0; } catch { return 0; } };
-if (savedWidth()) setDrawerWidth(savedWidth(), false);
-// A smaller window narrows it for now; the width you chose comes back when the window does.
-addEventListener('resize', () => { if (savedWidth()) setDrawerWidth(savedWidth(), false); });
-{
-  const grip = $('d-grip');
+/** The edge `grip` sizes `pane`, which grows away from its fixed side ('left' for the rail, 'right' for the panel). */
+function edge(grip, pane, fixed, set) {
   grip.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     grip.setPointerCapture(e.pointerId);
     grip.classList.add('drag');
     document.body.classList.add('resizing');
-    const right = $('drawer').getBoundingClientRect().right;
-    const move = (ev) => setDrawerWidth(right - ev.clientX);
+    const r = pane.getBoundingClientRect();
+    const move = (ev) => set(fixed === 'right' ? r.right - ev.clientX : ev.clientX - r.left);
     const up = () => { grip.classList.remove('drag'); document.body.classList.remove('resizing'); grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', up); grip.removeEventListener('pointercancel', up); };
     grip.addEventListener('pointermove', move);
     grip.addEventListener('pointerup', up);
     grip.addEventListener('pointercancel', up);
   });
-  grip.addEventListener('dblclick', () => setDrawerWidth(null));
+  grip.addEventListener('dblclick', () => set(null));
   grip.addEventListener('keydown', (e) => {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     e.preventDefault();
-    setDrawerWidth($('drawer').offsetWidth + (e.key === 'ArrowLeft' ? 32 : -32));
+    set(pane.offsetWidth + ((e.key === 'ArrowLeft') === (fixed === 'right') ? 32 : -32));
   });
 }
+// Space view's floating panel leaves the sky 480px; the rail leaves the open session 520px.
+edge($('d-grip'), $('drawer'), 'right', widthOf('acp.drawerWidth', '--drawer-user', () => [360, Math.max(360, innerWidth - 480)]));
+edge($('r-grip'), $('board'), 'left', widthOf('acp.railWidth', '--rail-user', () => [240, Math.max(240, Math.min(560, innerWidth - 520))]));
 
 connect();
 setInterval(() => { if (snap) { snap.now += 1000; render(); } }, 1000);

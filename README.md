@@ -30,11 +30,16 @@ Keep the folder where you cloned it: the app runs the panel from there. To updat
 The panel stays on your Mac: its server listens on 127.0.0.1 only, and the page fetches nothing but
 its typeface (from Google Fonts).
 
-**The board** has four columns: **Needs you**, **Working**, **Idle** and **Finished**. Each
-session is a tile with its name, how many subagents it's running, its age, and one line saying
-what it's doing or what it last said. Click a tile to open its panel beside the board. The panel
-holds what it's asking, what it's doing now, a reply box, and its subagents, each titled with the
-task its parent gave it.
+**The board** stacks four queues in a rail on the left: **Needs you**, **Working**, **Idle** and
+**Finished**. Needs you is always open. Click any other queue's header to fold it to one line, which
+keeps its count and the name of its newest session; the panel remembers what you folded, and starts
+with Idle and Finished folded. Drag the rail's right edge to widen it (double-click for the default).
+Each session is a tile with its name, how many subagents it's running, its age, and one line saying
+what it's doing or what it last said. Click a tile to open its panel in the rest of the window. The
+panel holds what it's asking, what it's doing now, a reply box, and its subagents, each titled with
+the task its parent gave it. When the open session goes away, the top of Needs you takes its place;
+close it yourself and the space offers that one instead. On a narrow window the rail takes the width
+and an open session covers it.
 
 Each tile also shows the session's **branch**: a branch mark when it works in a repository's main
 checkout, a folder mark when it is in a worktree. The panel says which worktree of which repository, and
@@ -318,7 +323,7 @@ Every control that stops something asks for a second click.
 - **Remove** (a finished background session): `claude rm`. The transcript is kept. If its
   worktree has unpushed or uncommitted work, Claude Code refuses and it stays; the panel never
   forces it. A finished terminal session can only be **hidden** from the board.
-- The column headers have bulk versions: **Interrupt all** working sessions, **End idle**
+- The queue headers have bulk versions: **Interrupt all** working sessions, **End idle**
   background sessions (terminal sessions are left alone, in case you're typing in one), and
   **Clear** finished ones.
 
