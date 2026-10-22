@@ -71,14 +71,16 @@ export function createAuth(db, { now = Date.now, randomBytes = crypto.randomByte
     return { id, token };
   }
 
-  function tokenAccountId(token) {
+  /** The live token's id and account, or null. */
+  function tokenOwner(token) {
     if (typeof token !== 'string' || !token) return null;
     const r = one('SELECT id, account_id, last_used_at, revoked_at FROM client_tokens WHERE hash = ?', sha256(token));
     if (!r || r.revoked_at !== null) return null;
     const t = now();
     if (r.last_used_at === null || t - r.last_used_at >= USED_BUMP_MS) run('UPDATE client_tokens SET last_used_at = ? WHERE id = ?', t, r.id);
-    return r.account_id;
+    return { id: r.id, accountId: r.account_id };
   }
+  const tokenAccountId = (token) => tokenOwner(token)?.accountId ?? null;
 
   const listTokens = (accountId) => db.prepare(
     'SELECT id, label, device, created_at, last_used_at FROM client_tokens WHERE account_id = ? AND revoked_at IS NULL ORDER BY created_at, rowid',
@@ -206,7 +208,7 @@ export function createAuth(db, { now = Date.now, randomBytes = crypto.randomByte
 
   return {
     createSession, sessionAccountId, deleteSession,
-    mintToken, tokenAccountId, listTokens, revokeToken, revokeByToken,
+    mintToken, tokenOwner, tokenAccountId, listTokens, revokeToken, revokeByToken,
     startDevice, approveDevice, denyDevice, pollDevice,
     newState, takeState,
   };

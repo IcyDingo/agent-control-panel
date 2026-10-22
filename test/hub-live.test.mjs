@@ -111,3 +111,23 @@ test('a stream whose socket is gone is dropped when a write throws', () => {
   assert.equal(alive.writes.at(-1), ORDER_EVENT);
   assert.equal(timers.intervals.size, 1);
 });
+
+test('closing by token or by session ends only the streams that credential opened, and no later emit reaches them', () => {
+  const { live, timers } = setup();
+  const mac = fakeRes(), otherMac = fakeRes(), tab = fakeRes(), otherTab = fakeRes();
+  live.subscribe('a1', mac, { tokenId: 't1' });
+  live.subscribe('a1', otherMac, { tokenId: 't2' });
+  live.subscribe('a1', tab, { sessionId: 's1' });
+  live.subscribe('a1', otherTab, { sessionId: 's2' });
+  assert.equal(live.closeByToken('t1'), 1);
+  assert.equal(live.closeBySession('s1'), 1);
+  assert.deepEqual([mac.ended, otherMac.ended, tab.ended, otherTab.ended], [true, false, true, false]);
+  assert.equal(live.count('a1'), 2);
+  assert.equal(timers.intervals.size, 2);
+  live.emit('a1', 'order', { id: 'o1' });
+  assert.deepEqual(mac.writes, ['retry: 2000\n\n']);
+  assert.deepEqual(tab.writes, ['retry: 2000\n\n']);
+  assert.equal(otherMac.writes.at(-1), ORDER_EVENT);
+  assert.equal(live.closeByToken('nobody'), 0);
+  assert.equal(live.closeByToken(null), 0, 'a missing token id matches nothing');
+});

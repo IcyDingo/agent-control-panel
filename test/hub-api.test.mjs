@@ -321,6 +321,51 @@ test('the event stream takes a Bearer header or the cookie, never a token in the
   ac.abort();
 });
 
+/** An open event stream as a token or a cookie; `ended` resolves true once the hub ends it. */
+async function openStream({ token, cookie }) {
+  const ac = new AbortController();
+  const headers = { host: '127.0.0.1', ...(token && { authorization: `Bearer ${token}` }), ...(cookie && { cookie: `hub_s=${cookie}` }) };
+  const res = await fetch(`http://127.0.0.1:${port}/api/me/events`, { headers, signal: ac.signal });
+  assert.equal(res.status, 200);
+  const stream = { reader: res.body.getReader(), decoder: new TextDecoder(), text: '', abort: () => ac.abort() };
+  await until(stream, /retry: 2000/);
+  stream.ended = (async () => {
+    for (;;) {
+      const { value, done } = await stream.reader.read();
+      if (done) return true;
+      stream.text += stream.decoder.decode(value, { stream: true });
+    }
+  })().catch(() => false);
+  return stream;
+}
+const within = (p, ms = 2000) => Promise.race([p, new Promise((r) => setTimeout(() => r('timed out'), ms))]);
+
+test('revoking a token or signing a session out ends the streams they opened, and nothing later reaches them', async () => {
+  const cookie = await login();
+  const alice = hub.accounts.byHandle('alice').id;
+  const self = hub.auth.mintToken(alice, { label: 'self' });
+  const byId = hub.auth.mintToken(alice, { label: 'by id' });
+  const kept = hub.auth.mintToken(alice, { label: 'kept' });
+  const tab = await login();
+  const streams = await Promise.all([openStream({ token: self.token }), openStream({ token: byId.token }), openStream({ token: kept.token }), openStream({ cookie: tab })]);
+  const [a, b, c, web] = streams;
+  let stillOpen = c.ended;
+  try {
+    assert.equal((await call('DELETE', '/api/me/tokens/self', { token: self.token })).status, 200);
+    assert.equal(await within(a.ended), true, 'the stream of a token revoked by itself ends');
+    assert.equal((await call('DELETE', `/api/me/tokens/${byId.id}`, { cookie, origin: ORIGIN })).status, 200);
+    assert.equal(await within(b.ended), true, 'the stream of a token revoked from the web ends');
+    assert.equal((await call('POST', '/logout', { cookie: tab, origin: ORIGIN })).status, 200);
+    assert.equal(await within(web.ended), true, 'the stream of a session signed out ends');
+    hub.live.emit(alice, 'order', { id: 'after' });
+    assert.equal(await within(stillOpen, 300), 'timed out', 'the token nobody revoked keeps its stream');
+    assert.match(c.text, /"id":"after"/);
+    for (const s of [a, b, web]) assert.doesNotMatch(s.text, /after/);
+  } finally {
+    for (const s of streams) s.abort();
+  }
+});
+
 test('logout deletes the session and clears the cookie; the Bearer token wins when both are sent', async () => {
   const cookie = await login('carol');
   const token = await tokenFor('alice');

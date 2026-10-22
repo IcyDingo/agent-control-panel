@@ -2,6 +2,7 @@
 // checks, body caps, static files and the live-stream hookup. Everything a route actually does lives in the modules
 // beside this one; this file only decides who may ask and shapes the answer. `node hub/server.mjs` runs it.
 import http from 'node:http';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -90,13 +91,15 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now } =
   function requester(req) {
     const bearer = /^Bearer (\S+)$/.exec(req.headers.authorization ?? '')?.[1];
     if (bearer) {
-      const accountId = auth.tokenAccountId(bearer);
-      return accountId ? { accountId, via: 'tok', token: bearer } : null;
+      const owner = auth.tokenOwner(bearer);
+      return owner ? { accountId: owner.accountId, via: 'tok', token: bearer, tokenId: owner.id } : null;
     }
     const sid = cookieValue(req, COOKIE);
     const accountId = sid && auth.sessionAccountId(sid);
     return accountId ? { accountId, via: 'web', sid } : null;
   }
+  /** What a live stream remembers of a session: its hash, never the cookie itself. */
+  const sessionKey = (sid) => crypto.createHash('sha256').update(String(sid)).digest('hex');
 
   // ---- routes: [method, path (string or RegExp with named groups), who may call, handler, options] ----
   // `who`: 'pub' nobody in particular, 'any' a signed-in cookie or token, 'web' a browser session, 'tok' a client token.
@@ -155,7 +158,7 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now } =
   }, { origin: true });
   route('POST', '/logout', 'pub', ({ req, res }) => {
     const sid = cookieValue(req, COOKIE);
-    if (sid) auth.deleteSession(sid);
+    if (sid) { auth.deleteSession(sid); live.closeBySession(sessionKey(sid)); }
     send(res, 200, { ok: true }, { headers: { 'set-cookie': sessionCookie('', 0) } });
   }, { origin: true });
 
@@ -201,9 +204,17 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now } =
     const r = accounts.updateProfile(who.accountId, body);
     r.ok ? send(res, 200, { ok: true, account: r.account }) : fail(res, r.status, r.error);
   });
-  route('DELETE', '/api/me/tokens/self', 'tok', ({ res, who }) => send(res, 200, { ok: auth.revokeByToken(who.token) }));
-  route('DELETE', /^\/api\/me\/tokens\/(?<id>[^/]+)$/, 'web', ({ res, who, params }) =>
-    auth.revokeToken(who.accountId, params.id) ? send(res, 200, { ok: true }) : fail(res, 404, 'No such token.'));
+  // A revoked token's open stream ends with it, so a Mac that has lost its sign-in stops hearing orders.
+  route('DELETE', '/api/me/tokens/self', 'tok', ({ res, who }) => {
+    const ok = auth.revokeByToken(who.token);
+    live.closeByToken(who.tokenId);
+    send(res, 200, { ok });
+  });
+  route('DELETE', /^\/api\/me\/tokens\/(?<id>[^/]+)$/, 'web', ({ res, who, params }) => {
+    if (!auth.revokeToken(who.accountId, params.id)) return fail(res, 404, 'No such token.');
+    live.closeByToken(params.id);
+    send(res, 200, { ok: true });
+  });
 
   // What the Mac pushes, and the owner's status.
   const outcome = (res, r) => {
@@ -235,7 +246,9 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now } =
     }
     outcome(res, r);
   });
-  route('GET', '/api/me/events', 'any', ({ res, who }) => { live.subscribe(who.accountId, res); });
+  route('GET', '/api/me/events', 'any', ({ res, who }) => {
+    live.subscribe(who.accountId, res, who.via === 'tok' ? { tokenId: who.tokenId } : { sessionId: sessionKey(who.sid) });
+  });
 
   // ---- the request ----
 
