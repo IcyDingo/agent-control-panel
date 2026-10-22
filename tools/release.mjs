@@ -82,14 +82,18 @@ export function printed({ sha, n, sigs, host, dir = DEFAULT_DIR }) {
 function askPassphrase(prompt, env) {
   if (env.ACP_SIGNING_PASSPHRASE) return Promise.resolve(env.ACP_SIGNING_PASSPHRASE);
   if (!process.stdin.isTTY) return Promise.reject(new Error('No terminal to ask the passphrase on; set ACP_SIGNING_PASSPHRASE.'));
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const rl = readline.createInterface({ input: process.stdin, output: process.stderr, terminal: true });
+    // Ctrl-C or Ctrl-D closes readline without an answer; a close after an answer settles nothing new.
+    rl.on('close', () => {
+      process.stderr.write('\n');
+      reject(new Error('No passphrase given.'));
+    });
     process.stderr.write(prompt);
     rl._writeToOutput = () => {};
     rl.question('', (answer) => {
-      rl.close();
-      process.stderr.write('\n');
       resolve(answer);
+      rl.close();
     });
   });
 }
@@ -130,13 +134,13 @@ function parseSignArgs(args) {
   return out;
 }
 
-export async function main(argv, { env = process.env, run, fetch = globalThis.fetch, cwd = process.cwd(), out = (line) => console.log(line), err = (line) => console.error(line) } = {}) {
+export async function main(argv, { env = process.env, run, fetch = globalThis.fetch, cwd = process.cwd(), out = (line) => console.log(line), err = (line) => console.error(line), ask = askPassphrase } = {}) {
   try {
     const [command, ...args] = argv;
     const dir = keyDir(env);
     if (command === 'keygen') {
-      const passphrase = await askPassphrase('Passphrase for the new key: ', env);
-      if (!env.ACP_SIGNING_PASSPHRASE && (await askPassphrase('Again: ', env)) !== passphrase) throw new Error('The passphrases differ.');
+      const passphrase = await ask('Passphrase for the new key: ', env);
+      if (!env.ACP_SIGNING_PASSPHRASE && (await ask('Again: ', env)) !== passphrase) throw new Error('The passphrases differ.');
       const { file, publicKey } = keygen({ dir, passphrase });
       out(`Public key: ${publicKey}`);
       out('Paste it into RELEASE_KEYS in release-keys.mjs, then commit.');
@@ -145,18 +149,19 @@ export async function main(argv, { env = process.env, run, fetch = globalThis.fe
     }
     if (command === 'sign') {
       const { sha: given, deploy } = parseSignArgs(args);
-      const sha = given ?? (await run('git', ['rev-parse', 'HEAD'], { cwd })).stdout.trim();
-      const passphrase = await askPassphrase('Passphrase: ', env);
-      const { n, sigs } = await sign({ sha, dir, passphrase, cwd, run });
       const target = splitHost(deploy ?? env.ACP_RELEASE_HOST ?? '');
       const host = target.host || null;
+      if (deploy !== null && !host) throw new Error('A host is required for --deploy.');
+      const sha = given ?? (await run('git', ['rev-parse', 'HEAD'], { cwd })).stdout.trim();
+      const passphrase = await ask('Passphrase: ', env);
+      const { n, sigs } = await sign({ sha, dir, passphrase, cwd, run });
       if (env.ACP_HUB) {
         const since = await sinceServed({ hub: env.ACP_HUB, sha, cwd, run, fetch });
         if (since) err(since);
       }
       for (const line of printed({ sha, n, sigs, host, dir: target.dir })) out(line);
       if (!deploy) return 0;
-      const ssh = await run('ssh', [host, `${target.dir}/update.sh`, sha, String(n), sigs.join(',')], { stdio: 'inherit' });
+      const ssh = await run('ssh', ['--', host, `${target.dir}/update.sh`, sha, String(n), sigs.join(',')], { stdio: 'inherit' });
       return ssh.err ? (typeof ssh.err.code === 'number' ? ssh.err.code : 1) : 0;
     }
     throw new Error('Usage: node tools/release.mjs keygen | sign [sha] [--deploy user@host[:dir]]');
@@ -167,7 +172,11 @@ export async function main(argv, { env = process.env, run, fetch = globalThis.fe
 }
 
 // What the command line runs git and ssh with. With stdio 'inherit' the owner sees the command's own output.
-function cliRun(cmd, args, opts = {}) {
+// The passphrase stays out of the environment of every child process.
+function cliRun(cmd, args, options = {}) {
+  const env = { ...(options.env ?? process.env) };
+  delete env.ACP_SIGNING_PASSPHRASE;
+  const opts = { ...options, env };
   return new Promise((resolve) => {
     if (opts.stdio === 'inherit') {
       const child = spawn(cmd, args, opts);
