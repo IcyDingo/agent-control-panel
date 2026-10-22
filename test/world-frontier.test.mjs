@@ -31,6 +31,13 @@ test('prices start at the mockup and rise a quarter with each one bought', () =>
   assert.equal(priceOf('rocket', two), 8000, 'each kind rises on its own');
 });
 
+test('a build costs the same wherever it goes, however many came before', () => {
+  const builds = [{ kind: 'build', on: 'home' }, { kind: 'build', on: 'p0' }, { kind: 'build', on: 'home' }];
+  assert.equal(priceOf('build', []), 6000);
+  assert.equal(priceOf('build', builds), 6000);
+  assert.equal(priceOf('build', [...builds, { kind: 'frontier' }, { kind: 'rocket' }]), 6000);
+});
+
 test('the summary carries the prices', () => {
   const { world } = seeded();
   assert.deepEqual(world.summary().prices, { frontier: 4000, rocket: 8000, build: 6000 });

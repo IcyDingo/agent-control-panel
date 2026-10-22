@@ -89,7 +89,7 @@ test('a build that draws is spent and kept, with what was asked and what Claude 
     { kind: 'build', price: 6000, on: 'home', description: 'A ring city along the equator', caption: ANSWER.caption, pieces: validBuild(ANSWER).pieces, at: at(0) });
   const s = world.summary();
   assert.deepEqual(s.builds, [{ id: 'b0', on: 'home', caption: ANSWER.caption, pieces: validBuild(ANSWER).pieces, at: at(0) }]);
-  assert.deepEqual([s.spent, s.balance, s.prices.build], [18_000, 12_000, 7_500]);
+  assert.deepEqual([s.spent, s.balance, s.prices.build], [18_000, 12_000, 6_000], 'the next build costs the same');
   assert.ok(ask.prompts[0].includes('A ring city along the equator') && ask.prompts[0].includes('Home, level'));
 });
 
