@@ -1708,8 +1708,8 @@ server.listen(PORT, '127.0.0.1', () => {
   setInterval(() => { if (looking()) checkVersions(); }, VERSIONS_MS);
   setInterval(() => { prune(); broadcast(); }, 10_000);
   setInterval(() => scanWorld(worldScans++ % 5 === 0), WORLD_MS);
-  // The order stream stops itself when the hub says 401, and a `login` from a terminal never tells this process, so
-  // ask every minute; start() does nothing while it is already running.
+  // The order stream ends by itself when the hub says 401, and a `login` from a terminal never tells this process, so
+  // look every minute: start() does nothing while the stream is up and opens a new one when it has ended.
   const startOrders = () => { if (hub.status().loggedIn) hubOrders.start(); };
   startOrders();
   setInterval(startOrders, WORLD_MS);

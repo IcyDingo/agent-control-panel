@@ -77,8 +77,10 @@ export function createHubOrders({ hub, execute, onDone, timers = { setTimeout, c
     }
   }
 
+  /** Does nothing while the stream is up. A stream that ended by itself (the hub said 401) leaves a stopped-in-all-but-name session: begin afresh. */
   function start() {
-    if (controller) return;
+    if (controller && listening) return;
+    stop();
     controller = new AbortController();
     const { signal } = controller;
     enqueue(drain);

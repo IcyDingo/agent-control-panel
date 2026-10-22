@@ -8,7 +8,7 @@ const settle = async () => { for (let i = 0; i < 20; i++) await new Promise((r) 
 const order = (id, extra = {}) => ({ id, kind: 'build', description: `build ${id}`, status: 'pending', createdAt: 1, ...extra });
 
 /** A hub whose pending list is `pending`, whose stream hands `streamed` to the listener and then waits to be aborted. */
-function setup({ pending = [], streamed = [], execute, onDone, answers = [], doneAnswers = [] } = {}) {
+function setup({ pending = [], streamed = [], execute, onDone, answers = [], doneAnswers = [], endAtOnce = false } = {}) {
   const calls = [], done = [], extras = { fire: null, streams: 0 };
   const timeouts = [];
   const hub = {
@@ -25,6 +25,7 @@ function setup({ pending = [], streamed = [], execute, onDone, answers = [], don
       extras.open = () => onOpen();
       extras.fire = (o) => onEvent('order', o);
       Promise.resolve().then(async () => { for (const o of streamed) await onEvent('order', o); });
+      if (endAtOnce) resolve();   // as the real stream does when the hub answers 401
       signal.addEventListener('abort', () => resolve(), { once: true });
     }),
   };
@@ -150,6 +151,18 @@ test('start is idempotent, and nothing runs after stop', async () => {
   t.orders.start();
   await settle();
   assert.equal(t.extras.streams, 2);
+  t.orders.stop();
+});
+
+test('a stream that ended by itself (a 401) is opened again by the next start, and the pending orders are fetched again', async () => {
+  const t = setup({ pending: [], endAtOnce: true });
+  t.orders.start();
+  await settle();
+  assert.deepEqual(t.orders.state(), { running: true, listening: false, current: null });
+  t.orders.start();
+  await settle();
+  assert.equal(t.extras.streams, 2);
+  assert.equal(t.calls.filter((c) => c.method === 'GET').length, 2);
   t.orders.stop();
 });
 
