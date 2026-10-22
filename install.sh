@@ -89,7 +89,9 @@ app/build.sh
 
 if (( daemon )); then
   echo
-  if [[ -e "$HOME/Library/Application Support/Agent Panel/worker/current" ]]; then
+  # A worker folder alone says nothing about the service; only a plist that runs the worker's launcher is taken over.
+  plist="$HOME/Library/LaunchAgents/local.agent-panel$([[ "$port" == 4747 ]] || echo ".$port").plist"
+  if [[ -f "$plist" ]] && grep -qF "worker/run.sh" "$plist"; then
     warn "The background service will run from this folder from now on (it was running from the worker install)."
   fi
   echo "Installing the background service:"

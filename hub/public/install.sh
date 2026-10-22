@@ -33,7 +33,7 @@ main() {
   uninstall=0
   while [ $# -gt 0 ]; do
     case "$1" in
-      --link) case "${2-}" in ''|-*) usage_error ;; esac; link="$2"; shift ;;
+      --link) case "${2-}" in ''|--*) usage_error ;; esac; link="$2"; shift ;;
       --no-update) update=0 ;;
       --uninstall) uninstall=1 ;;
       --help) printf '%s\n' "$USAGE"; exit 0 ;;
@@ -43,11 +43,16 @@ main() {
   done
 
   if [ "$uninstall" = 1 ]; then
-    # When daemon remove can't run or fails, launchd is told directly, so no job is left to respawn without run.sh.
-    if ! { [ -f "$DIR/current/server.mjs" ] && command -v node >/dev/null 2>&1 &&
-      node "$DIR/current/server.mjs" daemon remove; }; then
-      launchctl bootout "gui/$(id -u)/local.agent-panel" 2>/dev/null
-      rm -f "$PLIST"
+    # The service is removed only when it runs this worker (the app's install runs it from a clone, and that stays);
+    # when daemon remove can't run or fails, launchd is told directly, so no job is left to respawn without run.sh.
+    if [ -f "$PLIST" ] && grep -qF "$DIR/run.sh" "$PLIST"; then
+      if ! { [ -f "$DIR/current/server.mjs" ] && command -v node >/dev/null 2>&1 &&
+        node "$DIR/current/server.mjs" daemon remove; }; then
+        launchctl bootout "gui/$(id -u)/local.agent-panel" 2>/dev/null
+        rm -f "$PLIST"
+      fi
+    elif [ -f "$PLIST" ]; then
+      printf '%s\n' "The background service runs from elsewhere (the app's install); it was left in place."
     fi
     rm -rf "$DIR"
     printf '%s\n' "Removed the worker."
@@ -132,12 +137,11 @@ main() {
   if [ -n "$link" ]; then node "$DIR/current/server.mjs" login --link "$link"; else node "$DIR/current/server.mjs" login; fi ||
     { fail "The worker is installed but this Mac isn't signed in. Run the line again; with --link, get a new code from the website first."; exit 1; }
 
+  printf '\n%s\n' "Done. The worker runs in the background from now on, also after a restart, and your galaxy grows from your agents'
+work. See it at $HUB/@you (the sign-in above printed the address)."
+  [ "$update" = 0 ] || printf '%s\n' "The worker checks $HUB for a new release once a day and updates itself; to turn that off:   printf '{ \"auto\": false }\\n' > \"$DIR/update.json\""
   cat <<EOF
-
-Done. The worker runs in the background from now on, also after a restart, and your galaxy grows from your agents'
-work. See it at $HUB/@you (the sign-in above printed the address). The worker checks $HUB for a new release once a
-day and updates itself; to turn that off:   printf '{ "auto": false }\n' > "$DIR/update.json"
-To remove everything:   curl -fsSL $HUB/install | sh -s -- --uninstall
+To remove the worker (sign out first with  node "$DIR/current/server.mjs" logout  so the hub forgets this Mac):   curl -fsSL $HUB/install | sh -s -- --uninstall
 Want the session board too? $HUB/download has the app.
 EOF
 }

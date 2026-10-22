@@ -103,6 +103,26 @@ test('it installs the release into worker/<sha>, writes the launcher, installs t
   assert.ok(r.stdout.includes('Linked to @ada.'));
 });
 
+test('a link code that starts with a dash is still a code, and is passed through', async (t) => {
+  const f = fixture(t);
+  const r = await f.go(['--link', '-abc']);
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+  assert.ok(f.lines().some((l) => l.endsWith('login --link -abc')));
+});
+
+test('the closing lines say how to sign out before removing, and offer the turn-off line only when updates are on', async (t) => {
+  const f = fixture(t);
+  const on = await f.go();
+  assert.equal(on.code, 0, on.stdout + on.stderr);
+  assert.ok(on.stdout.includes(`To remove the worker (sign out first with  node "${f.dir}/current/server.mjs" logout  so the hub forgets this Mac):`));
+  assert.ok(on.stdout.includes(`to turn that off:   printf '{ "auto": false }\\n' > "${f.dir}/update.json"`));
+  assert.ok(!on.stdout.includes('To remove everything'));
+  const off = await f.go(['--no-update']);
+  assert.equal(off.code, 0, off.stdout + off.stderr);
+  assert.ok(!off.stdout.includes('to turn that off'));
+  assert.ok(off.stdout.includes('To remove the worker'));
+});
+
 test('without a link it signs in the usual way', async (t) => {
   const f = fixture(t);
   const r = await f.go();
@@ -158,6 +178,18 @@ test('--uninstall removes the service and the folder and lists what is left', as
   assert.ok(f.lines().some((l) => l.includes('daemon remove')));
   assert.ok(r.stdout.includes('hub.json'));
   assert.ok(r.stdout.includes('Logs/Agent Panel'));
+});
+
+test('--uninstall leaves a service that runs from elsewhere in place, and says so', async (t) => {
+  const f = fixture(t);
+  assert.equal((await f.go()).code, 0);
+  fs.writeFileSync(f.plist, '<string>/Users/x/agent-control-panel/server.mjs</string>\n');
+  const r = await f.go(['--uninstall']);
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+  assert.equal(f.lines().some((l) => l.includes('daemon remove')), false);
+  assert.ok(r.stdout.includes("The background service runs from elsewhere (the app's install); it was left in place."));
+  assert.ok(fs.existsSync(f.plist), 'the app\'s service is left alone');
+  assert.equal(fs.existsSync(f.dir), false, 'the worker is still removed');
 });
 
 test('an archive that is not the release is a stop that leaves nothing behind', async (t) => {
