@@ -4,8 +4,10 @@
 //
 // Orders arrive two ways: as events on the stream, and as the hub's list of pending ones, which is asked for at the start,
 // on every (re)connect of the stream (the hub replays nothing, so what was placed while it was down is only in the list)
-// and whenever an order event arrives. An id is run once per session however often it is seen. A result the hub did not
-// take is kept and sent again, never by running the order twice.
+// and whenever an order event arrives. Before running one the Mac claims it at the hub, and runs it only if the claim is
+// granted: with two Macs signed in to one account, whichever claims first runs it and the other leaves it be. An id is
+// run once per session however often it is seen. A result the hub did not take is kept and sent again, never by running
+// the order twice.
 
 const RETRY = 30_000;
 
@@ -41,6 +43,15 @@ export function createHubOrders({ hub, execute, onDone, timers = { setTimeout, c
     if (typeof order?.id !== 'string' || seen.has(order.id)) return;
     if (!signedIn()) return;   // signed out since (or as someone else): not ours to run, and not marked as seen
     seen.add(order.id);
+    const claim = await hub.request('POST', `/api/me/orders/${encodeURIComponent(order.id)}/claim`, { body: { device: hub.status().device } });
+    if (claim.status === 0 || claim.status >= 500) {   // never run an order the hub has not given us: ask again later
+      seen.delete(order.id);
+      log(`hub orders: could not claim order ${order.id} (${claim.status}).`);
+      retryLater();
+      return;
+    }
+    if (claim.status === 401) { seen.delete(order.id); return; }   // signed out: a later sign-in may still claim it
+    if (!claim.ok || claim.body?.ok !== true) return;   // 409: another Mac has it; 404: it is gone
     current = order;
     let result;
     try {

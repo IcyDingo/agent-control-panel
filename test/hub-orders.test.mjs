@@ -3,24 +3,28 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHubOrders } from '../hub-orders.mjs';
+import { openDb } from '../hub/db.mjs';
+import { createAccounts } from '../hub/accounts.mjs';
+import { createOrders } from '../hub/orders.mjs';
 
 const settle = async () => { for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r)); };
 const order = (id, extra = {}) => ({ id, kind: 'build', description: `build ${id}`, status: 'pending', createdAt: 1, ...extra });
 
 /** A hub whose pending list is `pending`, whose stream hands `streamed` to the listener and then waits to be aborted. */
-function setup({ pending = [], streamed = [], execute, onDone, answers = [], doneAnswers = [], endAtOnce = false } = {}) {
+function setup({ pending = [], streamed = [], execute, onDone, answers = [], doneAnswers = [], claimAnswers = [], endAtOnce = false, request } = {}) {
   const calls = [], done = [], extras = { fire: null, streams: 0, who: { loggedIn: true, account: { id: 'a1' } } };
   const timeouts = [];
   const hub = {
     status: () => extras.who,
-    request: async (method, path, { body } = {}) => {
+    request: request ?? (async (method, path, { body } = {}) => {
       calls.push({ method, path, body });
       if (method === 'GET') return answers.shift() ?? { ok: true, status: 200, body: { ok: true, orders: pending } };
+      if (path.endsWith('/claim')) return claimAnswers.shift() ?? { ok: true, status: 200, body: { ok: true } };
       const answer = doneAnswers.shift();
       if (answer) return answer;
       done.push({ id: path.split('/')[4], ...body });
       return { ok: true, status: 200, body: { ok: true } };
-    },
+    }),
     stream: (path, onEvent, { signal, onOpen }) => new Promise((resolve) => {
       extras.streams++;
       extras.open = () => onOpen();
@@ -113,6 +117,7 @@ test('an order that arrives over the stream while others were missed brings thos
   const missed = [order('x'), order('y')];
   t.hub.request = async (method, path, { body } = {}) => {
     if (method === 'GET') return { ok: true, status: 200, body: { ok: true, orders: missed } };
+    if (path.endsWith('/claim')) return { ok: true, status: 200, body: { ok: true } };
     t.done.push({ id: path.split('/')[4], ...body });
     return { ok: true, status: 200, body: { ok: true } };
   };
@@ -243,7 +248,7 @@ test('a result the hub refuses for good (it no longer knows the order) is droppe
   t.extras.open();
   await settle();
   assert.deepEqual(t.ran, ['a']);
-  assert.equal(t.calls.filter((c) => c.method === 'POST').length, 1);
+  assert.equal(t.calls.filter((c) => c.path.endsWith('/done')).length, 1);
   t.orders.stop();
 });
 
@@ -282,4 +287,75 @@ test('a stream that ended at a sign-out hears nothing more, and the next start o
   await settle();
   assert.deepEqual(t.ran, ['b']);
   t.orders.stop();
+});
+
+test('an order is claimed with this Mac\'s device before it runs', async () => {
+  const t = setup({ pending: [order('a')] });
+  t.hub.status = () => ({ ...t.extras.who, device: 'mac-1' });
+  t.orders.start();
+  await settle();
+  const posts = t.calls.filter((c) => c.method === 'POST').map((c) => [c.path, c.body]);
+  assert.deepEqual(posts[0], ['/api/me/orders/a/claim', { device: 'mac-1' }]);
+  assert.equal(posts[1][0], '/api/me/orders/a/done');
+  assert.deepEqual(t.ran, ['a']);
+  t.orders.stop();
+});
+
+test('an order another Mac claimed first (409) or the hub no longer has (404) is left alone, silently', async () => {
+  const t = setup({ pending: [order('a'), order('b')], claimAnswers: [{ ok: false, status: 409, body: { ok: false } }, { ok: false, status: 404, body: { ok: false } }] });
+  t.orders.start();
+  await settle();
+  assert.deepEqual(t.ran, []);
+  assert.deepEqual(t.done, []);
+  assert.equal(t.timeouts.length, 0);
+  t.orders.stop();
+});
+
+test('a claim the hub could not answer runs nothing, and is asked again after 30 seconds', async () => {
+  const t = setup({ pending: [order('a')], claimAnswers: [{ ok: false, status: 0, body: { error: 'Hub unreachable.' } }, { ok: false, status: 502, body: {} }] });
+  t.orders.start();
+  await settle();
+  assert.deepEqual(t.ran, []);
+  assert.equal(t.timeouts.length, 1);
+  assert.equal(t.timeouts[0].ms, 30_000);
+  t.timeouts[0].fn();
+  await settle();
+  assert.deepEqual(t.ran, []);
+  assert.equal(t.timeouts.length, 2);
+  t.timeouts[1].fn();
+  await settle();
+  assert.deepEqual(t.ran, ['a']);
+  t.orders.stop();
+});
+
+test('two Macs signed in to one account: each order is run by exactly one of them', async () => {
+  const db = openDb(':memory:');
+  const accountId = createAccounts(db).signIn({ provider: 'dev', subject: 'alice', login: 'alice' }).account.id;
+  const queue = createOrders(db);
+  /** What the hub's routes do for these calls, straight on its orders module. */
+  const hubFor = (device) => async (method, path, { body } = {}) => {
+    const id = decodeURIComponent(path.split('/')[4] ?? '');
+    if (method === 'GET') return { ok: true, status: 200, body: { ok: true, orders: queue.pending(accountId) } };
+    const r = path.endsWith('/claim') ? queue.claim(accountId, id, body.device ?? device) : queue.done(accountId, id, body);
+    return { ok: r.ok, status: r.ok ? 200 : r.status, body: r };
+  };
+  const placed = [];
+  for (let i = 0; i < 3; i++) {
+    const r = queue.place(accountId, { kind: 'frontier', ang: i });
+    placed.push(r.order);
+    if (i < 2) queue.done(accountId, r.order.id, { ok: true });   // only one is out at a time; these two landed already
+  }
+  const ran = [];
+  const macs = ['one', 'two'].map((name) => {
+    const t = setup({ request: hubFor(name), execute: async (o) => { ran.push([name, o.id]); return { ok: true }; } });
+    t.hub.status = () => ({ loggedIn: true, account: { id: 'a1' }, device: name });
+    return t;
+  });
+  for (const m of macs) m.orders.start();
+  for (const m of macs) m.extras.fire(placed[2]);
+  await settle();
+  assert.equal(ran.length, 1, JSON.stringify(ran));
+  assert.equal(ran[0][1], placed[2].id);
+  assert.equal(queue.list(accountId)[0].status, 'done');
+  for (const m of macs) m.orders.stop();
 });

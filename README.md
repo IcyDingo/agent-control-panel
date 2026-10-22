@@ -476,8 +476,9 @@ listed. Unlisted asks search engines not to index your page; a link still opens 
 **Spending from your page.** Signed in on the hub, you can push the frontier, send a rocket and build from your page,
 and your Mac does it. An order from the site goes through the same code as the panel's buttons, so the same prices
 and rules apply, and the page shows what happened, or the Mac's own sentence when it said no ("It costs 4,000 credit,
-and you have 3,200."). One order at a time. If the Mac is asleep or offline, the order waits and runs when it wakes
-(the background service does this with no panel open); an order not picked up within 24 hours expires.
+and you have 3,200."). One order at a time. With two Macs signed in to one account, an order is run by whichever
+signed-in Mac claims it first. If the Mac is asleep or offline, the order waits and runs when it wakes (the background
+service does this with no panel open); an order not picked up within 24 hours expires.
 
 **Only want World?** Open `http://127.0.0.1:4747/world`: the page opens straight into World, without the board. A
 bookmark can point there.
