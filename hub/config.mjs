@@ -14,11 +14,17 @@ export function loadConfig(env = process.env) {
     : null;
   return {
     port,
+    // Where to listen. Behind Caddy on the same machine, 127.0.0.1 keeps the plain-http port off the internet; in a
+    // container it must stay 0.0.0.0 (Docker's port mapping does the binding).
+    bindHost: env.HUB_HOST || '0.0.0.0',
     dataDir: env.HUB_DATA || './data',
     publicUrl,
     origin: url.origin, // what a browser sends as Origin, for the same-origin check on writes
     host: url.host, // what a browser sends as Host
     github,
     devLogin,
+    // Behind Caddy every connection comes from 127.0.0.1; `1` says to take the visitor's address from the last entry of
+    // X-Forwarded-For instead (the one the proxy appended). Off, the header is ignored, or anyone could pick their bucket.
+    trustProxy: env.HUB_TRUST_PROXY === '1',
   };
 }

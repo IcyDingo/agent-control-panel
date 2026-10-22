@@ -13,6 +13,7 @@ import { createAuth } from './auth.mjs';
 import { createSystems } from './systems.mjs';
 import { createOrders } from './orders.mjs';
 import { createLive } from './live.mjs';
+import { createLimits, subjectOf, privatePeer } from './limits.mjs';
 import { authorizeUrl, exchange } from './github.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -71,13 +72,28 @@ const cookieValue = (req, name) => {
   return null;
 };
 
-export function createHub(config, { fetch = globalThis.fetch, now = Date.now } = {}) {
+/** `rates` overrides the limits table (hub/limits.mjs) for a test; a real hub runs the documented one. */
+export function createHub(config, { fetch = globalThis.fetch, now = Date.now, rates } = {}) {
   const db = openDb(config.dataDir);
   const accounts = createAccounts(db, { now });
   const auth = createAuth(db, { now });
   const systems = createSystems(db, { now });
   const orders = createOrders(db, { now });
   const live = createLive();
+  const limits = createLimits({ now, ...(rates ? { rates } : {}) });
+
+  /** The visitor's address, for the limits: the socket's, or behind a trusted proxy the last X-Forwarded-For entry
+   *  (the one the proxy itself appended; anything before it was sent by the visitor and could say anything). The
+   *  header counts only when the connection itself comes from where a proxy of ours would be (loopback, a private
+   *  range): a visitor who reaches the port directly cannot name their own address. IPv6 is cut to its /64. */
+  function clientIp(req) {
+    const peer = req.socket.remoteAddress ?? 'unknown';
+    if (config.trustProxy && privatePeer(peer)) {
+      const last = String(req.headers['x-forwarded-for'] ?? '').split(',').map((s) => s.trim()).filter(Boolean).at(-1);
+      if (last) return subjectOf(last);
+    }
+    return subjectOf(peer);
+  }
 
   const publicHostname = new URL(config.publicUrl).hostname;
   const secure = config.publicUrl.startsWith('https:') ? '; Secure' : '';
@@ -108,40 +124,48 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now } =
   const route = (method, pattern, who, handler, opts = {}) => routes.push({ method, pattern, who, handler, ...opts });
 
   // A page or script is sent with a tag of its content and `no-cache`: the browser keeps it but asks each time whether it
-  // changed, and a 304 says no. So a new version shows on the next load, with nothing to remember to bump.
-  const staticFile = (file) => async ({ req, res }) => {
+  // changed, and a 304 says no. So a new version shows on the next load, with nothing to remember to bump. `more(ctx)`
+  // adds headers that depend on the request.
+  const staticFile = (file, more = () => ({})) => async (ctx) => {
+    const { req, res } = ctx;
     let data;
     try { data = await fs.promises.readFile(file); } catch { return fail(res, 404, 'Not found.'); }
     const etag = `"${crypto.createHash('sha256').update(data).digest('base64url').slice(0, 22)}"`;
     // A page is never shown inside another site's frame (its buttons place orders and approve Macs).
-    const headers = { etag, ...(path.extname(file) === '.html' ? { 'x-frame-options': 'DENY' } : {}) };
+    const headers = { etag, ...(path.extname(file) === '.html' ? { 'x-frame-options': 'DENY' } : {}), ...more(ctx) };
     if (req.headers['if-none-match'] === etag) return send(res, 304, '', { cache: 'no-cache', type: TYPES[path.extname(file)] ?? 'application/octet-stream', headers });
     send(res, 200, data, { type: TYPES[path.extname(file)] ?? 'application/octet-stream', cache: 'no-cache', headers });
   };
 
+  // An unlisted galaxy is reached by its link and nothing else: its page and its API answer tell crawlers to stay away,
+  // and it cannot be found by its coordinates (a scan of the map). The handle lookup is the link, so it stays.
+  const unlisted = (account) => account?.visibility === 'unlisted';
+  const NOINDEX = { 'x-robots-tag': 'noindex' };
+
   route('GET', '/healthz', 'pub', ({ res }) => send(res, 200, { ok: true, v: 1 }));
   for (const [url, file] of Object.entries(STATIC)) route('GET', url, 'pub', staticFile(file));
   for (const [url, name] of Object.entries(PAGES)) route('GET', url, 'pub', staticFile(path.join(HERE, 'public', name)));
-  route('GET', /^\/@[^/]+$/, 'pub', staticFile(path.join(HERE, 'public', SYSTEM_PAGE)));
+  route('GET', /^\/@(?<handle>[^/]+)$/, 'pub', staticFile(path.join(HERE, 'public', SYSTEM_PAGE), ({ params }) => (unlisted(accounts.byHandle(params.handle)) ? NOINDEX : {})));
 
   // Public reads of a system.
-  const PUBLIC = { cache: 'public, max-age=30' };
   const showSystem = (res, account) => account
-    ? send(res, 200, { ok: true, ...systems.publicView(account, systems.get(account.id)) }, PUBLIC)
+    ? send(res, 200, { ok: true, ...systems.publicView(account, systems.get(account.id)) }, { cache: 'public, max-age=30', headers: unlisted(account) ? NOINDEX : {} })
     : fail(res, 404, 'No system by that name.');
   route('GET', '/api/systems/at', 'pub', ({ res, q }) => {
     const [x, y] = [q.get('x'), q.get('y')];
-    return /^-?\d{1,9}$/.test(x ?? '') && /^-?\d{1,9}$/.test(y ?? '') ? showSystem(res, accounts.byCoords(Number(x), Number(y))) : fail(res, 404, 'No system by that name.');
+    const account = /^-?\d{1,9}$/.test(x ?? '') && /^-?\d{1,9}$/.test(y ?? '') ? accounts.byCoords(Number(x), Number(y)) : null;
+    return showSystem(res, unlisted(account) ? null : account);
   });
   route('GET', /^\/api\/systems\/@(?<handle>[^/]+)$/, 'pub', ({ res, params }) => showSystem(res, accounts.byHandle(params.handle)));
 
-  // Signing in and out.
+  // Signing in and out. Each is limited per address: a sign-in is the one thing a stranger can make the hub do.
+  const SIGNIN = { limit: ['signin', 'ip'] };
   route('GET', '/login/github', 'pub', ({ res, q }) => {
     if (!config.github) return fail(res, 404, 'GitHub sign-in is not configured on this hub.');
     const state = auth.newState(q.get('return_to'));
     const location = authorizeUrl({ clientId: config.github.clientId, state, redirectUri: `${config.publicUrl}/auth/github/callback` });
     send(res, 302, '', { headers: { location, 'set-cookie': oauthCookie(state, 600) } });
-  });
+  }, SIGNIN);
   route('GET', '/auth/github/callback', 'pub', async ({ req, res, q }) => {
     if (!config.github) return fail(res, 404, 'GitHub sign-in is not configured on this hub.');
     // The state must come back in the cookie of the browser that began the sign-in, or a link an attacker authorised
@@ -155,13 +179,13 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now } =
     if (!who) return fail(res, 502, 'GitHub did not confirm the sign-in.', {}, { headers: { 'set-cookie': clear } });
     const { account } = accounts.signIn({ provider: 'github', subject: who.subject, login: who.login, avatar: who.avatar });
     send(res, 302, '', { headers: { location: taken.returnTo ?? '/me', 'set-cookie': [startSession(req, account.id), clear] } });
-  });
+  }, SIGNIN);
   route('POST', '/auth/dev', 'pub', ({ req, res, body }) => {
     if (!config.devLogin) return fail(res, 404, 'Dev sign-in is off on this hub.');
     if (typeof body.login !== 'string' || !body.login.trim() || body.login.length > 100) return fail(res, 422, 'Say who to sign in as.');
     const { account } = accounts.signIn({ provider: 'dev', subject: body.login.trim(), login: body.login.trim() });
     send(res, 200, { ok: true, account }, { headers: { 'set-cookie': startSession(req, account.id) } });
-  }, { origin: true });
+  }, { origin: true, ...SIGNIN });
   route('POST', '/logout', 'pub', ({ req, res }) => {
     const sid = cookieValue(req, COOKIE);
     if (sid) { auth.deleteSession(sid); live.closeBySession(sessionKey(sid)); }
@@ -175,7 +199,7 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now } =
       ok: true, ...d, verification_uri: `${config.publicUrl}/device`,
       verification_uri_complete: `${config.publicUrl}/device?code=${d.user_code}`,
     });
-  });
+  }, { limit: ['device_code', 'ip'] });
   const DEVICE_ERRORS = { pending: [428, 'authorization_pending'], slow_down: [429, 'slow_down'], expired: [410, 'expired'], denied: [403, 'denied'] };
   route('POST', '/api/device/token', 'pub', ({ res, body }) => {
     const r = auth.pollDevice(body.device_code);
@@ -185,16 +209,17 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now } =
     }
     const [status, error] = DEVICE_ERRORS[r.status] ?? [404, 'No such device code.'];
     fail(res, status, error);
-  });
+  }, { limit: ['device_poll', 'ip'] });
+  const APPROVE = { limit: ['approve', 'account'] };
   route('POST', '/api/device/approve', 'web', ({ res, who, body }) => {
     const label = typeof body.label === 'string' && body.label.trim() && body.label.trim().length <= 60 ? body.label.trim() : DEFAULT_LABEL;
     const r = auth.approveDevice(body.user_code, who.accountId, label);
     r.ok ? send(res, 200, { ok: true }) : fail(res, 404, r.error);
-  });
+  }, APPROVE);
   route('POST', '/api/device/deny', 'web', ({ res, who, body }) => {
     const r = auth.denyDevice(body.user_code, who.accountId);
     r.ok ? send(res, 200, { ok: true }) : fail(res, 404, r.error);
-  });
+  }, APPROVE);
 
   // The signed-in account.
   route('GET', '/api/me', 'any', ({ res, who }) => {
@@ -209,7 +234,7 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now } =
   route('PATCH', '/api/me/profile', 'web', ({ res, who, body }) => {
     const r = accounts.updateProfile(who.accountId, body);
     r.ok ? send(res, 200, { ok: true, account: r.account }) : fail(res, r.status, r.error);
-  });
+  }, { limit: ['profile', 'account'] });
   // A revoked token's open stream ends with it, so a Mac that has lost its sign-in stops hearing orders.
   route('DELETE', '/api/me/tokens/self', 'tok', ({ res, who }) => {
     const ok = auth.revokeByToken(who.token);
@@ -227,8 +252,8 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now } =
     const { status, ...rest } = r;
     r.ok ? send(res, 200, rest) : send(res, status, rest);
   };
-  route('PUT', '/api/me/system', 'tok', ({ res, who, body }) => outcome(res, systems.put(who.accountId, body)), { max: MAX_SYSTEM_BODY });
-  route('PUT', '/api/me/status', 'tok', ({ res, who, body }) => outcome(res, systems.putStatus(who.accountId, body)));
+  route('PUT', '/api/me/system', 'tok', ({ res, who, body }) => outcome(res, systems.put(who.accountId, body)), { max: MAX_SYSTEM_BODY, limit: ['system', 'account'] });
+  route('PUT', '/api/me/status', 'tok', ({ res, who, body }) => outcome(res, systems.putStatus(who.accountId, body)), { limit: ['status', 'account'] });
   route('GET', '/api/me/status', 'any', ({ res, who }) => send(res, 200, { ok: true, status: systems.getStatus(who.accountId) }));
 
   // Orders: placed in the browser, executed by the Mac, announced to it over the stream.
@@ -241,9 +266,10 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now } =
     const r = orders.place(who.accountId, body);
     if (r.ok) live.emit(who.accountId, 'order', r.order);
     outcome(res, r);
-  });
+  }, { limit: ['order', 'account'] });
+  const STEP = { limit: ['order_step', 'account'] };
   route('POST', /^\/api\/me\/orders\/(?<id>[^/]+)\/claim$/, 'tok', ({ res, who, params, body }) =>
-    outcome(res, orders.claim(who.accountId, params.id, body.device)));
+    outcome(res, orders.claim(who.accountId, params.id, body.device)), STEP);
   route('POST', /^\/api\/me\/orders\/(?<id>[^/]+)\/done$/, 'tok', ({ res, who, params, body }) => {
     const { id } = params;
     const r = orders.done(who.accountId, id, body);
@@ -253,7 +279,7 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now } =
       live.emit(who.accountId, 'order_done', { id, ...result });
     }
     outcome(res, r);
-  });
+  }, STEP);
   route('GET', '/api/me/events', 'any', ({ res, who }) => {
     live.subscribe(who.accountId, res, who.via === 'tok' ? { tokenId: who.tokenId } : { sessionId: sessionKey(who.sid) });
   });
@@ -289,6 +315,12 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now } =
       if (r.who === 'web' && who.via !== 'web') return fail(res, 403, 'That needs a browser sign-in.');
       if (r.who === 'tok' && who.via !== 'tok') return fail(res, 403, 'That needs the Mac app signed in.');
     }
+    // The limit is spent before the body is read, so a refused request costs the hub nothing and changes nothing.
+    if (r.limit) {
+      const [name, by] = r.limit;
+      const l = limits.take(name, by === 'account' ? `a:${who.accountId}` : `ip:${clientIp(req)}`);
+      if (!l.ok) return fail(res, 429, `Too many requests; try again in ${l.retryAfter} seconds.`, {}, { headers: { 'retry-after': String(l.retryAfter) } });
+    }
     let body = {};
     if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
       try { body = await readBody(req, r.max ?? MAX_BODY); } catch (e) {
@@ -305,7 +337,7 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now } =
     if (!res.headersSent) send(res, 500, { error: 'server error' }); else res.destroy();
   }));
 
-  const listen = (port = config.port, bindHost = '0.0.0.0') => new Promise((resolve, reject) => {
+  const listen = (port = config.port, bindHost = config.bindHost) => new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, bindHost, () => {
       server.off('error', reject);

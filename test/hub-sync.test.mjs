@@ -319,3 +319,14 @@ test('a push that fails after stop arms nothing, and schedule and flush do nothi
   await t.c.tick(3_600_000);
   assert.equal(t.calls.length, 1);
 });
+
+test('a 429 from the hub is a pause, not a refusal: the same world is pushed again after the backoff', async () => {
+  const t = setup({ answers: { [SYSTEM]: { ok: false, status: 429, body: { ok: false, error: 'Too many requests; try again in 7 seconds.' } } } });
+  await t.sync.flush();
+  assert.equal(t.sync.state().lastError, 'Too many requests; try again in 7 seconds.');
+  assert.equal(t.sync.state().nextAt, t.c.now() + 30_000);
+  delete t.state.answers[SYSTEM];
+  await t.c.tick(30_000);
+  assert.equal(t.system().length, 2, 'the unchanged world went again');
+  assert.equal(t.sync.state().lastError, null);
+});

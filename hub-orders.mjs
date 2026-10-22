@@ -45,7 +45,7 @@ export function createHubOrders({ hub, execute, onDone, onOpen, timers = { setTi
     if (!signedIn()) return;   // signed out since (or as someone else): not ours to run, and not marked as seen
     seen.add(order.id);
     const claim = await hub.request('POST', `/api/me/orders/${encodeURIComponent(order.id)}/claim`, { body: { device: hub.status().device } });
-    if (claim.status === 0 || claim.status >= 500) {   // never run an order the hub has not given us: ask again later
+    if (claim.status === 0 || claim.status === 429 || claim.status >= 500) {   // never run an order the hub has not given us: ask again later
       seen.delete(order.id);
       log(`hub orders: could not claim order ${order.id} (${claim.status}).`);
       retryLater();
@@ -79,13 +79,13 @@ export function createHubOrders({ hub, execute, onDone, onOpen, timers = { setTi
   }
 
   /**
-   * Send the hub the results it has not taken. Trouble at the hub (down, 5xx) keeps one for the next try; any other
-   * answer (it no longer knows the order, say) is final and the result is dropped.
+   * Send the hub the results it has not taken. Trouble at the hub (down, 5xx, or a 429 asking for a pause) keeps one for
+   * the next try; any other answer (it no longer knows the order, say) is final and the result is dropped.
    */
   async function reportAll() {
     for (const [id, result] of [...unreported]) {
       const sent = await hub.request('POST', `/api/me/orders/${encodeURIComponent(id)}/done`, { body: result });
-      if (sent.status === 0 || sent.status >= 500) { log(`hub orders: could not report order ${id} (${sent.status}).`); retryLater(); continue; }
+      if (sent.status === 0 || sent.status === 429 || sent.status >= 500) { log(`hub orders: could not report order ${id} (${sent.status}).`); retryLater(); continue; }
       unreported.delete(id);
     }
   }

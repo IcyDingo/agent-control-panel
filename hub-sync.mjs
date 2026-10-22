@@ -77,7 +77,8 @@ export function createHubSync({ hub, projection, status, now = Date.now, timers 
         setError('Another Mac is syncing this account.');
         return;
       }
-      if (r.status === 0 || r.status >= 500) { setError(sentence(r, UNREACHABLE)); backoff(); return; }
+      // Down, broken, or asking for a pause (429): the same push is tried again after the backoff, nothing is given up.
+      if (r.status === 0 || r.status === 429 || r.status >= 500) { setError(sentence(r, UNREACHABLE)); backoff(); return; }
       // The Mac validated the projection before sending it, so a hub that refuses its shape is most likely another version.
       if (r.status === 422) { setError('The hub refused the system; it may be running a different version.'); refusedHash = hash; return; }
       if (!r.ok) { setError(sentence(r, 'The hub refused the world.')); refusedHash = hash; return; }
