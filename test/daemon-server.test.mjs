@@ -11,7 +11,9 @@ const answers = (port) => fetch(`http://127.0.0.1:${port}/`).then((r) => r.ok, (
 function start(port, prefsDir, extraEnv = {}) {
   const child = spawn(process.execPath, [SERVER], { env: { ...process.env, ACP_PORT: String(port), ACP_PREFS: path.join(prefsDir, 'prefs.json'), ACP_DAEMON: '1', ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = ''; child.stdout.on('data', (d) => { out += d; }); child.stderr.on('data', (d) => { out += d; });
-  return { child, log: () => out, stop: () => new Promise((r) => { child.once('exit', r); child.kill(); }) };
+  // A child that already exited never emits 'exit' again, so stop resolves at once for it.
+  const stop = () => new Promise((r) => { if (child.exitCode !== null || child.signalCode !== null) return r(); child.once('exit', r); child.kill(); });
+  return { child, log: () => out, stop };
 }
 
 test('under ACP_DAEMON the server opens World at boot, with no button pressed', async (t) => {
@@ -35,12 +37,16 @@ test('a taken port makes the daemon wait, not exit; it answers once the port fre
   const port = await freePort(), prefs = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-'));
   const holder = net.createServer().listen(port, '127.0.0.1');
   await new Promise((r) => holder.once('listening', r));
+  let held = true; // closed once, by the test or by t.after when an assertion fails first
+  const free = () => (held ? (held = false, new Promise((r) => holder.close(r))) : Promise.resolve());
+  t.after(free);
   const s = start(port, prefs, { ACP_RETRY_MS: '300' }); t.after(s.stop);
   assert.ok(await until(() => /port \d+ is taken/.test(s.log())), s.log());
   await new Promise((r) => setTimeout(r, 400));
   assert.equal(s.child.exitCode, null, 'it exited: ' + s.log());
-  await new Promise((r) => holder.close(r));
+  await free();
   assert.ok(await until(() => answers(port)), s.log());
+  assert.ok(await until(() => fs.existsSync(path.join(prefs, 'world', 'world.json'))), 'World did not open after the port freed up: ' + s.log());
 });
 
 test('an argument runs the CLI instead of the server', async () => {

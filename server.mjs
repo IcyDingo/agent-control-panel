@@ -28,6 +28,9 @@ const PORT = Number(process.env.ACP_PORT ?? 4747);
 const DAEMON = process.env.ACP_DAEMON === '1';
 const RETRY_MS = Number(process.env.ACP_RETRY_MS ?? 5000);
 const ROSTER_MS = 3000;
+// A background service must not cost battery while nobody looks: under ACP_DAEMON with no page connected, the roster
+// is read once a minute and the version check waits. A page that connects brings both back at once.
+const IDLE_ROSTER_MS = 60_000;
 // Just under the hook's own timeout (hooks.example.json: 3600 s); past it Claude Code drops the request anyway.
 const HOLD_MS = Number(process.env.ACP_HOLD_MS ?? 3590_000);
 // A reload (yours, or the app's when a health check is slow) leaves the panel unwatched for a moment. Held requests
@@ -1523,16 +1526,20 @@ async function handle(req, res) {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
     res.write(`retry: 2000\ndata: ${JSON.stringify(snapshot())}\n\n`);
     clients.add(res);
+    if (DAEMON && setRosterPace(true)) pollRoster().then(checkVersions); // back from idle: catch up at once
     clearTimeout(releaseTimer);
     releaseTimer = null;
     const ping = setInterval(() => res.write(': ping\n\n'), 20_000);
     req.on('close', () => {
       clearInterval(ping);
       clients.delete(res);
-      // Last tab gone and not back in time: hand every held request back to the terminal.
+      // Last tab gone and not back in time: hand every held request back to the terminal, and (under the daemon) slow
+      // the roster down. Not before: until then a held request still needs the fast polls to see a terminal answer.
       if (clients.size === 0 && releaseTimer === null) releaseTimer = setTimeout(() => {
         releaseTimer = null;
-        if (clients.size === 0) for (const id of [...pending.keys()]) settle(id, null, 'panel closed');
+        if (clients.size > 0) return;
+        for (const id of [...pending.keys()]) settle(id, null, 'panel closed');
+        if (DAEMON) setRosterPace(false);
       }, RECONNECT_MS);
     });
     return;
@@ -1577,17 +1584,31 @@ async function handle(req, res) {
 
 // Under launchd a server that quit on a taken port would be relaunched every 10 s forever. Wait instead: an app-started
 // server from before the service was installed quits when the app does, and this one takes the port then.
+// It says so on the first try and then every 60th, so a long wait adds a line every 5 minutes, not every 5 s.
+let portTries = 0;
 server.on('error', (err) => {
   if (!(DAEMON && err.code === 'EADDRINUSE')) throw err;
-  console.log(`port ${PORT} is taken; trying again in ${RETRY_MS / 1000} s`);
+  if (++portTries === 1 || portTries % 60 === 0) console.log(`port ${PORT} is taken; trying again every ${RETRY_MS / 1000} s`);
   setTimeout(() => server.listen(PORT, '127.0.0.1'), RETRY_MS);
 });
 
+let rosterTimer = null, rosterFast = null;
+/** Reads the roster every ROSTER_MS when `fast`, every IDLE_ROSTER_MS when not. Returns whether the pace changed. */
+function setRosterPace(fast) {
+  if (fast === rosterFast) return false;
+  clearInterval(rosterTimer);
+  rosterFast = fast;
+  rosterTimer = setInterval(pollRoster, fast ? ROSTER_MS : IDLE_ROSTER_MS);
+  return true;
+}
+/** Whether someone may be looking: always outside the daemon, and under it while a page is connected. */
+const looking = () => !DAEMON || clients.size > 0;
+
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`agent control panel → http://127.0.0.1:${PORT}`);
-  pollRoster().then(checkVersions);
-  setInterval(pollRoster, ROSTER_MS);
-  setInterval(checkVersions, VERSIONS_MS);
+  pollRoster().then(() => { if (looking()) checkVersions(); });
+  setRosterPace(looking());
+  setInterval(() => { if (looking()) checkVersions(); }, VERSIONS_MS);
   setInterval(() => { prune(); broadcast(); }, 10_000);
   setInterval(() => scanWorld(worldScans++ % 5 === 0), WORLD_MS);
   // A World that can't be saved (an unwritable prefs folder) must not take the panel down: under launchd it would crash-loop.
