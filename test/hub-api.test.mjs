@@ -208,6 +208,21 @@ test('the device flow: a code, the pending poll, the owner approves, the Mac get
   assert.equal((await call('GET', '/api/me', { token })).status, 401);
 });
 
+test('a signed-in owner mints a link; the Mac turns it into a token with one poll', async () => {
+  const cookie = await login('alice');
+  assert.equal((await call('POST', '/api/me/links', { origin: ORIGIN })).status, 401);
+  assert.equal((await call('POST', '/api/me/links', { cookie })).status, 403, 'needs the Origin');
+  assert.equal((await call('POST', '/api/me/links', { token: await tokenFor('alice'), origin: ORIGIN })).status, 403, 'a Mac cannot mint links');
+  const link = await call('POST', '/api/me/links', { cookie, origin: ORIGIN });
+  assert.equal(link.status, 200);
+  assert.equal(link.json.expires_in, 900);
+  const got = await call('POST', '/api/device/token', { body: { device_code: link.json.code } });
+  assert.equal(got.status, 200);
+  assert.equal(got.json.account.handle, 'alice');
+  const me = await call('GET', '/api/me', { cookie });
+  assert.ok(me.json.tokens.some((t) => t.label === 'Worker on a Mac'));
+});
+
 test('a token can be revoked by id from the web; a device code can be denied; polling too fast is told to slow down', async () => {
   const cookie = await login();
   const mine = (await call('GET', '/api/me', { cookie })).json.tokens;

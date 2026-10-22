@@ -251,6 +251,10 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now, ra
     const r = auth.denyDevice(body.user_code, who.accountId);
     r.ok ? send(res, 200, { ok: true }) : fail(res, 404, r.error);
   }, APPROVE);
+  route('POST', '/api/me/links', 'web', ({ res, who }) => {
+    const { device_code, expires_in } = auth.linkDevice(who.accountId, 'Worker on a Mac');
+    send(res, 200, { ok: true, code: device_code, expires_in });
+  }, APPROVE);
 
   // The signed-in account.
   route('GET', '/api/me', 'any', ({ res, who }) => {

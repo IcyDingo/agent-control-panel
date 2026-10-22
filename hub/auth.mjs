@@ -156,6 +156,26 @@ export function createAuth(db, { now = Date.now, randomBytes = crypto.randomByte
     return { ok: true };
   }
 
+  /** A link is the device flow with the approval already given, so the same sweep, poll and expiry apply. A new link
+   *  retires the account's earlier ones, and with them the tokens parked for a Mac that never collected them. */
+  function linkDevice(accountId, label) {
+    for (const r of db.prepare("SELECT hash, token_plain FROM device_codes WHERE account_id = ? AND status = 'approved' AND user_code LIKE 'LINK-%'").all(accountId)) expireDevice(r);
+    const deviceCode = secret(), t = now();
+    db.exec('BEGIN');
+    try {
+      let code;
+      do code = `LINK-${userCode().slice(0, 4)}`; while (one('SELECT 1 FROM device_codes WHERE user_code = ?', code));
+      const { token } = mintToken(accountId, { label, device: code });
+      run('INSERT INTO device_codes (hash, user_code, expires_at, interval, last_poll_at, status, account_id, token_plain, created_at) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?)',
+        sha256(deviceCode), code, t + DEVICE_TTL_MS, DEVICE_INTERVAL_S, 'approved', accountId, token, t);
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
+    }
+    return { device_code: deviceCode, expires_in: DEVICE_TTL_MS / 1000 };
+  }
+
   /** Only a code still waiting can be refused, and the account that refused it is kept beside it. */
   function denyDevice(userCodeInput, accountId = null) {
     const r = pendingByUserCode(userCodeInput);
@@ -210,7 +230,7 @@ export function createAuth(db, { now = Date.now, randomBytes = crypto.randomByte
   return {
     createSession, sessionAccountId, deleteSession,
     mintToken, tokenOwner, tokenAccountId, listTokens, revokeToken, revokeByToken,
-    startDevice, approveDevice, denyDevice, pollDevice,
+    startDevice, approveDevice, linkDevice, denyDevice, pollDevice,
     newState, takeState,
   };
 }

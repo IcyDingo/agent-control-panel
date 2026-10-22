@@ -125,6 +125,29 @@ test('the device flow: pending → approved → collected once; expired; denied;
   assert.equal(auth.approveDevice(g.user_code, 'acct-1', 'again').ok, false, 'approved only once');
 });
 
+test('a link is an approved device code: one poll collects the token; a new link retires the old one and its token', () => {
+  fresh();
+  const a = auth.linkDevice('acct-1', 'Worker on a Mac');
+  assert.equal(a.expires_in, 900);
+  const row = db.prepare('SELECT user_code, status FROM device_codes WHERE account_id = ?').get('acct-1');
+  assert.match(row.user_code, /^LINK-[BCDFGHJKLMNPQRSTVWXZ2-9]{4}$/);
+  assert.equal(row.status, 'approved');
+  const b = auth.linkDevice('acct-1', 'Worker on a Mac');
+  assert.deepEqual(auth.pollDevice(a.device_code), { status: 'expired' }, 'the first link is gone');
+  const got = auth.pollDevice(b.device_code);
+  assert.equal(got.status, 'ok');
+  assert.equal(auth.tokenOwner(got.token).accountId, 'acct-1');
+  assert.equal(auth.listTokens('acct-1').filter((t) => t.label === 'Worker on a Mac').length, 1, 'the retired link\'s token was revoked');
+  assert.deepEqual(auth.pollDevice(b.device_code), { status: 'expired' }, 'collected once');
+});
+
+test('a link that is never collected is gone after fifteen minutes', () => {
+  fresh();
+  const { device_code } = auth.linkDevice('acct-1', 'Worker on a Mac');
+  clock.add(900_001);
+  assert.deepEqual(auth.pollDevice(device_code), { status: 'expired' });
+});
+
 test('an approved code nobody collects is revoked when it runs out, by a late poll or by the next start', () => {
   fresh();
   const parked = () => db.prepare('SELECT token_plain AS p FROM device_codes WHERE user_code = ?');
