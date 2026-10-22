@@ -43,9 +43,24 @@
     </div>
   </main>
 
+  <!-- The way in: the install itself, not a link to go and find it. -->
+  <section class="get g24" aria-labelledby="get-h">
+    <div class="text">
+      <h2 id="get-h">Get the panel</h2>
+      <p>Three lines in a terminal on your Mac. It builds Agent Panel.app and a background service that counts your
+        agents' work, whether or not the app is open. You need macOS 14 or newer, Claude Code, and Node 20.</p>
+    </div>
+    <div class="code">
+      <pre id="install">git clone https://github.com/IcyDingo/agent-control-panel.git
+cd agent-control-panel
+./install.sh</pre>
+      <button class="btn small" id="copy" type="button">Copy</button>
+    </div>
+  </section>
+
   <section class="steps g24" aria-label="How it works">
-    <div class="step"><span class="glyph" data-lit="1" aria-hidden="true"></span><b>Install once</b><p>The panel runs in the background on your Mac and counts your agents' work.</p></div>
-    <div class="step"><span class="glyph" data-lit="3" aria-hidden="true"></span><b>Sign in</b><p>Approve your Mac with a code. Your galaxy gets a permanent spot in the Universe.</p></div>
+    <div class="step"><span class="glyph" data-lit="1" aria-hidden="true"></span><b>Install once</b><p>Run the three lines above. From then on the panel counts your agents' work in the background.</p></div>
+    <div class="step"><span class="glyph" data-lit="3" aria-hidden="true"></span><b>Sign in</b><p>Press Sign in with GitHub in the panel's Profile box, approve the code here, and your galaxy gets its permanent spot.</p></div>
     <div class="step"><span class="glyph" data-lit="6" aria-hidden="true"></span><b>Watch it grow</b><p>Work becomes credit; credit becomes frontier, colonies and builds.</p></div>
     <div class="step"><span class="glyph" data-lit="9" aria-hidden="true"></span><b>Visit anyone</b><p>Every galaxy has a page. Strangers see its shape, never the work behind it.</p></div>
   </section>
@@ -93,6 +108,14 @@
 
   // The mascot stands on Home and waves.
   $('pilot').replaceChildren(Hub.mascot(46));
+
+  // Copy the install lines; the button says so for a moment.
+  $('copy').addEventListener('click', async () => {
+    const button = $('copy');
+    try { await navigator.clipboard.writeText($('install').textContent + '\n'); button.textContent = 'Copied'; }
+    catch { button.textContent = 'Select and copy'; }
+    setTimeout(() => { button.textContent = 'Copy'; }, 1800);
+  });
 
   $('find').addEventListener('submit', (e) => {
     e.preventDefault();
