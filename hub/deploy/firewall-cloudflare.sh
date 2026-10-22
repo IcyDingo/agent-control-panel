@@ -1,6 +1,6 @@
 #!/bin/sh
 # Only Cloudflare reaches the web ports. Writes and applies one nftables table of its own (Docker's tables are left
-# alone): 80 and 443 accept connections from Cloudflare's ranges and loopback and drop the rest; the containers' host
+# alone): 80 and 443 (TCP, and UDP 443 for HTTP/3) accept from Cloudflare's ranges and loopback and drop the rest; the containers' host
 # ports (3000, 3001, and anything Docker publishes) are unreachable from outside, both as host ports and as forwarded
 # ones; SSH and everything else are not touched. The ranges come from cloudflare.com/ips; when they cannot be fetched
 # the last written file is applied again. Run it after `caddy-cloudflare.sh`, and from the systemd unit at boot.
@@ -24,6 +24,9 @@ table inet cloudflare_only {
     tcp dport { 80, 443 } ip saddr @cf4 accept
     tcp dport { 80, 443 } ip6 saddr @cf6 accept
     tcp dport { 80, 443 } drop
+    udp dport 443 ip saddr @cf4 accept
+    udp dport 443 ip6 saddr @cf6 accept
+    udp dport 443 drop
     tcp dport { 3000, 3001 } drop
   }
   chain forward {
