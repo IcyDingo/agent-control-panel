@@ -445,6 +445,7 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .wt-name { flex: 1; min-width: 0; height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font: 12.5px var(--mono); }
 .l-note { margin: -6px 0 0; color: var(--fg-dim); font-size: 12px; overflow-wrap: anywhere; }
 .l-note code { font: 11.5px var(--mono); color: var(--fg); }
+.l-trust { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 8px 0 0; padding: 9px 12px; border-radius: 8px; background: var(--amber-dim); color: var(--fg); font-size: 12.5px; }
 .launcher .row { justify-content: flex-end; }
 
 #toasts { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); display: grid; gap: 6px; z-index: 50; pointer-events: none; }
@@ -925,6 +926,7 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
         <label><input type="radio" name="l-mode" value="auto"><span>Auto</span></label>
       </div>
       <small class="seg-say" id="l-mode-say"></small></div>
+    <p class="l-trust" id="l-trust" role="status" hidden></p>
     <p class="err" id="l-err" hidden></p>
     <div class="row"><button class="btn" type="button" id="l-cancel">Cancel</button><button class="btn primary" type="submit" id="l-go">Launch agent</button></div>
   </form>
@@ -1863,7 +1865,7 @@ $('l-pick').onclick = async () => {
   else if (!r.cancelled) toast(r.error || 'The folder dialog did not open.', true);
 };
 let recentFolders = [], folderTimer = null;
-$('l-cwd').addEventListener('input', () => { clearTimeout(folderTimer); folderTimer = setTimeout(() => { suggestFolders(); checkFolder(); }, 120); });
+$('l-cwd').addEventListener('input', () => { stopTrustWait(); launchAfterTrust = false; clearTimeout(folderTimer); folderTimer = setTimeout(() => { suggestFolders(); checkFolder(); }, 120); });
 async function suggestFolders() {
   const v = $('l-cwd').value.trim();
   if (!/^[~/]/.test(v)) return;
@@ -1879,8 +1881,40 @@ async function checkFolder() {
   const r = await api('/api/folder', { path: v });
   if ($('l-cwd').value.trim() !== v) return;
   folderGit = r.ok && r.folder ? r.git : undefined;
+  folderTrust = r.ok && r.folder ? { trusted: r.trusted, home: r.home, profile: r.profile } : null;
+  if (trustWait && folderTrust?.trusted) {
+    stopTrustWait();
+    if (launchAfterTrust) { launchAfterTrust = false; $('launch-form').requestSubmit(); }
+    else toast(`The ${folderTrust.profile} profile trusts it now.`);
+  }
   showWorktree();
+  showTrust();
 }
+// A folder this profile hasn't trusted: Terminal opens there on the profile so you can accept Claude Code's own prompt,
+// and the panel carries on once you have, launching by itself if you had already asked it to.
+let folderTrust = null, trustWait = null, trustUntil = 0, launchAfterTrust = false;
+function showTrust() {
+  const t = folderTrust, box = $('l-trust');
+  if (t?.home) box.replaceChildren("A background agent can't start in your home folder: Claude Code trusts it one session at a time. Pick a project folder.");
+  else if (t?.trusted !== false) { box.hidden = true; return; }
+  else box.replaceChildren(...(trustWait
+    ? [el('span', { text: `Accept the trust prompt in the Terminal window${launchAfterTrust ? '. The agent launches by itself once you have' : ''}.` }),
+       el('button', { class: 'linkish', type: 'button', text: 'Open it again', onclick: openTrust })]
+    : [el('span', { text: `The ${t.profile} profile hasn't trusted this folder yet. Claude Code asks once per folder.` }),
+       el('button', { class: 'btn small', type: 'button', text: 'Open Claude Code there', onclick: openTrust })]));
+  box.hidden = false;
+}
+async function openTrust() {
+  const r = await api('/api/trust-terminal', { path: $('l-cwd').value });
+  if (!r.ok) { lErr.textContent = r.error || 'Terminal did not open.'; lErr.hidden = false; return; }
+  lErr.hidden = true;
+  stopTrustWait();
+  trustUntil = Date.now() + 600_000;
+  trustWait = setInterval(() => { if (!dlg.open || Date.now() > trustUntil) { stopTrustWait(); showTrust(); } else checkFolder(); }, 1500);
+  showTrust();
+}
+function stopTrustWait() { clearInterval(trustWait); trustWait = null; }
+dlg.addEventListener('close', () => { stopTrustWait(); launchAfterTrust = false; });
 function showWorktree() {
   const box = $('l-wt'), g = folderGit, on = box.checked && Boolean(g), name = wtName(), c = (t) => el('code', { text: t });
   box.disabled = !g;
@@ -1910,6 +1944,7 @@ $('launch-form').addEventListener('submit', async (e) => {
   });
   go.disabled = false;
   go.textContent = 'Launch agent';
+  if (r.untrusted && folderTrust && !folderTrust.home) { launchAfterTrust = true; folderTrust.trusted = false; showTrust(); return; }
   if (!r.ok) { lErr.textContent = r.error || 'It did not start.'; lErr.hidden = false; return; }
   dlg.close();
   $('l-prompt').value = '';

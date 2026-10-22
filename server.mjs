@@ -19,6 +19,7 @@ import { execFile, spawn } from 'node:child_process';
 import { createWorld, claudeArgs, readAnswer } from './world.mjs';
 import { findRemoved } from './versions.mjs';
 import { readChat } from './history.mjs';
+import { UNTRUSTED, trustKey, isTrusted, trustScript } from './trust.mjs';
 
 const PORT = Number(process.env.ACP_PORT ?? 4747);
 const ROSTER_MS = 3000;
@@ -461,8 +462,10 @@ function launch(body) {
     run('claude', args, { cwd, timeout: 30_000 }).then((r) => {
       const id = `${r.stdout}\n${r.stderr}`.match(/backgrounded · (\w+)/)?.[1];
       if (id) { setTimeout(pollRoster, 400); return resolve({ ok: true, id, cwd }); }
-      // e.g. "Workspace not trusted. Run `claude` in <dir> once and accept the trust prompt, then retry."
-      fail(firstLine(r));
+      const why = firstLine(r);
+      if (UNTRUSTED.test(why)) return resolve({ ok: false, untrusted: true,
+        error: `The ${profileLabel()} profile hasn't trusted ${tilde(trustKey(cwd, gitPlace(cwd)?.top))} yet. Claude Code asks once per folder.` });
+      fail(why);
     });
   });
 }
@@ -1200,10 +1203,34 @@ function worktreeBase(place) {
 function folderInfo(body) {
   const dir = path.resolve(expand(String(body?.path ?? '').trim()) || os.homedir());
   try { if (!fs.statSync(dir).isDirectory()) return { ok: true, folder: false }; } catch { return { ok: true, folder: false }; }
-  const p = gitPlace(dir);
+  const p = gitPlace(dir), home = dir === os.homedir();
   // A background session moves itself into a worktree before it edits, unless the repo turned that off.
   return { ok: true, folder: true, git: p && { branch: p.branch, worktree: p.worktree, repo: tilde(p.repo), base: worktreeBase(p),
-                                               isolates: worktreeSetting(p, 'bgIsolation') !== 'none' } };
+                                               isolates: worktreeSetting(p, 'bgIsolation') !== 'none' },
+           // Whether this profile has trusted it; a background session starts only where it has (never the home folder).
+           trusted: home ? null : isTrusted(profile.config, trustKey(dir, p?.top)), home, profile: profileLabel() };
+}
+
+const profileLabel = () => path.basename(profile.dir).slice(1);
+/** Claude Code's own path, as the panel's commands find it. */
+const claudePath = () => String(childEnv.PATH ?? '').split(':').filter(Boolean).map((d) => path.join(d, 'claude'))
+  .find((f) => { try { fs.accessSync(f, fs.constants.X_OK); return fs.statSync(f).isFile(); } catch { return false; } });
+/** Terminal in the folder, on this profile, running Claude Code: its trust prompt waits there for you to accept. The
+ *  window opens from a .command file, so the panel needs no permission to control Terminal. */
+async function openTrustTerminal(body) {
+  if (process.platform !== 'darwin') return { ok: false, error: 'Opening Terminal is macOS only. Run claude in the folder once and accept its prompt.' };
+  const dir = path.resolve(expand(String(body?.path ?? '').trim()) || os.homedir());
+  try { if (!fs.statSync(dir).isDirectory()) throw new Error(); } catch { return { ok: false, error: `There is no folder at ${tilde(dir)}.` }; }
+  if (dir === os.homedir()) return { ok: false, error: 'Claude Code never keeps trust for your home folder. Pick a project folder.' };
+  const claude = claudePath();
+  if (!claude) return { ok: false, error: "Claude Code wasn't found on the panel's PATH." };
+  const where = path.join(path.dirname(PREFS), 'trust');
+  fs.mkdirSync(where, { recursive: true, mode: 0o700 });
+  for (const n of fs.readdirSync(where)) try { const f = path.join(where, n); if (Date.now() - fs.statSync(f).mtimeMs > 3_600_000) fs.unlinkSync(f); } catch {}
+  const file = path.join(where, `trust-${crypto.randomBytes(4).toString('hex')}.command`);
+  fs.writeFileSync(file, trustScript({ dir, configDir: profile.plain ? null : profile.dir, claude, label: profileLabel() }), { mode: 0o700 });
+  const r = await run('open', ['-a', 'Terminal', file], { timeout: 10_000 });
+  return r.err ? { ok: false, error: firstLine(r) } : { ok: true };
 }
 
 function listFolders(body) {
@@ -1526,7 +1553,8 @@ async function handle(req, res) {
                       '/api/folders': listFolders, '/api/folder': folderInfo, '/api/pick-folder': pickFolder,
                       '/api/profiles': profiles, '/api/profile': switchProfile, '/api/profile/connect': connectProfile,
                       '/api/answer-open': answerOpen, '/api/world/open': openWorld, '/api/world/buy': buyInWorld,
-                      '/api/world/build': buildInWorld, '/api/history': history };
+                      '/api/world/build': buildInWorld, '/api/history': history,
+                      '/api/trust-terminal': openTrustTerminal };
     if (Object.hasOwn(ACTIONS, url.pathname)) {
       let r;
       try { r = await ACTIONS[url.pathname](body); } catch (err) { r = { ok: false, error: String(err?.message ?? err).slice(0, 300) }; }
