@@ -19,6 +19,10 @@ awk '
   echo "{"
   echo "    servers {"
   echo "        trusted_proxies static $RANGES"
+  echo "        # The visitor's address is what Cloudflare says in its own header, never anything the visitor sent along;"
+  echo "        # and only when the connection really comes from Cloudflare (strict: nothing is believed from an untrusted peer)."
+  echo "        client_ip_headers CF-Connecting-IP"
+  echo "        trusted_proxies_strict"
   echo "    }"
   echo "}"
   echo
@@ -26,7 +30,7 @@ awk '
   echo
   echo "universe.cashegg.com {"
   echo "    reverse_proxy 127.0.0.1:4848 {"
-  echo "        # The visitor as Caddy worked it out: the address Cloudflare reports when the call came through Cloudflare,"
+  echo "        # The visitor as Caddy worked it out: Cloudflare's CF-Connecting-IP when the call came through Cloudflare,"
   echo "        # the peer itself otherwise. The hub reads the last (here the only) entry."
   echo "        header_up X-Forwarded-For {client_ip}"
   echo "    }"

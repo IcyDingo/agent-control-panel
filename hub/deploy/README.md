@@ -31,9 +31,10 @@ The DNS record for the hub can be proxied through Cloudflare (orange cloud) or n
 its own certificate from Let's Encrypt (the HTTP challenge passes through Cloudflare).
 
 Proxied, two things matter. Caddy must know the visitor's address: `caddy-cloudflare.sh` lists Cloudflare's ranges as
-trusted proxies and hands the hub a single `X-Forwarded-For` entry, Caddy's own `{client_ip}`, which is the address
-Cloudflare reports when the call came through Cloudflare and the peer itself otherwise, so a visitor who reaches the
-server directly cannot name their own address. And **Cloudflare must not challenge the hub's visitors**: a JavaScript
+trusted proxies, takes the address from Cloudflare's own `CF-Connecting-IP` header (never from an `X-Forwarded-For`
+the visitor could have sent along, and only on connections that really come from Cloudflare), and hands the hub that
+one address as the single `X-Forwarded-For` entry. A visitor who reaches the server directly is their peer address,
+whatever headers they send. And **Cloudflare must not challenge the hub's visitors**: a JavaScript
 challenge (Bot Fight Mode, "Under Attack", a managed challenge rule) stops every Mac, since the panel talks to the hub
 with plain HTTP calls that cannot solve one. Add a WAF rule that skips challenges for the hub's hostname, or take the
 record off the proxy. The hub has its own rate limits, so it does not need Cloudflare's.
