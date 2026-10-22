@@ -1,0 +1,15 @@
+# Applies the Cloudflare-only firewall at boot, after Docker has written its own tables. Install:
+#   cp cloudflare-only.service cloudflare-only.timer /etc/systemd/system/ && systemctl daemon-reload
+#   systemctl enable --now cloudflare-only.service cloudflare-only.timer
+[Unit]
+Description=Only Cloudflare reaches the web ports (nftables table cloudflare_only)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/srv/agent-hub/firewall-cloudflare.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
