@@ -184,7 +184,7 @@
    *  (hub/public/hub.js MASCOT, 48 by 48 units). About half of Home's radius tall, and not drawn when Home is small. */
   function drawMascot(cx, cy, R) {
     if (R < 28) return;
-    const u = clamp(R * 0.012, 0.45, 1.4), LEG = '#5a5248', BODY = '#8f8678', TOP = '#aaa092', SPOT = '#6f675b', AMBER = '#e3ab3e';
+    const u = clamp(R * 0.0075, 0.35, 0.85), LEG = '#5a5248', BODY = '#8f8678', TOP = '#aaa092', SPOT = '#6f675b', AMBER = '#e3ab3e';
     const poly = (pts, width) => { x.lineWidth = width; x.beginPath(); x.moveTo(pts[0], pts[1]); for (let i = 2; i < pts.length; i += 2) x.lineTo(pts[i], pts[i + 1]); x.stroke(); };
     const hand = (hx, hy, fingers) => { for (const [dx, dy] of fingers) { x.lineWidth = 1.5; x.beginPath(); x.moveTo(hx, hy); x.lineTo(hx + dx, hy + dy); x.stroke(); } };
     const box = (bx, by, w, h, r, fill) => { x.fillStyle = fill; x.beginPath(); if (x.roundRect) x.roundRect(bx, by, w, h, r); else x.rect(bx, by, w, h); x.fill(); };
