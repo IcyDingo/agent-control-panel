@@ -1585,10 +1585,13 @@ server.on('error', (err) => {
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`agent control panel → http://127.0.0.1:${PORT}`);
-  if (DAEMON && !world.started()) openWorld();
   pollRoster().then(checkVersions);
   setInterval(pollRoster, ROSTER_MS);
   setInterval(checkVersions, VERSIONS_MS);
   setInterval(() => { prune(); broadcast(); }, 10_000);
   setInterval(() => scanWorld(worldScans++ % 5 === 0), WORLD_MS);
+  // A World that can't be saved (an unwritable prefs folder) must not take the panel down: under launchd it would crash-loop.
+  if (DAEMON && !world.started()) {
+    try { openWorld(); } catch (err) { console.error('world could not start:', err?.message ?? err); }
+  }
 });
