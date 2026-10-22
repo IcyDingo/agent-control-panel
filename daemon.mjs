@@ -41,7 +41,6 @@ export function launchdPlist({ label, node, repo, port, pathEnv, log }) {
     '<key>RunAtLoad</key><true/>',
     '<key>KeepAlive</key><true/>',
     '<key>ThrottleInterval</key><integer>10</integer>',
-    str('ProcessType', 'Background'),
     str('StandardOutPath', log),
     str('StandardErrorPath', log),
     '</dict>',
@@ -52,16 +51,28 @@ export function launchdPlist({ label, node, repo, port, pathEnv, log }) {
 
 const domain = () => `gui/${process.getuid()}`;
 
-/** Writes the plist and loads it, replacing any agent already loaded under the label. Throws with launchctl's message if it won't load. */
-export async function install({ port, node, repo, pathEnv, home = os.homedir(), run = execRun }) {
+/** How many times install tries to load the agent before it gives up. */
+const BOOTSTRAP_TRIES = 5;
+
+/**
+ * Writes the plist and loads it, replacing any agent already loaded under the label. Throws with launchctl's message if
+ * it won't load. `retryMs` is the wait between tries; tests set it to 0.
+ */
+export async function install({ port, node, repo, pathEnv, home = os.homedir(), run = execRun, retryMs = 500 }) {
   const label = LABEL(port), plist = plistPath(port, home), log = logPath(port, home);
   fs.mkdirSync(path.dirname(plist), { recursive: true });
   fs.mkdirSync(path.dirname(log), { recursive: true });
   fs.writeFileSync(plist, launchdPlist({ label, node, repo, port, pathEnv, log }), { mode: 0o644 });
   await run('launchctl', ['bootout', `${domain()}/${label}`]); // nothing loaded is fine
-  const { err, stderr } = await run('launchctl', ['bootstrap', domain(), plist]);
-  if (err) throw new Error(`launchctl bootstrap failed: ${stderr.trim() || err.message}`);
-  return { plist, label };
+  // Right after a running agent is booted out, launchd may still be taking it down, and a bootstrap then fails with
+  // "5: Input/output error" for a moment. So it tries a few times before it reports the failure.
+  let last;
+  for (let i = 0; i < BOOTSTRAP_TRIES; i++) {
+    if (i) await new Promise((r) => setTimeout(r, retryMs));
+    last = await run('launchctl', ['bootstrap', domain(), plist]);
+    if (!last.err) return { plist, label };
+  }
+  throw new Error(`launchctl bootstrap failed: ${last.stderr.trim() || last.err.message}`);
 }
 
 /** Unloads the agent and deletes its plist; `removed` is false when there was no plist. */

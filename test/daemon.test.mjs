@@ -23,7 +23,6 @@ test('the plist runs the server from the repo with PATH, the port and ACP_DAEMON
   for (const [k, v] of [['PATH', '/opt/node/bin:/usr/bin'], ['ACP_PORT', '4747'], ['ACP_DAEMON', '1']]) assert.match(xml, new RegExp(`<key>${k}</key><string>${v.replace(/\//g, '\\/')}</string>`));
   for (const k of ['RunAtLoad', 'KeepAlive']) assert.match(xml, new RegExp(`<key>${k}</key><true/>`));
   assert.match(xml, /<key>ThrottleInterval<\/key><integer>10<\/integer>/);
-  assert.match(xml, /<key>ProcessType<\/key><string>Background<\/string>/);
   assert.equal((xml.match(/<string>\/tmp\/d\.log<\/string>/g) ?? []).length, 2, 'stdout and stderr both go to the log');
   const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'daemon-')), 'x.plist');
   fs.writeFileSync(f, xml);
@@ -44,6 +43,22 @@ test('install succeeds when there was nothing to boot out', async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'daemon-'));
   const run = fakeRun({ bootout: { stdout: '', stderr: 'Boot-out failed: 3: No such process', err: new Error('exit 3') } });
   await assert.doesNotReject(install({ port: 4747, node: '/n', repo: '/r', pathEnv: '/b', home, run }));
+});
+
+/** A run whose bootstrap fails `fails` times with launchd's busy error, then succeeds. */
+const busyRun = (fails) => { const calls = []; const run = async (cmd, args) => { calls.push([cmd, ...args]); if (args[0] === 'bootstrap' && fails-- > 0) return { stdout: '', stderr: 'Bootstrap failed: 5: Input/output error\n', err: new Error('exit 5') }; return { stdout: '', stderr: '', err: null }; }; return Object.assign(run, { calls }); };
+
+test('install tries the bootstrap again when launchd is still taking the old agent down', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'daemon-')), run = busyRun(1);
+  await assert.doesNotReject(install({ port: 4747, node: '/n', repo: '/r', pathEnv: '/b', home, run, retryMs: 0 }));
+  assert.equal(run.calls.filter((c) => c[1] === 'bootstrap').length, 2);
+});
+
+test('install gives up after five failed bootstraps and throws with launchctl\'s message', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'daemon-')), run = busyRun(Infinity);
+  await assert.rejects(install({ port: 4747, node: '/n', repo: '/r', pathEnv: '/b', home, run, retryMs: 0 }),
+    (err) => err instanceof Error && err.message.includes('Bootstrap failed: 5: Input/output error'));
+  assert.equal(run.calls.filter((c) => c[1] === 'bootstrap').length, 5);
 });
 
 test('remove boots the service out and deletes the plist; a second remove reports nothing removed', async () => {
