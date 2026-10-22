@@ -223,6 +223,25 @@ test('a signed-in owner mints a link; the Mac turns it into a token with one pol
   assert.ok(me.json.tokens.some((t) => t.label === 'Worker on a Mac'));
 });
 
+test('the install script is served as plain text at /install and /install.sh, never cached long', async () => {
+  for (const p of ['/install', '/install.sh']) {
+    const r = await call('GET', p);
+    assert.equal(r.status, 200, p);
+    assert.equal(r.headers.get('content-type'), 'text/plain; charset=utf-8');
+    assert.equal(r.headers.get('cache-control'), 'no-cache');
+    assert.ok(r.text.startsWith('#!/bin/sh'));
+    assert.ok(r.text.includes('https://universe.cashegg.com'));
+  }
+});
+test('the download page leads with the one line, links the script to read, and keeps the app as the second block', async () => {
+  const r = await call('GET', '/download');
+  assert.equal(r.status, 200);
+  assert.ok(r.text.includes('Get the worker'));
+  assert.ok(r.text.includes('href="/install"'), 'the script link is not rewritten with a version');
+  assert.ok(r.text.includes('Want the session board too?'));
+  assert.ok(r.text.includes('./install.sh'));
+});
+
 test('a token can be revoked by id from the web; a device code can be denied; polling too fast is told to slow down', async () => {
   const cookie = await login();
   const mine = (await call('GET', '/api/me', { cookie })).json.tokens;

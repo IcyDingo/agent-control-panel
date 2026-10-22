@@ -26,12 +26,14 @@ const DEFAULT_LABEL = 'Agent Panel on a Mac';
 const RELEASE_REPO = 'IcyDingo/agent-control-panel';
 
 // Only these names are ever read from disk; nothing is joined from the URL.
-const TYPES = { '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.html': 'text/html; charset=utf-8' };
+const TYPES = { '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.sh': 'text/plain; charset=utf-8', '.html': 'text/html; charset=utf-8' };
 const STATIC = {
   '/world.js': path.join(HERE, '..', 'public', 'world.js'),
   '/hub.js': path.join(HERE, 'public', 'hub.js'),
   '/hub.css': path.join(HERE, 'public', 'hub.css'),
   '/robots.txt': path.join(HERE, 'public', 'robots.txt'),
+  '/install': path.join(HERE, 'public', 'install.sh'),
+  '/install.sh': path.join(HERE, 'public', 'install.sh'),
 };
 const PAGES = { '/': 'index.html', '/download': 'download.html', '/me': 'me.html', '/device': 'device.html' };
 const SYSTEM_PAGE = 'system.html';
@@ -144,7 +146,8 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now, ra
   async function withVersions(html) {
     let out = String(html);
     for (const [url, file] of Object.entries(STATIC)) {
-      if (path.extname(file) === '.txt') continue;
+      // A text file or a script has no version link; the pages name /install by its plain address.
+      if (['.txt', '.sh'].includes(path.extname(file))) continue;
       const v = await currentVersion(file).catch(() => null);
       if (v) out = out.split(`"${url}"`).join(`"${url}?v=${v}"`);
     }

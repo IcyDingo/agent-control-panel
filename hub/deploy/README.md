@@ -36,12 +36,12 @@ As deployed, the record is proxied and the zone is on the Pro plan with Super Bo
 "Universe API", lets the Macs through while the pages keep the bot check:
 
 ```
-(http.host eq "universe.cashegg.com" and starts_with(http.request.uri.path, "/api/"))
+(http.host eq "universe.cashegg.com" and (starts_with(http.request.uri.path, "/api/") or http.request.uri.path in {"/install" "/install.sh"}))
 ```
 
 Action Skip, with Super Bot Fight Mode (and rate limiting) ticked and "All remaining custom rules" left unticked (the
 form refuses the two together). Everything a Mac calls is under `/api/`; the sign-in and the device approval are
-browser pages and stay protected. On the free plan the same product is Bot Fight Mode, which no rule can skip: there it
+browser pages and stay protected. `/install` is fetched by `curl`, which the bot check would otherwise challenge; the rule is edited in the Cloudflare dashboard, not by any script here. On the free plan the same product is Bot Fight Mode, which no rule can skip: there it
 must be off for the zone.
 
 Proxied, two things matter. Caddy must know the visitor's address: `caddy-cloudflare.sh` lists Cloudflare's ranges as
