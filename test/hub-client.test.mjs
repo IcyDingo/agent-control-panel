@@ -469,3 +469,59 @@ test('stream tells onOpen once per successful connect, not for a failed one, and
   ac.abort();
   await done;
 });
+
+test('signing out ends an open stream, an event that arrives afterwards is not handed on, and it does not connect again', async () => {
+  let live;
+  const s = setup((c) => { if (c.method === 'DELETE') return json({ ok: true }); live = streamResponse(c.signal); return live.res; }, { sleep: async () => {} });
+  signedIn(s);
+  const got = [];
+  const done = s.hub.stream('/api/me/events', (e, d) => got.push(d), { signal: new AbortController().signal });
+  await until(() => live);
+  live.push('event: order\ndata: {"id":"before"}\n\n');
+  await until(() => got.length === 1);
+  await s.hub.logout();
+  live.push('event: order\ndata: {"id":"after"}\n\n');
+  await done;
+  assert.deepEqual(got, [{ id: 'before' }]);
+  assert.equal(s.fetch.calls.filter((c) => c.url.endsWith('/api/me/events')).length, 1);
+});
+
+test('a stream the hub closes after a sign-out is not opened again', async () => {
+  let live;
+  const s = setup((c) => { if (c.method === 'DELETE') return json({ ok: true }); live = streamResponse(c.signal); return live.res; }, { sleep: async () => {} });
+  signedIn(s);
+  const done = s.hub.stream('/api/me/events', () => {}, { signal: new AbortController().signal });
+  await until(() => live);
+  await s.hub.logout();
+  live.end();   // what the hub does when the token is revoked
+  await done;
+  assert.equal(s.fetch.calls.filter((c) => c.url.endsWith('/api/me/events')).length, 1);
+});
+
+test('a sign-in as someone else ends the stream held for the old token, and the next stream uses the new one', async () => {
+  const lives = [];
+  const s = setup((c) => { const l = streamResponse(c.signal); lives.push(l); return l.res; });
+  signedIn(s);
+  const got = [];
+  const done = s.hub.stream('/api/me/events', (e, d) => got.push(d), { signal: new AbortController().signal });
+  await until(() => lives.length === 1);
+  signedIn(s, 'hub_other');   // a logout and a login as another account, from a terminal
+  s.bump();
+  lives[0].push('event: order\ndata: {"id":"for the old account"}\n\n');
+  await done;
+  assert.deepEqual(got, []);
+  assert.equal(s.hub.status().loggedIn, true, 'the new sign-in is untouched');
+  const ac = new AbortController();
+  const next = s.hub.stream('/api/me/events', () => {}, { signal: ac.signal });
+  await until(() => lives.length === 2);
+  assert.equal(s.fetch.calls[1].headers.authorization, 'Bearer hub_other');
+  ac.abort();
+  await next;
+});
+
+test('a 401 for a token the file no longer holds ends the stream without signing the new one out', async () => {
+  const s = setup(async () => { signedIn(s, 'hub_new'); s.bump(); return json({ ok: false }, 401); });
+  signedIn(s);
+  await s.hub.stream('/api/me/events', () => {}, { signal: new AbortController().signal });
+  assert.equal(s.hub.status().loggedIn, true);
+});

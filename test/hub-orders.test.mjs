@@ -9,9 +9,10 @@ const order = (id, extra = {}) => ({ id, kind: 'build', description: `build ${id
 
 /** A hub whose pending list is `pending`, whose stream hands `streamed` to the listener and then waits to be aborted. */
 function setup({ pending = [], streamed = [], execute, onDone, answers = [], doneAnswers = [], endAtOnce = false } = {}) {
-  const calls = [], done = [], extras = { fire: null, streams: 0 };
+  const calls = [], done = [], extras = { fire: null, streams: 0, who: { loggedIn: true, account: { id: 'a1' } } };
   const timeouts = [];
   const hub = {
+    status: () => extras.who,
     request: async (method, path, { body } = {}) => {
       calls.push({ method, path, body });
       if (method === 'GET') return answers.shift() ?? { ok: true, status: 200, body: { ok: true, orders: pending } };
@@ -24,6 +25,7 @@ function setup({ pending = [], streamed = [], execute, onDone, answers = [], don
       extras.streams++;
       extras.open = () => onOpen();
       extras.fire = (o) => onEvent('order', o);
+      extras.end = resolve;   // as the real stream does once the Mac is signed out
       Promise.resolve().then(async () => { for (const o of streamed) await onEvent('order', o); });
       if (endAtOnce) resolve();   // as the real stream does when the hub answers 401
       signal.addEventListener('abort', () => resolve(), { once: true });
@@ -242,5 +244,42 @@ test('a result the hub refuses for good (it no longer knows the order) is droppe
   await settle();
   assert.deepEqual(t.ran, ['a']);
   assert.equal(t.calls.filter((c) => c.method === 'POST').length, 1);
+  t.orders.stop();
+});
+
+test('an order that arrives once the Mac is signed out, or signed in as someone else, is not run', async () => {
+  const t = setup();
+  t.orders.start();
+  await settle();
+  t.extras.who = { loggedIn: false, account: null };
+  t.extras.fire(order('a'));
+  await settle();
+  t.extras.who = { loggedIn: true, account: { id: 'b2' } };
+  t.extras.fire(order('b'));
+  await settle();
+  assert.deepEqual(t.ran, []);
+  t.orders.stop();
+});
+
+test('a stream that ended at a sign-out hears nothing more, and the next start opens a new one for the account signed in now', async () => {
+  const t = setup({ pending: [] });
+  t.orders.start();
+  await settle();
+  t.extras.who = { loggedIn: false, account: null };
+  const fire = t.extras.fire;
+  t.extras.end();
+  await settle();
+  assert.equal(t.orders.state().listening, false);
+  t.extras.who = { loggedIn: true, account: { id: 'a1' } };
+  fire(order('late'));   // delivered by the stream that already ended
+  await settle();
+  assert.deepEqual(t.ran, []);
+  t.extras.who = { loggedIn: true, account: { id: 'b2' } };
+  t.orders.start();
+  await settle();
+  assert.equal(t.extras.streams, 2);
+  t.extras.fire(order('b'));
+  await settle();
+  assert.deepEqual(t.ran, ['b']);
   t.orders.stop();
 });

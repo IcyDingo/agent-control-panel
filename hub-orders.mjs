@@ -23,6 +23,7 @@ export function createHubOrders({ hub, execute, onDone, timers = { setTimeout, c
   let current = null;        // the order being run
   let chain = Promise.resolve();   // everything that touches orders waits its turn here
   let retry = null;
+  let owner = null;          // the account signed in when started: orders are run only for it
   const seen = new Set();    // ids started this session
   const unreported = new Map();   // id -> the result the hub has not taken yet
 
@@ -33,8 +34,12 @@ export function createHubOrders({ hub, execute, onDone, timers = { setTimeout, c
     return chain;
   };
 
+  /** Still signed in, as the account this was started for. */
+  const signedIn = () => { const s = hub.status(); return s.loggedIn && (s.account?.id ?? null) === owner; };
+
   async function run(order) {
     if (typeof order?.id !== 'string' || seen.has(order.id)) return;
+    if (!signedIn()) return;   // signed out since (or as someone else): not ours to run, and not marked as seen
     seen.add(order.id);
     current = order;
     let result;
@@ -77,21 +82,26 @@ export function createHubOrders({ hub, execute, onDone, timers = { setTimeout, c
     }
   }
 
-  /** Does nothing while the stream is up. A stream that ended by itself (the hub said 401) leaves a stopped-in-all-but-name session: begin afresh. */
+  /**
+   * Does nothing while the stream is up. A stream that ended by itself (the hub said 401, or the Mac was signed out or
+   * signed in as someone else) leaves a stopped-in-all-but-name session: begin afresh, for whoever is signed in now.
+   */
   function start() {
     if (controller && listening) return;
     stop();
     controller = new AbortController();
     const { signal } = controller;
+    owner = hub.status().account?.id ?? null;
     enqueue(drain);
     listening = true;
+    let ended = false;
     hub.stream('/api/me/events', (event, data) => {
-      if (event !== 'order') return;
+      if (event !== 'order' || ended) return;
       enqueue(() => run(data));
       enqueue(drain);
     }, { signal, onOpen: () => { enqueue(drain); } })
       .catch((e) => log('hub orders: the stream failed:', e?.message ?? String(e)))
-      .finally(() => { if (controller?.signal === signal) listening = false; });
+      .finally(() => { ended = true; if (controller?.signal === signal) listening = false; });
   }
 
   function stop() {

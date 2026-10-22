@@ -227,36 +227,41 @@ export function createHub({
   /**
    * Hold the hub's event stream open and call `onEvent(event, data)` for each event. When it drops, wait 2 s, 4 s, ... up
    * to a minute and connect again; a 401 means the token is dead, so stop. `onOpen()` is called (not waited for) each time a connection
-   * is made, before its events are read. Resolves when `signal` aborts. Never throws.
+   * is made, before its events are read. One call belongs to one sign-in: it ends as soon as the Mac is signed out or holds
+   * another token (looked at before each connect and on every chunk, so the hub's 20 s ping is enough to notice), and
+   * nothing that arrives after that is handed on. Resolves when it ends or `signal` aborts. Never throws.
    */
   async function stream(p, onEvent, { signal, onOpen } = {}) {
     let wait = FIRST_WAIT;
-    while (!signal?.aborted) {
+    load();
+    const token = st.token;
+    const mine = () => { load(); return loggedIn() && st.token === token; };
+    while (!signal?.aborted && mine()) {
       let reader;
       const stop = () => reader?.cancel().catch(() => {});
       try {
-        load();
-        if (loggedIn()) {
-          const res = await fetch(url + p, { headers: { authorization: `Bearer ${st.token}`, accept: 'text/event-stream' }, signal });
-          if (res.status === 401) { signedOut = true; res.body?.cancel().catch(() => {}); return; }
-          if (res.ok && res.body) {
-            reader = res.body.getReader();
-            signal?.addEventListener('abort', stop, { once: true });
-            try { onOpen?.(); } catch { /* a hook's trouble is not the stream's */ }   // events missed while it was down are the caller's to fetch
-            const decoder = new TextDecoder();
-            let buffer = '';
-            for (;;) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              wait = FIRST_WAIT;
-              const parsed = parseSse(buffer + decoder.decode(value, { stream: true }));
-              buffer = parsed.rest;
-              for (const { event, data } of parsed.events) {
-                try { await onEvent(event, data); } catch { /* a handler's trouble is not the stream's */ }
-              }
+        const res = await fetch(url + p, { headers: { authorization: `Bearer ${token}`, accept: 'text/event-stream' }, signal });
+        if (res.status === 401) { if (mine()) signedOut = true; res.body?.cancel().catch(() => {}); return; }
+        if (res.ok && res.body) {
+          reader = res.body.getReader();
+          signal?.addEventListener('abort', stop, { once: true });
+          try { onOpen?.(); } catch { /* a hook's trouble is not the stream's */ }   // events missed while it was down are the caller's to fetch
+          const decoder = new TextDecoder();
+          let buffer = '';
+          const end = () => { stop(); signal?.removeEventListener('abort', stop); };
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (!mine()) return end();   // signed out, or signed in as someone else
+            wait = FIRST_WAIT;
+            const parsed = parseSse(buffer + decoder.decode(value, { stream: true }));
+            buffer = parsed.rest;
+            for (const { event, data } of parsed.events) {
+              if (!mine()) return end();   // a handler may have taken long enough for that to change
+              try { await onEvent(event, data); } catch { /* a handler's trouble is not the stream's */ }
             }
-          } else res.body?.cancel().catch(() => {});
-        }
+          }
+        } else res.body?.cancel().catch(() => {});
       } catch { /* dropped or failed: fall through to the wait */ }
       signal?.removeEventListener('abort', stop);
       if (signal?.aborted) break;
