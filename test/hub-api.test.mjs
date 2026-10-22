@@ -427,6 +427,10 @@ test('bodies must be JSON objects; unknown paths and missing pages are 404; the 
   const page = await call('GET', '/');
   assert.deepEqual([page.status, page.headers.get('x-frame-options')], [200, 'DENY'], 'a page is never framed');
   assert.equal((await call('GET', '/@alice')).headers.get('x-frame-options'), 'DENY');
+  const download = await call('GET', '/download');
+  assert.deepEqual([download.status, download.headers.get('x-frame-options')], [200, 'DENY']);
+  assert.match(download.text, /\.\/install\.sh/, 'the download page carries the install lines');
+  assert.doesNotMatch(page.text, /href="\/me"[^>]*>Your profile/, 'the landing\'s bar has no profile link; the galaxy page has it');
   assert.equal((await call('GET', '/healthz')).headers.get('x-frame-options'), null, 'JSON answers are as they were');
   const js = await call('GET', '/world.js');
   assert.equal(js.status, 200);

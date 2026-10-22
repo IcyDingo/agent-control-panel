@@ -32,7 +32,7 @@ const STATIC = {
   '/hub.css': path.join(HERE, 'public', 'hub.css'),
   '/robots.txt': path.join(HERE, 'public', 'robots.txt'),
 };
-const PAGES = { '/': 'index.html', '/me': 'me.html', '/device': 'device.html' };
+const PAGES = { '/': 'index.html', '/download': 'download.html', '/me': 'me.html', '/device': 'device.html' };
 const SYSTEM_PAGE = 'system.html';
 
 const HEADERS = { 'x-content-type-options': 'nosniff' };

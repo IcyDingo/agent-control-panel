@@ -38,7 +38,7 @@
     <section class="card" id="done" hidden>
       <h2 id="done-title"></h2>
       <p class="dim" id="done-text"></p>
-      <div class="actions"><a class="btn" href="/me">Your profile</a></div>
+      <div class="actions"><a class="btn" href="/" id="done-galaxy">Your galaxy</a></div>
     </section>
   </main>
 </div>
@@ -56,6 +56,7 @@
     return;
   }
   $('who').textContent = `Signed in as @${data.account.handle}. Only approve a code you can see on your own Mac.`;
+  $('done-galaxy').href = '/@' + encodeURIComponent(data.account.handle);
   $('code').value = code;
   $('form').hidden = false;
 

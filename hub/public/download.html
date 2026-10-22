@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Download · Universe</title>
+<meta name="description" content="Get Agent Panel for your Mac: three lines in a terminal, and your agents' work starts building a galaxy.">
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/hub.css">
+</head>
+<body class="stars-bg">
+<div class="page wide">
+  <header class="bar">
+    <a class="brand" href="/">Universe</a>
+    <span class="grow"></span>
+    <a class="btn on" href="/download" aria-current="page">Download</a>
+    <a class="btn" id="signin" href="/login/github" hidden>Sign in with GitHub</a>
+    <a class="btn primary" id="mine" href="/me" hidden>Your galaxy</a>
+  </header>
+
+  <main class="dl">
+    <section class="get g24" aria-labelledby="get-h">
+      <div class="text">
+        <h1 id="get-h">Get the panel</h1>
+        <p>Agent Panel is a page on your Mac that shows every Claude Code session and lets you answer them from one
+          place. It also counts your agents' work and grows your galaxy here.</p>
+        <p>You need a Mac on macOS 14 or newer, Claude Code 2.1.303 or newer, Node 20 or newer, and Apple's Command
+          Line Tools. The installer says what is missing.</p>
+      </div>
+      <div class="code">
+        <pre id="install">git clone https://github.com/IcyDingo/agent-control-panel.git
+cd agent-control-panel
+./install.sh</pre>
+        <button class="btn small" id="copy" type="button">Copy</button>
+      </div>
+    </section>
+
+    <section class="then g24" aria-label="What happens next">
+      <ol class="then-list">
+        <li><b>It builds Agent Panel.app</b> into your Applications folder and installs a background service, so your
+          work is counted whether or not the app is open. Keep the folder you cloned: the app runs from it.</li>
+        <li><b>Open Agent Panel.</b> macOS may ask whether it may use your Documents folder; the panel reads the
+          repositories your sessions work in. Press <b>Connect this profile</b> once, and sessions you start from then
+          on show up.</li>
+        <li><b>Sign in</b> from the Profile box in World, or with <code>node server.mjs login</code>. Approve the code
+          here with GitHub, and your galaxy gets its permanent spot in the Universe.</li>
+        <li><b>Update</b> with <code>git pull</code> and <code>./install.sh</code> again. It rebuilds the app and restarts
+          the service on the new code.</li>
+      </ol>
+      <p class="more">The full manual, with what is shared and what never leaves your Mac, is the
+        <a href="https://github.com/IcyDingo/agent-control-panel#readme" rel="noopener">README</a>. The hub itself can be
+        <a href="https://github.com/IcyDingo/agent-control-panel/blob/main/hub/README.md" rel="noopener">run on your own</a>.</p>
+    </section>
+  </main>
+
+  <footer class="foot" id="foot">
+    <div class="line">
+      <a class="brand" href="/">Universe</a>
+      <nav>
+        <a href="https://github.com/IcyDingo/agent-control-panel/blob/main/hub/README.md" rel="noopener">Run your own</a>
+        <a href="https://github.com/IcyDingo/agent-control-panel" rel="noopener">Source</a>
+      </nav>
+    </div>
+  </footer>
+</div>
+<script src="/hub.js"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const { hashOf, pick, mosaic } = Hub;
+
+  // Copy the install lines; the button says so for a moment.
+  $('copy').addEventListener('click', async () => {
+    const button = $('copy');
+    try { await navigator.clipboard.writeText($('install').textContent + '\n'); button.textContent = 'Copied'; }
+    catch { button.textContent = 'Select and copy'; }
+    setTimeout(() => { button.textContent = 'Copy'; }, 1800);
+  });
+
+  // The footer's row of squares, the same picture as the landing's.
+  const QUIET = ['q1', 'q1', 'q1', 'q1', 'q2', 'q2', 'q2', 'q3', 'q3', 'q4'];
+  const cells = [];
+  for (let i = 0; i < 24; i++) { const at = `foot ${i} 0`; cells.push(hashOf(at + ' sun') % 24 === 0 ? 'a0' : pick(at, QUIET)); }
+  if (!cells.includes('a0')) cells[hashOf('foot sun') % cells.length] = 'a0';
+  $('foot').prepend(mosaic(cells, 24));
+
+  Hub.me().then((r) => {
+    if (!r) { $('signin').hidden = false; return; }
+    $('mine').href = '/@' + encodeURIComponent(r.account.handle);
+    $('mine').hidden = false;
+  });
+})();
+</script>
+</body>
+</html>

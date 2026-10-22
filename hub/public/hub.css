@@ -101,6 +101,16 @@ select.field { padding-right: 6px; }
 .get .code { grid-column: 13 / 25; position: relative; padding: 18px 20px; border: 1px solid var(--line); border-radius: 10px; background: var(--code); }
 .get pre { margin: 0; font: 13.5px/1.75 var(--mono); color: var(--fg); overflow-x: auto; }
 .get .code .btn { position: absolute; right: 12px; bottom: 14px; } /* beside the short last line, clear of the long first */
+/* The download page: the block above, then what happens next, on the left 11 columns like the hero's words. */
+.dl { padding-top: 16px; }
+.dl .get { margin-top: 24px; }
+.dl h1 { margin: 0; font-size: clamp(28px, 3.4vw, 40px); line-height: 1.06; font-weight: 600; letter-spacing: -0.03em; }
+.then { margin-top: 44px; padding-top: 28px; border-top: 1px solid var(--line); }
+.then-list { grid-column: 1 / 14; margin: 0; padding-left: 22px; display: grid; gap: 14px; color: var(--fg-dim); font-size: 14.5px; line-height: 1.5; }
+.then-list li::marker { color: var(--amber); font-weight: 600; }
+.then-list b { color: var(--fg); font-weight: 600; }
+.then-list code { font: 13px var(--mono); color: var(--fg); background: var(--code); padding: 1px 5px; border-radius: 4px; }
+.then .more { grid-column: 15 / 25; margin: 0; color: var(--fg-dim); font-size: 13.5px; line-height: 1.5; }
 .steps { margin-top: 32px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .step { grid-column: span 6; display: grid; gap: 10px; align-content: start; padding: 22px 22px 26px 0; border-right: 1px solid var(--line); }
 .step + .step { padding-left: 22px; }
@@ -124,6 +134,8 @@ select.field { padding-right: 6px; }
   .hero .block { margin-top: 24px; aspect-ratio: 12 / 5; }
   .get .text, .get .code { grid-column: 1 / -1; }
   .get .text { padding-right: 0; margin-bottom: 16px; }
+  .then-list, .then .more { grid-column: 1 / -1; }
+  .then .more { margin-top: 20px; }
   .step { grid-column: span 12; }
   .step:nth-child(2) { border-right: 0; }
   .step:nth-child(3) { padding-left: 0; }
