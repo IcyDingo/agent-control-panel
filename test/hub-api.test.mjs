@@ -427,6 +427,15 @@ test('bodies must be JSON objects; unknown paths and missing pages are 404; the 
   const page = await call('GET', '/');
   assert.deepEqual([page.status, page.headers.get('x-frame-options')], [200, 'DENY'], 'a page is never framed');
   assert.equal((await call('GET', '/@alice')).headers.get('x-frame-options'), 'DENY');
+  // The pages link the shared files with their content's version, and the current version is kept for good.
+  const v = /href="\/hub\.css\?v=([0-9a-f]{10})"/.exec(page.text)?.[1];
+  assert.ok(v, 'the landing links the stylesheet with a version');
+  assert.match(page.text, /src="\/hub\.js\?v=[0-9a-f]{10}"/);
+  assert.match((await call('GET', '/@alice')).text, /src="\/world\.js\?v=[0-9a-f]{10}"/);
+  assert.equal((await call('GET', `/hub.css?v=${v}`)).headers.get('cache-control'), 'public, max-age=31536000, immutable', 'the current version never needs asking about');
+  assert.equal((await call('GET', '/hub.css?v=0000000000')).headers.get('cache-control'), 'no-cache', 'a stale version is checked like a bare request');
+  assert.equal((await call('GET', '/hub.css')).headers.get('cache-control'), 'no-cache');
+  assert.equal((await call('GET', `/hub.css?v=${v}`)).text, (await call('GET', '/hub.css')).text, 'the same file either way');
   const download = await call('GET', '/download');
   assert.deepEqual([download.status, download.headers.get('x-frame-options')], [200, 'DENY']);
   assert.match(download.text, /\.\/install\.sh/, 'the download page carries the install lines');

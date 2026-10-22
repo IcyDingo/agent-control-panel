@@ -126,15 +126,42 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now, ra
   // A page or script is sent with a tag of its content and `no-cache`: the browser keeps it but asks each time whether it
   // changed, and a 304 says no. So a new version shows on the next load, with nothing to remember to bump. `more(ctx)`
   // adds headers that depend on the request.
+  // The shared stylesheet and scripts are linked from the pages with a version in the address (`/hub.css?v=<hash of its
+  // content>`), so a page that just changed loads the files it was written for even where a proxy or a browser keeps
+  // the old ones for hours (Cloudflare tells browsers to keep a stylesheet for four hours whatever the origin says). A
+  // request for the current version is answered as immutable; a bare one is checked on every load.
+  const versionOf = (data) => crypto.createHash('sha256').update(data).digest('hex').slice(0, 10);
+  const versions = new Map(); // file → { mtime, v }, so a page is served without rehashing files that did not change
+  async function currentVersion(file) {
+    const { mtimeMs } = await fs.promises.stat(file);
+    const known = versions.get(file);
+    if (known && known.mtime === mtimeMs) return known.v;
+    const v = versionOf(await fs.promises.readFile(file));
+    versions.set(file, { mtime: mtimeMs, v });
+    return v;
+  }
+  async function withVersions(html) {
+    let out = String(html);
+    for (const [url, file] of Object.entries(STATIC)) {
+      if (path.extname(file) === '.txt') continue;
+      const v = await currentVersion(file).catch(() => null);
+      if (v) out = out.split(`"${url}"`).join(`"${url}?v=${v}"`);
+    }
+    return Buffer.from(out);
+  }
+
   const staticFile = (file, more = () => ({})) => async (ctx) => {
-    const { req, res } = ctx;
+    const { req, res, q } = ctx;
+    const page = path.extname(file) === '.html';
     let data;
     try { data = await fs.promises.readFile(file); } catch { return fail(res, 404, 'Not found.'); }
+    if (page) data = await withVersions(data);
     const etag = `"${crypto.createHash('sha256').update(data).digest('base64url').slice(0, 22)}"`;
+    const cache = !page && q.get('v') !== null && q.get('v') === versionOf(data) ? 'public, max-age=31536000, immutable' : 'no-cache';
     // A page is never shown inside another site's frame (its buttons place orders and approve Macs).
-    const headers = { etag, ...(path.extname(file) === '.html' ? { 'x-frame-options': 'DENY' } : {}), ...more(ctx) };
-    if (req.headers['if-none-match'] === etag) return send(res, 304, '', { cache: 'no-cache', type: TYPES[path.extname(file)] ?? 'application/octet-stream', headers });
-    send(res, 200, data, { type: TYPES[path.extname(file)] ?? 'application/octet-stream', cache: 'no-cache', headers });
+    const headers = { etag, ...(page ? { 'x-frame-options': 'DENY' } : {}), ...more(ctx) };
+    if (req.headers['if-none-match'] === etag) return send(res, 304, '', { cache, type: TYPES[path.extname(file)] ?? 'application/octet-stream', headers });
+    send(res, 200, data, { type: TYPES[path.extname(file)] ?? 'application/octet-stream', cache, headers });
   };
 
   // An unlisted galaxy is reached by its link and nothing else: its page and its API answer tell crawlers to stay away,
