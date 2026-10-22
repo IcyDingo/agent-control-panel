@@ -28,9 +28,11 @@
     return mine;
   }
 
-  /** Opens the account's live stream (the cookie authenticates it) and calls onEvent(type, data) for each order and order_done. */
-  function events(onEvent) {
+  /** Opens the account's live stream (the cookie authenticates it) and calls onEvent(type, data) for each order and order_done.
+   *  The stream does not replay what it missed, so { onOpen } runs on every connect and reconnect, for the page to look again. */
+  function events(onEvent, { onOpen } = {}) {
     const source = new EventSource('/api/me/events');
+    if (onOpen) source.addEventListener('open', () => onOpen());
     for (const type of ['order', 'order_done']) {
       source.addEventListener(type, (e) => {
         let data = null;

@@ -29,7 +29,6 @@
       <p id="w-owner-text">Your Mac keeps this up to date. <span id="w-owner-sync"></span></p>
       <p id="o-balance" hidden></p>
       <p id="o-prices" hidden></p>
-      <p class="warn" id="o-mac" hidden>Your Mac hasn't picked this up yet. The service runs it as soon as the Mac is awake.</p>
       <!-- The orders: your Mac runs them like the panel's own buttons. One at a time. -->
       <div id="w-owner-controls">
         <div class="own-ctl">
@@ -53,6 +52,7 @@
           <p id="o-build-why" hidden></p>
         </div>
         <p id="o-say" aria-live="polite" hidden></p>
+        <p class="warn" id="o-mac" hidden>Your Mac hasn't picked this up yet. The service runs it as soon as the Mac is awake.</p>
         <p class="err" id="o-err" role="alert" hidden></p>
       </div>
     </section>
@@ -184,7 +184,7 @@
   const compass = (x, y) => COMPASS[Math.round((((Math.atan2(y, x) + Math.PI / 2) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI) / (Math.PI / 4)) % 8];
 
   function owner(first) {
-    let sys = first, status = null, busy = false;
+    let sys = first, status = null, statusLoaded = false, busy = false, placing = false, orderAt = null, ticks = 0, timer = null;
     const say = $('o-say'), err = $('o-err');
     const price = (kind) => status?.prices?.[kind] ?? null;
     const kinds = [
@@ -225,39 +225,67 @@
         $('o-balance').textContent = `Balance ${fmt(status.balance)} credit`;
         $('o-prices').textContent = `Push ${fmt(status.prices.frontier)} · Rocket ${fmt(status.prices.rocket)} · Build ${fmt(status.prices.build)}`;
       }
-      $('o-mac').hidden = Boolean(status?.mac?.online);
+      macNote();
       sync();
+    }
+    /** Why nothing has happened yet: the Mac says it is offline, it has never sent a status, or an order has waited over 2 minutes. */
+    function macNote() {
+      const slow = busy && orderAt !== null && Date.now() - orderAt > 120_000;
+      $('o-mac').hidden = !(slow || (status !== null && !status.mac?.online) || (statusLoaded && status === null));
     }
     async function loadStatus() {
       const r = await Hub.api('GET', '/api/me/status');
-      status = r.ok && r.status ? r.status : null;
+      if (r.ok) { status = r.status ?? null; statusLoaded = true; } // a failed GET says nothing: keep what was known
       showStatus();
     }
-    function wait(on) {
+    /** While an order is out: re-judge the sentence every 30 s, and every 60 s ask the hub whether it is still out (the stream does not replay). */
+    function watch(on) {
+      if (!on) { clearInterval(timer); timer = null; return; }
+      if (timer) return;
+      ticks = 0;
+      timer = setInterval(() => { macNote(); if (++ticks % 2 === 0) recheck(); }, 30_000);
+    }
+    function wait(on, createdAt = null) {
       busy = on;
+      orderAt = on ? createdAt ?? orderAt : null;
       if (on) { say.hidden = false; say.className = ''; say.textContent = 'On its way to your Mac…'; }
+      watch(on);
+      macNote();
       sync();
     }
     async function place(body) {
       err.hidden = true; say.hidden = true;
+      placing = true;
       wait(true);
       const r = await Hub.api('POST', '/api/me/orders', body);
-      if (r.ok) return;
+      placing = false;
+      if (r.ok) { if (busy) orderAt = r.order?.createdAt ?? null; macNote(); return; }
       wait(false);
       err.textContent = r.error; err.hidden = false;
-      if (r.status === 409) pendingNow(); // an order is out already: say so, and wait for it
+      if (r.status === 409) recheck(); // an order is out already: say so, and wait for it
     }
-    async function pendingNow() {
+    /** Ask the hub what is pending. Still out: wait for it. Gone (the stream missed its end, or it expired): show how it ended. */
+    async function recheck() {
+      if (placing) return;
       const r = await Hub.api('GET', '/api/me/orders?status=pending');
-      if (r.ok && r.orders.length) wait(true);
+      if (!r.ok || placing) return; // no answer says nothing
+      if (r.orders.length) { if (!busy) err.hidden = true; wait(true, r.orders[0].createdAt); return; }
+      if (!busy) return;
+      const l = await Hub.api('GET', '/api/me/orders?limit=1');
+      const last = l.ok ? l.orders[0] : null;
+      if (last?.result) finish(last.result);
+      else finish({ ok: false, error: 'The order is no longer pending.' }, true);
     }
     /** An order was placed (maybe from another tab) or has come back. */
     function onEvent(type, d) {
-      if (type === 'order') { err.hidden = true; wait(true); return; }
-      busy = false;
+      if (type === 'order') { err.hidden = true; wait(true, d.createdAt); return; }
+      finish(d);
+    }
+    function finish(d, plain = false) {
+      wait(false);
       err.hidden = true;
       say.hidden = false;
-      say.className = d.ok ? '' : 'err';
+      say.className = d.ok || plain ? '' : 'err';
       say.textContent = d.ok ? `Done: ${d.caption || 'your Mac ran it.'}` : (d.error || 'Your Mac could not run that order.');
       if (d.ok) { $('o-desc').value = ''; $('o-name').value = ''; }
       sync();
@@ -282,8 +310,8 @@
     fill();
     showStatus();
     loadStatus();
-    pendingNow();
-    Hub.events(onEvent);
+    recheck();
+    Hub.events(onEvent, { onOpen: recheck }); // the stream does not replay: on every (re)connect, ask what is pending
   }
 
   const [res, mine] = await Promise.all([Hub.api('GET', `/api/systems/@${encodeURIComponent(handle)}`), Hub.me()]);
