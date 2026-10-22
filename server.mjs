@@ -914,14 +914,15 @@ async function reply(body) {
   const bgUp = s.kind === 'background' && s.inRoster && BG_ID.test(s.id ?? '') && !['stopped', 'failed'].includes(s.state) && s.pid != null;
   if (bgUp && !change && !command) return sendToBackground(s, text);
   // A background job Claude Code still lists keeps the options it started with (its name, model, effort, mode and
-  // worktree): resumed with none, it wakes as itself under the same id. Passing any starts a copy instead, outside its
-  // worktree. So a model, effort or mode you pick needs its record removed first (claude rm), and that would take a
-  // worktree the job made along with it: refused for one that works in its own worktree.
+  // worktree): resumed with none, it wakes as itself under the same id. Passing any starts a copy instead: the same
+  // conversation under a new id, in the folder it is started from. So a model, effort or mode you pick needs its
+  // record removed first (claude rm) for it to wake as itself, and that would take a worktree the job made along with
+  // it. One that works in its own worktree carries on as a copy started from inside that worktree instead; its record
+  // stays, ended, and keeps the worktree (Claude Code refuses to remove it while the copy works there).
   const modePick = RESUME_MODES.has(body?.mode) ? body.mode : null;
   const keeps = s.kind === 'background' && s.inRoster && BG_ID.test(s.id ?? '');
   const repick = Boolean(change || modePick);
   const tree = keeps && repick ? worktreeOf(s) : null;
-  if (tree) return fail(`It works in its own worktree (${path.basename(tree)}), and a restart on another model, effort or mode would leave it. Send without changing them, or switch them in claude attach ${s.id}.`);
   // One that is working keeps your message until it is done: a terminal session always, a background job that is to
   // restart or run a /command.
   if ((s.kind === 'interactive' || bgUp) && isWorking(s) && !body?.fromQueue) {
@@ -935,7 +936,7 @@ async function reply(body) {
   }
   if (isWorking(s)) return fail('It is still working. Wait for it to finish, or interrupt it first.');
   if (bgUp && !change) return runCommand(s, text);
-  const cwd = s.cwd;
+  const cwd = tree ?? s.cwd; // a copy starts from inside its worktree (the roster gives a stopped job its starting folder back)
   if (!cwd || !fs.existsSync(cwd)) return fail(`Its folder is gone (${cwd}), so it can't be resumed.`);
   // Checked before anything is ended: a session that never saved a conversation has nothing to resume.
   const turn = lastTurn(s.sessionId);
@@ -950,7 +951,7 @@ async function reply(body) {
   }
   const args = ['--bg', '--resume', s.sessionId];
   if (!keeps || repick) {
-    if (keeps) {
+    if (keeps && !tree) {
       const r = await run('claude', ['rm', s.id]);
       if (r.err && !/No job matching/i.test(firstLine(r))) return fail(`It can't be restarted with your reply: ${firstLine(r)}`);
     }
@@ -969,12 +970,13 @@ async function reply(body) {
   const r = await run('claude', args, { cwd, timeout: 30_000 });
   const id = `${r.stdout}\n${r.stderr}`.match(/backgrounded · (\w+)/)?.[1];
   if (!id) return fail(firstLine(r));
-  dismissed.delete(s.sessionId);
-  Object.assign(s, { ended: false, closedByPanel: false, note: null });
+  const copy = Boolean(tree);
+  if (copy) s.continuedAs = { id, at: Date.now() }; // the record stays on the board, ended, and says where it went
+  else { dismissed.delete(s.sessionId); Object.assign(s, { ended: false, closedByPanel: false, note: null }); }
   setTimeout(pollRoster, 400);
   broadcast();
   if (!body?.fromQueue) logSent(s, text, 'restarted');
-  return { ok: true, id, same: s.sessionId.startsWith(id), ...(change ? { restartedOn: want } : {}) };
+  return { ok: true, id, same: s.sessionId.startsWith(id), ...(copy ? { copy } : {}), ...(change ? { restartedOn: want } : {}) };
 }
 
 // ---------------------------------------------------------------- mode

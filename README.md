@@ -295,9 +295,10 @@ changes this session alone.
 - **A background session** restarts for it: **Restart and send** stops it if it is running, removes its job record
   (`claude rm`; the conversation stays), then resumes the same conversation under the same id with your message. While
   it works, the message waits until it is done. The record has to go because Claude Code resumes a listed job with the
-  options it started with, and with any others starts a copy under a new id. So one that works in its own worktree
-  keeps its model, effort and mode here (the menus are locked): removing its record would remove the worktree, or
-  refuse to while it holds unpushed work. Message it as it is, or use `/model` and `/effort` in `claude attach`.
+  options it started with, and with any others starts a copy under a new id. One that works in its own worktree is
+  not removed (that would take the worktree with it): it carries on as that copy, started from inside its worktree, so
+  the same conversation goes on there under a new id, and the panel opens it. The old record stays on the board as
+  ended and keeps the worktree; Claude Code refuses to remove it while the copy works there.
 - **A terminal session** restarts with your message anyway, now on what you picked.
 - A restart without a pick keeps what it ran on, `[1m]` included: the model is read as Claude Code asked for it
   (`requestedModel`), since the name a reply carries drops the 1M context.

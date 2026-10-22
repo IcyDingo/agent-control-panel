@@ -1464,6 +1464,7 @@ function nowLine(s, st, rs) {
   if (st === 'idle') return quiet('Idle, waiting for a prompt');
   if (st === 'failed') return quiet('Ended with an error');
   if (s.leftRosterAt) return quiet(s.kind === 'interactive' ? `Closed. Its conversation is kept: claude --resume ${s.sessionId} reopens it.` : 'Closed');
+  if (s.continuedAs) return quiet(`Ended. Its conversation carries on as ${snap?.sessions.find((x) => x.id === s.continuedAs.id)?.name || s.continuedAs.id}. This record keeps its worktree.`);
   if (s.state === 'stopped') return quiet(`Ended. Its conversation is kept${s.id ? `: claude attach ${s.id} reopens it` : ''}.`);
   return quiet('Finished');
 }
@@ -1496,9 +1497,9 @@ const willQueue = (s, st) => (s.kind === 'interactive' || (bgLive(s) && (restart
 const SWITCHABLE = ['default', 'acceptEdits', 'plan', 'auto'];
 const modePicks = new Map(); // sessionId → the mode a terminal session carries on in once your message restarts it
 const modelPicks = new Map(), effortPicks = new Map(); // sessionId → the model / effort your next message restarts it on
-// A background job Claude Code still lists wakes with the options it started with; another model, effort or mode means a
-// restart that would leave a worktree of its own, so those stay as they are for one that works in one.
-const keepsOptions = (s) => s.kind === 'background' && s.inRoster && /\/\.claude\/worktrees\//.test(s.workCwd ?? s.cwd ?? '');
+// A background job Claude Code still lists wakes with the options it started with; on another model, effort or mode it
+// carries on as a copy under a new id. One that works in its own worktree does so from inside that worktree.
+const inOwnTree = (s) => s.kind === 'background' && s.inRoster && /\/\.claude\/worktrees\//.test(s.workCwd ?? s.cwd ?? '');
 const switching = new Map(); // sessionId → the mode a background job is being switched to
 const SENT_HOW = { now: 'Sent', 'once it was done': 'Sent once it was done', restarted: 'Sent. It carries on in the background',
                    'on its screen': 'Pressed on its screen', 'as what to change in its plan': 'Sent back with its plan' };
@@ -1629,7 +1630,7 @@ function renderCompose(s, st) {
     ...(SWITCHABLE.includes(s.mode) ? [] : [el('option', { value: '', text: s.mode ? modeOf(s.mode) : 'Mode unknown' })]),
     ...SWITCHABLE.map((m) => el('option', { value: m, text: modeOf(m) }))]);
   $('d-mode').value = to ?? picked ?? (SWITCHABLE.includes(s.mode) ? s.mode : '');
-  $('d-mode').disabled = Boolean(to) || (!live && keepsOptions(s));
+  $('d-mode').disabled = Boolean(to);
   setAttr($('d-mode'), 'title', live ? 'Its permission mode. Picking one switches it now.' : 'The mode it carries on in once your message restarts it');
   // Its model and effort: another one takes effect when your message restarts it (a background job restarts for it).
   const mPick = modelPicks.get(s.sessionId), ePick = effortPicks.get(s.sessionId), restart = live && Boolean(mPick || ePick);
@@ -1642,11 +1643,9 @@ function renderCompose(s, st) {
     ...(EFFORT[s.effort] ? [] : [el('option', { value: '', text: 'Effort unknown' })]),
     ...Object.entries(EFFORT).map(([v, t]) => el('option', { value: v, text: t }))]);
   $('d-effort').value = ePick ?? (EFFORT[s.effort] ? s.effort : '');
-  const fixed = keepsOptions(s), stays = `It works in its own worktree, and a restart on another one would leave it. Switch it in claude attach ${s.id}.`;
-  $('d-model').disabled = $('d-effort').disabled = fixed || sending.has(s.sessionId);
-  setAttr($('d-model'), 'title', fixed ? stays : 'Its model. Another one takes effect when your message restarts it.');
-  setAttr($('d-effort'), 'title', fixed ? stays : 'How hard it thinks. Another level takes effect when your message restarts it.');
-  if (fixed && !live) setAttr($('d-mode'), 'title', stays);
+  $('d-model').disabled = $('d-effort').disabled = sending.has(s.sessionId);
+  setAttr($('d-model'), 'title', 'Its model. Another one takes effect when your message restarts it.');
+  setAttr($('d-effort'), 'title', 'How hard it thinks. Another level takes effect when your message restarts it.');
   const key = `reply:${s.sessionId}`, on = armed?.key === key;
   const btn = $('d-send');
   btn.dataset.key = key;
@@ -1657,7 +1656,7 @@ function renderCompose(s, st) {
   const back = comesBack(picked && picked !== s.mode ? picked : null, mPick, ePick), carry = back ? ` It comes back ${back}.` : '';
   setText($('d-send-hint'), to ? `Switching it to ${modeOf(to).toLowerCase()}…`
     : typing ? (queue ? 'Once it is done, this is typed at its prompt, as you would in claude attach.' : 'This is typed at its prompt, as you would in claude attach.')
-    : restart ? (queue ? 'When it is done, it restarts in the background with this as its next prompt.' : 'It restarts in the background with this as its next prompt.') + tasksStop(s) + carry
+    : restart ? (queue ? 'When it is done, it' : 'It') + (inOwnTree(s) ? ' carries on as a copy under a new id, in its worktree, with this as its next prompt.' : ' restarts in the background with this as its next prompt.') + tasksStop(s) + carry
     : live ? (s.working ? 'It reads this at its next step, as if you typed it while it works.' : 'It carries on with your message.')
     : queue ? 'When it is done, Claude closes in its terminal and carries on in the background with this. Or type it in its terminal.' + tasksStop(s) + carry
     : (term && running ? 'Claude closes in its terminal and carries on in the background with this. claude attach opens it there.'
@@ -1735,6 +1734,8 @@ async function doReply(s) {
   if (r.command) return;
   if (r.sent) return note(s.sessionId, s.working ? 'Sent. It reads it at its next step.' : 'Sent. It carries on with your message.');
   const on = r.restartedOn ? comesBack(null, r.restartedOn.model, r.restartedOn.effort) : '';
+  // A copy is a new session: the panel opens it once the roster lists it.
+  if (r.copy) { launchedId = r.id; return note(s.sessionId, `Sent. It carries on as ${r.id} in its worktree${on ? ' ' + on : ''}.`); }
   note(s.sessionId, on ? `Sent. It carries on in the background ${on}.` : r.same ? 'Sent. It carries on in the background with your reply.' : `Sent. It carries on in the background as ${r.id}.`);
 }
 
