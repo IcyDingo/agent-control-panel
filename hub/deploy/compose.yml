@@ -1,0 +1,17 @@
+# The Universe hub on this server. Build: `docker compose build` (from the clone in ./src); run: `docker compose up -d`.
+# Settings live in .env beside this file; the database in the hub-data volume.
+services:
+  hub:
+    build:
+      context: ./src
+      dockerfile: hub/Dockerfile
+    image: agent-hub
+    container_name: agent-hub
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4848:4848"
+    volumes:
+      - hub-data:/data
+    env_file: .env
+volumes:
+  hub-data:

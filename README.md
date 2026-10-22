@@ -488,9 +488,9 @@ open); an order not picked up within 24 hours expires.
 **Only want World?** Open `http://127.0.0.1:4747/world`: the page opens straight into World, without the board. A
 bookmark can point there.
 
-**Which hub.** The panel talks to the address in `DEFAULT_HUB` in `hub.mjs`. For now that is a placeholder
-(`http://127.0.0.1:4848`, a hub on this machine) until one is hosted, and the address of the owner's hub goes there once
-it exists. To use another, set `ACP_HUB` in the environment of whatever runs the panel or `node server.mjs login`. A
+**Which hub.** The panel talks to the Universe at `https://universe.cashegg.com` (`DEFAULT_HUB` in `hub.mjs`). To
+use another, such as a hub on this machine while developing (`http://127.0.0.1:4848`), set `ACP_HUB` in the
+environment of whatever runs the panel or `node server.mjs login`. A
 sign-in belongs to the hub that issued it: pointed at a different hub, the panel shows you as signed out, and your old
 sign-in is still in `hub.json` for when you point back. To run a hub of your own, see [`hub/README.md`](hub/README.md).
 

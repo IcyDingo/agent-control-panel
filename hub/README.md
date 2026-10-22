@@ -113,6 +113,9 @@ volumes:
   hub-data:
 ```
 
+The Universe itself (universe.cashegg.com) is deployed from the files in [`deploy/`](deploy/README.md), which also say
+what to watch for behind Cloudflare.
+
 ## Backup
 
 Everything the hub keeps is in one database, `data/hub.sqlite`. It runs in WAL mode, so recent writes sit in the

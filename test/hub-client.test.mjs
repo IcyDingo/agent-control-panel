@@ -41,8 +41,8 @@ function signedIn(s, token = 'hub_secret') {
   fs.writeFileSync(s.file, JSON.stringify({ v: 1, url: 'http://hub.test', device: 'dev-1', token, account: ACCOUNT }));
 }
 
-test('the default hub is the local placeholder until one is hosted', () => {
-  assert.equal(DEFAULT_HUB, 'http://127.0.0.1:4848');
+test('the default hub is the Universe, over https, with no trailing slash', () => {
+  assert.equal(DEFAULT_HUB, 'https://universe.cashegg.com');
 });
 
 test('parseSse splits events, defaults the name to message and parses JSON data', () => {
