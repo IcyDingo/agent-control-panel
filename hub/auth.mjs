@@ -2,7 +2,8 @@
 // hands the app one, and the short-lived state that guards the GitHub redirect. Every secret (a session id, a token, a
 // device code) is stored only as its sha256, so a copy of the database cannot be used to sign in. The one exception is
 // a token approved for a device that has not collected it yet: it waits in device_codes.token_plain until the single
-// poll that picks it up, then the column is cleared.
+// poll that picks it up, then the column is cleared. A link parks nothing: its token is minted by the poll that
+// collects it.
 import crypto from 'node:crypto';
 
 const DAY = 24 * 3600 * 1000;
@@ -12,6 +13,7 @@ const USED_BUMP_MS = 60 * 1000; // a token's last_used_at moves at most this oft
 export const DEVICE_TTL_MS = 900_000;
 export const DEVICE_INTERVAL_S = 5;
 const SLOW_DOWN_BY_S = 5;
+const LINK_LABEL = 'Worker on a Mac'; // the name a linked worker's token carries on the profile
 const USER_CODE_ALPHABET = 'BCDFGHJKLMNPQRSTVWXZ23456789'; // no vowels (no accidental words) and no 0/1/O/I (no misreading)
 
 const sha256 = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
@@ -120,11 +122,15 @@ export function createAuth(db, { now = Date.now, randomBytes = crypto.randomByte
     }
   }
 
-  function startDevice() {
-    const deviceCode = secret(), t = now();
-    // Sweep: expire what ran out unnoticed (an approval nobody came back for), and forget rows long past their end.
+  /** Expire what ran out unnoticed (an approval nobody came back for), and forget rows long past their end. */
+  function sweepDevices(t) {
     for (const r of db.prepare("SELECT hash, token_plain FROM device_codes WHERE status != 'expired' AND status != 'used' AND expires_at <= ?").all(t)) expireDevice(r);
     run('DELETE FROM device_codes WHERE expires_at <= ?', t - DAY);
+  }
+
+  function startDevice() {
+    const deviceCode = secret(), t = now();
+    sweepDevices(t);
     for (;;) {
       const code = userCode();
       if (one('SELECT 1 FROM device_codes WHERE user_code = ?', code)) continue;
@@ -156,24 +162,38 @@ export function createAuth(db, { now = Date.now, randomBytes = crypto.randomByte
     return { ok: true };
   }
 
-  /** A link is the device flow with the approval already given, so the same sweep, poll and expiry apply. A new link
-   *  retires the account's earlier ones, and with them the tokens parked for a Mac that never collected them. */
-  function linkDevice(accountId, label) {
+  /** A link is the device flow with the approval already given, so the same sweep, poll and expiry apply. It holds no
+   *  token: the Download page makes one on every visit, so the token is minted only when a Mac collects the link, and a
+   *  link nobody runs leaves nothing live behind. A new link retires the account's earlier ones. */
+  function linkDevice(accountId) {
+    const t = now();
+    sweepDevices(t);
     for (const r of db.prepare("SELECT hash, token_plain FROM device_codes WHERE account_id = ? AND status = 'approved' AND user_code LIKE 'LINK-%'").all(accountId)) expireDevice(r);
-    const deviceCode = secret(), t = now();
+    // The code travels as a shell argument (`--link <code>`), and one that began with `-` would read as an option.
+    let deviceCode;
+    do deviceCode = secret(); while (deviceCode.startsWith('-'));
+    let code;
+    do code = `LINK-${userCode().slice(0, 4)}`; while (one('SELECT 1 FROM device_codes WHERE user_code = ?', code));
+    run('INSERT INTO device_codes (hash, user_code, expires_at, interval, last_poll_at, status, account_id, token_plain, created_at) VALUES (?, ?, ?, ?, NULL, ?, ?, NULL, ?)',
+      sha256(deviceCode), code, t + DEVICE_TTL_MS, DEVICE_INTERVAL_S, 'approved', accountId, t);
+    return { device_code: deviceCode, expires_in: DEVICE_TTL_MS / 1000 };
+  }
+
+  /** Spend an approved code: a link's token is minted here, in the same transaction that marks the row used, so a link
+   *  is collected once and a token exists only for a Mac that holds it. */
+  function collectDevice(r) {
     db.exec('BEGIN');
     try {
-      let code;
-      do code = `LINK-${userCode().slice(0, 4)}`; while (one('SELECT 1 FROM device_codes WHERE user_code = ?', code));
-      const { token } = mintToken(accountId, { label, device: code });
-      run('INSERT INTO device_codes (hash, user_code, expires_at, interval, last_poll_at, status, account_id, token_plain, created_at) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?)',
-        sha256(deviceCode), code, t + DEVICE_TTL_MS, DEVICE_INTERVAL_S, 'approved', accountId, token, t);
+      const token = r.token_plain === null && r.user_code.startsWith('LINK-')
+        ? mintToken(r.account_id, { label: LINK_LABEL, device: r.user_code }).token
+        : r.token_plain;
+      run("UPDATE device_codes SET status = 'used', token_plain = NULL WHERE hash = ?", r.hash);
       db.exec('COMMIT');
+      return token;
     } catch (e) {
       db.exec('ROLLBACK');
       throw e;
     }
-    return { device_code: deviceCode, expires_in: DEVICE_TTL_MS / 1000 };
   }
 
   /** Only a code still waiting can be refused, and the account that refused it is kept beside it. */
@@ -203,10 +223,7 @@ export function createAuth(db, { now = Date.now, randomBytes = crypto.randomByte
     if (tooFast) return { status: 'slow_down' };
 
     if (r.status === 'denied') return { status: 'denied' };
-    if (r.status === 'approved') {
-      run("UPDATE device_codes SET status = 'used', token_plain = NULL WHERE hash = ?", hash);
-      return { status: 'ok', token: r.token_plain, accountId: r.account_id };
-    }
+    if (r.status === 'approved') return { status: 'ok', token: collectDevice(r), accountId: r.account_id };
     return { status: 'pending' };
   }
 

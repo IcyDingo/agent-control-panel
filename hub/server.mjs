@@ -255,7 +255,7 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now, ra
     r.ok ? send(res, 200, { ok: true }) : fail(res, 404, r.error);
   }, APPROVE);
   route('POST', '/api/me/links', 'web', ({ res, who }) => {
-    const { device_code, expires_in } = auth.linkDevice(who.accountId, 'Worker on a Mac');
+    const { device_code, expires_in } = auth.linkDevice(who.accountId);
     send(res, 200, { ok: true, code: device_code, expires_in });
   }, APPROVE);
 

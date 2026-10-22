@@ -125,30 +125,43 @@ test('the device flow: pending → approved → collected once; expired; denied;
   assert.equal(auth.approveDevice(g.user_code, 'acct-1', 'again').ok, false, 'approved only once');
 });
 
-test('a link is an approved device code: one poll collects the token; a new link retires the old one and its token', () => {
+test('a link holds no token until a Mac collects it: that poll mints one; a new link retires the old one', () => {
   fresh();
-  const a = auth.linkDevice('acct-1', 'Worker on a Mac');
+  const a = auth.linkDevice('acct-1');
   assert.equal(a.expires_in, 900);
-  const row = db.prepare('SELECT user_code, status FROM device_codes WHERE account_id = ?').get('acct-1');
+  const row = db.prepare('SELECT user_code, status, token_plain FROM device_codes WHERE account_id = ?').get('acct-1');
   assert.match(row.user_code, /^LINK-[BCDFGHJKLMNPQRSTVWXZ2-9]{4}$/);
   assert.equal(row.status, 'approved');
-  const b = auth.linkDevice('acct-1', 'Worker on a Mac');
+  assert.equal(row.token_plain, null, 'nothing is minted when the link is made');
+  assert.deepEqual(auth.listTokens('acct-1'), [], 'so the profile lists no Mac that was never installed');
+  const b = auth.linkDevice('acct-1');
   assert.deepEqual(auth.pollDevice(a.device_code), { status: 'expired' }, 'the first link is gone');
+  assert.deepEqual(auth.listTokens('acct-1'), [], 'and retiring it left no stray token');
   const got = auth.pollDevice(b.device_code);
-  assert.equal(got.status, 'ok');
+  assert.deepEqual([got.status, got.accountId], ['ok', 'acct-1']);
   assert.equal(auth.tokenOwner(got.token).accountId, 'acct-1');
-  assert.equal(auth.listTokens('acct-1').filter((t) => t.label === 'Worker on a Mac').length, 1, 'the retired link\'s token was revoked');
+  const collected = db.prepare('SELECT user_code, status, token_plain FROM device_codes WHERE hash = ?').get(sha256(b.device_code));
+  assert.deepEqual([collected.status, collected.token_plain], ['used', null]);
+  assert.deepEqual(auth.listTokens('acct-1').map((t) => [t.label, t.device]), [['Worker on a Mac', collected.user_code]]);
   assert.deepEqual(auth.pollDevice(b.device_code), { status: 'expired' }, 'collected once');
+  assert.equal(auth.listTokens('acct-1').length, 1, 'a second poll mints nothing');
 });
 
-test('a link that is never collected is gone after fifteen minutes', () => {
+test('a link code never starts with a dash, so the install line cannot read it as an option', () => {
   fresh();
-  const { device_code } = auth.linkDevice('acct-1', 'Worker on a Mac');
+  // The counter filler walks the first byte through every value, so some draws would start with `-` (0xf8 to 0xfb).
+  for (let i = 0; i < 200; i++) assert.doesNotMatch(auth.linkDevice('acct-1').device_code, /^-/);
+});
+
+test('a link that is never collected is gone after fifteen minutes, and no token was ever live for it', () => {
+  fresh();
+  const { device_code } = auth.linkDevice('acct-1');
   clock.add(900_001);
   assert.deepEqual(auth.pollDevice(device_code), { status: 'expired' });
+  assert.deepEqual(auth.listTokens('acct-1'), []);
 });
 
-test('an approved code nobody collects is revoked when it runs out, by a late poll or by the next start', () => {
+test('an approved code nobody collects is revoked when it runs out, by a late poll or by the next start or link', () => {
   fresh();
   const parked = () => db.prepare('SELECT token_plain AS p FROM device_codes WHERE user_code = ?');
   const a = auth.startDevice();
@@ -173,6 +186,15 @@ test('an approved code nobody collects is revoked when it runs out, by a late po
   assert.equal(parked().get(b.user_code).p, null);
   assert.equal(auth.tokenAccountId(second), null);
   assert.equal(db.prepare('SELECT status FROM device_codes WHERE user_code = ?').get(b.user_code).status, 'expired');
+
+  // Making a link sweeps the same way.
+  const c = auth.startDevice();
+  assert.equal(auth.approveDevice(c.user_code, 'acct-1', 'Mac').ok, true);
+  const third = parked().get(c.user_code).p;
+  clock.add(900_000);
+  auth.linkDevice('acct-2');
+  assert.equal(parked().get(c.user_code).p, null);
+  assert.equal(auth.tokenAccountId(third), null);
 
   // Rows a day past their end are forgotten.
   clock.add(24 * 3600 * 1000);
