@@ -37,6 +37,7 @@ So the feature needs a daemon on the Mac and a hosted **hub** in the middle.
 | Chat | Separate direct messages between linked friends, on the hub site and in the panel **(owner)** |
 | Two Macs, one account | Last writer wins; the panel says when another Mac is syncing **(owner)** |
 | Hub address | Placeholder constant; build and test against a local hub on port 4848 **(owner)** |
+| Where you spend | On the site as well as in the panel, and the Mac executes: the site takes orders (push, rocket, build), the Mac's service runs them and pushes the result. The panel is optional; someone can drop the board and just have their world **(owner, 2026-10-22)** |
 
 ## Goals, non-goals, anti-goals
 
@@ -236,6 +237,31 @@ system, {readOnly:true, universe, me})` and a profile card; `/me` profile + devi
   `loadChat`, index.html:1514-1524) **(call)**.
 - Avatars shown only from `https://avatars.githubusercontent.com/`.
 
+### Orders: spending from the site, executed by the Mac (added 2026-10-22, owner)
+
+The Mac stays the authority on credit (it needs the transcripts and git) and on the Claude call behind Build it (it
+runs under the owner's own Claude login). The site becomes a remote control:
+
+- **Owner-only status.** With each sync the Mac also sends `PUT /api/me/status` with `{ balance, prices, today:
+  { credit, commits, added, removed, tokens, multiplier }, home: { xp, today }, building: boolean, mac: { name,
+  online } }`. The hub stores it per account and serves it only to the signed-in owner (`GET /api/me/status`), never
+  in any public read, never in the universe. It is not part of the projection and `validProjection` never sees it.
+- **Orders.** The owner, signed in on the site, posts `POST /api/me/orders { kind: 'frontier', ang } | { kind:
+  'rocket', planet, name } | { kind: 'build', on, description }`. The hub validates the shape (`colonyName`, the build
+  text ≤ 300, a finite angle, ids `^p\d{1,4}$`), stores it `pending`, and emits an `order` event on the owner's SSE
+  stream. One pending order at a time per account **(call)**; a second is refused with "One thing at a time: the
+  last order hasn't landed yet."
+- **Execution.** The Mac's service, while signed in, keeps the hub's event stream open whenever a page is connected
+  *or* an order is pending (so a headless Mac still executes), and on connect fetches `GET /api/me/orders?status=
+  pending`. For each order it runs the very same `world.buy` / `world.build` the panel uses, then `POST
+  /api/me/orders/:id/done { ok, error?, caption? }` and an urgent sync. The site shows the order as "on its way",
+  then the result, or the refusal in the Mac's own words ("It costs 4,000 credit, and you have 3,200.").
+- **Mac offline.** The order waits; the site says "Your Mac hasn't picked this up yet. The service runs it as soon
+  as the Mac is awake." Orders expire after 24 h **(call)**.
+- **World-only view.** `GET /world` on the local server serves the panel page opening straight into World; the Mac
+  app or a bookmark can point at it, so a person who never wants the board never sees it **(owner: "able to remove
+  panel and then just have the world")**.
+
 ### Friend rockets (world.mjs, server.mjs, world.js)
 
 - `PRICES.hail = 2000`, flat like builds. `hailTarget(raw)`: `@handle` (GitHub rules) or `"412, -88"` / `{x,y}` with
@@ -296,6 +322,9 @@ system, {readOnly:true, universe, me})` and a profile card; `/me` profile + devi
    partial chunks, hub.json 0600 and mtime re-read, device polling, 401 flips loggedIn, fetch throw → `{ok:false}`),
    `hub-sync` (fake timers: three schedules → one PUT, equal hash skipped, backoff 30 s then 60 s, 401 stops, heartbeat).
    Run end to end against the slice-3 hub with `ACP_HUB=http://127.0.0.1:4848`.
+   **Orders** (added 2026-10-22) ship in the same slice: owner-only status, `hub/orders.mjs`, the hub's `/api/me/events`
+   stream with `order` events, the Mac's `hub-orders.mjs` executor, ordering controls on `/@handle` for the owner, and
+   `GET /world` on the local server.
 5. **Universe + visit**: `/api/universe`, `/api/search`, `universe.js` on the hub, panel proxies, world.js universe
    layer and visit mode, visit card.
 6. **Friend rockets**: `hub/links.mjs`, `hub/live.mjs` (SSE + events table), `PRICES.hail`, `hailTarget`, `buy`,
