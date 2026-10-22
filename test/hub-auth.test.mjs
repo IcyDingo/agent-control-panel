@@ -162,7 +162,7 @@ test('an oauth state is single-use, short-lived, and only keeps a local return p
   assert.deepEqual(auth.takeState(auth.newState('/@alice')), { returnTo: '/@alice' });
   assert.deepEqual(auth.takeState(auth.newState('https://evil.example')), { returnTo: null });
   assert.deepEqual(auth.takeState(auth.newState('//evil.example')), { returnTo: null });
-  for (const sneaky of ['/\\evil.example', '/\t/evil.example', '/\n/evil.example', '/\\/evil.example', '/ok\r\nSet-Cookie: x=1']) {
+  for (const sneaky of ['/\\evil.example', '/\t/evil.example', '/\n/evil.example', '/\\/evil.example', '/ok\r\nSet-Cookie: x=1', '/.//evil.example', '/..//evil.example', '/a/..//evil.example']) {
     assert.deepEqual(auth.takeState(auth.newState(sneaky)), { returnTo: null }, JSON.stringify(sneaky));
   }
   assert.deepEqual(auth.takeState(auth.newState('/@alice?tab=map#top')), { returnTo: '/@alice?tab=map#top' });

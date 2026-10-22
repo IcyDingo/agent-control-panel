@@ -24,7 +24,9 @@ function localPath(p) {
   if (typeof p !== 'string' || !p.startsWith('/') || p.startsWith('//') || /[\\\x00-\x1f\x7f]/.test(p)) return null;
   try {
     const u = new URL(p, 'http://local.invalid');
-    return u.origin === 'http://local.invalid' ? u.pathname + u.search + u.hash : null;
+    // Dot segments normalise away (`/.//x` becomes `//x`), so the result is checked again, not only the input.
+    const out = u.pathname + u.search + u.hash;
+    return u.origin === 'http://local.invalid' && out.startsWith('/') && !out.startsWith('//') && !out.startsWith('/\\') ? out : null;
   } catch {
     return null;
   }
