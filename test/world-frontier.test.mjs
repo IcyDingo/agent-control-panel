@@ -23,7 +23,7 @@ const credit = (c) => c * 10_000; // tokens for c credit
 const saved = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 
 test('prices start at the mockup and rise a quarter with each one bought', () => {
-  assert.deepEqual(PRICES, { frontier: 4000, rocket: 8000, build: 6000 });
+  assert.deepEqual(PRICES, { frontier: 4000, rocket: 8000, build: 4000 });
   assert.equal(priceOf('frontier', []), 4000);
   const one = [{ kind: 'frontier', price: 4000 }], two = [...one, { kind: 'frontier', price: 5000 }];
   assert.equal(priceOf('frontier', one), 5000);
@@ -31,9 +31,16 @@ test('prices start at the mockup and rise a quarter with each one bought', () =>
   assert.equal(priceOf('rocket', two), 8000, 'each kind rises on its own');
 });
 
+test('a build costs the same wherever it goes, however many came before', () => {
+  const builds = [{ kind: 'build', on: 'home' }, { kind: 'build', on: 'p0' }, { kind: 'build', on: 'home' }];
+  assert.equal(priceOf('build', []), 4000);
+  assert.equal(priceOf('build', builds), 4000);
+  assert.equal(priceOf('build', [...builds, { kind: 'frontier' }, { kind: 'rocket' }]), 4000);
+});
+
 test('the summary carries the prices', () => {
   const { world } = seeded();
-  assert.deepEqual(world.summary().prices, { frontier: 4000, rocket: 8000, build: 6000 });
+  assert.deepEqual(world.summary().prices, { frontier: 4000, rocket: 8000, build: 4000 });
 });
 
 test('a push needs the full price', () => {

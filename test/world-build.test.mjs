@@ -86,10 +86,10 @@ test('a build that draws is spent and kept, with what was asked and what Claude 
   assert.equal(r.ok, true, r.error);
   const p = saved(file).purchases.at(-1);
   assert.deepEqual({ kind: p.kind, price: p.price, on: p.on, description: p.description, caption: p.caption, pieces: p.pieces, at: p.at },
-    { kind: 'build', price: 6000, on: 'home', description: 'A ring city along the equator', caption: ANSWER.caption, pieces: validBuild(ANSWER).pieces, at: at(0) });
+    { kind: 'build', price: 4000, on: 'home', description: 'A ring city along the equator', caption: ANSWER.caption, pieces: validBuild(ANSWER).pieces, at: at(0) });
   const s = world.summary();
   assert.deepEqual(s.builds, [{ id: 'b0', on: 'home', caption: ANSWER.caption, pieces: validBuild(ANSWER).pieces, at: at(0) }]);
-  assert.deepEqual([s.spent, s.balance, s.prices.build], [18_000, 12_000, 7_500]);
+  assert.deepEqual([s.spent, s.balance, s.prices.build], [16_000, 14_000, 4_000], 'the next build costs the same');
   assert.ok(ask.prompts[0].includes('A ring city along the equator') && ask.prompts[0].includes('Home, level'));
 });
 
@@ -116,8 +116,8 @@ test('nothing is spent when Claude fails or its answer does not draw', async () 
 
 test('Claude is not asked when the build could not be bought anyway', async () => {
   const ask = asker();
-  const poor = seeded({ earned: 17_999 });
-  assert.deepEqual(await poor.world.build({ on: 'home', description: 'rings', ask }), { ok: false, error: 'It costs 6,000 credit, and you have 5,999.' });
+  const poor = seeded({ earned: 15_999 });
+  assert.deepEqual(await poor.world.build({ on: 'home', description: 'rings', ask }), { ok: false, error: 'It costs 4,000 credit, and you have 3,999.' });
   const { world } = seeded();
   assert.deepEqual(await world.build({ on: 'p0', description: '   ', ask }), { ok: false, error: 'Describe what to build.' });
   assert.deepEqual(await world.build({ on: 'p0', description: 'x'.repeat(301), ask }), { ok: false, error: 'Describe it in 300 characters or fewer.' });
@@ -128,14 +128,14 @@ test('Claude is not asked when the build could not be bought anyway', async () =
 });
 
 test('one build at a time, and the balance is checked again when the answer comes', async () => {
-  const { world, file } = seeded({ earned: 22_000 }); // 10,000 to spend
+  const { world, file } = seeded({ earned: 20_000 }); // 8,000 to spend
   let answer;
   const slow = () => new Promise((resolve) => { answer = resolve; });
   const first = world.build({ on: 'home', description: 'rings', ask: slow });
   assert.deepEqual(await world.build({ on: 'home', description: 'moons', ask: asker() }), { ok: false, error: 'A build is already under way.' });
   assert.equal(world.buy({ kind: 'frontier', ang: 1 }).ok, true, 'a push spends 5,000 meanwhile');
   answer({ ok: true, value: ANSWER });
-  assert.deepEqual(await first, { ok: false, error: 'It costs 6,000 credit, and you have 5,000. Nothing was spent.' });
+  assert.deepEqual(await first, { ok: false, error: 'It costs 4,000 credit, and you have 3,000. Nothing was spent.' });
   assert.equal(saved(file).purchases.filter((p) => p.kind === 'build').length, 0);
   assert.equal((await world.build({ on: 'home', description: 'rings', ask: asker() })).ok, false, 'still short, and free to try again');
 });
