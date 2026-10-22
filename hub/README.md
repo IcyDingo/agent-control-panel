@@ -73,6 +73,74 @@ An **unlisted** galaxy (a choice on the profile page) is reached by its link and
 answer carry `X-Robots-Tag: noindex`, and it cannot be found by its coordinates. `robots.txt` allows `/` and `/@…`
 and keeps crawlers out of `/api/`, `/me` and `/device`.
 
+## Releases
+
+A release is a commit on `main`, a number, and one signature per signing key. The number is the commit count on `main`
+(`git rev-list --count`), so it only ever goes up. The signature covers the number and the commit together, so nobody
+can give an old commit a new number. The hub serves the release at `/api/release`, and a worker installs nothing else:
+not what GitHub says is newest, and never a number lower than the one it already runs. Every step below runs on the
+maintainer's Mac, in a checkout of this repository.
+
+Make the signing key once:
+
+```sh
+node tools/release.mjs keygen
+```
+
+It asks for a passphrase twice, writes the key encrypted to `~/.config/agent-panel/signing-key.pem` (mode 600, never
+overwritten) and prints the public key as one line. Paste that line into `RELEASE_KEYS` in `release-keys.mjs`, as the
+comment there shows, and commit it.
+
+```js
+export const RELEASE_KEYS = [
+  'base64…', // added 2026-10-22
+];
+```
+
+Back the key file up, for example in a password manager, and keep its passphrase apart from it. The folder is outside
+`~/Library/Application Support/Agent Panel`, so the uninstall steps do not delete it. A lost key or a forgotten
+passphrase means nobody can sign a release: every worker has to be re-installed with the one line. The check is never
+weakened to get around it.
+
+To release, check out `main` with nothing uncommitted, pull, and sign:
+
+```sh
+node tools/release.mjs sign
+```
+
+`sign` refuses a commit that is not on `origin/main` and a working tree with changes. It asks for the passphrase once and
+opens every key file in the folder with it. It prints `HUB_RELEASE=`, `HUB_RELEASE_N=` and `HUB_RELEASE_SIG=` and, last,
+the ssh line that deploys the release. Set `ACP_HUB=https://universe.cashegg.com` and it also lists the commits since the
+release the hub serves now. Set `ACP_RELEASE_HOST=root@<host>` and the ssh line names your server; copy it, or let the
+tool run it for you:
+
+```sh
+node tools/release.mjs sign --deploy root@<host>[:/srv/agent-hub]
+```
+
+The first signed release is a little different; `deploy/README.md` has the steps. The number of a release counts as used
+once `update.sh` has written it, so if the build fails after that, fix it in a new commit and `sign` again.
+
+To rotate the key, make a second one with `node tools/release.mjs keygen`. It is written to `signing-key-2.pem`, and
+`sign` now signs with both. `sign` opens every key file with the one passphrase it asks for, so the new key must be made
+with the same passphrase as the current one. Add the new public key to `RELEASE_KEYS`, commit, and release. From then on
+every release carries two signatures, so a worker on either side of that commit follows. Wait 30 days: a worker checks
+daily, and one that has been asleep longer has to be re-installed. Then delete the old key file and remove its line from
+`RELEASE_KEYS` in a release that the new key alone signs.
+
+If a key is stolen (the file and its passphrase), do the same at once and without the wait: remove it from
+`RELEASE_KEYS` in a release signed by the key or keys that remain. Until a worker has that release, the thief can sign
+only a commit that is on `main` and newer than what the worker runs, so they would also need the GitHub account, and
+`main` takes changes only through a pull request.
+
+A worker that refuses a release says so, and keeps running the release it has. On that Mac, the `status` command
+prints the last check, for example `Last update check <time>: Release 1a2b3c4 is not signed by a known key.` or
+`Release 1a2b3c4 is older than the one running.`:
+
+```sh
+node "$HOME/Library/Application Support/Agent Panel/worker/current/server.mjs" status
+```
+
 ## Behind Caddy
 
 The hub speaks plain http; let Caddy hold the certificate.

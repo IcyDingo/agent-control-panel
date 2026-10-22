@@ -15,7 +15,7 @@ curl -fsSL https://universe.cashegg.com/install | sh
 It installs a small background service that counts your agents' work and keeps your galaxy up to date, and
 links this Mac to your account. Your galaxy page is the whole interface; the Mac app below is optional.
 
-Updates are daily, and a version that cannot start is rolled back; to turn them off:
+Updates are daily, only to a release signed by the project's key on the maintainer's Mac, never to an older one, and a version that cannot start is rolled back; to turn them off:
 `printf '{ "auto": false }\n' > "$HOME/Library/Application Support/Agent Panel/worker/update.json"`
 
 ### The session board (optional)
@@ -555,8 +555,9 @@ An endpoint that approves commands is worth protecting, even on localhost:
   World, copied key by key (a field added later stays private until it is listed) and checked again on the hub before
   it is stored. The hub stores tokens and session ids hashed; the one exception is a token you have just approved,
   which the hub holds in clear only until your Mac collects it or the code runs out (15 minutes).
-- The worker only ever installs a commit the hub names that is on the repository's `main`, downloaded from GitHub
-  over https.
+- The worker only ever installs a commit the hub names that is on the repository's `main`, not numbered below the one
+  it runs, and signed by a key listed in `release-keys.mjs` (the private half lives on the maintainer's Mac, encrypted);
+  downloaded from GitHub over https, verified before the download.
 - The hub rate-limits every sign-in, upload and order, per visitor address or per account, and answers `429` with a
   `retry-after` when a limit is reached (`hub/README.md` has the table). A galaxy set to unlisted is reached by its link
   only: crawlers are told not to index it and a scan of the map's coordinates does not find it.

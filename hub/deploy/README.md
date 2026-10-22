@@ -8,7 +8,7 @@ sits in `/srv/agent-hub` there; nothing in them is secret.
   src/                  git clone of this repository (main)
   compose.yml           builds hub/Dockerfile from src and runs it on 127.0.0.1:4848, database in the hub-data volume
   .env                  the settings, from env.example (the GitHub id and secret live only here, mode 600)
-  update.sh             pull main, rebuild, restart, ask /healthz
+  update.sh             deploy the signed release tools/release.mjs sign names (verifies first, never a lower number); plain, it pulls main until the first signed release
   caddy-cloudflare.sh   rewrites the site's Caddy block: Cloudflare's ranges as trusted proxies, the real visitor in X-Forwarded-For
   firewall-cloudflare.sh, cloudflare-only.{service,timer}
                         the firewall: only Cloudflare reaches the web ports (see below)
@@ -25,24 +25,80 @@ chmod +x update.sh caddy-cloudflare.sh && chmod 600 .env   # then fill .env in
 ./caddy-cloudflare.sh                                       # adds the universe.cashegg.com block to /etc/caddy/Caddyfile and reloads
 ```
 
-Every later release: `./update.sh`. It also writes `release.env` with the commit it deployed, which the hub serves at `/api/release`: that is the version every worker installs and updates to.
+A release is the signed one that `tools/release.mjs sign` names, and `update.sh` checks the signature before it fetches,
+builds or writes anything. `hub/README.md` says how the key is made and a release is signed. `update.sh` writes
+`release.env` with the commit, its number and the signatures; the hub serves them at `/api/release`, and that is the
+version every worker installs and updates to. Until the first signed release, a plain `./update.sh` still pulls `main`.
 
-Upgrading an existing deploy: `compose.yml` and `update.sh` were copied into `/srv/agent-hub` once, at the first
-deploy, so one from before the one-line install runs the old `update.sh`, which writes no `release.env`; `/api/release`
-then answers 503 and the line stops at "The hub did not name a release". Copy both again from the pulled clone and run
-it:
+The first signed deploy. The server still has the `update.sh` it was set up with, which knows nothing of signatures, so
+copy the new one from the repository first. Before that, the maintainer's public key must be in `release-keys.mjs` on
+`main` (a pull request, merged), because a hub with no key to check against serves no release. On the server:
 
 ```sh
-git -C src pull -q --ff-only && cp src/hub/deploy/{compose.yml,update.sh} . && ./update.sh
+cd /srv/agent-hub
+git -C src fetch -q origin main && git -C src show origin/main:hub/deploy/update.sh > update.sh && chmod +x update.sh
 ```
+
+A `compose.yml` from before the one-line install needs the same copy, with `compose.yml` in place of `update.sh` in that
+command, so that it reads `release.env`.
+
+Then, on the Mac, run `git pull` on `main` and `node tools/release.mjs sign`. It prints the ssh line; run it, exactly as
+printed. Until this deploy, workers still accept an unsigned release. After it, every worker checks the signature within
+a day and installs nothing the key did not sign.
+
+Every later release is the same two steps on the Mac, nothing to copy on the server:
+
+```sh
+node tools/release.mjs sign                        # prints  ssh root@<host> /srv/agent-hub/update.sh <sha> <n> <sigs>
+node tools/release.mjs sign --deploy root@<host>   # signs and runs that line
+```
+
+Once `release.env` holds a signature, a plain `./update.sh` is refused, so nothing unsigned can replace the release:
+
+```
+This hub serves signed releases: run  node tools/release.mjs sign  on your Mac and use the line it prints.
+```
+
+`update.sh` refuses, before it fetches, builds or writes anything, a release no known key signed (`Release 1a2b3c4 is
+not signed by a known key.`) and a number that is not above the one in `release.env`, so an old signed line cannot be
+replayed to go back. The number
+counts as used as soon as it is written to `release.env`: if the build or the start fails after that, make a new commit
+and `sign` again.
 
 Then edit the "Universe API" rule as the Cloudflare section below says, so `/install` skips the bot check too, and
 check both from outside the server:
 
 ```sh
-curl -fsSL https://universe.cashegg.com/api/release            # {"ok":true,"sha":"…","url":"…"}
+curl -fsSL https://universe.cashegg.com/api/release            # {"ok":true,"sha":"…","n":…,"sigs":["…"],"url":"…"}
 curl -fsSL https://universe.cashegg.com/install | head -1      # #!/bin/sh
 ```
+
+## A deploy-only key (optional)
+
+`--deploy` runs ssh as you, so it uses the key that can do anything on the server. To let it do one thing only, make a
+second ssh key on the Mac (`ssh-keygen -t ed25519 -f ~/.ssh/acp-deploy`), give it a name in `~/.ssh/config` with
+`IdentityFile ~/.ssh/acp-deploy` and `IdentitiesOnly yes`, and deploy with `--deploy <that name>`. On the server, save
+this as `/srv/agent-hub/deploy-only.sh` and `chmod +x` it:
+
+```sh
+#!/bin/sh
+rest=${SSH_ORIGINAL_COMMAND#/srv/agent-hub/update.sh }
+case $rest in *[!0-9A-Za-z_,\ -]*) rest= ;; esac
+if printf '%s\n' "$rest" | grep -Eq '^[0-9a-f]{40} [1-9][0-9]* [A-Za-z0-9_,-]+$'; then
+  exec /srv/agent-hub/update.sh $rest   # unquoted on purpose: the three fields split
+fi
+printf 'deploy key: only  update.sh <sha> <n> <sigs>  is allowed.\n' >&2; exit 1
+```
+
+Then add the key's public half to `/root/.ssh/authorized_keys` as a line that starts like this, followed by the
+`ssh-ed25519 AAAA…` key itself:
+
+```
+command="/srv/agent-hub/deploy-only.sh",no-port-forwarding,no-pty,no-agent-forwarding,no-X11-forwarding ssh-ed25519 AAAA… acp-deploy
+```
+
+That key can deploy and nothing else: whatever it asks to run, the server runs `deploy-only.sh`, which accepts only
+`update.sh` with a commit, a number and signatures, and `update.sh` still verifies them. Your admin key stays as it is.
 
 ## Cloudflare
 
