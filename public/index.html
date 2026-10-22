@@ -503,6 +503,19 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .w-list .linkish::before { content: ""; flex: none; width: 7px; height: 7px; background: var(--m, #cfe0ff); clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%); }
 .w-list [data-kind="cleanup"] { --m: #7ee0a8; }
 .w-list [data-kind="level"] { --m: #ffcf7a; }
+/* Profile: the hub account, or the way to sign in to one. */
+.w-pf { display: grid; gap: 8px; }
+.w-pf .w-code { font: 600 14px var(--mono); letter-spacing: .08em; color: var(--fg); }
+.w-pf a { color: var(--amber); text-decoration-color: var(--amber-line); overflow-wrap: anywhere; }
+.w-pf .w-wait { color: var(--fg-dim); font-family: var(--sans); }
+.w-who { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.w-who > div { min-width: 0; display: grid; }
+.w-who b { font-size: 13.5px; font-weight: 600; overflow-wrap: anywhere; }
+.w-who div span { color: var(--fg-dim); font: 12px var(--mono); }
+.w-who .avatar { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line-strong); background: var(--raise); color: var(--fg-dim); font: 600 13px var(--sans); object-fit: cover; }
+.w-links { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; }
+/* A system shown read-only (world.js enter with readOnly): nothing to spend, and none of the owner's own numbers. */
+body.w-readonly #w-profile, body.w-readonly #w-build-box, body.w-readonly #w-rocket-box, body.w-readonly #w-push-box, body.w-readonly #w-today-box, body.w-readonly #w-total-box { display: none; }
 @media (max-width: 760px) { .w-side { position: static; width: auto; max-height: none; margin: calc(var(--sp-top, 52px) + 10px) 16px 0; } .w-zoom { max-width: calc(100% - 32px); } }
 
 /* ---------- space view: the same sessions as an orrery. You sit at the centre; the closer a session orbits, the sooner it needs you. ---------- */
@@ -831,6 +844,25 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
     <button class="btn small" type="button" id="w-exit" title="Esc">Back to board</button>
   </div>
   <aside class="w-side" id="w-side">
+    <section class="w-box" id="w-profile">
+      <h2>Profile</h2>
+      <div class="w-pf" id="w-pf-out" hidden>
+        <p>Sign in with GitHub to put your galaxy in the Universe, visit others, and send rockets to friends. Only the shape of your world is shared, never your repositories, lines or credit.</p>
+        <div class="w-act" id="w-pf-start"><span></span><button class="btn small go" type="button" id="w-pf-login">Sign in with GitHub</button></div>
+        <div class="w-pf" id="w-pf-wait" hidden>
+          <p>Enter <b class="w-code" id="w-pf-code"></b> at <a id="w-pf-link" target="_blank" rel="noopener"></a></p>
+          <div class="w-act"><span class="w-wait">Waiting…</span><button class="btn small" type="button" id="w-pf-cancel">Cancel</button></div>
+        </div>
+        <p class="err" id="w-pf-err" role="alert" hidden></p>
+      </div>
+      <div class="w-pf" id="w-pf-in" hidden>
+        <div class="w-who"><span id="w-pf-avatar"></span><div><b id="w-pf-handle"></b><span id="w-pf-xy"></span></div></div>
+        <div class="w-links"><a id="w-pf-page" target="_blank" rel="noopener">Your page</a><a id="w-pf-edit" target="_blank" rel="noopener">Edit profile</a></div>
+        <p id="w-pf-sync"></p>
+        <p id="w-pf-order" hidden></p>
+        <div class="w-act"><span></span><button class="btn small" type="button" id="w-pf-logout">Sign out</button></div>
+      </div>
+    </section>
     <section class="w-box" id="w-moment" aria-live="polite" hidden>
       <h2 id="w-m-name"></h2>
       <p id="w-m-when"></p>
@@ -875,12 +907,12 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
       <h2>Moments <span id="w-moments-n"></span></h2>
       <ul class="w-list" id="w-moments"></ul>
     </section>
-    <section class="w-box">
+    <section class="w-box" id="w-today-box">
       <h2>Today's work</h2>
       <dl id="w-today"></dl>
       <p class="warn" id="w-noemail" hidden></p>
     </section>
-    <section class="w-box">
+    <section class="w-box" id="w-total-box">
       <p id="w-total"></p>
       <p>Lines removed multiply the day's credit. Stars on the map are moments: a week of work, a big cleanup, a level
         Home reached. Click one to see what was done.</p>
@@ -936,6 +968,7 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
 <script src="/world.js"></script>
 <script>
 const TOKEN = '__ACP_TOKEN__';
+window.ACP_VIEW = '__ACP_VIEW__'; // 'board' at /, 'world' at /world
 const COLS = [['waiting', 'Needs you'], ['busy', 'Working'], ['idle', 'Idle'], ['finished', 'Finished']];
 const LABEL = { waiting: 'Needs you', busy: 'Working', idle: 'Idle', finished: 'Finished', failed: 'Failed', stopping: 'Stopping', running: 'Running', done: 'Done', stopped: 'Stopped' };
 const KIND = { background: 'Background session', interactive: 'Terminal session' };
@@ -1051,7 +1084,7 @@ function connect() {
     const prev = snap;
     snap = JSON.parse(m.data);
     if (worldOn) {
-      AgentWorld.update(snap.world);
+      AgentWorld.update(snap.world, snap.hub);
       worldNeeds();
       // World covers the board: say so when something new needs you.
       for (const p of snap.pending) if (prev && !prev.pending.some((q) => q.id === p.id)) toast(`${label(sessionOf(p.sessionId))} needs you.`);
@@ -2476,7 +2509,7 @@ async function enterWorld() {
   worldOn = true;
   $('world').hidden = false;
   document.body.classList.add('in-space');
-  AgentWorld.enter(r.world, { api, toast });
+  AgentWorld.enter(r.world, { api, toast, hub: snap?.hub });
   worldNeeds();
   $('w-exit').focus({ preventScroll: true });
 }
@@ -2753,6 +2786,7 @@ edge($('d-grip'), $('drawer'), 'right', widthOf('acp.drawerWidth', '--drawer-use
 edge($('r-grip'), $('board'), 'left', widthOf('acp.railWidth', '--rail-user', () => [240, Math.max(240, Math.min(560, innerWidth - 520))]));
 
 connect();
+if (window.ACP_VIEW === 'world') enterWorld();
 setInterval(() => { if (snap) { snap.now += 1000; render(); } }, 1000);
 </script>
 </body>

@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Galaxy</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/hub.css">
+</head>
+<body class="sys">
+<!-- The ids below are the ones public/world.js looks up (copied from the panel's #world skeleton); keep them. In read-only
+     mode world.js hides the spend boxes with body.w-readonly and never calls the api, so they stay in the markup. -->
+<div class="space world" id="world" role="main" aria-label="A galaxy">
+  <canvas id="w-canvas" aria-label="This galaxy. Scroll or use Home and Map to zoom, drag to look around."></canvas>
+  <div class="sp-top">
+    <a class="brand" href="/">Universe</a>
+    <span class="sp-sub" id="w-where">Home</span>
+    <span class="grow"></span>
+    <span class="w-credit" hidden><b id="w-credit">0</b> credit</span><!-- world.js writes here; a visitor never sees it -->
+    <a class="btn small" href="/" id="back">Back to the universe</a>
+  </div>
+  <aside class="w-side" id="w-side">
+    <section class="w-box sys-card" id="sys-card" aria-live="polite">
+      <p id="sys-loading">Loading...</p>
+    </section>
+    <!-- The owner's section: shown only when the signed-in account is this galaxy's owner. -->
+    <section class="w-box" id="w-owner" hidden>
+      <h2>Owner</h2>
+      <p id="w-owner-text">Your Mac keeps this up to date. <span id="w-owner-sync"></span></p>
+      <p id="o-balance" hidden></p>
+      <p id="o-prices" hidden></p>
+      <!-- The orders: your Mac runs them like the panel's own buttons. One at a time. -->
+      <div id="w-owner-controls">
+        <div class="own-ctl">
+          <b>Push the frontier</b>
+          <select class="field" id="o-dir" aria-label="Direction to push"></select>
+          <div class="w-act"><span id="o-push-price"></span><button class="btn small go" type="button" id="o-push" disabled>Push</button></div>
+          <p id="o-push-why" hidden></p>
+        </div>
+        <div class="own-ctl" id="o-rocket-ctl" hidden>
+          <b>Send a rocket</b>
+          <select class="field" id="o-planet" aria-label="Planet to send it to"></select>
+          <input class="field" id="o-name" maxlength="24" placeholder="Name the colony" aria-label="The colony's name" autocomplete="off" spellcheck="false">
+          <div class="w-act"><span id="o-rocket-price"></span><button class="btn small go" type="button" id="o-rocket" disabled>Send a rocket</button></div>
+          <p id="o-rocket-why" hidden></p>
+        </div>
+        <div class="own-ctl">
+          <b>Build</b>
+          <select class="field" id="o-on" aria-label="Where to build"></select>
+          <textarea class="field" id="o-desc" maxlength="300" rows="2" placeholder="A ring city along the equator, lit at night" aria-label="What to build"></textarea>
+          <div class="w-act"><span id="o-build-price"></span><button class="btn small go" type="button" id="o-build" disabled>Build it</button></div>
+          <p id="o-build-why" hidden></p>
+        </div>
+        <p id="o-say" aria-live="polite" hidden></p>
+        <p class="warn" id="o-mac" hidden>Your Mac hasn't picked this up yet. The service runs it as soon as the Mac is awake.</p>
+        <p class="err" id="o-err" role="alert" hidden></p>
+      </div>
+    </section>
+    <section class="w-box" id="w-moment" aria-live="polite" hidden>
+      <h2 id="w-m-name"></h2>
+      <p id="w-m-when"></p>
+      <dl id="w-m-info"></dl>
+      <div class="w-act"><span></span><button class="btn small" type="button" id="w-m-close">Close</button></div>
+    </section>
+    <section class="w-box">
+      <h2>Home <span id="w-level"></span></h2>
+      <p class="w-stage"><b id="w-stage"></b> <span id="w-xp"></span></p>
+      <div class="w-bar"><i id="w-bar"></i></div>
+      <p id="w-next"></p>
+      <p id="w-xp-today"></p>
+      <div class="w-bar today"><i id="w-bar-today"></i></div>
+    </section>
+    <section class="w-box" id="w-build-box">
+      <h2 id="w-build-title">Build on Home</h2>
+      <p>Describe something to build here, on the ground or in orbit. Claude picks what to draw.</p>
+      <textarea class="field" id="w-build-text" maxlength="300" rows="2" placeholder="A ring city along the equator, lit at night" aria-label="What to build"></textarea>
+      <div class="w-act"><span id="w-build-price"></span><button class="btn small go" type="button" id="w-build" disabled>Build it</button></div>
+      <p id="w-build-why" hidden></p>
+      <p class="err" id="w-build-err" role="alert" hidden></p>
+      <ul class="w-list w-built" id="w-built" aria-label="Built here" hidden></ul>
+    </section>
+    <section class="w-box" id="w-rocket-box" hidden>
+      <h2>Send a rocket</h2>
+      <p id="w-rocket-text"></p>
+      <div class="w-row"><select class="field" id="w-rocket-to" aria-label="Planet to send it to"></select><button class="btn small" type="button" id="w-rocket-show">Show</button></div>
+      <input class="field" id="w-rocket-name" maxlength="24" placeholder="Name the colony" aria-label="The colony's name" autocomplete="off" spellcheck="false">
+      <div class="w-act"><span id="w-rocket-price"></span><button class="btn small go" type="button" id="w-rocket" disabled>Send a rocket</button></div>
+      <p id="w-rocket-why" hidden></p>
+      <p class="err" id="w-rocket-err" role="alert" hidden></p>
+    </section>
+    <section class="w-box" id="w-push-box">
+      <h2>Push the frontier</h2>
+      <p>Pick a direction from Home. The dark lights up that way as you keep working, and it can find a planet.</p>
+      <div class="w-row"><select class="field" id="w-dir" aria-label="Direction to push"></select><button class="btn small" type="button" id="w-aim">Aim on the map</button></div>
+      <div class="w-act"><span id="w-push-price"></span><button class="btn small go" type="button" id="w-push" disabled>Pick a direction</button></div>
+      <p id="w-push-why" hidden></p>
+      <p class="err" id="w-push-err" role="alert" hidden></p>
+    </section>
+    <section class="w-box" id="w-moments-box" hidden>
+      <h2>Moments <span id="w-moments-n"></span></h2>
+      <ul class="w-list" id="w-moments"></ul>
+    </section>
+    <section class="w-box" id="w-today-box">
+      <h2>Today's work</h2>
+      <dl id="w-today"></dl>
+      <p class="warn" id="w-noemail" hidden></p>
+    </section>
+    <section class="w-box" id="w-total-box">
+      <p id="w-total"></p>
+    </section>
+  </aside>
+  <div class="w-zoom"><button class="btn small on" type="button" id="w-home" data-place="home">Home</button><span id="w-colonies"></span><button class="btn small" type="button" id="w-map">Map</button></div>
+</div>
+
+<script src="/hub.js"></script>
+<script src="/world.js"></script>
+<script>
+(async () => {
+  const $ = (id) => document.getElementById(id);
+  const { el, avatar, safeUrl, rel } = Hub;
+
+  let handle = '';
+  try { handle = decodeURIComponent(location.pathname.replace(/^\/@/, '')); } catch { /* a bad escape names nobody */ }
+
+  /** Nothing to show: one sentence in the card, and the page stops there. */
+  /** Keep this page out of search results (a crawler that runs scripts reads it). */
+  const noindex = () => document.head.append(el('meta', { name: 'robots', content: 'noindex' }));
+
+  function missing(message) {
+    noindex(); // an unknown handle is still a 200 shell: not a page to index
+    document.title = 'Not found · Universe';
+    $('w-where').textContent = 'Not found';
+    $('w-side').replaceChildren(el('section', { class: 'w-box' }, el('p', { text: message })));
+    $('world').querySelector('.w-zoom').hidden = true;
+  }
+
+  /** A number from the handle, always the same for the same handle: the seed of a galaxy with nothing synced yet. */
+  function seedOf(s) {
+    let h = 2166136261;
+    for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+    return (h >>> 0) % 2147483648;
+  }
+
+  /** What the Mac would have sent for a brand-new Home (level 1, nothing found yet), so the canvas has a bare rock to draw. */
+  function bareSystem(profile, stats) {
+    const seed = seedOf(profile.handle.toLowerCase());
+    const ang = 2 * Math.PI * (seed % 997) / 997; // the sun sits 90 px from Home, at an angle the seed picks
+    return {
+      pv: 1, seed, since: profile.joined, daysActive: 0, home: { level: 1, stage: stats.stage }, reach: 46,
+      sun: { x: Math.cos(ang) * 90, y: Math.sin(ang) * 90, r: 9, look: 'gold' },
+      frontier: [], planets: [], moments: [], builds: [],
+    };
+  }
+
+  const { plural } = Hub;
+  const joinedText = (day) => {
+    const [y, m] = day.split('-').map(Number);
+    return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  };
+
+  function card({ profile, stats, system }) {
+    const link = profile.link ? safeUrl(profile.link) : null;
+    const active = system
+      ? `Active ${plural(stats.daysWorked, 'day', 'days')} · ${plural(stats.colonies, 'colony', 'colonies')} · ${plural(stats.builds, 'build', 'builds')}`
+      : null;
+    $('sys-card').replaceChildren(
+      avatar(profile, 48),
+      el('div', { class: 'who' },
+        el('b', { text: profile.name || `@${profile.handle}` }),
+        el('span', { text: `${profile.name ? `@${profile.handle} · ` : ''}${profile.x}, ${profile.y}` })),
+      el('div', { class: 'more' },
+        profile.bio ? el('p', { class: 'bio', text: profile.bio }) : null,
+        link ? el('a', { href: link, rel: 'noopener noreferrer nofollow ugc', target: '_blank', text: profile.link }) : null,
+        el('p', { text: `Level ${stats.level} · ${stats.stage}` }),
+        system ? el('p', { text: active }) : el('p', { class: 'none', text: 'Nothing synced yet' }),
+        el('p', { text: `Joined ${joinedText(profile.joined)}` })),
+      system ? Hub.daysMosaic(system.worked) : null);
+  }
+
+  // ---- the owner's orders: placed here, run by the owner's Mac, announced back over the stream ----
+  const fmt = (n) => Math.round(n).toLocaleString('en-US');
+  const COMPASS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
+  const up = (t) => t[0].toUpperCase() + t.slice(1);
+  /** The panel's compass: map space has y pointing down, so north is -pi/2. */
+  const compass = (x, y) => COMPASS[Math.round((((Math.atan2(y, x) + Math.PI / 2) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI) / (Math.PI / 4)) % 8];
+
+  function owner(first) {
+    let sys = first, status = null, statusLoaded = false, busy = false, placing = false, orderAt = null, ticks = 0, timer = null;
+    const say = $('o-say'), err = $('o-err');
+    const price = (kind) => status?.prices?.[kind] ?? null;
+    const kinds = [
+      { kind: 'frontier', btn: $('o-push'), why: $('o-push-why'), tag: $('o-push-price'), ready: () => $('o-dir').value !== '' },
+      { kind: 'rocket', btn: $('o-rocket'), why: $('o-rocket-why'), tag: $('o-rocket-price'), ready: () => Boolean($('o-planet').value && $('o-name').value.trim()) },
+      { kind: 'build', btn: $('o-build'), why: $('o-build-why'), tag: $('o-build-price'), ready: () => Boolean($('o-desc').value.trim()) },
+    ];
+
+    /** The lists that come from the system: the bare planets to send a rocket to, and the places to build on. */
+    function fill() {
+      const planets = sys?.planets ?? [], bare = planets.filter((p) => !p.colony), seen = {};
+      const keepPlanet = $('o-planet').value, keepOn = $('o-on').value;
+      $('o-rocket-ctl').hidden = !bare.length;
+      $('o-planet').replaceChildren(...bare.map((p) => {
+        const dir = compass(p.x, p.y), n = (seen[dir] = (seen[dir] ?? 0) + 1);
+        return el('option', { value: p.id, text: `Bare planet, ${dir}${n > 1 ? ` ${n}` : ''}` });
+      }));
+      if (bare.some((p) => p.id === keepPlanet)) $('o-planet').value = keepPlanet;
+      $('o-on').replaceChildren(el('option', { value: 'home', text: 'Home' }),
+        ...planets.filter((p) => p.colony).map((p) => el('option', { value: p.id, text: p.colony.name })));
+      if ([...$('o-on').options].some((o) => o.value === keepOn)) $('o-on').value = keepOn;
+    }
+    /** Which buttons can be pressed: nothing while an order is out, and not what the balance can't pay for. */
+    function sync() {
+      for (const k of kinds) {
+        const p = price(k.kind), short = status !== null && p !== null && status.balance < p;
+        k.tag.textContent = p === null ? '' : `${fmt(p)} credit`;
+        k.why.hidden = !short;
+        k.why.textContent = short ? `You have ${fmt(Math.max(0, status.balance))}. Work earns more.` : '';
+        k.btn.disabled = busy || short || !k.ready();
+      }
+      for (const id of ['o-dir', 'o-planet', 'o-name', 'o-on', 'o-desc']) $(id).disabled = busy;
+    }
+    function showStatus() {
+      const on = status !== null;
+      $('o-balance').hidden = $('o-prices').hidden = !on;
+      if (on) {
+        $('o-balance').textContent = `Balance ${fmt(status.balance)} credit`;
+        $('o-prices').textContent = `Push ${fmt(status.prices.frontier)} · Rocket ${fmt(status.prices.rocket)} · Build ${fmt(status.prices.build)}`;
+      }
+      macNote();
+      sync();
+    }
+    /** Why nothing has happened yet: the Mac has never sent a status, or an order has waited over 2 minutes. */
+    function macNote() {
+      const slow = busy && orderAt !== null && Date.now() - orderAt > 120_000;
+      $('o-mac').hidden = !(slow || (statusLoaded && status === null));
+    }
+    async function loadStatus() {
+      const r = await Hub.api('GET', '/api/me/status');
+      if (r.ok) { status = r.status ?? null; statusLoaded = true; } // a failed GET says nothing: keep what was known
+      showStatus();
+    }
+    /** While an order is out: re-judge the sentence every 30 s, and every 60 s ask the hub whether it is still out (the stream does not replay). */
+    function watch(on) {
+      if (!on) { clearInterval(timer); timer = null; return; }
+      if (timer) return;
+      ticks = 0;
+      timer = setInterval(() => { macNote(); if (++ticks % 2 === 0) recheck(); }, 30_000);
+    }
+    function wait(on, createdAt = null) {
+      busy = on;
+      orderAt = on ? createdAt ?? orderAt : null;
+      if (on) { say.hidden = false; say.className = ''; say.textContent = 'On its way to your Mac…'; }
+      watch(on);
+      macNote();
+      sync();
+    }
+    async function place(body) {
+      err.hidden = true; say.hidden = true;
+      placing = true;
+      wait(true);
+      const r = await Hub.api('POST', '/api/me/orders', body);
+      placing = false;
+      if (r.ok) { if (busy) orderAt = r.order?.createdAt ?? null; macNote(); return; }
+      wait(false);
+      err.textContent = r.error; err.hidden = false;
+      if (r.status === 409) recheck(); // an order is out already: say so, and wait for it
+    }
+    /** Ask the hub what is out (pending, or running on a Mac that claimed it). Still out: wait for it. Gone (the stream
+     *  missed its end, or it expired): show how it ended. */
+    async function recheck() {
+      if (placing) return;
+      const r = await Hub.api('GET', '/api/me/orders?status=pending');
+      if (!r.ok || placing) return; // no answer says nothing
+      if (r.orders.length) { if (!busy) err.hidden = true; wait(true, r.orders[0].createdAt); return; }
+      const l = await Hub.api('GET', '/api/me/orders?limit=1');
+      if (placing) return;
+      const last = l.ok ? l.orders[0] : null;
+      if (last?.status === 'running') { if (!busy) err.hidden = true; wait(true, last.createdAt); return; }
+      if (!busy) return;
+      if (last?.result) finish(last.result);
+      else finish({ ok: false, error: 'The order is no longer pending.' }, true);
+    }
+    /** An order was placed (maybe from another tab) or has come back. */
+    function onEvent(type, d) {
+      if (type === 'order') { err.hidden = true; wait(true, d.createdAt); return; }
+      finish(d);
+    }
+    function finish(d, plain = false) {
+      wait(false);
+      err.hidden = true;
+      say.hidden = false;
+      say.className = d.ok || plain ? '' : 'err';
+      say.textContent = d.ok ? `Done: ${d.caption || 'your Mac ran it.'}` : (d.error || 'Your Mac could not run that order.');
+      if (d.ok) { $('o-desc').value = ''; $('o-name').value = ''; }
+      sync();
+      // The Mac sends its new picture and status shortly after an order (not before this answer): look again twice.
+      for (const ms of [3000, 9000]) setTimeout(catchUp, ms);
+    }
+    async function catchUp() {
+      loadStatus();
+      // The public read is cacheable for 30 s; the new picture is what this is waiting for, so skip the browser's copy.
+      const r = await Hub.api('GET', `/api/systems/@${encodeURIComponent(handle)}`, undefined, { cache: 'no-store' });
+      if (!r.ok || !r.system) return;
+      sys = r.system;
+      fill(); sync();
+      AgentWorld.update(r.system);
+    }
+
+    kinds[0].btn.onclick = () => place({ kind: 'frontier', ang: Number($('o-dir').value) });
+    kinds[1].btn.onclick = () => place({ kind: 'rocket', planet: $('o-planet').value, name: $('o-name').value.trim() });
+    kinds[2].btn.onclick = () => place({ kind: 'build', on: $('o-on').value, description: $('o-desc').value.trim() });
+    for (const id of ['o-dir', 'o-planet', 'o-name', 'o-desc']) $(id).addEventListener('input', sync);
+    $('o-dir').replaceChildren(el('option', { value: '', text: 'Pick a direction' }),
+      ...COMPASS.map((n, i) => el('option', { value: String(i * Math.PI / 4 - Math.PI / 2), text: up(n) })));
+    fill();
+    showStatus();
+    loadStatus();
+    recheck();
+    Hub.events(onEvent, { onOpen: recheck }); // the stream does not replay: on every (re)connect, ask what is pending
+  }
+
+  const [res, mine] = await Promise.all([Hub.api('GET', `/api/systems/@${encodeURIComponent(handle)}`), Hub.me()]);
+  if (!res.ok) return missing(res.status === 404 ? 'No galaxy by that name.' : res.error);
+
+  const { profile, stats, system } = res;
+  if (profile.visibility === 'unlisted') noindex();
+  document.title = `${profile.name || '@' + profile.handle} · Universe`;
+  $('w-where').textContent = `@${profile.handle}`;
+  card(res);
+
+  if (mine && mine.account.handle.toLowerCase() === profile.handle.toLowerCase()) {
+    $('w-owner').hidden = false;
+    $('w-owner-sync').textContent = stats.lastActive ? `Last synced ${rel(stats.lastActive)}.` : 'Nothing synced yet.';
+    owner(system);
+  }
+
+  AgentWorld.enter(system ?? bareSystem(profile, stats), { readOnly: true, api: async () => ({ ok: false }), toast: () => {} });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Universe</title>
+<meta name="description" content="A universe your agents' work builds. Every Agent Control Panel gets a galaxy, and every galaxy a neighbourhood.">
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/hub.css">
+</head>
+<body class="stars-bg">
+<div class="page wide">
+  <header class="bar">
+    <a class="brand" href="/">Universe</a>
+    <span class="grow"></span>
+    <a class="btn" id="signin" href="/login/github" hidden>Sign in with GitHub</a>
+    <a class="btn" id="profile" href="/me" hidden>Your profile</a>
+    <a class="btn primary" id="mine" href="/me" hidden>Your galaxy</a>
+  </header>
+
+  <main class="hero g24">
+    <div class="text">
+      <h1>A universe your agents' work builds</h1>
+      <p class="lede">Each day your agents work, your Home planet grows and the map around it lights up. Every panel has a
+        galaxy here, and anyone can visit yours.</p>
+      <form class="find" id="find" role="search">
+        <input class="field" id="handle" name="handle" placeholder="Find a galaxy by handle" aria-label="A handle" autocomplete="off" spellcheck="false" autocapitalize="off" maxlength="40">
+        <button class="btn" type="submit">Visit</button>
+      </form>
+    </div>
+    <!-- The sky: Home in the middle with you standing on it, four planets on their orbits, the sun off to the side. -->
+    <div class="block" id="sky" aria-hidden="true">
+      <span class="sun"></span>
+      <span class="ring" style="--rx:20;--ry:15"></span>
+      <span class="ring" style="--rx:29;--ry:22"></span>
+      <span class="ring" style="--rx:39;--ry:31"></span>
+      <span class="ring" style="--rx:47;--ry:39"></span>
+      <span class="planet violet" data-orbit="20 15 17 0.6"></span>
+      <span class="planet sand" data-orbit="29 22 27 2.4"></span>
+      <span class="planet rust" data-orbit="39 31 41 4.1"></span>
+      <span class="planet ice" data-orbit="47 39 56 5.3"></span>
+      <span class="home"><span class="pilot" id="pilot"></span></span>
+    </div>
+  </main>
+
+  <section class="steps g24" aria-label="How it works">
+    <div class="step"><span class="glyph" data-lit="1" aria-hidden="true"></span><b>Install once</b><p>The panel runs in the background on your Mac and counts your agents' work.</p></div>
+    <div class="step"><span class="glyph" data-lit="3" aria-hidden="true"></span><b>Sign in</b><p>Approve your Mac with a code. Your galaxy gets a permanent spot in the Universe.</p></div>
+    <div class="step"><span class="glyph" data-lit="6" aria-hidden="true"></span><b>Watch it grow</b><p>Work becomes credit; credit becomes frontier, colonies and builds.</p></div>
+    <div class="step"><span class="glyph" data-lit="9" aria-hidden="true"></span><b>Visit anyone</b><p>Every galaxy has a page. Strangers see its shape, never the work behind it.</p></div>
+  </section>
+
+  <footer class="foot" id="foot">
+    <div class="line">
+      <a class="brand" href="/">Universe</a>
+      <nav>
+        <a href="https://github.com/IcyDingo/agent-control-panel/blob/main/hub/README.md" rel="noopener">Run your own</a>
+        <a href="https://github.com/IcyDingo/agent-control-panel" rel="noopener">Source</a>
+      </nav>
+    </div>
+  </footer>
+</div>
+<script src="/hub.js"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const { el, hashOf, pick, mosaic } = Hub;
+
+  // The orbits: each planet goes round Home on its own ellipse (data-orbit = "rx ry seconds phase", rx and ry in percent
+  // of the sky's width and height), passing behind Home on the far half. Still when the system asks for less motion.
+  const sky = $('sky'), CX = 0.5, CY = 0.53;
+  const planets = [...sky.querySelectorAll('.planet')].map((node) => {
+    const [rx, ry, period, phase] = node.dataset.orbit.split(' ').map(Number);
+    return { node, rx: rx / 100, ry: ry / 100, period, phase };
+  });
+  function place(seconds) {
+    const w = sky.clientWidth, h = sky.clientHeight;
+    for (const p of planets) {
+      const a = p.phase + (2 * Math.PI * seconds) / p.period, far = Math.sin(a) < 0; // the upper half of the ellipse is behind Home
+      const x = (CX + p.rx * Math.cos(a)) * w, y = (CY + p.ry * Math.sin(a)) * h, size = far ? 0.86 : 1.08;
+      p.node.style.transform = `translate(${x - p.node.offsetWidth / 2}px, ${y - p.node.offsetHeight / 2}px) scale(${size})`;
+      p.node.style.zIndex = far ? 1 : 3;
+    }
+  }
+  const still = matchMedia('(prefers-reduced-motion: reduce)');
+  const start = performance.now();
+  (function tick() {
+    place(still.matches ? 0 : (performance.now() - start) / 1000);
+    if (!still.matches) requestAnimationFrame(tick);
+  })();
+  still.addEventListener('change', () => place(0));
+  addEventListener('resize', () => place(still.matches ? 0 : (performance.now() - start) / 1000));
+
+  // The mascot stands on Home and waves.
+  $('pilot').replaceChildren(Hub.mascot(46));
+
+  $('find').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const h = $('handle').value.trim().replace(/^@/, '');
+    if (h) location.href = '/@' + encodeURIComponent(h);
+  });
+
+  // The mosaics: the same picture for everyone (a cell's place picks its shade), quiet graphites and a rare amber square
+  // like a far sun, never none.
+  const QUIET = ['q1', 'q1', 'q1', 'q1', 'q2', 'q2', 'q2', 'q3', 'q3', 'q4'];
+  function quiet(name, cols, rows, sunEvery) {
+    const cells = [];
+    for (let i = 0; i < cols * rows; i++) {
+      const at = `${name} ${i % cols} ${Math.floor(i / cols)}`;
+      cells.push(hashOf(at + ' sun') % sunEvery === 0 ? 'a0' : pick(at, QUIET));
+    }
+    if (!cells.includes('a0')) cells[hashOf(name + ' sun') % cells.length] = 'a0';
+    return mosaic(cells, cols);
+  }
+  $('foot').prepend(quiet('foot', 24, 1, 24));
+  for (const g of document.querySelectorAll('.glyph')) {
+    for (let i = 0; i < 9; i++) g.append(el('i', { class: i < Number(g.dataset.lit) ? 'on' : null }));
+  }
+
+  Hub.me().then((r) => {
+    if (!r) { $('signin').hidden = false; return; }
+    $('profile').hidden = false;
+    $('mine').href = '/@' + encodeURIComponent(r.account.handle);
+    $('mine').hidden = false;
+  });
+})();
+</script>
+</body>
+</html>

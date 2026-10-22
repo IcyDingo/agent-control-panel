@@ -20,9 +20,21 @@ import { createWorld, claudeArgs, readAnswer } from './world.mjs';
 import { findRemoved } from './versions.mjs';
 import { readChat } from './history.mjs';
 import { UNTRUSTED, trustKey, isTrusted, trustScript } from './trust.mjs';
+import { prefsPath } from './cli.mjs';
+import { createHub } from './hub.mjs';
+import { createHubSync } from './hub-sync.mjs';
+import { createHubOrders } from './hub-orders.mjs';
+
+// `node server.mjs <command>` runs the CLI (cli.mjs) and never starts the server.
+if (process.argv.length > 2) { const { main } = await import('./cli.mjs'); process.exit(await main(process.argv.slice(2))); }
 
 const PORT = Number(process.env.ACP_PORT ?? 4747);
+const DAEMON = process.env.ACP_DAEMON === '1';
+const RETRY_MS = Number(process.env.ACP_RETRY_MS ?? 5000);
 const ROSTER_MS = 3000;
+// A background service must not cost battery while nobody looks: under ACP_DAEMON with no page connected, the roster
+// is read once a minute and the version check waits. A page that connects brings both back at once.
+const IDLE_ROSTER_MS = 60_000;
 // Just under the hook's own timeout (hooks.example.json: 3600 s); past it Claude Code drops the request anyway.
 const HOLD_MS = Number(process.env.ACP_HOLD_MS ?? 3590_000);
 // A reload (yours, or the app's when a health check is slow) leaves the panel unwatched for a moment. Held requests
@@ -74,7 +86,7 @@ const baseEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => !
 // CLAUDE_CONFIG_DIR=~/.claude-<name>. The panel shows one at a time; the choice is remembered across starts.
 const HOME = os.homedir();
 // ACP_PREFS gives a second panel (another ACP_PORT) a profile choice of its own.
-const PREFS = process.env.ACP_PREFS || path.join(HOME, 'Library', 'Application Support', 'Agent Panel', 'prefs.json');
+const PREFS = prefsPath();
 const HOOK_URL = `127.0.0.1:${PORT}/hook/`;
 function listProfiles() {
   let names = [];
@@ -1359,6 +1371,7 @@ async function scanWorld(git) {
   try { await world.scan({ git }); } catch (err) { console.error('world scan failed:', err?.message ?? err); }
   finally { worldScanning = false; }
   if (worldSummary().earned !== before) broadcast();
+  hubSync.schedule(); // after every scan, not only a changed one: the half-hour heartbeat is judged when this is called
 }
 /** World's numbers for the page. Nothing in them may take the panel down. */
 function worldSummary() {
@@ -1367,6 +1380,7 @@ function worldSummary() {
 function openWorld() {
   world.open();
   scanWorld(true);
+  hubSync.schedule({ urgent: true });
   return { ok: true, world: worldSummary() };
 }
 /** Spend World's credit: push the frontier, or send a rocket (world.mjs decides the price and whether it can). */
@@ -1374,6 +1388,7 @@ function buyInWorld(body) {
   const r = world.buy({ kind: body?.kind, ang: body?.ang, planet: body?.planet, name: body?.name });
   if (!r.ok) return r;
   broadcast();
+  hubSync.schedule({ urgent: true });
   return { ok: true, world: worldSummary() };
 }
 // The Claude calls behind Build it. `claude agents` lists one while it runs, so the roster and the hooks skip these.
@@ -1392,11 +1407,104 @@ async function askClaude(prompt) {
     return readAnswer(r);
   } finally { setTimeout(() => quietIds.delete(id), 120_000); } // until the roster has seen it go
 }
+let building = false; // a Build it is waiting on Claude; the hub's site shows it
 async function buildInWorld(body) {
-  const r = await world.build({ on: body?.on, description: body?.description, ask: askClaude });
+  building = true;
+  hubSync.schedule({ urgent: true });
+  try {
+    const r = await world.build({ on: body?.on, description: body?.description, ask: askClaude });
+    if (!r.ok) return r;
+    broadcast();
+    return { ok: true, caption: r.purchase.caption, world: worldSummary() };
+  } finally {
+    building = false;
+    hubSync.schedule({ urgent: true }); // the purchase, if there was one, and the end of "building"
+  }
+}
+
+// ---------------------------------------------------------------- hub
+
+// The hosted hub (hub.mjs): signing in, keeping it in step with World (hub-sync.mjs) and running the orders placed on
+// its site (hub-orders.mjs). Signed out, none of this makes a request. The credentials live in hub.json beside the prefs.
+const hub = createHub({ file: path.join(path.dirname(PREFS), 'hub.json') });
+/** What only the owner sees on the hub: the balance, the prices, today and whether a build is under way. Null until World starts. */
+function ownerStatus() {
+  const w = worldSummary();
+  if (!w.started) return null;
+  return {
+    balance: w.balance, prices: { frontier: w.prices.frontier, rocket: w.prices.rocket, build: w.prices.build },
+    today: { credit: w.today.credit, commits: w.today.commits, added: w.today.added, removed: w.today.removed, tokens: w.today.tokens, multiplier: w.today.multiplier },
+    home: { xp: w.home.xp, today: w.home.today }, building,
+    mac: { name: os.hostname().slice(0, 40), online: true }, // the hub refuses a longer name
+  };
+}
+const hubSync = createHubSync({ hub, projection: () => (world.started() ? worldSummary() : null), status: ownerStatus });
+/** An order from the hub's site, run like the panel's own buttons; only the outcome goes back. */
+async function runOrder(order) {
+  const r = order.kind === 'build' ? await buildInWorld(order) : buyInWorld(order);
+  return { ok: r.ok, error: r.error, caption: r.caption };
+}
+// Each time the stream (re)connects, the account is asked for again: a handle changed on the site moves "Your page".
+const hubOrders = createHubOrders({
+  hub, execute: runOrder,
+  onDone: () => { hubSync.schedule({ urgent: true }); broadcast(); },
+  onOpen: () => hub.refreshAccount().then((changed) => { if (changed) broadcast(); }),
+});
+/** The hub as the page sees it (never the token). */
+function hubInfo() {
+  const { url, loggedIn, account, pending } = hub.status();
+  return { url, loggedIn, account, pending, sync: hubSync.state(), orders: hubOrders.state() };
+}
+
+// A sign-in started from the page is finished here: poll at the hub's pace (it may grow it, so it is read every round)
+// until the hub says yes, no or never. One loop at a time; a cancel (or the code running out) ends it. A poll that
+// fails (the hub is restarting, the network blinked) is tried again while the code is still live, and a panel that
+// restarts mid-sign-in picks the code up again from hub.json at start.
+let loginTimer = null, loginRun = 0, loginActive = false;
+function stopLoginLoop() { clearTimeout(loginTimer); loginRun++; loginActive = false; }
+function startLoginLoop() {
+  if (loginActive) return;
+  loginActive = true;
+  const run = ++loginRun;
+  const round = () => {
+    const pending = hub.status().pending;
+    if (!pending) { loginActive = false; broadcast(); return; }
+    loginTimer = setTimeout(async () => {
+      const outcome = await hub.pollDeviceLogin();
+      if (run !== loginRun) return;
+      if (outcome === 'pending' || (outcome === 'error' && hub.status().pending)) return round();
+      loginActive = false;
+      if (outcome === 'ok') { hubOrders.start(); hubSync.schedule({ urgent: true }); }
+      broadcast();
+    }, pending.interval * 1000);
+  };
+  round();
+}
+async function hubLoginStart() {
+  const live = hub.status().pending;
+  if (loginActive && live) return { ok: true, userCode: live.userCode, verificationUri: live.verificationUri, expiresAt: live.expiresAt };
+  const r = await hub.startDeviceLogin();
   if (!r.ok) return r;
+  startLoginLoop();
   broadcast();
-  return { ok: true, caption: r.purchase.caption, world: worldSummary() };
+  return { ok: true, userCode: r.userCode, verificationUri: r.verificationUri, expiresAt: r.expiresAt };
+}
+function hubLoginCancel() {
+  stopLoginLoop();
+  const r = hub.cancelDeviceLogin();
+  broadcast();
+  return { ok: r };
+}
+async function hubLogout() {
+  stopLoginLoop();
+  hubOrders.stop();
+  const r = await hub.logout();
+  broadcast();
+  return r;
+}
+async function hubSyncNow() {
+  await hubSync.flush();
+  return { ok: true, sync: hubSync.state() };
 }
 
 // ---------------------------------------------------------------- deleted versions
@@ -1440,7 +1548,7 @@ async function checkVersions() {
 function snapshot() {
   const now = Date.now();
   return {
-    now, armed, rosterError, port: PORT, profile: profileInfo, world: worldSummary(), oldVersions,
+    now, armed, rosterError, port: PORT, profile: profileInfo, world: worldSummary(), hub: hubInfo(), oldVersions,
     sessions: [...sessions.values()].map(({ spawns, hereCwd, rosterCwd, ranCwd, editTops, ...s }) => {
       const here = ranCwd ?? hereCwd ?? s.cwd, git = placeOut(gitPlace(here));
       return {
@@ -1518,8 +1626,10 @@ async function handle(req, res) {
     return send(res, 404, '');
   }
 
-  if (req.method === 'GET' && url.pathname === '/') {
-    return send(res, 200, page().replace('__ACP_TOKEN__', TOKEN), 'text/html; charset=utf-8');
+  // The same page twice: / is the board, /world opens straight on the universe (the page reads ACP_VIEW).
+  if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/world')) {
+    const view = url.pathname === '/' ? 'board' : 'world';
+    return send(res, 200, page().replace('__ACP_TOKEN__', TOKEN).replace('__ACP_VIEW__', view), 'text/html; charset=utf-8');
   }
 
   if (req.method === 'GET' && url.pathname === '/world.js') {
@@ -1531,16 +1641,20 @@ async function handle(req, res) {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
     res.write(`retry: 2000\ndata: ${JSON.stringify(snapshot())}\n\n`);
     clients.add(res);
+    if (DAEMON && setRosterPace(true)) pollRoster().then(checkVersions); // back from idle: catch up at once
     clearTimeout(releaseTimer);
     releaseTimer = null;
     const ping = setInterval(() => res.write(': ping\n\n'), 20_000);
     req.on('close', () => {
       clearInterval(ping);
       clients.delete(res);
-      // Last tab gone and not back in time: hand every held request back to the terminal.
+      // Last tab gone and not back in time: hand every held request back to the terminal, and (under the daemon) slow
+      // the roster down. Not before: until then a held request still needs the fast polls to see a terminal answer.
       if (clients.size === 0 && releaseTimer === null) releaseTimer = setTimeout(() => {
         releaseTimer = null;
-        if (clients.size === 0) for (const id of [...pending.keys()]) settle(id, null, 'panel closed');
+        if (clients.size > 0) return;
+        for (const id of [...pending.keys()]) settle(id, null, 'panel closed');
+        if (DAEMON) setRosterPace(false);
       }, RECONNECT_MS);
     });
     return;
@@ -1567,7 +1681,9 @@ async function handle(req, res) {
                       '/api/profiles': profiles, '/api/profile': switchProfile, '/api/profile/connect': connectProfile,
                       '/api/answer-open': answerOpen, '/api/world/open': openWorld, '/api/world/buy': buyInWorld,
                       '/api/world/build': buildInWorld, '/api/history': history,
-                      '/api/trust-terminal': openTrustTerminal };
+                      '/api/trust-terminal': openTrustTerminal,
+                      '/api/hub/status': () => ({ ok: true, hub: hubInfo() }), '/api/hub/login/start': hubLoginStart,
+                      '/api/hub/login/cancel': hubLoginCancel, '/api/hub/logout': hubLogout, '/api/hub/sync': hubSyncNow };
     if (Object.hasOwn(ACTIONS, url.pathname)) {
       let r;
       try { r = await ACTIONS[url.pathname](body); } catch (err) { r = { ok: false, error: String(err?.message ?? err).slice(0, 300) }; }
@@ -1583,11 +1699,47 @@ async function handle(req, res) {
   send(res, 404, { error: 'not found' });
 }
 
+// Under launchd a server that quit on a taken port would be relaunched every 10 s forever. Wait instead: an app-started
+// server from before the service was installed quits when the app does, and this one takes the port then.
+// It says so on the first try and then every 60th, so a long wait adds a line every 5 minutes, not every 5 s.
+let portTries = 0;
+server.on('error', (err) => {
+  if (!(DAEMON && err.code === 'EADDRINUSE')) throw err;
+  if (++portTries === 1 || portTries % 60 === 0) console.log(`port ${PORT} is taken; trying again every ${RETRY_MS / 1000} s`);
+  setTimeout(() => server.listen(PORT, '127.0.0.1'), RETRY_MS);
+});
+
+let rosterTimer = null, rosterFast = null;
+/** Reads the roster every ROSTER_MS when `fast`, every IDLE_ROSTER_MS when not. Returns whether the pace changed. */
+function setRosterPace(fast) {
+  if (fast === rosterFast) return false;
+  clearInterval(rosterTimer);
+  rosterFast = fast;
+  rosterTimer = setInterval(pollRoster, fast ? ROSTER_MS : IDLE_ROSTER_MS);
+  return true;
+}
+/** Whether someone may be looking: always outside the daemon, and under it while a page is connected. */
+const looking = () => !DAEMON || clients.size > 0;
+
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`agent control panel → http://127.0.0.1:${PORT}`);
-  pollRoster().then(checkVersions);
-  setInterval(pollRoster, ROSTER_MS);
-  setInterval(checkVersions, VERSIONS_MS);
+  pollRoster().then(() => { if (looking()) checkVersions(); });
+  setRosterPace(looking());
+  setInterval(() => { if (looking()) checkVersions(); }, VERSIONS_MS);
   setInterval(() => { prune(); broadcast(); }, 10_000);
   setInterval(() => scanWorld(worldScans++ % 5 === 0), WORLD_MS);
+  // The order stream ends by itself when the hub says 401, and a `login` from a terminal never tells this process, so
+  // look every minute: a stream that has ended is opened again, and one that is up still asks the hub for its pending
+  // orders, in case the stream missed one (a Mac that slept through a drop can hold a stream that hears nothing).
+  const startOrders = () => {
+    if (!hub.status().loggedIn) return;
+    if (hubOrders.state().listening) hubOrders.drain(); else hubOrders.start();
+  };
+  startOrders();
+  if (hub.status().pending) startLoginLoop();   // a sign-in begun before a restart still finishes
+  setInterval(startOrders, WORLD_MS);
+  // A World that can't be saved (an unwritable prefs folder) must not take the panel down: under launchd it would crash-loop.
+  if (DAEMON && !world.started()) {
+    try { openWorld(); } catch (err) { console.error('world could not start:', err?.message ?? err); }
+  }
 });

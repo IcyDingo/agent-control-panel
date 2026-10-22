@@ -22,6 +22,11 @@
   const LOOK = { rust: ['#d9a27f', '#8a4f33', '#2a1712'], ice: ['#dbe8f2', '#7f9fb8', '#1d2a36'], sand: ['#e6d3a3', '#a68a55', '#2e2516'],
     violet: ['#c9b3e0', '#6e5590', '#1f1730'] };
   const MOMENT = { week: '#cfe0ff', cleanup: '#7ee0a8', level: '#ffcf7a' };
+  const SUN = { gold: '#ffd27a', white: '#eef2ff', orange: '#ffa65c', blue: '#bcd3ff' };
+  /** world.mjs LEVELS' XP: a public projection of a system has a level but no XP, so Home is drawn at its level's start. */
+  const LEVEL_XP = [0, 15, 100, 300, 500, 800, 1200, 1600, 2000, 2600, 3300, 4000];
+  const sun = () => world?.sun ?? null;
+  let light = { lx: Math.cos(Math.PI * 1.25), ly: Math.sin(Math.PI * 1.25) }; // which way the sun is from Home: the lit side faces it
 
   function make(seed) {
     const r = rng(seed), stars = [], land = [], cities = [], craters = [], clouds = [];
@@ -48,7 +53,7 @@
   }
 
   // ---------- the light: Home's, and the frontier's lobes
-  const days = () => (world?.home?.xp ?? 0) / 100; // in full days' work: Home's stages below are drawn on that scale
+  const days = () => (world?.home?.xp ?? LEVEL_XP[(world?.home?.level ?? 1) - 1] ?? 0) / 100; // in full days' work: Home's stages below are drawn on that scale
   /** 0 before day `a`, 1 from day `b`, linear between: each stage eases in over the days before it is named. */
   const ramp = (a, b) => clamp((days() - a) / (b - a));
   const g = () => Math.sqrt(Math.min(1, days() / 40)); // how far the lit map reaches: quick at first, all of it at the ladder's top
@@ -61,14 +66,16 @@
       const ux = Math.cos(l.ang), uy = Math.sin(l.ang), along = clamp(mx * ux + my * uy, 0, l.tip);
       best = Math.max(best, 1 - Math.hypot(mx - ux * along, my - uy * along) / lobeRadius(along, l.tip));
     }
+    if (sun()) best = Math.max(best, 1 - Math.hypot(mx - sun().x, my - sun().y) / 70); // the sun's own glow
     return clamp(best * 1.6);
   }
-  /** How far the world reaches from Home (map px): the light, what the frontier bought, the planets it found. */
-  const extent = () => Math.max(reach() * 1.15, ...lobes().map((l) => LOBE_START + l.bought + 60), ...planets().map((p) => Math.hypot(p.x, p.y) + 30));
+  /** How far the world reaches from Home (map px): the light, the sun, what the frontier bought, the planets it found. */
+  const extent = () => Math.max(reach() * 1.15, ...(sun() ? [Math.hypot(sun().x, sun().y) + 70] : []),
+    ...lobes().map((l) => LOBE_START + l.bought + 60), ...planets().map((p) => Math.hypot(p.x, p.y) + 30));
   /** The light and the stars in it, drawn again only when the world changes, sampled small and drawn up smoothly so
    *  its edge is soft. */
   function paint() {
-    const sig = JSON.stringify([world?.reach, lobes(), planets().map((p) => p.id)]);
+    const sig = JSON.stringify([world?.reach, world?.sun, lobes(), planets().map((p) => p.id)]);
     if (sky && sig === skySig) return;
     skySig = sig;
     const E = extent(), n = 128, c = document.createElement('canvas');
@@ -139,7 +146,7 @@
       x.fillStyle = `rgba(235,240,250,${0.22 * clouds})`;
       x.beginPath(); x.ellipse(cx - R + ((c.u + drift) % 1) * 2.4 * R - 0.2 * R, cy - R + c.v * 2 * R, c.w * R, c.w * 0.32 * R, -0.15, 0, 7); x.fill();
     }
-    const sh = x.createRadialGradient(cx - R * 0.45, cy - R * 0.4, R * 0.2, cx, cy, R * 1.05);
+    const sh = x.createRadialGradient(cx + light.lx * R * 0.45, cy + light.ly * R * 0.4, R * 0.2, cx, cy, R * 1.05);
     sh.addColorStop(0, 'rgba(255,255,255,.12)'); sh.addColorStop(0.55, 'rgba(0,0,0,0)'); sh.addColorStop(1, 'rgba(2,4,10,.82)');
     x.fillStyle = sh; x.fillRect(cx - R, cy - R, 2 * R, 2 * R);
     if (R > 30 && detail > 0) for (const c of made.cities) {
@@ -147,7 +154,7 @@
       const [ox, oy] = at(c.on), ex = Math.cos(c.a) * c.d * c.on.s * 2 * R, ey = Math.sin(c.a) * c.d * c.on.s * 1.2 * R;
       const lx = ox + ex * Math.cos(0.3) - ey * Math.sin(0.3), ly = oy + ex * Math.sin(0.3) + ey * Math.cos(0.3);
       if (Math.hypot(lx - cx, ly - cy) > R * 0.96) continue;
-      const night = lx - cx > R * 0.05, d = Math.max(2, R / 110); // pale by day, lit at night
+      const night = (lx - cx) * light.lx + (ly - cy) * light.ly < -R * 0.05, d = Math.max(2, R / 110); // pale by day, lit at night
       x.fillStyle = night ? 'rgba(255,205,120,.9)' : 'rgba(228,224,212,.55)'; x.fillRect(lx, ly, d, d);
     }
     x.restore();
@@ -172,6 +179,26 @@
       x.fillStyle = m; x.beginPath(); x.arc(mx, my, R * 0.09, 0, 7); x.fill();
     }
   }
+  /** The mascot: a small stone creature in the spirit of Rocky from Project Hail Mary, squared off like the hub's mosaic,
+   *  standing on Home's north pole with one leg raised in greeting; the same figure the hub's landing shows
+   *  (hub/public/hub.js MASCOT, 48 by 48 units). About half of Home's radius tall, and not drawn when Home is small. */
+  function drawMascot(cx, cy, R) {
+    if (R < 28) return;
+    const u = clamp(R * 0.0075, 0.35, 0.85), LEG = '#5a5248', BODY = '#8f8678', TOP = '#aaa092', SPOT = '#6f675b', AMBER = '#e3ab3e';
+    const poly = (pts, width) => { x.lineWidth = width; x.beginPath(); x.moveTo(pts[0], pts[1]); for (let i = 2; i < pts.length; i += 2) x.lineTo(pts[i], pts[i + 1]); x.stroke(); };
+    const hand = (hx, hy, fingers) => { for (const [dx, dy] of fingers) { x.lineWidth = 1.5; x.beginPath(); x.moveTo(hx, hy); x.lineTo(hx + dx, hy + dy); x.stroke(); } };
+    const box = (bx, by, w, h, r, fill) => { x.fillStyle = fill; x.beginPath(); if (x.roundRect) x.roundRect(bx, by, w, h, r); else x.rect(bx, by, w, h); x.fill(); };
+    x.save(); x.translate(cx - 24 * u, cy - R - 41 * u); x.scale(u, u);
+    x.strokeStyle = LEG; x.lineCap = 'round'; x.lineJoin = 'round';
+    poly([12, 35, 4, 39, 3, 46], 3); poly([17, 37, 12, 42, 11, 46], 3); poly([24, 38, 24, 42, 24, 46], 3); poly([31, 37, 36, 42, 37, 46], 3); // four legs, splayed
+    poly([34, 33, 42, 27, 44, 18], 3); // one raised
+    const down = [[-2.4, 1.2], [0, 2.4], [2.4, 1.2]];
+    hand(3, 46, down); hand(11, 46, down); hand(24, 46, down); hand(37, 46, down); hand(44, 18, [[-2.2, -2.2], [0.4, -3], [2.6, -1.4]]);
+    box(9, 23, 30, 16, 4, BODY); box(9, 23, 30, 6, 4, TOP); // the body, a block of stone, lit on top
+    x.fillStyle = SPOT; x.fillRect(14, 31, 3, 3); x.fillRect(26, 33, 2.5, 2.5); x.fillRect(33, 30, 2, 2); x.fillRect(21, 26, 2, 2); // square flecks
+    x.fillStyle = AMBER; x.beginPath(); x.arc(45, 11.5, 1.5, 0, 7); x.fill(); // a chime of greeting
+    x.restore();
+  }
   const idSeed = (id) => [...id].reduce((h, ch) => h * 31 + ch.charCodeAt(0), made.seed) | 0;
   /** A planet the frontier found: a bare world in its own colours, with craters. A colony on it adds a warm air and
    *  domes lit from inside. */
@@ -182,7 +209,7 @@
       x.fillStyle = a; x.beginPath(); x.arc(cx, cy, R * 1.2, 0, 7); x.fill();
     }
     const [c0, c1, c2] = look.land ? [mix(look.land, '#ffffff', 0.35), look.land, mix(look.land, '#000000', 0.8)] : LOOK[p.look] ?? LOOK.rust;
-    const gr = x.createRadialGradient(cx - R * 0.35, cy - R * 0.35, 0, cx, cy, R);
+    const gr = x.createRadialGradient(cx + light.lx * R * 0.35, cy + light.ly * R * 0.35, 0, cx, cy, R);
     gr.addColorStop(0, c0); gr.addColorStop(0.6, c1); gr.addColorStop(1, c2);
     x.fillStyle = gr; x.beginPath(); x.arc(cx, cy, R, 0, 7); x.fill();
     if (R > 12) {
@@ -231,7 +258,7 @@
   function drawBuilt(cx, cy, R, pieces, t, layer, spin, home) {
     if (!pieces.length) return;
     const dot = Math.max(1, R / 110), blink = (i) => (calm.matches ? 1 : 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(t / 350 + i * 1.7)));
-    const lit = (sx, sy) => clamp(1.25 - Math.hypot(sx - (cx - 0.45 * R), sy - (cy - 0.4 * R)) / (1.5 * R), 0.25, 1); // daylight from the top left
+    const lit = (sx, sy) => clamp(1.25 - Math.hypot(sx - (cx + light.lx * 0.45 * R), sy - (cy + light.ly * 0.4 * R)) / (1.5 * R), 0.25, 1); // daylight from the sun's side
     if (layer === 'ground') { x.save(); x.beginPath(); x.arc(cx, cy, R, 0, 7); x.clip(); }
     for (const p of pieces) {
       const S = SIZE[p.size] ?? 1, n = p.count, c = p.colour;
@@ -302,7 +329,7 @@
           x.fillStyle = rgba(c, 0.45 * lit(s.x, s.y) + 0.1); x.beginPath(); x.ellipse(s.x, s.y, dr * 1.4, dr, 0, Math.PI, 2 * Math.PI); x.fill();
           x.fillStyle = 'rgba(255,214,140,.9)'; x.fillRect(s.x - dot / 2, s.y - dot * 1.5, dot, dot);
         } else if (p.kind === 'city_lights') for (const s of spots(p, Math.min(72, n * 6), cx, cy, R, spin)) {
-          const night = s.x > cx + R * 0.05, d = dot * (0.8 + 0.4 * S);
+          const night = (s.x - cx) * light.lx + (s.y - cy) * light.ly < -R * 0.05, d = dot * (0.8 + 0.4 * S);
           x.fillStyle = rgba(c, night ? 0.95 : 0.35); x.fillRect(s.x - d / 2, s.y - d / 2, d, d);
         } else if (p.kind === 'beacon' && p.place !== 'orbit') for (const s of spots(p, Math.min(n, 6), cx, cy, R, spin)) {
           const b = blink(s.w * 9), d = Math.max(1.2, R * 0.02 * S);
@@ -335,6 +362,16 @@
     x.restore();
     return k >= 1;
   }
+  /** The sun Home orbits: a corona, its disc, and six faint rays turning slowly. */
+  function drawSun(px, py, r, t) {
+    const c = SUN[sun().look] ?? SUN.gold, g = x.createRadialGradient(px, py, r, px, py, 3 * r), spin = calm.matches ? 0 : t / 20000;
+    g.addColorStop(0, rgba(c, 0.35)); g.addColorStop(1, rgba(c, 0));
+    x.fillStyle = g; x.beginPath(); x.arc(px, py, 3 * r, 0, 7); x.fill();
+    x.strokeStyle = rgba(c, 0.18); x.lineWidth = 1; x.beginPath();
+    for (let i = 0; i < 6; i++) { const a = spin + i * Math.PI / 3; x.moveTo(px + Math.cos(a) * r, py + Math.sin(a) * r); x.lineTo(px + Math.cos(a) * 2.2 * r, py + Math.sin(a) * 2.2 * r); }
+    x.stroke();
+    x.fillStyle = c; x.beginPath(); x.arc(px, py, r, 0, 7); x.fill();
+  }
   /** A moment: a four-pointed star in its kind's colour. */
   function drawMoment(px, py, m, on) {
     const r = on ? 4.2 : 3;
@@ -363,6 +400,8 @@
     const to = (mx, my) => [cx + mx * s, cy + my * s], viewMin = Math.min(vw, H);
     const bodyR = (r) => Math.min(viewMin * 0.3 * r / BODY.home, r * s);
     view = { s, cx, cy, bodyR };
+    const sa = sun() ? Math.atan2(sun().y, sun().x) : Math.PI * 1.25; // no sun: the old light from the top left
+    light = { lx: Math.cos(sa), ly: Math.sin(sa) };
     x.setTransform(dpr, 0, 0, dpr, 0, 0);
     const bg = x.createRadialGradient(W / 2, H / 2, 10, W / 2, H / 2, Math.max(W, H) * 0.7);
     bg.addColorStop(0, '#0b1526'); bg.addColorStop(1, '#03050a');
@@ -384,6 +423,7 @@
         const sz = st.b > 0.93 ? 2.2 : st.b > 0.75 ? 1.5 : 1;
         x.fillRect(sx, sy, sz, sz);
       }
+      if (sun()) { const [ux, uy] = to(sun().x, sun().y), ur = Math.max(2.5, sun().r * s); if (seen(ux, uy, ur * 3)) drawSun(ux, uy, ur, t); }
       for (const l of lobes()) if (l.lit < l.bought) { // what the frontier bought and hasn't lit yet: a faint trail ahead
         const [ax, ay] = to(Math.cos(l.ang) * l.tip, Math.sin(l.ang) * l.tip), [bx, by] = to(Math.cos(l.ang) * (LOBE_START + l.bought), Math.sin(l.ang) * (LOBE_START + l.bought));
         x.strokeStyle = 'rgba(227,171,62,.35)'; x.lineWidth = 1.5; x.setLineDash([3, 7]);
@@ -399,11 +439,18 @@
     }
     const detail = clamp((0.5 - z) / 0.35);
     const [hx, hy] = to(0, 0), hr = bodyR(BODY.home), hp = piecesOn('home'), spin = calm.matches ? 0 : t / 60000;
+    if (detail > 0 && sun()) { // close up the sun is off the view: a warm glow at the edge on its side
+      const gx = hx + light.lx * viewMin * 0.9, gy = hy + light.ly * viewMin * 0.9, c = SUN[sun().look] ?? SUN.gold;
+      const wg = x.createRadialGradient(gx, gy, 0, gx, gy, viewMin * 0.7);
+      wg.addColorStop(0, rgba(c, 0.18 * detail)); wg.addColorStop(1, rgba(c, 0));
+      x.fillStyle = wg; x.fillRect(0, 0, W, H);
+    }
     if (seen(hx, hy, hr * 3.2)) {
       drawBuilt(hx, hy, hr, hp, t, 'back', spin, true);
       drawHome(hx, hy, hr, t, here === 'home' ? detail : 0, lookOf(hp));
       drawBuilt(hx, hy, hr, hp, t, 'ground', spin, true);
       drawBuilt(hx, hy, hr, hp, t, 'front', spin, true);
+      drawMascot(hx, hy, hr);
     }
     if (z > 0.5) label('Home', hx, hy - hr - 10, '#e3e7ed', 13);
     for (const p of planets()) {
@@ -472,6 +519,7 @@
   const composing = (e) => e.isComposing || e.keyCode === 229;
   function wire() {
     cv = $('w-canvas'); x = cv.getContext('2d');
+    if ($('w-profile')) wireProfile(); // the panel's; the hub's page has no such box
     cv.addEventListener('wheel', (e) => { e.preventDefault(); zoomTo(zTo + e.deltaY * 0.0015); }, { passive: false });
     cv.addEventListener('pointerdown', (e) => {
       drag = { x: e.clientX - pan.x, y: e.clientY - pan.y, at: [e.clientX, e.clientY], moved: false };
@@ -532,6 +580,7 @@
     showPush();
   }
   function showPush() {
+    if (opts.readOnly) return;
     const price = world.prices?.frontier ?? 0;
     $('w-push-price').textContent = `${fmt(price)} credit`;
     // No direction (none yet, or just pushed) shows the list's placeholder, so any direction can be picked again.
@@ -558,6 +607,7 @@
   /** Build on the place you are looking at: Home or a colony. Claude takes a few seconds; one build at a time. */
   let buildingOn = null;
   function showBuild() {
+    if (opts.readOnly) return;
     const box = $('w-build-box'), p = placeOf(here), yours = here === 'home' || (p && colonyOf(p));
     box.hidden = !yours;
     if (!yours) return;
@@ -586,6 +636,7 @@
   }
   /** Send a rocket: shown while the frontier has found a planet nobody lives on. */
   function showRocket() {
+    if (opts.readOnly) return;
     const list = planets().filter((p) => !p.colony), box = $('w-rocket-box');
     box.hidden = !list.length;
     if (!list.length) return;
@@ -636,6 +687,7 @@
   }
   /** The zoom bar: Home, each colony, the map. */
   function showColonies() {
+    if (opts.readOnly) return;
     const list = planets().filter(colonyOf), sig = list.map((p) => `${p.id}:${p.colony.name}`).join();
     if (sig === coloniesSig) return;
     coloniesSig = sig;
@@ -655,6 +707,11 @@
     if (z < 0.5) showMap({ x: m.x, y: m.y }); else focusTo = { x: m.x, y: m.y };
     $('w-m-name').textContent = momentTitle(m);
     const i = m.info;
+    if (!i) { // a system's public projection keeps when a moment was, never its numbers
+      $('w-m-when').textContent = m.kind === 'week' ? `${short(m.from)} to ${short(m.day)}.` : m.kind === 'cleanup' ? 'A day that removed more than it added.' : 'Home reached a new level.';
+      $('w-m-info').replaceChildren();
+      return;
+    }
     $('w-m-when').textContent = m.kind === 'week' ? `${short(m.from)} to ${short(m.day)}, ${i.days} day${i.days === 1 ? '' : 's'} worked.`
       : m.kind === 'cleanup' ? 'A day that removed more than it added. Removing pays most.' : `Home reached level ${i.level}.`;
     $('w-m-info').replaceChildren(...(m.kind === 'level' ? row('XP', fmt(i.xp)) : [
@@ -681,28 +738,34 @@
     const h = w.home ?? { xp: 0, today: 0, level: 1, stage: 'Bare rock', at: 0, next: null }, pct = (v) => Math.round(Math.min(1, v) * 100);
     $('w-level').textContent = `Level ${h.level}`;
     $('w-stage').textContent = h.stage;
-    $('w-xp').textContent = h.next ? `${fmt(h.xp)} / ${fmt(h.next.at)} XP` : `${fmt(h.xp)} XP`;
-    $('w-bar').style.width = pct(h.next ? (h.xp - h.at) / (h.next.at - h.at) : 1) + '%';
+    // A system's public projection has a level and a stage but no XP: the XP, its bar and the next level hide.
+    const xp = h.xp ?? h.at ?? 0;
+    $('w-xp').hidden = $('w-bar').parentElement.hidden = $('w-next').hidden = h.xp == null;
+    $('w-xp').textContent = h.next ? `${fmt(xp)} / ${fmt(h.next.at)} XP` : `${fmt(xp)} XP`;
+    $('w-bar').style.width = pct(h.next ? (xp - (h.at ?? 0)) / (h.next.at - (h.at ?? 0)) : 1) + '%';
     $('w-next').textContent = h.next ? `Next: level ${h.next.level}, ${h.next.name}.` : 'The top level. The frontier keeps growing the map.';
-    $('w-xp-today').textContent = `+${fmt(h.today)} XP today. ` + (h.today >= 100 ? 'More work gives more.' : 'A full day gives 100.');
-    $('w-bar-today').style.width = pct(h.today / 100) + '%';
-    $('w-credit').textContent = fmt(Math.max(0, w.balance));
-    const t = w.today;
-    $('w-today').replaceChildren(
-      ...row('Commits', fmt(t.commits)),
-      ...row('Lines written', '+' + fmt(t.added)),
-      ...row('Lines removed', `−${fmt(t.removed)}, so ×${t.multiplier.toFixed(1)}`),
-      ...row('Tokens', fmt(t.tokens)),
-      ...row('Credit earned', fmt(t.credit)));
-    const since = new Date(w.startedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'long' });
-    $('w-total').textContent = w.earned > 0 ? `${fmt(w.earned)} credit earned since ${since}, ${fmt(w.spent ?? 0)} spent.`
-      : `Your world started on ${since} as a bare rock. Each day you work gives Home XP, and it levels up.`;
-    const names = (list) => (list ?? []).map((r) => r.split('/').filter(Boolean).at(-1)).join(', ');
-    const notes = [];
-    if (w.noEmail?.length) notes.push(`No commits counted in ${names(w.noEmail)}: git has no user.email there.`);
-    if (w.gitFailed?.length) notes.push(`Commits in ${names(w.gitFailed)} couldn't be read this time: git didn't answer in time. What was counted stays.`);
-    $('w-noemail').hidden = !notes.length;
-    $('w-noemail').textContent = notes.join(' ');
+    $('w-xp-today').hidden = $('w-bar-today').parentElement.hidden = h.today == null;
+    $('w-xp-today').textContent = `+${fmt(h.today ?? 0)} XP today. ` + ((h.today ?? 0) >= 100 ? 'More work gives more.' : 'A full day gives 100.');
+    $('w-bar-today').style.width = pct((h.today ?? 0) / 100) + '%';
+    $('w-credit').textContent = fmt(Math.max(0, w.balance ?? 0));
+    if (!opts.readOnly) { // today's numbers, the totals and the notes are the owner's alone
+      const t = w.today;
+      $('w-today').replaceChildren(
+        ...row('Commits', fmt(t.commits)),
+        ...row('Lines written', '+' + fmt(t.added)),
+        ...row('Lines removed', `−${fmt(t.removed)}, so ×${t.multiplier.toFixed(1)}`),
+        ...row('Tokens', fmt(t.tokens)),
+        ...row('Credit earned', fmt(t.credit)));
+      const since = new Date(w.startedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'long' });
+      $('w-total').textContent = w.earned > 0 ? `${fmt(w.earned)} credit earned since ${since}, ${fmt(w.spent ?? 0)} spent.`
+        : `Your world started on ${since} as a bare rock. Each day you work gives Home XP, and it levels up.`;
+      const names = (list) => (list ?? []).map((r) => r.split('/').filter(Boolean).at(-1)).join(', ');
+      const notes = [];
+      if (w.noEmail?.length) notes.push(`No commits counted in ${names(w.noEmail)}: git has no user.email there.`);
+      if (w.gitFailed?.length) notes.push(`Commits in ${names(w.gitFailed)} couldn't be read this time: git didn't answer in time. What was counted stays.`);
+      $('w-noemail').hidden = !notes.length;
+      $('w-noemail').textContent = notes.join(' ');
+    }
     showPush();
     showBuild();
     showRocket();
@@ -711,28 +774,145 @@
     if (picked && !(w.moments ?? []).some((m) => m.id === picked)) pick(null);
   }
 
+  // ---------- Profile: the hub account, or the way to sign in to one. The page passes the hub's state with each summary;
+  // the sign-in itself is the server's (it polls the hub), so this only starts it, shows the code, and follows the snapshots.
+  let hubNow = null, orderBase = null, loginCancelled = false;
+  const ago = (t) => {
+    const s = Math.max(0, (Date.now() - t) / 1000);
+    return s < 60 ? 'just now' : s < 3600 ? `${Math.floor(s / 60)} min ago` : s < 172_800 ? `${Math.floor(s / 3600)} h ago` : `${Math.floor(s / 86_400)} days ago`;
+  };
+  const AVATARS = 'https://avatars.githubusercontent.com/';
+  const web = (u) => (/^https?:\/\//.test(String(u)) ? String(u) : null);
+  function avatarOf(a) {
+    const label = a.name || a.handle || '?', words = label.trim().split(/\s+/), cls = 'avatar';
+    if (typeof a.avatar === 'string' && a.avatar.startsWith(AVATARS)) {
+      const img = document.createElement('img');
+      img.className = cls; img.src = a.avatar; img.alt = ''; img.referrerPolicy = 'no-referrer';
+      return img;
+    }
+    const s = document.createElement('span');
+    s.className = cls; s.setAttribute('aria-hidden', 'true');
+    s.textContent = (words.length > 1 ? words[0][0] + words[1][0] : label.replace(/[^\p{L}\p{N}]/gu, '').slice(0, 2) || '?').toUpperCase();
+    return s;
+  }
+  /** What an order from the site is doing, in the words the panel's own buttons use. */
+  function orderText(o) {
+    if (o.kind === 'build') return `build on ${placeName(o.on)}`;
+    if (o.kind === 'frontier') return 'push the frontier';
+    const p = placeOf(o.planet);
+    return p ? `rocket to the bare planet, ${compass(Math.atan2(p.y, p.x))}` : 'send a rocket';
+  }
+  /** Fill the Profile box from the hub's state (`before` is the summary it replaces, for telling whether an order did anything). */
+  function showHub(h, before = world) {
+    if (!$('w-profile') || opts.readOnly || !h) return;
+    const was = hubNow, toast = (t, bad) => opts.toast?.(t, bad);
+    hubNow = h;
+    $('w-pf-in').hidden = !h.loggedIn;
+    $('w-pf-out').hidden = h.loggedIn;
+    const err = $('w-pf-err');
+    if (h.loggedIn && h.account) {
+      const a = h.account, base = String(h.url ?? '').replace(/\/+$/, ''), sig = `${a.avatar}|${a.name}|${a.handle}`;
+      err.hidden = true;
+      if ($('w-pf-avatar')._sig !== sig) { $('w-pf-avatar')._sig = sig; $('w-pf-avatar').replaceChildren(avatarOf(a)); }
+      $('w-pf-handle').textContent = `@${a.handle}`;
+      $('w-pf-xy').textContent = `${a.x}, ${a.y}`.replaceAll('-', '−');
+      const page = $('w-pf-page'), edit = $('w-pf-edit');
+      page.hidden = edit.hidden = !web(base);
+      page.href = `${base}/@${encodeURIComponent(a.handle)}`; edit.href = `${base}/me`;
+      const s = h.sync ?? {};
+      $('w-pf-sync').textContent = s.lastError ? s.lastError + (s.lastOk ? ` Last synced ${ago(s.lastOk)}.` : '')
+        : s.lastOk ? `Synced ${ago(s.lastOk)}` : 'Not synced yet';
+      const cur = h.orders?.current ?? null;
+      $('w-pf-order').hidden = !cur;
+      if (cur) $('w-pf-order').textContent = `Running an order from the site: ${orderText(cur)}…`;
+    } else {
+      const p = h.pending, live = Boolean(p);
+      $('w-pf-start').hidden = live; $('w-pf-wait').hidden = !live;
+      if (live) {
+        err.hidden = true; loginCancelled = false;
+        $('w-pf-code').textContent = p.userCode;
+        const link = $('w-pf-link'), href = web(p.verificationUri);
+        link.textContent = href ? href.replace(/^https?:\/\//, '').replace(/\?.*$/, '') : '';
+        if (href) link.href = href; else link.removeAttribute('href');
+      } else if (was?.pending && !was.loggedIn && !loginCancelled) {
+        err.textContent = "The sign-in didn't complete. Try again."; err.hidden = false;
+      }
+    }
+    if (!was) { orderBase = h.orders?.current ? { n: before?.builds?.length ?? 0, spent: before?.spent ?? 0 } : null; return; } // the first sight raises nothing
+    if (h.loggedIn && !was.loggedIn) toast(`Signed in as @${h.account?.handle}`);
+    const e = h.sync?.lastError ?? null, wasE = was.sync?.lastError ?? null;
+    if (h.loggedIn && was.loggedIn && e && e !== wasE) toast(e, true);
+    else if (h.loggedIn && was.loggedIn && !e && wasE) toast('Hub in sync again');
+    // An order from the site lands when it stops being the current one; the summary says whether it did anything.
+    const cur = h.loggedIn ? h.orders?.current : null;
+    if (cur && !orderBase) orderBase = { n: before?.builds?.length ?? 0, spent: before?.spent ?? 0 };
+    if (!cur && orderBase) {
+      const b = orderBase;
+      orderBase = null;
+      if (was.orders?.current && h.loggedIn) {
+        const builds = world?.builds ?? [];
+        if (builds.length > b.n) toast(`Built from the site: ${builds.at(-1).caption}`);
+        else if ((world?.spent ?? 0) !== b.spent) toast("The site's order landed");
+      }
+    }
+  }
+  function wireProfile() {
+    const call = (id, path, then) => {
+      const b = $(id);
+      b.onclick = async () => {
+        b.disabled = true;
+        const r = await opts.api(path, {});
+        b.disabled = false;
+        then(r);
+      };
+    };
+    const say = (r) => { $('w-pf-err').textContent = r.error || 'That did not go through.'; $('w-pf-err').hidden = false; };
+    call('w-pf-login', '/api/hub/login/start', (r) => {
+      $('w-pf-err').hidden = true;
+      if (!r.ok) return say(r);
+      loginCancelled = false;
+      if (hubNow) showHub({ ...hubNow, loggedIn: false, pending: { userCode: r.userCode, verificationUri: r.verificationUri } });
+    });
+    $('w-pf-cancel').onclick = async () => {
+      loginCancelled = true;
+      const r = await opts.api('/api/hub/login/cancel', {});
+      if (r.ok === false) return say(r);
+      if (hubNow) showHub({ ...hubNow, pending: null });
+    };
+    call('w-pf-logout', '/api/hub/logout', (r) => {
+      if (!r.ok) return opts.toast?.(r.error || 'Could not sign out.', true);
+      opts.toast?.('Signed out');
+      if (hubNow) showHub({ ...hubNow, loggedIn: false, account: null, pending: null });
+    });
+  }
+
   window.AgentWorld = {
     enter(summary, options = {}) {
       opts = options;
+      hubNow = null; orderBase = null; loginCancelled = false;
+      document.body.classList.toggle('w-readonly', Boolean(opts.readOnly)); // a system shown read-only: nothing to spend
       if (!cv) wire();
       world = summary;
       if (made?.seed !== (summary.seed ?? 1)) { made = make(summary.seed ?? 1); sky = null; }
       paint();
       here = 'home'; flight = null; focus = { x: 0, y: 0 }; focusTo = { x: 0, y: 0 };
       show(summary);
+      showHub(opts.hub);
       fit();
       zoomTo(0); z = 0; pan = { x: 0, y: 0 };
       t0 = performance.now();
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(frame);
     },
-    update(summary) {
-      if (!raf || !summary?.started) return;
+    update(summary, hub) {
+      if (!raf || !summary || summary.started === false) return; // a system's public projection has no `started`
+      const before = world;
       world = summary;
       paint();
       show(summary);
+      showHub(hub, before);
     },
-    exit() { cancelAnimationFrame(raf); raf = 0; drag = null; flight = null; if (aiming) setAim(false); },
+    exit() { cancelAnimationFrame(raf); raf = 0; drag = null; flight = null; if (aiming) setAim(false); document.body.classList.remove('w-readonly'); },
     /** Where a point on the map (map px, Home at 0,0) is on the canvas now. */
     at(mx, my) { return view ? [view.cx + mx * view.s, view.cy + my * view.s] : null; },
   };

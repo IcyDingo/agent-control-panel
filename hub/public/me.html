@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Your profile · Universe</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/hub.css">
+</head>
+<body>
+<div class="page narrow">
+  <header class="bar">
+    <a class="brand" href="/">Universe</a>
+    <span class="grow"></span>
+    <a class="btn small" id="mine" href="/" hidden>Your galaxy</a>
+  </header>
+
+  <main id="main">
+    <p class="dim" id="loading">Loading...</p>
+
+    <section class="card" id="signed-out" hidden>
+      <h2>Sign in</h2>
+      <p class="dim">Sign in to edit your profile and see which Macs are connected.</p>
+      <div class="actions"><a class="btn primary" href="/login/github?return_to=%2Fme">Sign in with GitHub</a></div>
+    </section>
+
+    <div id="signed-in" hidden>
+      <form class="card stack" id="form" autocomplete="off">
+        <h2>Profile</h2>
+        <label class="lf"><span>Handle</span>
+          <input class="field" id="f-handle" maxlength="39" spellcheck="false" autocapitalize="off" required>
+          <small>Your page is /@handle. A handle can change once a week.</small></label>
+        <label class="lf"><span>Name</span><input class="field" id="f-name" maxlength="40"></label>
+        <label class="lf"><span>Bio</span><textarea class="field" id="f-bio" maxlength="160" rows="3"></textarea></label>
+        <label class="lf"><span>Link</span><input class="field" id="f-link" maxlength="200" type="url" placeholder="https://"></label>
+        <label class="lf"><span>Visibility</span>
+          <select class="field" id="f-visibility">
+            <option value="public">Public</option>
+            <option value="unlisted">Unlisted</option>
+          </select></label>
+        <label class="check"><input type="checkbox" id="f-friends"> <span>Show my friends on my page</span></label>
+        <div class="actions"><button class="btn primary" type="submit" id="save">Save</button><span id="saved" class="ok" role="status" hidden></span></div>
+        <p class="err" id="form-err" role="alert" hidden></p>
+      </form>
+
+      <section class="card">
+        <h2>Signed in with</h2>
+        <ul class="rows" id="identities"></ul>
+      </section>
+
+      <section class="card">
+        <h2>Devices</h2>
+        <ul class="rows" id="devices"></ul>
+        <p class="err" id="devices-err" role="alert" hidden></p>
+      </section>
+
+      <div class="actions" style="margin-top:16px"><button class="btn" type="button" id="signout">Sign out</button></div>
+    </div>
+  </main>
+</div>
+<script src="/hub.js"></script>
+<script>
+(async () => {
+  const $ = (id) => document.getElementById(id);
+  const { el, rel } = Hub;
+  const PROVIDERS = { github: 'GitHub', dev: 'Dev sign-in' };
+
+  const data = await Hub.me();
+  $('loading').hidden = true;
+  if (!data) { $('signed-out').hidden = false; return; }
+  $('signed-in').hidden = false;
+
+  let account = data.account;
+  const showAccount = () => {
+    $('f-handle').value = account.handle;
+    $('f-name').value = account.name ?? '';
+    $('f-bio').value = account.bio ?? '';
+    $('f-link').value = account.link ?? '';
+    $('f-visibility').value = account.visibility;
+    $('f-friends').checked = account.showFriends;
+    $('mine').href = '/@' + encodeURIComponent(account.handle);
+    $('mine').hidden = false;
+  };
+  showAccount();
+
+  const said = (id, text) => { $(id).textContent = text ?? ''; $(id).hidden = !text; };
+
+  $('form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    said('form-err'); said('saved');
+    $('save').disabled = true;
+    const r = await Hub.api('PATCH', '/api/me/profile', {
+      handle: $('f-handle').value.trim(), name: $('f-name').value, bio: $('f-bio').value, link: $('f-link').value.trim(),
+      visibility: $('f-visibility').value, showFriends: $('f-friends').checked,
+    });
+    $('save').disabled = false;
+    if (!r.ok) return said('form-err', r.error);
+    account = r.account;
+    showAccount();
+    said('saved', 'Saved.');
+  });
+
+  $('identities').replaceChildren(...data.identities.map((i) =>
+    el('li', {}, el('span', { class: 'what', text: i.login ? `${PROVIDERS[i.provider] ?? i.provider} · ${i.login}` : (PROVIDERS[i.provider] ?? i.provider) }))));
+
+  function showDevices(tokens) {
+    if (!tokens.length) {
+      $('devices').replaceChildren(el('li', {}, el('span', { class: 'what dim', text: 'No devices are connected.' })));
+      return;
+    }
+    $('devices').replaceChildren(...tokens.map((t) => {
+      const used = t.lastUsedAt ? `used ${rel(t.lastUsedAt)}` : 'not used yet';
+      const row = el('li', {},
+        el('span', { class: 'what' }, el('span', { text: t.label }), el('span', { class: 'dim mono', text: t.device ? `  ${t.device}` : '' })),
+        el('span', { class: 'when', text: `Connected ${rel(t.createdAt)}, ${used}` }),
+        el('button', { class: 'btn small danger', type: 'button', text: 'Revoke', onclick: async (ev) => {
+          const b = ev.currentTarget;
+          b.disabled = true; said('devices-err');
+          const r = await Hub.api('DELETE', `/api/me/tokens/${encodeURIComponent(t.id)}`);
+          if (!r.ok) { b.disabled = false; return said('devices-err', r.error); }
+          tokens = tokens.filter((x) => x.id !== t.id);
+          showDevices(tokens);
+        } }));
+      return row;
+    }));
+  }
+  showDevices(data.tokens ?? []);
+
+  $('signout').addEventListener('click', async () => {
+    $('signout').disabled = true;
+    await Hub.api('POST', '/logout', {});
+    location.href = '/';
+  });
+})();
+</script>
+</body>
+</html>
