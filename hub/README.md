@@ -35,13 +35,17 @@ All of them are environment variables, read once at start-up.
 | `HUB_GITHUB_CLIENT_ID` | none | The GitHub OAuth App's client id. |
 | `HUB_GITHUB_CLIENT_SECRET` | none | Its client secret. Sign-in with GitHub needs both. |
 | `HUB_DEV_LOGIN` | off | `1` allows the dev sign-in. Never on a public hub. |
-| `HUB_TRUST_PROXY` | off | `1` believes `X-Forwarded-For`, for a hub behind a reverse proxy. |
 
 ## Sign in with GitHub
 
 1. On GitHub, open Settings, Developer settings, OAuth Apps, New OAuth App.
 2. Homepage URL: your `HUB_PUBLIC_URL`. Authorization callback URL: `<HUB_PUBLIC_URL>/auth/github/callback`.
 3. Generate a client secret, then start the hub with `HUB_GITHUB_CLIENT_ID` and `HUB_GITHUB_CLIENT_SECRET` set.
+
+## Before it faces the internet
+
+The hub has no rate limits yet (they come in slice 8), so it is not ready for the open internet until they land; the
+steps below are for a hub you reach yourself.
 
 ## Behind Caddy
 
@@ -53,7 +57,7 @@ hub.example.com {
 }
 ```
 
-Set `HUB_PUBLIC_URL=https://hub.example.com` and `HUB_TRUST_PROXY=1`.
+Set `HUB_PUBLIC_URL=https://hub.example.com`.
 
 ## Docker
 

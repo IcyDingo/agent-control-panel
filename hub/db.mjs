@@ -10,7 +10,7 @@ import path from 'node:path';
 export const MIGRATIONS = [
   `
   CREATE TABLE accounts (
-    id TEXT PRIMARY KEY,
+    id TEXT PRIMARY KEY NOT NULL,
     ordinal INTEGER UNIQUE NOT NULL,
     handle TEXT UNIQUE COLLATE NOCASE NOT NULL,
     x INTEGER NOT NULL,
@@ -26,9 +26,9 @@ export const MIGRATIONS = [
     UNIQUE(x, y)
   );
   CREATE TABLE identities (
-    provider TEXT,
-    subject TEXT,
-    account_id TEXT REFERENCES accounts(id),
+    provider TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    account_id TEXT NOT NULL REFERENCES accounts(id),
     login TEXT,
     email TEXT,
     avatar TEXT,
@@ -37,17 +37,17 @@ export const MIGRATIONS = [
   );
   CREATE INDEX identities_account ON identities(account_id);
   CREATE TABLE sessions (
-    id_hash TEXT PRIMARY KEY,
-    account_id TEXT REFERENCES accounts(id),
+    id_hash TEXT PRIMARY KEY NOT NULL,
+    account_id TEXT NOT NULL REFERENCES accounts(id),
     ua TEXT,
     created_at INTEGER,
     expires_at INTEGER NOT NULL
   );
   CREATE INDEX sessions_account ON sessions(account_id);
   CREATE TABLE client_tokens (
-    id TEXT PRIMARY KEY,
+    id TEXT PRIMARY KEY NOT NULL,
     hash TEXT UNIQUE NOT NULL,
-    account_id TEXT REFERENCES accounts(id),
+    account_id TEXT NOT NULL REFERENCES accounts(id),
     label TEXT,
     scopes TEXT NOT NULL DEFAULT 'client',
     device TEXT,
@@ -56,7 +56,7 @@ export const MIGRATIONS = [
     revoked_at INTEGER
   );
   CREATE TABLE device_codes (
-    hash TEXT PRIMARY KEY,
+    hash TEXT PRIMARY KEY NOT NULL,
     user_code TEXT UNIQUE NOT NULL,
     expires_at INTEGER NOT NULL,
     interval INTEGER NOT NULL,
@@ -66,13 +66,14 @@ export const MIGRATIONS = [
     token_plain TEXT,
     created_at INTEGER
   );
+  CREATE INDEX device_codes_expiry ON device_codes(expires_at);
   CREATE TABLE oauth_states (
-    state TEXT PRIMARY KEY,
+    state TEXT PRIMARY KEY NOT NULL,
     return_to TEXT,
     expires_at INTEGER NOT NULL
   );
   CREATE TABLE systems (
-    account_id TEXT PRIMARY KEY REFERENCES accounts(id),
+    account_id TEXT PRIMARY KEY NOT NULL REFERENCES accounts(id),
     pv INTEGER,
     seq REAL,
     hash TEXT,
@@ -86,16 +87,16 @@ export const MIGRATIONS = [
     received_at INTEGER
   );
   CREATE TABLE statuses (
-    account_id TEXT PRIMARY KEY REFERENCES accounts(id),
+    account_id TEXT PRIMARY KEY NOT NULL REFERENCES accounts(id),
     status TEXT NOT NULL,
     received_at INTEGER NOT NULL
   );
   CREATE TABLE orders (
-    id TEXT PRIMARY KEY,
-    account_id TEXT REFERENCES accounts(id),
+    id TEXT PRIMARY KEY NOT NULL,
+    account_id TEXT NOT NULL REFERENCES accounts(id),
     kind TEXT NOT NULL,
     body TEXT NOT NULL,
-    status TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'done', 'failed', 'expired')),
     created_at INTEGER NOT NULL,
     device TEXT,
     claimed_at INTEGER,
@@ -103,6 +104,7 @@ export const MIGRATIONS = [
     result TEXT
   );
   CREATE INDEX orders_pending ON orders(account_id, status);
+  CREATE INDEX orders_expiry ON orders(status, created_at);
   CREATE TABLE schema_version (v INTEGER NOT NULL);
   `,
 ];

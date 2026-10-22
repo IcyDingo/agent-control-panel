@@ -20,6 +20,5 @@ export function loadConfig(env = process.env) {
     host: url.host, // what a browser sends as Host
     github,
     devLogin,
-    trustProxy: env.HUB_TRUST_PROXY === '1', // believe X-Forwarded-For (the hub sits behind a reverse proxy)
   };
 }
