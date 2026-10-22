@@ -66,6 +66,12 @@ export function createHubOrders({ hub, execute, onDone, onOpen, timers = { setTi
     current = null;
   }
 
+  /** The caller's onOpen, whose trouble (a throw or a rejection) is logged and goes no further. */
+  function tellOpen() {
+    const failed = (e) => log('hub orders: onOpen failed:', e?.message ?? String(e));
+    try { Promise.resolve(onOpen?.()).catch(failed); } catch (e) { failed(e); }
+  }
+
   /** Ask again in half a minute (once, however many ask). */
   function retryLater() {
     if (controller && retry === null) retry = timers.setTimeout(() => { retry = null; enqueue(drain); }, RETRY);
@@ -111,13 +117,7 @@ export function createHubOrders({ hub, execute, onDone, onOpen, timers = { setTi
       if (event !== 'order' || ended) return;
       enqueue(() => run(data));
       enqueue(drain);
-    }, {
-      signal,
-      onOpen: () => {
-        enqueue(drain);
-        try { Promise.resolve(onOpen?.()).catch((e) => log('hub orders: onOpen failed:', e?.message ?? String(e))); } catch (e) { log('hub orders: onOpen failed:', e?.message ?? String(e)); }
-      },
-    })
+    }, { signal, onOpen: () => { enqueue(drain); tellOpen(); } })
       .catch((e) => log('hub orders: the stream failed:', e?.message ?? String(e)))
       .finally(() => { ended = true; if (controller?.signal === signal) listening = false; });
   }
