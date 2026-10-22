@@ -9,6 +9,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export const SHA_RE = /^[0-9a-f]{40}$/;
+// A release is fetched from GitHub's archive of this repository, never from an address the hub gives: the hub only names
+// the commit, so a hub that is wrong or not the hub at all can at most point at code that was really published here.
+const ARCHIVE_URL = 'https://codeload.github.com/IcyDingo/agent-control-panel/tar.gz/';
 
 const RELEASE_TIMEOUT_MS = 8000;
 // A release is the whole repository; a slow line may need a while, but a download that never ends must not hang forever.
@@ -62,7 +65,8 @@ export function prune(worker) {
 const errorOf = (err) => String(err?.message ?? err);
 
 /** Asks the hub for its release and switches to it when it is not the running one. The outcome says what happened:
- * `off` (updates are turned off), `current` (already running it), `switched` (exit has been called), or `error`. */
+ * `off` (updates are turned off), `current` (already running it), `held` (the launcher rolled this release back, so it is
+ * not tried again), `switched` (exit has been called), or `error`. */
 export async function checkForUpdate({ worker, hubUrl, fetch = globalThis.fetch, run, now = Date.now, exit = (c) => process.exit(c), log = console.log }) {
   const { dir } = worker;
   if (!autoUpdate(dir)) return { outcome: 'off' };
@@ -73,16 +77,18 @@ export async function checkForUpdate({ worker, hubUrl, fetch = globalThis.fetch,
     release = await res.json().catch(() => null);
     if (!res.ok || !release?.ok) return { outcome: 'error', error: release?.error ?? `The hub answered ${res.status}.` };
   } catch (err) { return { outcome: 'error', error: errorOf(err) }; }
-  const { sha, url } = release;
+  const { sha } = release;
   if (!SHA_RE.test(sha ?? '')) return { outcome: 'error', error: 'The hub named no release.' };
   if (sha === worker.sha) { prune(worker); return { outcome: 'current' }; }
+  if (rolledBack(dir)?.sha === sha) return { outcome: 'held', sha };
 
   const tgz = path.join(dir, `${sha}.tgz`), tmp = path.join(dir, `${sha}.tmp`), dest = path.join(dir, sha);
   const top = `agent-control-panel-${sha}`;
   const sw = path.join(dir, 'switch'), link = path.join(dir, 'current.new');
   const made = []; // the paths this check writes, which a failure takes away again
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
+    // No redirects: the archive must come from codeload itself.
+    const res = await fetch(ARCHIVE_URL + sha, { redirect: 'error', signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
     if (!res.ok) throw new Error(`The release archive answered ${res.status}.`);
     made.push(tgz);
     fs.writeFileSync(tgz, Buffer.from(await res.arrayBuffer()));

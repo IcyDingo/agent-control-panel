@@ -1749,7 +1749,7 @@ server.listen(PORT, '127.0.0.1', () => {
     try { openWorld(); } catch (err) { console.error('world could not start:', err?.message ?? err); }
   }
   if (DAEMON && WORKER) { // only a worker install updates itself; a service from a clone is the app's and never does
-    markStarted(WORKER);
+    try { markStarted(WORKER); } catch (err) { console.error('worker: could not record the start:', err?.message ?? err); }
     const check = () => checkForUpdate({ worker: WORKER, hubUrl: hub.status().url, run }).then((r) => { if (r.outcome === 'error') console.error('update check:', r.error); });
     setTimeout(check, UPDATE_FIRST_MS);
     setInterval(check, UPDATE_MS);

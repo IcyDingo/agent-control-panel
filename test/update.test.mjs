@@ -6,9 +6,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
-import { workerOf, markStarted, rolledBack, checkForUpdate } from '../update.mjs';
+import { workerOf, markStarted, rolledBack, prune, checkForUpdate } from '../update.mjs';
 
 const A = '1'.repeat(40), B = '2'.repeat(40);
+// The only place a release is fetched from, whatever the hub's answer says.
+const ARCHIVE = `https://codeload.github.com/IcyDingo/agent-control-panel/tar.gz/${B}`;
 const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'update-')));
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
 const run = (cmd, args, opts = {}) => new Promise((resolve) =>
@@ -33,13 +35,14 @@ function archive(top) {
   return fs.readFileSync(file);
 }
 
-/** A fake hub: `/api/release` answers `release` (a Response, or a function that throws), `/archive.tgz` the bytes. */
+/** A fake network: the hub's `/api/release` answers `release` (a Response, or a function that throws), GitHub's archive
+ * address for B the bytes, and any other address (the hub's own `url` among them) a 404. Every call is recorded. */
 function hub(release, bytes = null) {
   const calls = [];
-  const fn = async (url) => {
-    calls.push(String(url));
-    if (String(url).endsWith('/api/release')) return typeof release === 'function' ? release() : release;
-    if (String(url).endsWith('/archive.tgz')) return new Response(bytes);
+  const fn = async (url, init = {}) => {
+    calls.push({ url: String(url), redirect: init.redirect });
+    if (String(url) === 'http://hub.test/api/release') return typeof release === 'function' ? release() : release;
+    if (String(url) === ARCHIVE) return new Response(bytes);
     return json({ ok: false, error: 'Not found.' }, 404);
   };
   fn.calls = calls;
@@ -85,6 +88,40 @@ test('a new sha is downloaded, verified, switched and the process asked to exit'
   assert.equal(fs.readFileSync(path.join(w.dir, 'switch'), 'utf8'), `${B} ${A} 0\n`);
   assert.deepEqual(r.exits, [0]);
   assert.deepEqual(leftovers(w.dir), []);
+});
+
+test("the release is fetched from GitHub's archive for that commit, never from the address the hub gives", async () => {
+  const w = worker();
+  const fetch = hub(json({ ok: true, sha: B, url: 'http://elsewhere.test/archive.tgz' }), archive(`agent-control-panel-${B}`));
+  const r = await check(w, fetch);
+  assert.equal(r.outcome, 'switched');
+  assert.equal(fetch.calls.some((c) => c.url.startsWith('http://elsewhere.test')), false);
+  assert.deepEqual(fetch.calls.find((c) => c.url === ARCHIVE), { url: ARCHIVE, redirect: 'error' });
+});
+
+test('a release the launcher rolled back is held, not tried again', async () => {
+  const w = worker();
+  fs.writeFileSync(path.join(w.dir, 'rolled-back'), `${B} 2026-10-22T10:00:00Z\n`);
+  const fetch = hub(names(B), archive(`agent-control-panel-${B}`));
+  const r = await check(w, fetch);
+  assert.equal(r.outcome, 'held');
+  assert.equal(r.sha, B);
+  assert.deepEqual(fetch.calls.map((c) => c.url), ['http://hub.test/api/release']);
+  assert.equal(fs.readlinkSync(path.join(w.dir, 'current')), path.join(w.dir, A));
+  assert.equal(fs.existsSync(path.join(w.dir, B)), false);
+  assert.equal(fs.existsSync(path.join(w.dir, 'switch')), false);
+  assert.deepEqual([...r.exits, ...r.logs], []);
+});
+
+test('prune keeps every version switch and rolled-back name, and removes the rest', () => {
+  const w = worker();
+  const [C, D, E, F] = ['3', '4', '5', '6'].map((c) => c.repeat(40));
+  for (const sha of [C, D, E, F]) fs.mkdirSync(path.join(w.dir, sha));
+  fs.writeFileSync(path.join(w.dir, 'switch'), `${C} ${D} 1\n`);
+  fs.writeFileSync(path.join(w.dir, 'rolled-back'), `${E} 2026-10-22T10:00:00Z\n`);
+  prune(w);
+  for (const sha of [A, C, D, E]) assert.equal(fs.existsSync(path.join(w.dir, sha)), true, sha);
+  assert.equal(fs.existsSync(path.join(w.dir, F)), false);
 });
 
 test('an archive with the wrong top folder is discarded and nothing changes', async () => {
