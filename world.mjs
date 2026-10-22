@@ -175,6 +175,7 @@ export function publicProjection(s) {
   if (!s?.started) return null;
   return {
     pv: PROJECTION_VERSION, seed: s.seed, since: dayKey(s.startedAt), daysActive: s.daysActive,
+    worked: s.worked.slice(-WORKED_DAYS), // which recent days had work, never how much: the page's mosaic of days
     home: { level: s.home.level, stage: s.home.stage },
     reach: s.reach,
     sun: { x: s.sun.x, y: s.sun.y, r: s.sun.r, look: s.sun.look },
@@ -191,6 +192,8 @@ export function publicProjection(s) {
 
 const PROJECTION_KEYS = ['pv', 'seed', 'since', 'daysActive', 'home', 'reach', 'sun', 'frontier', 'planets', 'moments', 'builds'];
 const PROJECTION_MOMENTS = ['week', 'cleanup', 'level'];
+/** How many worked days a projection carries (the latest ones); `worked` is optional so a projection from before it still reads. */
+export const WORKED_DAYS = 100;
 
 /** A projection as the hub keeps it and the page draws it: a fresh object with the same keys, or null when anything is
  *  off. Never returns `p` or any part of it. */
@@ -204,8 +207,16 @@ export function validProjection(p) {
   const str = (v, max) => typeof v === 'string' && v.length <= max;
   const list = (v, max) => Array.isArray(v) && v.length <= max;
 
-  if (!shape(p, PROJECTION_KEYS) || p.pv !== PROJECTION_VERSION || !int(p.seed, 0, 2 ** 31 - 1) || !day(p.since)
+  if (!shape(p, PROJECTION_KEYS, ['worked']) || p.pv !== PROJECTION_VERSION || !int(p.seed, 0, 2 ** 31 - 1) || !day(p.since)
     || !int(p.daysActive, 0, 100_000) || !num(p.reach, 0, 1e6)) return null;
+  const worked = [];
+  if (Object.hasOwn(p, 'worked')) {
+    if (!list(p.worked, WORKED_DAYS)) return null;
+    for (const d of p.worked) {
+      if (!day(d) || (worked.length && d <= worked.at(-1))) return null; // sorted, no day twice
+      worked.push(d);
+    }
+  }
   if (!shape(p.home, ['level', 'stage']) || !int(p.home.level, 1, LEVELS.length)) return null;
   const home = { level: p.home.level, stage: LEVELS[p.home.level - 1][1] };
   if (!shape(p.sun, ['x', 'y', 'r', 'look']) || !num(p.sun.x, -1e6, 1e6) || !num(p.sun.y, -1e6, 1e6) || !num(p.sun.r, 0, 1e3)
@@ -257,7 +268,7 @@ export function validProjection(p) {
     builds.push({ id: b.id, on: b.on, caption: built.caption, pieces: built.pieces, day: b.day });
   }
 
-  return { pv: PROJECTION_VERSION, seed: p.seed, since: p.since, daysActive: p.daysActive, home, reach: p.reach, sun, frontier, planets, moments, builds };
+  return { pv: PROJECTION_VERSION, seed: p.seed, since: p.since, daysActive: p.daysActive, worked, home, reach: p.reach, sun, frontier, planets, moments, builds };
 }
 
 // ---------------------------------------------------------------- building from a description
@@ -572,6 +583,7 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
     for (const p of st.purchases) if (p.kind === 'rocket') colonies.set(p.planet, { name: p.name, at: p.at });
     const s = { started: true, startedAt: st.startedAt, seed: st.seed, earned, spent, balance: earned - spent, home, reach: homeReach(home.xp),
       sun: sunOf(st.seed), daysActive: Object.values(days).filter((x) => dayCredit(x) > 0).length,
+      worked: Object.keys(days).filter((d) => dayCredit(days[d]) > 0).sort(), // the days with work in them, oldest first
       today: { day: today, commits: t.commits, added: t.added, removed: t.removed, multiplier: multiplier(t.added, t.removed), tokens: t.tokens, credit: dayCredit(t) },
       prices: { frontier: priceOf('frontier', st.purchases), rocket: priceOf('rocket', st.purchases), build: priceOf('build', st.purchases) },
       frontier: lobes.map((l) => ({ ang: l.ang, bought: l.pushes.length * PUSH_LEN, lit: l.lit, tip: l.tip })),

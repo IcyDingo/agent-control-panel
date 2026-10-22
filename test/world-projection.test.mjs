@@ -26,7 +26,8 @@ const PRIVATE = ['earned', 'spent', 'balance', 'prices', 'today', 'xp', 'noEmail
 
 test('the projection has exactly the public keys and nothing private in its text', () => {
   const s = rich(), p = publicProjection(s), text = JSON.stringify(p);
-  assert.deepEqual(Object.keys(p), ['pv', 'seed', 'since', 'daysActive', 'home', 'reach', 'sun', 'frontier', 'planets', 'moments', 'builds']);
+  assert.deepEqual(Object.keys(p), ['pv', 'seed', 'since', 'daysActive', 'worked', 'home', 'reach', 'sun', 'frontier', 'planets', 'moments', 'builds']);
+  assert.deepEqual(p.worked, Array.from({ length: 21 }, (_, d) => key(at(d))), 'the days with work in them, oldest first');
   assert.deepEqual(Object.keys(p.home), ['level', 'stage']);
   for (const word of PRIVATE) assert.equal(text.includes(word), false, `leaks ${word}`);
   assert.equal(p.pv, PROJECTION_VERSION);
@@ -43,8 +44,28 @@ test('the projection has exactly the public keys and nothing private in its text
 
 test('a brand-new World projects: no purchases, no frontier, level 1', () => {
   const p = publicProjection(seeded({ tokens: {}, purchases: [] }).world.summary());
-  assert.deepEqual([p.home, p.frontier, p.planets, p.builds, p.daysActive], [{ level: 1, stage: 'Bare rock' }, [], [], [], 0]);
+  assert.deepEqual([p.home, p.frontier, p.planets, p.builds, p.daysActive, p.worked], [{ level: 1, stage: 'Bare rock' }, [], [], [], 0, []]);
   assert.deepEqual(validProjection(p), p);
+});
+
+test('worked days: at most the latest 100 leave, a projection without the key still validates, and the list must be sorted days', () => {
+  const tokens = {};
+  for (let d = 0; d < 130; d++) if (d % 2 === 0) tokens[key(at(d))] = 2_000_000; // 65 worked days over 130
+  const many = publicProjection(seeded({ tokens, now: at(130) }).world.summary());
+  assert.equal(many.worked.length, 65);
+  for (let d = 0; d < 260; d++) tokens[key(at(d))] = 2_000_000;
+  const more = publicProjection(seeded({ tokens, now: at(260) }).world.summary());
+  assert.equal(more.worked.length, 100);
+  assert.equal(more.worked.at(-1), key(at(259)), 'the latest ones');
+  assert.equal(more.daysActive, 260, 'the count still covers every day');
+  const old = publicProjection(rich()); delete old.worked;
+  assert.deepEqual(validProjection(old).worked, [], 'a projection from before the key is still read, with no days');
+  const bad = (mutate, why) => { const p = publicProjection(rich()); mutate(p); assert.equal(validProjection(p), null, why); };
+  bad((p) => { p.worked = Array.from({ length: 101 }, (_, i) => key(at(i))); }, '101 days');
+  bad((p) => { p.worked = ['2026-10-13', '2026-10-12']; }, 'out of order');
+  bad((p) => { p.worked = ['2026-10-12', '2026-10-12']; }, 'a day twice');
+  bad((p) => { p.worked = ['2026-10-1']; }, 'a malformed day');
+  bad((p) => { p.worked = 'yes'; }, 'not a list');
 });
 
 test('the projection is deterministic and round-trips through the validator unchanged', () => {
