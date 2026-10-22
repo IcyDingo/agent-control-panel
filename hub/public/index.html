@@ -27,16 +27,20 @@
         <button class="btn" type="submit">Visit</button>
       </form>
     </div>
-    <!-- The block: a sun, a few planets and your galaxy's card on the night sky. Signed out, the card is the invitation. -->
-    <div class="block" id="block">
-      <span class="sun" aria-hidden="true"></span>
-      <span class="planet rust" aria-hidden="true"></span>
-      <span class="planet ice" aria-hidden="true"></span>
-      <span class="planet sand" aria-hidden="true"></span>
-      <span class="planet violet" aria-hidden="true"></span>
-      <div class="gcard" id="gcard" aria-live="polite"></div>
+    <!-- The sky: a sun and a few planets drifting on the night sky. -->
+    <div class="block" aria-hidden="true">
+      <span class="sun"></span>
+      <span class="planet rust"></span>
+      <span class="planet ice"></span>
+      <span class="planet sand"></span>
+      <span class="planet violet"></span>
     </div>
   </main>
+
+  <!-- Your galaxy, featured: as the hub has it when you are signed in; the invitation when you are not. -->
+  <section class="feature g24" aria-label="Your galaxy">
+    <div class="fcard" id="gcard" aria-live="polite"></div>
+  </section>
 
   <section class="steps g24" aria-label="How it works">
     <div class="step"><span class="glyph" data-lit="1" aria-hidden="true"></span><b>Install once</b><p>The panel runs in the background on your Mac and counts your agents' work.</p></div>
@@ -84,30 +88,33 @@
     for (let i = 0; i < 9; i++) g.append(el('i', { class: i < Number(g.dataset.lit) ? 'on' : null }));
   }
 
-  /** Signed out: the card invites. */
-  function invite() {
+  /** The feature strip: who, a line, a sentence, a button on the left; the mosaic of days on the right. */
+  function strip({ who, line, sentence, button, worked }) {
     $('gcard').replaceChildren(
-      el('div', { class: 'who' }, avatar({ handle: '?' }, 40), el('div', {}, el('b', { text: 'Your galaxy' }), el('span', { text: 'Nothing here yet' }))),
-      el('div', { class: 'row' },
-        el('p', { text: 'Sign in, approve your Mac with a code, and it gets a spot.' }),
-        el('a', { class: 'btn primary', href: '/login/github', text: 'Sign in with GitHub' })),
-      Hub.daysMosaic([]));
+      el('div', { class: 'info' },
+        el('div', { class: 'who' }, avatar(who, 44), el('div', {}, el('b', { text: who.name || (who.handle === '?' ? 'Your galaxy' : `@${who.handle}`) }), el('span', { text: line }))),
+        el('p', { text: sentence }),
+        button),
+      Hub.daysMosaic(worked));
   }
 
-  /** Signed in: the card is your galaxy as the hub has it. */
+  /** Signed out: the strip invites. */
+  function invite() {
+    strip({ who: { handle: '?' }, line: 'Nothing here yet', worked: [],
+      sentence: 'Sign in with GitHub, approve your Mac with a code, and your galaxy gets a permanent spot in the Universe.',
+      button: el('a', { class: 'btn primary', href: '/login/github', text: 'Sign in with GitHub' }) });
+  }
+
+  /** Signed in: the strip is your galaxy as the hub has it. */
   async function yours(account) {
     const r = await Hub.api('GET', `/api/systems/@${encodeURIComponent(account.handle)}`);
     const stats = r.ok ? r.stats : null, system = r.ok ? r.system : null;
-    const line = stats ? `Level ${stats.level} · ${stats.stage} · ${account.x}, ${account.y}` : `${account.x}, ${account.y}`;
-    const active = system
-      ? `Active ${plural(stats.daysWorked, 'day', 'days')} · ${plural(stats.colonies, 'colony', 'colonies')} · ${plural(stats.builds, 'build', 'builds')}`
-      : 'Nothing synced yet: sign in from your Mac.';
-    $('gcard').replaceChildren(
-      el('div', { class: 'who' }, avatar(account, 40), el('div', {}, el('b', { text: account.name || `@${account.handle}` }), el('span', { text: line }))),
-      el('div', { class: 'row' },
-        el('p', { text: active }),
-        el('a', { class: 'btn primary', href: '/@' + encodeURIComponent(account.handle), text: 'Open your galaxy' })),
-      Hub.daysMosaic(system?.worked));
+    strip({ who: account, worked: system?.worked,
+      line: stats ? `Level ${stats.level} · ${stats.stage} · ${account.x}, ${account.y}` : `${account.x}, ${account.y}`,
+      sentence: system
+        ? `Active ${plural(stats.daysWorked, 'day', 'days')} · ${plural(stats.colonies, 'colony', 'colonies')} · ${plural(stats.builds, 'build', 'builds')}`
+        : 'Nothing synced yet. Sign in from your Mac and it appears here within a minute.',
+      button: el('a', { class: 'btn primary', href: '/@' + encodeURIComponent(account.handle), text: 'Open your galaxy' }) });
   }
 
   Hub.me().then((r) => {
