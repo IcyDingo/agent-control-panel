@@ -68,8 +68,16 @@ The database lives in the `/data` volume.
 
 ## Backup
 
-Everything the hub keeps is in one file. Copy it while the hub runs, or stop the hub first to be certain:
+Everything the hub keeps is in one database, `data/hub.sqlite`. It runs in WAL mode, so recent writes sit in the
+`hub.sqlite-wal` and `hub.sqlite-shm` files beside it until SQLite folds them in, and copying the main file while the hub
+runs can give a stale or inconsistent copy. Stop the hub first, then copy:
 
 ```sh
 cp data/hub.sqlite backups/hub-$(date +%F).sqlite
+```
+
+To back up while it runs, let SQLite make the copy:
+
+```sh
+sqlite3 data/hub.sqlite ".backup backups/hub-$(date +%F).sqlite"
 ```

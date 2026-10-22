@@ -97,7 +97,11 @@
   try { handle = decodeURIComponent(location.pathname.replace(/^\/@/, '')); } catch { /* a bad escape names nobody */ }
 
   /** Nothing to show: one sentence in the card, and the page stops there. */
+  /** Keep this page out of search results (a crawler that runs scripts reads it). */
+  const noindex = () => document.head.append(el('meta', { name: 'robots', content: 'noindex' }));
+
   function missing(message) {
+    noindex(); // an unknown handle is still a 200 shell: not a page to index
     document.title = 'Not found · Universe';
     $('w-where').textContent = 'Not found';
     $('w-side').replaceChildren(el('section', { class: 'w-box' }, el('p', { text: message })));
@@ -150,6 +154,7 @@
   if (!res.ok) return missing(res.status === 404 ? 'No system by that name.' : res.error);
 
   const { profile, stats, system } = res;
+  if (profile.visibility === 'unlisted') noindex();
   document.title = `${profile.name || '@' + profile.handle} · Universe`;
   $('w-where').textContent = `@${profile.handle}`;
   card(res);
