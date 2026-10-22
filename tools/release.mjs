@@ -12,7 +12,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { execFile, spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-import { SHA_RE, signRelease, rawPublicKey } from '../release-keys.mjs';
+import { SHA_RE, signRelease, rawPublicKey, verifyRelease } from '../release-keys.mjs';
 
 const KEY_FILE_RE = /^signing-key(-(\d+))?\.pem$/;
 const DEFAULT_DIR = '/srv/agent-hub';
@@ -66,24 +66,27 @@ export function loadKey(file, passphrase) {
   }
 }
 
+// The keys `RELEASE_KEYS` lists in the text of a `release-keys.mjs`: every quoted 44-character base64 string inside the
+// list, leaving out lines that are only a comment; null when the text has no such list.
+export function listedKeys(text) {
+  const list = /export const RELEASE_KEYS\s*=\s*\[([\s\S]*?)\];/.exec(text);
+  if (!list) return null;
+  const lines = list[1].split('\n').filter((line) => !line.trim().startsWith('//')).join('\n');
+  return [...lines.matchAll(/'([A-Za-z0-9+/]{43}=)'/g)].map((m) => m[1]);
+}
+
 // True when the signatures verify under the RELEASE_KEYS of `release-keys.mjs` as it is in the commit being signed, the
-// keys the hub checks them against once it runs that commit; null when the commit has no such file yet. The file is
-// copied out of git into a folder of its own under the system's temp folder and imported from there.
+// keys the hub checks them against once it runs that commit; null when the commit has no such file yet. The decrypted
+// keys are in memory here, so nothing from the repository is run: the file is read as text and checked with this
+// checkout's own verifyRelease. A file with no list is a commit that lists no key.
 async function signedForCommit({ sha, n, sigs, git }) {
   const listed = await git('ls-tree', '--name-only', sha, '--', 'release-keys.mjs');
   if (listed.err) throw new Error(`git ls-tree failed: ${listed.stderr.trim()}`);
   if (listed.stdout.trim() === '') return null;
   const shown = await git('show', `${sha}:release-keys.mjs`);
   if (shown.err) throw new Error(`git show failed: ${shown.stderr.trim()}`);
-  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'release-keys-'));
-  try {
-    const file = path.join(folder, 'release-keys.mjs');
-    fs.writeFileSync(file, shown.stdout);
-    const { verifyRelease } = await import(pathToFileURL(file).href);
-    return typeof verifyRelease === 'function' && verifyRelease(n, sha, sigs) === true;
-  } finally {
-    fs.rmSync(folder, { recursive: true, force: true });
-  }
+  const keys = listedKeys(shown.stdout);
+  return keys !== null && verifyRelease(n, sha, sigs, keys);
 }
 
 // `run` is (cmd, args, opts) → Promise<{ err, stdout, stderr }>; every git call runs in `cwd`.

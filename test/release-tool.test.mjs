@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
 import { verifyRelease, signRelease, rawPublicKey as rawPublicKeyOf } from '../release-keys.mjs';
-import { keyDir, keyFiles, keygen, loadKey, sign, printed, main } from '../tools/release.mjs';
+import { keyDir, keyFiles, keygen, loadKey, sign, printed, main, listedKeys } from '../tools/release.mjs';
 
 const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'release-')));
 const run = (cmd, args, opts = {}) => new Promise((resolve) =>
@@ -214,32 +214,39 @@ test('keygen refuses a passphrase that does not open the key files already there
   assert.equal(keyFiles(dir).length, 2);
 });
 
-/** A repo like repo(), whose second commit (pushed) holds release-keys.mjs listing `keys`. */
-function repoWithKeys(keys) {
+/** A repo like repo(), whose newest commit (pushed) holds a release-keys.mjs with `text`; it is only ever read. */
+function repoWithKeysFile(text) {
   const r = repo();
-  const source = fs.readFileSync(path.resolve('release-keys.mjs'), 'utf8');
-  const listed = source.replace(/export const RELEASE_KEYS = \[[^\]]*\];/, `export const RELEASE_KEYS = ${JSON.stringify(keys)};`);
-  assert.ok(listed.includes(`export const RELEASE_KEYS = ${JSON.stringify(keys)};`), 'the fixture wrote the key list');
   git(r.cwd, 'checkout', '-q', r.second);
-  fs.writeFileSync(path.join(r.cwd, 'release-keys.mjs'), listed);
+  fs.writeFileSync(path.join(r.cwd, 'release-keys.mjs'), text);
   git(r.cwd, 'add', 'release-keys.mjs'); git(r.cwd, 'commit', '-q', '-m', 'keys');
   const sha = git(r.cwd, 'rev-parse', 'HEAD');
   git(r.cwd, 'push', '-q', 'origin', 'HEAD:main', '--force');
   return { ...r, sha };
 }
+const keysText = (keys) => `export const RELEASE_KEYS = [\n${keys.map((k) => `  '${k}', // added 2026-10-22\n`).join('')}];\n`;
 
-test('sign checks its signatures against the RELEASE_KEYS of the commit it signs', async () => {
+test('sign checks its signatures against the RELEASE_KEYS of the commit it signs, reading the file as text', async () => {
   const dir = path.join(tmp(), 'keys');
   const mine = keygen({ dir, passphrase: 'pw' });
-  const listed = repoWithKeys([mine.publicKey]);
+  const other = rawPublicKeyOf(crypto.generateKeyPairSync('ed25519').publicKey);
+  // A file that would throw if it were run: it is only read.
+  const listed = repoWithKeysFile(`throw new Error('run');\n${keysText([other, mine.publicKey])}`);
   const ok = await sign({ sha: listed.sha, dir, passphrase: 'pw', cwd: listed.cwd, run });
   assert.equal(verifyRelease(ok.n, listed.sha, ok.sigs, [mine.publicKey]), true);
-  const other = rawPublicKeyOf(crypto.generateKeyPairSync('ed25519').publicKey);
-  const unlisted = repoWithKeys([other]);
-  await assert.rejects(sign({ sha: unlisted.sha, dir, passphrase: 'pw', cwd: unlisted.cwd, run }),
-    { message: `The commit ${unlisted.sha.slice(0, 7)} does not list this key in RELEASE_KEYS; add the public key and commit first.` });
-  const empty = repoWithKeys([]);
-  await assert.rejects(sign({ sha: empty.sha, dir, passphrase: 'pw', cwd: empty.cwd, run }), /does not list this key in RELEASE_KEYS/);
+  const refusal = (sha) => ({ message: `The commit ${sha.slice(0, 7)} does not list this key in RELEASE_KEYS; add the public key and commit first.` });
+  for (const text of [keysText([other]), keysText([]), `// '${mine.publicKey}'\n`, `export const RELEASE_KEYS = [\n  // '${mine.publicKey}',\n];\n`]) {
+    const r = repoWithKeysFile(text);
+    await assert.rejects(sign({ sha: r.sha, dir, passphrase: 'pw', cwd: r.cwd, run }), refusal(r.sha), JSON.stringify(text));
+  }
+});
+
+test('listedKeys takes the quoted keys out of the list, and null when there is no list', () => {
+  const k = 'A'.repeat(43) + '=';
+  assert.deepEqual(listedKeys(keysText([k])), [k]);
+  assert.deepEqual(listedKeys('export const RELEASE_KEYS = [];'), []);
+  assert.deepEqual(listedKeys(`export const RELEASE_KEYS = [\n  // '${k}', removed\n  'short=',\n];`), []);
+  assert.equal(listedKeys(`const KEYS = ['${k}'];`), null);
 });
 
 test('sign refuses an upper-case or short sha, and exits 1 without running ssh when it refuses', async () => {

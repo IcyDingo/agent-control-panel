@@ -91,8 +91,9 @@ node tools/release.mjs sign  ──ssh──▶  update.sh <sha> <n> <sigs>     
 - **Owner's command:** `node tools/release.mjs sign [sha]` (default: the local HEAD, which must be on `origin/main`;
   it refuses a dirty tree or a sha not on `origin/main`, and refuses a key file that is not mode 0600) computes `n`,
   asks for the passphrase, signs with every key in `~/.config/agent-panel/`, checks the signatures against the
-  `RELEASE_KEYS` of the commit being signed (`git show <sha>:release-keys.mjs`, imported from a temp folder; skipped
-  when the commit has no such file) and refuses with
+  `RELEASE_KEYS` of the commit being signed (`git show <sha>:release-keys.mjs` read as text, never run, since the
+  decrypted keys are in memory: the quoted keys inside its `RELEASE_KEYS = [ … ]` go to the tool's own
+  `verifyRelease`; skipped when the commit has no such file, and a file with no list lists no key) and refuses with
   `The commit <7> does not list this key in RELEASE_KEYS; add the public key and commit first.` when they fail,
   shows the commits since the release the hub serves now (`GET /api/release` of `ACP_HUB`, when reachable) and
   prints `HUB_RELEASE=…`, `HUB_RELEASE_N=…`, `HUB_RELEASE_SIG=…` and the ready ssh line:
