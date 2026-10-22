@@ -118,7 +118,7 @@ select.field { padding-right: 6px; }
   .step + .step { padding-left: 0; }
   .step:last-child { border-bottom: 0; }
   .gcard { position: static; transform: none; margin: 0; border-radius: 0; }
-  .hero .block .mosaic { display: none; }
+  .hero .block .mosaic, .hero .block .sun, .hero .block .planet { display: none; } /* the card alone; the squares come back on the galaxy page */
 }
 
 .card { padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); display: grid; gap: 12px; }
