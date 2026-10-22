@@ -555,3 +555,26 @@ test('refreshAccount never throws and changes nothing when signed out, refused, 
   assert.equal(await s.hub.refreshAccount(), false);
   assert.equal(s.read().account.handle, 'ada');
 });
+
+test('a link signs in with one poll and keeps the file private', async () => {
+  const s = setup((c) => (c.url.endsWith('/api/device/token') ? json({ ok: true, token: 'hub_linked', account: ACCOUNT }) : json({}, 404)));
+  assert.equal(await s.hub.linkDeviceLogin(' dc-link\n '), 'ok', 'whitespace around a pasted code is forgiven');
+  assert.equal(s.fetch.calls.length, 1);
+  assert.deepEqual(JSON.parse(s.fetch.calls[0].body), { device_code: 'dc-link' });
+  assert.deepEqual([s.read().token, s.read().account.handle], ['hub_linked', 'ada']);
+  assert.equal(fs.statSync(s.file).mode & 0o777, 0o600);
+  assert.equal(s.hub.status().loggedIn, true);
+});
+
+test('a spent, unknown or refused link is reported as spent; an unreachable hub is an error; a malformed code is never sent', async () => {
+  for (const status of [410, 404, 403]) {
+    const s = setup(() => json({ ok: false, error: 'x' }, status));
+    assert.equal(await s.hub.linkDeviceLogin('dc'), 'spent', String(status));
+    assert.equal(s.hub.status().loggedIn, false);
+  }
+  const down = setup(() => { throw new Error('ECONNREFUSED'); });
+  assert.equal(await down.hub.linkDeviceLogin('dc'), 'error');
+  const bad = setup(() => json({ ok: true, token: 't', account: ACCOUNT }));
+  assert.equal(await bad.hub.linkDeviceLogin('dc"; rm -rf /'), 'spent');
+  assert.equal(bad.fetch.calls.length, 0);
+});

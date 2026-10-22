@@ -384,6 +384,20 @@ test('a repository whose log fails is listed', async () => {
   assert.deepEqual(world.summary().gitFailed, [r]);
 });
 
+test('without Apple\'s Command Line Tools no git is run, so a background job never gets the install dialog', async () => {
+  const r = repo(), calls = [];
+  const spy = (cmd, args, opts) => { calls.push([cmd, ...args]); return cmd === 'xcode-select' ? Promise.resolve({ err: new Error('exit 2'), stdout: '', stderr: 'xcode-select: error: unable to get active developer directory' }) : run(cmd, args, opts); };
+  const configDir = tmp();
+  fs.mkdirSync(path.join(configDir, 'projects', 'p'), { recursive: true });
+  const world = createWorld({ file: path.join(tmp(), 'w.json'), configDirs: [configDir], run: spy, gitPlace: () => ({ repo: r }), now: () => T0 });
+  world.open();
+  fs.writeFileSync(path.join(configDir, 'projects', 'p', 's.jsonl'), reply('m1', T0 + 5000, { output_tokens: 1 }, r));
+  await world.scan({ git: true });
+  assert.deepEqual(calls.filter((c) => c[0] === 'git'), []);
+  assert.equal(world.summary().toolsMissing, true);
+  assert.deepEqual(world.summary().gitFailed, []);
+});
+
 test('a broken world file is set aside, not fatal', () => {
   const dir = tmp(), file = path.join(dir, 'world.json');
   fs.writeFileSync(file, '{}');

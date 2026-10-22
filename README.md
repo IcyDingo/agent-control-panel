@@ -5,7 +5,23 @@ them without switching terminals.
 
 ## Get started
 
-You need a Mac (macOS 14 or newer) with Claude Code 2.1.303 or newer.
+You need a Mac (macOS 14 or newer) with Node 20 or newer. Open https://universe.cashegg.com/download, sign
+in with GitHub, and paste the one line it shows into Terminal:
+
+```bash
+curl -fsSL https://universe.cashegg.com/install | sh
+```
+
+It installs a small background service that counts your agents' work and keeps your galaxy up to date, and
+links this Mac to your account. Your galaxy page is the whole interface; the Mac app below is optional.
+
+Updates are daily, and a version that cannot start is rolled back; to turn them off:
+`printf '{ "auto": false }\n' > "$HOME/Library/Application Support/Agent Panel/worker/update.json"`
+
+### The session board (optional)
+
+The board is the Mac app's own interface, and the rest of this README describes it. You need Claude Code
+2.1.303 or newer as well.
 
 ```bash
 git clone https://github.com/IcyDingo/agent-control-panel.git
@@ -24,14 +40,17 @@ Panel.app** into `~/Applications`. Then:
    keeps a copy of the old file). Sessions you start after that show up on the board.
 
 `install.sh` also installs a background service, so World keeps counting your work when the app isn't open;
-`./install.sh --no-daemon` skips it.
+`./install.sh --no-daemon` skips it. If the worker above is already installed, this service takes over
+from it: the background service then runs from your clone, and says so while it installs.
 
 Keep the folder where you cloned it: the service and the app run the panel from there. To update, `git pull`
 and run `./install.sh` again: it rebuilds the app and restarts the service on the new code. To use it without
 the app, see [Run it](#run-it). To take it out again, see [Uninstall](#uninstall).
 
-The panel stays on your Mac: its server listens on 127.0.0.1 only, and the page fetches nothing but
-its typeface (from Google Fonts).
+The panel's own work (sessions, decisions, World) stays on your Mac whether or not you sign in: its server
+listens on 127.0.0.1 only, and the page fetches nothing but its typeface (from Google Fonts). The Mac sends
+nothing to the hub until it is signed in: by the one line run from the Download page while signed in, by
+`node server.mjs login`, or from the panel's Profile box.
 
 **The board** stacks four queues in a rail on the left: **Needs you**, **Working**, **Idle** and
 **Finished**. Needs you is always open. Click any other queue's header to fold it to one line, which
@@ -448,7 +467,10 @@ board shows, with hooks off, no tools, MCP servers or slash commands, and no ses
 The hub is a small website that gives each panel a page of its own: your galaxy, drawn the way World draws it, which
 anyone with your handle or link can open. Your galaxy has fixed coordinates on the hub, shown on your page; a map of
 everyone's suns is the next slice.
-You choose whether to sign in. Until you do, nothing in this section runs and nothing leaves your Mac.
+You choose whether to sign in. The Mac sends nothing to the hub until it is signed in (by the one line run from the
+Download page while signed in, by `node server.mjs login`, or from the panel's Profile box), except the worker's
+daily release check: a plain GET with no token, followed by a download from GitHub. The panel's own work stays local
+either way.
 
 **Sign in** from the **Profile** card in World's rail (**Sign in with GitHub**), or from a terminal:
 
@@ -529,19 +551,31 @@ An endpoint that approves commands is worth protecting, even on localhost:
 - The hub token is kept in `hub.json` beside `prefs.json` (mode 0600) and is sent only as a bearer to the hub you signed
   in to. The page in your browser never talks to the hub: the local server does, for the page, behind the same token
   and Origin checks as everything else. There is no CORS on either side.
-- What leaves your Mac is an allow-list projection of World, copied key by key (a field added later stays private until
-  it is listed) and checked again on the hub before it is stored. The hub stores tokens and session ids hashed; the one
-  exception is a token you have just approved, which the hub holds in clear only until your Mac collects it or the code
-  runs out (15 minutes).
+- Nothing leaves your Mac until it is signed in to the hub; after that, what leaves is an allow-list projection of
+  World, copied key by key (a field added later stays private until it is listed) and checked again on the hub before
+  it is stored. The hub stores tokens and session ids hashed; the one exception is a token you have just approved,
+  which the hub holds in clear only until your Mac collects it or the code runs out (15 minutes).
+- The worker only ever installs a commit the hub names that is on the repository's `main`, downloaded from GitHub
+  over https.
 - The hub rate-limits every sign-in, upload and order, per visitor address or per account, and answers `429` with a
   `retry-after` when a limit is reached (`hub/README.md` has the table). A galaxy set to unlisted is reached by its link
   only: crawlers are told not to index it and a scan of the map's coordinates does not find it.
 
 ## Uninstall
 
-Run `./install.sh --uninstall`: it removes the background service and `~/Applications/Agent Panel.app`. Then
-remove the hook entries that point at `127.0.0.1:4747` from each profile's settings, and delete
-`~/Library/Application Support/Agent Panel` and `~/Library/Logs/Agent Panel`.
+### The worker alone
 
-If you signed in to the hub, run `node server.mjs logout` before uninstalling: it revokes the hub token. `hub.json` sits in
-the Application Support folder named above.
+Sign out first, so the hub forgets this Mac's token, then remove the worker:
+
+```bash
+node "$HOME/Library/Application Support/Agent Panel/worker/current/server.mjs" logout
+curl -fsSL https://universe.cashegg.com/install | sh -s -- --uninstall
+```
+
+### The app too
+
+Run `./install.sh --uninstall` from the clone: it removes the background service and
+`~/Applications/Agent Panel.app`. If you signed in to the hub, run `node server.mjs logout` before it: it revokes the
+hub token. Then remove the hook entries that point at `127.0.0.1:4747` from each profile's settings, and delete
+`~/Library/Application Support/Agent Panel` and `~/Library/Logs/Agent Panel`. Deleting the Application Support folder
+also removes what the worker left there, including `hub.json` and your World file.

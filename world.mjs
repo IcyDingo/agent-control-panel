@@ -465,7 +465,7 @@ const real = (p) => { try { return fs.realpathSync.native(p); } catch { return p
  *  function returning them). Nothing is written until open(). `run` is the server's execFile wrapper and `gitPlace` its
  *  folder → git checkout lookup. */
 export function createWorld({ file, configDirs, gitPlace, run, now = Date.now }) {
-  let st = null, memo = null, building = false;
+  let st = null, memo = null, building = false, toolsMissing = false; // toolsMissing is the last scan's finding, never saved
   try {
     const loaded = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (valid(loaded)) st = loaded;
@@ -534,6 +534,11 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
    *  commits on every branch and remote, not the stash), so a branch deleted after a squash merge keeps the credit it
    *  had, and an amended, reworded or rebased commit replaces its old count instead of adding to it. */
   async function scanCommits() {
+    // Without Apple's Command Line Tools /usr/bin/git is a stub that answers every call with a dialog offering to install
+    // them, so a background job must never call it.
+    const dev = await run('xcode-select', ['-p'], { timeout: 10_000 });
+    toolsMissing = Boolean(dev.err) || !dev.stdout.trim();
+    if (toolsMissing) { st.noEmail = []; st.gitFailed = []; return; }
     const noEmail = [], failed = [], sinceAuthor = Math.floor(st.startedAt / 1000);
     const since = Math.max(sinceAuthor, Math.floor(now() / 1000) - WINDOW_DAYS * 86_400); // older days keep their counts
     for (const repo of st.repos) {
@@ -589,7 +594,7 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
       planets: planets.filter((p) => p.found).map((p) => ({ id: p.id, x: p.x, y: p.y, look: p.look, colony: colonies.get(p.id) ?? null })),
       moments: momentsOf(days, today, st.purchases, st.seed),
       builds: st.purchases.filter((p) => p.kind === 'build').map((p, i) => ({ id: `b${i}`, on: p.on, caption: p.caption, pieces: p.pieces, at: p.at })),
-      noEmail: st.noEmail ?? [], gitFailed: st.gitFailed ?? [] };
+      noEmail: st.noEmail ?? [], gitFailed: st.gitFailed ?? [], toolsMissing };
     memo = { today, summary: s };
     return s;
   }

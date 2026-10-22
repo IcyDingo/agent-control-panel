@@ -38,13 +38,14 @@ const STATUS = () => ({
 });
 
 const ORIGIN = 'http://127.0.0.1';
+const SHA = 'c0ffee'.padEnd(40, '0');
 let clock = Date.UTC(2026, 9, 22, 12, 0);
 const now = () => clock;
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'hub-api-'));
 let hub, port, off, offPort;
 
 before(async () => {
-  hub = createHub(loadConfig({ HUB_DATA: tmp(), HUB_DEV_LOGIN: '1', HUB_PUBLIC_URL: ORIGIN }), { now, rates: LOOSE });
+  hub = createHub(loadConfig({ HUB_DATA: tmp(), HUB_DEV_LOGIN: '1', HUB_PUBLIC_URL: ORIGIN, HUB_RELEASE: SHA }), { now, rates: LOOSE });
   ({ port } = await hub.listen(0, '127.0.0.1'));
   // A second hub: no dev login, GitHub configured, and a fake `fetch` standing in for github.com.
   off = createHub(loadConfig({ HUB_DATA: tmp(), HUB_PUBLIC_URL: ORIGIN, HUB_GITHUB_CLIENT_ID: 'cid', HUB_GITHUB_CLIENT_SECRET: 'sec' }), {
@@ -101,6 +102,14 @@ test('healthz answers; a wrong or missing Host is refused before anything else',
     const r = await call('GET', '/healthz', { host });
     assert.deepEqual([r.status, r.json], [421, { ok: false, error: 'Wrong host.' }], host);
   }
+});
+
+test('the hub names the release it runs; one that was not told answers 503', async () => {
+  const r = await call('GET', '/api/release');
+  assert.deepEqual([r.status, r.json], [200, { ok: true, sha: SHA, url: `https://codeload.github.com/IcyDingo/agent-control-panel/tar.gz/${SHA}` }]);
+  assert.equal(r.headers.get('cache-control'), 'public, max-age=30');
+  const none = await call('GET', '/api/release', { on: offPort });
+  assert.deepEqual([none.status, none.json], [503, { ok: false, error: 'This hub does not name a release yet.' }]);
 });
 
 test('dev sign-in makes alice with her permanent spot and a session cookie; profile writes need the Origin', async () => {
@@ -197,6 +206,42 @@ test('the device flow: a code, the pending poll, the owner approves, the Mac get
   assert.equal((await call('DELETE', '/api/me/tokens/self', { cookie, origin: ORIGIN })).status, 403, 'self is for tokens');
   assert.equal((await call('DELETE', '/api/me/tokens/self', { token })).status, 200);
   assert.equal((await call('GET', '/api/me', { token })).status, 401);
+});
+
+test('a signed-in owner mints a link; the Mac turns it into a token with one poll, and only then is it listed', async () => {
+  const cookie = await login('alice');
+  const workers = async () => (await call('GET', '/api/me', { cookie })).json.tokens.filter((t) => t.label === 'Worker on a Mac').length;
+  const before = await workers();
+  assert.equal((await call('POST', '/api/me/links', { origin: ORIGIN })).status, 401);
+  assert.equal((await call('POST', '/api/me/links', { cookie })).status, 403, 'needs the Origin');
+  assert.equal((await call('POST', '/api/me/links', { token: await tokenFor('alice'), origin: ORIGIN })).status, 403, 'a Mac cannot mint links');
+  const link = await call('POST', '/api/me/links', { cookie, origin: ORIGIN });
+  assert.equal(link.status, 200);
+  assert.equal(link.json.expires_in, 900);
+  assert.equal(await workers(), before, 'opening the Download page mints nothing');
+  const got = await call('POST', '/api/device/token', { body: { device_code: link.json.code } });
+  assert.equal(got.status, 200);
+  assert.equal(got.json.account.handle, 'alice');
+  assert.equal(await workers(), before + 1, 'the Mac that collected the link is listed');
+});
+
+test('the install script is served as plain text at /install and /install.sh, never cached long', async () => {
+  for (const p of ['/install', '/install.sh']) {
+    const r = await call('GET', p);
+    assert.equal(r.status, 200, p);
+    assert.equal(r.headers.get('content-type'), 'text/plain; charset=utf-8');
+    assert.equal(r.headers.get('cache-control'), 'no-cache');
+    assert.ok(r.text.startsWith('#!/bin/sh'));
+    assert.ok(r.text.includes('https://universe.cashegg.com'));
+  }
+});
+test('the download page leads with the one line, links the script to read, and keeps the app as the second block', async () => {
+  const r = await call('GET', '/download');
+  assert.equal(r.status, 200);
+  assert.ok(r.text.includes('Get the worker'));
+  assert.ok(r.text.includes('href="/install"'), 'the script link is not rewritten with a version');
+  assert.ok(r.text.includes('Want the session board too?'));
+  assert.ok(r.text.includes('./install.sh'));
 });
 
 test('a token can be revoked by id from the web; a device code can be denied; polling too fast is told to slow down', async () => {
