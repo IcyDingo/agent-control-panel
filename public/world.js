@@ -61,24 +61,40 @@
   const reach = () => world?.reach ?? 46;
   const lobes = () => world?.frontier ?? [];
   const planets = () => world?.planets ?? [];
+  /** How the light grows with the world, worked out once per paint rather than for every point it lights: `w` widens
+   *  each shape of light as Home levels up (terraforming it), colonies are founded and things are built, so a grown
+   *  world's light reads as one cloud rather than patches; and each colony lights the space around it, a little more
+   *  for each thing built there. */
+  function shineOf() {
+    const builds = world?.builds ?? [], colonies = planets().filter((p) => p.colony);
+    const bloom = clamp(((world?.home?.level ?? 1) - 1) / 11 * 0.6 + colonies.length * 0.1 + builds.length * 0.015);
+    return { w: 1 + 0.45 * bloom,
+      colonies: colonies.map((p) => ({ x: p.x, y: p.y, r: 40 + 6 * Math.min(5, builds.filter((b) => b.on === p.id).length) })) };
+  }
+  let shine = { w: 1, colonies: [] };
+  /** One shape's light: full through its middle, fading to nothing at its radius widened by the bloom. */
+  const fall = (d, r) => clamp((1 - d / (r * shine.w)) * 1.6);
   function lit(mx, my) {
-    let best = 1 - Math.hypot(mx, my) / reach();
+    let dark = 1 - fall(Math.hypot(mx, my), reach()); // where two lights' edges overlap they add up: no seam between them
     for (const l of lobes()) {
       const ux = Math.cos(l.ang), uy = Math.sin(l.ang), along = clamp(mx * ux + my * uy, 0, l.tip);
-      best = Math.max(best, 1 - Math.hypot(mx - ux * along, my - uy * along) / lobeRadius(along, l.tip));
+      dark *= 1 - fall(Math.hypot(mx - ux * along, my - uy * along), lobeRadius(along, l.tip));
     }
-    if (sun()) best = Math.max(best, 1 - Math.hypot(mx - sun().x, my - sun().y) / 70); // the sun's own glow
-    return clamp(best * 1.6);
+    if (sun()) dark *= 1 - fall(Math.hypot(mx - sun().x, my - sun().y), 70); // the sun's own glow
+    for (const c of shine.colonies) dark *= 1 - fall(Math.hypot(mx - c.x, my - c.y), c.r);
+    return 1 - dark;
   }
-  /** How far the world reaches from Home (map px): the light, the sun, what the frontier bought, the planets it found. */
-  const extent = () => Math.max(reach() * 1.15, ...(sun() ? [Math.hypot(sun().x, sun().y) + 70] : []),
-    ...lobes().map((l) => LOBE_START + l.bought + 60), ...planets().map((p) => Math.hypot(p.x, p.y) + 30));
+  /** How far the world reaches from Home (map px): the light, the sun, what the frontier bought, the planets it found
+   *  and the colonies' light, as far as the bloom has widened it. */
+  const extent = () => Math.max(reach() * (shine.w + 0.15), ...(sun() ? [Math.hypot(sun().x, sun().y) + 70 * shine.w] : []),
+    ...lobes().map((l) => LOBE_START + Math.max(l.bought + 60, l.lit + lobeRadius(l.tip, l.tip) * shine.w)),
+    ...planets().map((p) => Math.hypot(p.x, p.y) + 30), ...shine.colonies.map((c) => Math.hypot(c.x, c.y) + c.r * shine.w));
   /** The light and the stars in it, drawn again only when the world changes, sampled small and drawn up smoothly so
    *  its edge is soft. */
   function paint() {
-    const sig = JSON.stringify([world?.reach, world?.sun, lobes(), planets().map((p) => p.id)]);
+    const grown = shineOf(), sig = JSON.stringify([world?.reach, world?.sun, lobes(), planets().map((p) => p.id), grown]);
     if (sky && sig === skySig) return;
-    skySig = sig;
+    skySig = sig; shine = grown;
     const E = extent(), n = 128, c = document.createElement('canvas');
     c.width = c.height = n;
     const gx = c.getContext('2d');
