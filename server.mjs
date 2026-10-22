@@ -21,7 +21,12 @@ import { findRemoved } from './versions.mjs';
 import { readChat } from './history.mjs';
 import { UNTRUSTED, trustKey, isTrusted, trustScript } from './trust.mjs';
 
+// `node server.mjs <command>` runs the CLI (cli.mjs) and never starts the server.
+if (process.argv.length > 2) { const { main } = await import('./cli.mjs'); process.exit(await main(process.argv.slice(2))); }
+
 const PORT = Number(process.env.ACP_PORT ?? 4747);
+const DAEMON = process.env.ACP_DAEMON === '1';
+const RETRY_MS = Number(process.env.ACP_RETRY_MS ?? 5000);
 const ROSTER_MS = 3000;
 // Just under the hook's own timeout (hooks.example.json: 3600 s); past it Claude Code drops the request anyway.
 const HOLD_MS = Number(process.env.ACP_HOLD_MS ?? 3590_000);
@@ -1570,8 +1575,17 @@ async function handle(req, res) {
   send(res, 404, { error: 'not found' });
 }
 
+// Under launchd a server that quit on a taken port would be relaunched every 10 s forever. Wait instead: an app-started
+// server from before the service was installed quits when the app does, and this one takes the port then.
+server.on('error', (err) => {
+  if (!(DAEMON && err.code === 'EADDRINUSE')) throw err;
+  console.log(`port ${PORT} is taken; trying again in ${RETRY_MS / 1000} s`);
+  setTimeout(() => server.listen(PORT, '127.0.0.1'), RETRY_MS);
+});
+
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`agent control panel → http://127.0.0.1:${PORT}`);
+  if (DAEMON && !world.started()) openWorld();
   pollRoster().then(checkVersions);
   setInterval(pollRoster, ROSTER_MS);
   setInterval(checkVersions, VERSIONS_MS);
