@@ -102,9 +102,14 @@ when the public URL is https).
 
 - Plist `~/Library/LaunchAgents/local.agent-panel[.<port>].plist` (label rule mirrors `app/build.sh:13-14`):
   `ProgramArguments [node, <repo>/server.mjs]`, `WorkingDirectory <repo>`, env `PATH` (baked like `build.sh:46`),
-  `ACP_PORT`, `ACP_DAEMON=1`; `RunAtLoad`, `KeepAlive`, `ThrottleInterval 10`, `ProcessType Background`, both log
-  paths to `~/Library/Logs/Agent Panel/daemon-<port>.log` (not the app's `server-<port>.log`: two writers would
-  interleave). Install = write plist, `launchctl bootout` (ignore failure), `launchctl bootstrap gui/$UID <plist>`.
+  `ACP_PORT`, `ACP_DAEMON=1`; `RunAtLoad`, `KeepAlive`, `ThrottleInterval 10`, both log paths to
+  `~/Library/Logs/Agent Panel/daemon-<port>.log` (not the app's `server-<port>.log`: two writers would interleave).
+  No `ProcessType Background`: the app reuses the daemon, and the panel it serves is interactive. `node` is the one
+  on PATH (`ACP_NODE`, set by install.sh), not the resolved Homebrew Cellar path that a `brew upgrade` deletes.
+  Install = write plist, `launchctl bootout` (ignore failure), `launchctl bootstrap gui/$UID <plist>`, tried up to
+  5 times 500 ms apart (launchd may still be taking the old job down).
+- Under the daemon with no page connected, the roster is read every 60 s and the version check waits; a page that
+  connects reads it at once and brings back the 3 s pace. The taken-port wait logs its first try, then every 60th.
 - `server.mjs`: `const DAEMON = process.env.ACP_DAEMON === '1'`. In the `listen` callback (line ~1573):
   `if (DAEMON && !world.started()) openWorld()`, so World starts at install and `startedAt` is install time. Add
   `server.on('error')`: under the daemon, `EADDRINUSE` waits 5 s and retries instead of dying, so an app-started

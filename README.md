@@ -26,9 +26,9 @@ Panel.app** into `~/Applications`. Then:
 `install.sh` also installs a background service, so World keeps counting your work when the app isn't open;
 `./install.sh --no-daemon` skips it.
 
-Keep the folder where you cloned it: the app runs the panel from there. To update, `git pull`, run
-`./install.sh` again, then quit the app (⌘Q) and open it again. To use it without the app, see
-[Run it](#run-it). To take it out again, see [Uninstall](#uninstall).
+Keep the folder where you cloned it: the service and the app run the panel from there. To update, `git pull`
+and run `./install.sh` again: it rebuilds the app and restarts the service on the new code. To use it without
+the app, see [Run it](#run-it). To take it out again, see [Uninstall](#uninstall).
 
 The panel stays on your Mac: its server listens on 127.0.0.1 only, and the page fetches nothing but
 its typeface (from Google Fonts).
