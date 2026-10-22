@@ -17,6 +17,7 @@
     <span class="sp-sub" id="w-where">Home</span>
     <span class="grow"></span>
     <span class="w-credit" hidden><b id="w-credit">0</b> credit</span><!-- world.js writes here; a visitor never sees it -->
+    <a class="btn small" href="/me" id="profile" hidden>Your profile</a><!-- the owner's way to the profile; nowhere else links there -->
     <a class="btn small" href="/" id="back">Back to the universe</a>
   </div>
   <aside class="w-side" id="w-side">
@@ -330,6 +331,7 @@
 
   if (mine && mine.account.handle.toLowerCase() === profile.handle.toLowerCase()) {
     $('w-owner').hidden = false;
+    $('profile').hidden = false;
     $('w-owner-sync').textContent = stats.lastActive ? `Last synced ${rel(stats.lastActive)}.` : 'Nothing synced yet.';
     owner(system);
   }
