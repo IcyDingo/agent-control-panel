@@ -56,8 +56,9 @@ export const PRICES = { frontier: 4000, rocket: 4000, build: 4000 };
 export const priceOf = (kind) => PRICES[kind];
 /** A push buys this much lobe (map px) from Home outward, lit as this much credit is earned after it. */
 export const PUSH_LEN = 150, LIGHT_CREDIT = 3000;
-/** Lobes start this far out, inside Home's light, and widen toward their tip (the mockup's shape). */
-export const LOBE_START = 60;
+/** Lobes start this far out, inside Home's light, and widen toward their tip (the mockup's shape); a colony's start
+ *  nearer, inside its own smaller light. */
+export const LOBE_START = 60, COLONY_LOBE_START = 30;
 export const lobeRadius = (along, tip) => 34 + 26 * along / (tip + 40);
 const JOIN = 20 * Math.PI / 180; // a push this close to a lobe's direction extends it
 const normAng = (a) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -77,22 +78,27 @@ const addDays = (day, n) => { const [y, m, d] = day.split('-').map(Number); retu
 export const LOOKS = ['rust', 'ice', 'sand', 'violet'];
 
 /** The frontier from the pushes bought: its lobes, each lit as far as the credit earned since each push reaches (`peak`
- *  is the most World has seen earned, so the light never goes back), and the planets they hold, found or not yet. */
+ *  is the most World has seen earned, so the light never goes back), and the planets they hold, found or not yet. A push
+ *  leaves from Home or from a colony (`from`, Home when it has none) and joins a lobe only from the same place; a lobe
+ *  runs from its place (`ox`, `oy`), starting `start` out. */
 export function frontierOf(purchases, peak, seed) {
   const lobes = [], planets = [];
   purchases.filter((p) => p.kind === 'frontier').forEach((p, i) => {
-    let lobe = lobes.find((l) => angDiff(l.ang, p.ang) <= JOIN);
-    if (!lobe) lobes.push(lobe = { ang: p.ang, pushes: [] });
+    const from = p.from ?? 'home', at = from === 'home' ? { x: 0, y: 0 } : planets.find((q) => q.id === from);
+    if (!at) return; // never bought (a push leaves from a colony on a planet already found), but a hand-edited file
+    let lobe = lobes.find((l) => l.from === from && angDiff(l.ang, p.ang) <= JOIN);
+    if (!lobe) lobes.push(lobe = { from, ox: at.x, oy: at.y, start: from === 'home' ? LOBE_START : COLONY_LOBE_START, ang: p.ang, pushes: [] });
     const before = lobe.pushes.length * PUSH_LEN;
     lobe.pushes.push(p);
     if (i === 0 || hash(seed, `planet ${i}`) < 0.5) {
-      const along = LOBE_START + before + PUSH_LEN * (0.55 + 0.35 * hash(seed, `planet ${i} along`));
-      planets.push({ id: `p${i}`, lobe, along, ...toMap(lobe.ang, along, (hash(seed, `planet ${i} off`) - 0.5) * 36),
+      const along = lobe.start + before + PUSH_LEN * (0.55 + 0.35 * hash(seed, `planet ${i} along`));
+      const off = toMap(lobe.ang, along, (hash(seed, `planet ${i} off`) - 0.5) * 36);
+      planets.push({ id: `p${i}`, lobe, along, x: lobe.ox + off.x, y: lobe.oy + off.y,
         look: LOOKS[Math.floor(hash(seed, `planet ${i} look`) * LOOKS.length)] });
     }
   });
   const litBy = (pushes, earned) => pushes.reduce((sum, p) => sum + PUSH_LEN * Math.min(1, Math.max(0, (earned - p.earnedAt) / LIGHT_CREDIT)), 0);
-  for (const l of lobes) { l.lit = litBy(l.pushes, peak); l.tip = LOBE_START + l.lit; }
+  for (const l of lobes) { l.lit = litBy(l.pushes, peak); l.tip = l.start + l.lit; }
   return { lobes, planets: planets.map((p) => ({ ...p, found: p.lobe.tip >= p.along + 8 })), litBy };
 }
 
@@ -112,10 +118,10 @@ export function momentsOf(days, today, purchases, seed) {
   function place(id, day) {
     const end = dayEnd(day), last = pushes.filter((p) => p.at < end).at(-1), r1 = hash(seed, `${id} r`), r2 = hash(seed, `${id} a`);
     const lobe = last && lobes.find((l) => l.pushes.includes(last));
-    const tip = lobe ? LOBE_START + litBy(lobe.pushes.filter((p) => p.at < end), upTo(day).earned) : 0;
-    if (lobe && tip > LOBE_START + 10) {
-      const from = LOBE_START * 0.6;
-      return toMap(lobe.ang, from + (tip - from) * (0.3 + 0.65 * r1), (r2 - 0.5) * 40);
+    const tip = lobe ? lobe.start + litBy(lobe.pushes.filter((p) => p.at < end), upTo(day).earned) : 0;
+    if (lobe && tip > lobe.start + 10) {
+      const from = lobe.start * 0.6, off = toMap(lobe.ang, from + (tip - from) * (0.3 + 0.65 * r1), (r2 - 0.5) * 40);
+      return { x: lobe.ox + off.x, y: lobe.oy + off.y };
     }
     const r = homeReach(upTo(day).xp) * (0.25 + 0.55 * r1), a = 2 * Math.PI * r2;
     return { x: Math.cos(a) * r, y: Math.sin(a) * r };
@@ -585,7 +591,7 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
       worked: Object.keys(days).filter((d) => dayCredit(days[d]) > 0).sort(), // the days with work in them, oldest first
       today: { day: today, commits: t.commits, added: t.added, removed: t.removed, multiplier: multiplier(t.added, t.removed), tokens: t.tokens, credit: dayCredit(t) },
       prices: { frontier: priceOf('frontier', st.purchases), rocket: priceOf('rocket', st.purchases), build: priceOf('build', st.purchases) },
-      frontier: lobes.map((l) => ({ ang: l.ang, bought: l.pushes.length * PUSH_LEN, lit: l.lit, tip: l.tip })),
+      frontier: lobes.map((l) => ({ from: l.from, ang: l.ang, bought: l.pushes.length * PUSH_LEN, lit: l.lit, tip: l.tip })),
       planets: planets.filter((p) => p.found).map((p) => ({ id: p.id, x: p.x, y: p.y, look: p.look, colony: colonies.get(p.id) ?? null })),
       moments: momentsOf(days, today, st.purchases, st.seed),
       builds: st.purchases.filter((p) => p.kind === 'build').map((p, i) => ({ id: `b${i}`, on: p.on, caption: p.caption, pieces: p.pieces, at: p.at })),
@@ -611,16 +617,17 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
       if (changed || git || higher) save();
     },
     summary,
-    /** Spend credit: `{ kind: 'frontier', ang }` pushes the frontier toward an angle (radians, map space);
-     *  `{ kind: 'rocket', planet, name }` lands a colony on a planet the frontier found. Purchases are final and keep
-     *  what they cost. */
-    buy({ kind, ang, planet, name } = {}) {
+    /** Spend credit: `{ kind: 'frontier', ang, from }` pushes the frontier toward an angle (radians, map space) from Home
+     *  or a colony (`from`: 'home', the default, or the planet's id); `{ kind: 'rocket', planet, name }` lands a colony on
+     *  a planet the frontier found. Purchases are final and keep what they cost. */
+    buy({ kind, ang, from = 'home', planet, name } = {}) {
       if (!st) return fail('Open World first.');
       const s = summary();
       let item;
       if (kind === 'frontier') {
+        if (from !== 'home' && !s.planets.find((p) => p.id === from)?.colony) return fail('Push from Home or one of your colonies.');
         if (typeof ang !== 'number' || !Number.isFinite(ang)) return fail('Pick a direction to push.');
-        item = { ang: normAng(ang) };
+        item = { ang: normAng(ang), ...(from === 'home' ? {} : { from }) };
       } else if (kind === 'rocket') {
         const there = s.planets.find((p) => p.id === planet);
         if (!there) return fail("The frontier hasn't found that planet yet.");

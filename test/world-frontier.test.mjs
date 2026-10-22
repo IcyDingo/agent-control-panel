@@ -194,3 +194,64 @@ test('moments sit in the light: in Home’s before any push, along the lobe grow
   assert.ok(along > 0 && along <= lobe.tip && off <= lobeRadius(along, lobe.tip), `the week after sits in the lobe (along ${along}, off ${off})`);
   assert.deepEqual(reload().summary().moments, s.moments, 'and stays put');
 });
+
+// ---------------------------------------------------------------- pushing from a colony
+
+const PUSH0 = { kind: 'frontier', at: at(0), price: 4000, earnedAt: 0, ang: 0 };
+const VESTA = { kind: 'rocket', at: at(0), price: 4000, earnedAt: 0, planet: 'p0', name: 'Vesta' };
+const fromVesta = (ang, extra = {}) => ({ kind: 'frontier', at: at(0), price: 4000, earnedAt: 0, ang, from: 'p0', ...extra });
+/** How far a point is from the segment `a` → `b`. */
+const toSegment = (p, a, b) => {
+  const dx = b.x - a.x, dy = b.y - a.y, k = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy)));
+  return Math.hypot(p.x - a.x - k * dx, p.y - a.y - k * dy);
+};
+
+test('a push leaves from a colony, starting 30 px out from it', () => {
+  const { lobes, planets } = frontierOf([PUSH0, VESTA, fromVesta(Math.PI / 2)], 1e9, 7);
+  const p0 = planets.find((p) => p.id === 'p0'), l = lobes[1];
+  assert.deepEqual([l.from, l.ox, l.oy, l.start], ['p0', p0.x, p0.y, 30]);
+  assert.equal(l.tip, 30 + PUSH_LEN, 'lit all the way');
+  assert.deepEqual([lobes[0].from, lobes[0].ox, lobes[0].oy, lobes[0].start], ['home', 0, 0, LOBE_START]);
+  for (const q of planets.filter((q) => q.lobe === l)) assert.ok(toSegment(q, { x: l.ox, y: l.oy }, { x: l.ox, y: l.oy + l.tip }) < 20, 'out along the colony lobe');
+});
+
+test('pushes join only from the same place', () => {
+  const two = frontierOf([PUSH0, VESTA, fromVesta(0.1)], 1e9, 7).lobes;
+  assert.deepEqual(two.map((l) => [l.from, l.pushes.length]), [['home', 1], ['p0', 1]], 'a colony push near a Home lobe starts its own');
+  const joined = frontierOf([PUSH0, VESTA, fromVesta(0.1), fromVesta(0.15)], 1e9, 7).lobes;
+  assert.deepEqual(joined.map((l) => [l.from, l.pushes.length]), [['home', 1], ['p0', 2]]);
+});
+
+test('a push from a bare planet, an unknown place or a planet not found is refused', () => {
+  const bare = seeded({ tokens: { [key(at(0))]: credit(30_000) }, purchases: [PUSH0] });
+  for (const from of ['p0', 'p9', 'nowhere', 7]) {
+    assert.deepEqual(bare.world.buy({ kind: 'frontier', ang: 0, from }), { ok: false, error: 'Push from Home or one of your colonies.' }, String(from));
+  }
+  assert.equal(saved(bare.file).purchases.length, 1);
+});
+
+test('a push from a colony is kept with where it left from; one from Home keeps none', () => {
+  const { world, file } = seeded({ tokens: { [key(at(0))]: credit(30_000) }, purchases: [PUSH0, VESTA] });
+  assert.equal(world.buy({ kind: 'frontier', ang: 1, from: 'p0' }).ok, true);
+  assert.equal(world.buy({ kind: 'frontier', ang: 2, from: 'home' }).ok, true);
+  assert.equal(world.buy({ kind: 'frontier', ang: 3 }).ok, true);
+  const [a, b, c] = saved(file).purchases.slice(-3);
+  assert.equal(a.from, 'p0');
+  assert.ok(!('from' in b) && !('from' in c));
+  assert.deepEqual(world.summary().frontier.map((l) => l.from), ['home', 'p0', 'home', 'home']);
+});
+
+test('a push with no from is from Home, and the summary is as it was', () => {
+  const { world } = seeded({ tokens: { [key(at(0))]: credit(30_000) }, purchases: [PUSH0] });
+  assert.deepEqual(world.summary().frontier, [{ from: 'home', ang: 0, bought: PUSH_LEN, lit: PUSH_LEN, tip: LOBE_START + PUSH_LEN }]);
+});
+
+test('a moment along a colony lobe sits along that lobe', () => {
+  const tokens = {};
+  for (let d = 0; d < 5; d++) tokens[key(at(d))] = credit(2_000);
+  const { world } = seeded({ tokens, purchases: [PUSH0, VESTA, fromVesta(Math.PI / 2)], now: at(8) });
+  const s = world.summary(), p0 = s.planets.find((p) => p.id === 'p0'), l = s.frontier[1];
+  const week = s.moments.find((m) => m.kind === 'week');
+  assert.ok(week, 'the week is a moment');
+  assert.ok(toSegment(week, p0, { x: p0.x, y: p0.y + l.tip }) <= lobeRadius(l.tip, l.tip), 'inside the colony lobe');
+});
