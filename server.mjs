@@ -125,6 +125,12 @@ function useProfile(p) {
 }
 /** A hook event from a session of another profile: not ours to show or answer. */
 const otherProfile = (e) => typeof e?.transcript_path === 'string' && !e.transcript_path.startsWith(configDir + path.sep);
+/** The profile folder a hook event's session runs under: its transcript lives in that folder's projects/. */
+function profileDirOf(e) {
+  const tp = typeof e?.transcript_path === 'string' ? e.transcript_path : '';
+  const i = tp.indexOf(path.sep + 'projects' + path.sep);
+  return i > 0 ? tp.slice(0, i) : configDir;
+}
 const run = (cmd, args, opts = {}) => new Promise((resolve) =>
   execFile(cmd, args, { timeout: 15_000, maxBuffer: 8_000_000, env: childEnv, ...opts },
     (err, stdout, stderr) => resolve({ err, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') })));
@@ -351,19 +357,23 @@ function prune() {
 
 // ---------------------------------------------------------------- held permission requests
 
+// A request is held for the profile its session runs under, shown while that profile is on the board, and kept
+// through a switch: handing it back would leave a background session's prompt open with no screen to answer it on.
 function holdPermission(e, res) {
-  const id = crypto.randomUUID();
+  const id = crypto.randomUUID(), profileDir = profileDirOf(e);
   const p = { id, sessionId: e.session_id, agentId: e.agent_id ?? null, agentType: e.agent_type ?? null,
               toolName: e.tool_name, toolInput: e.tool_input ?? {}, suggestions: e.permission_suggestions ?? [],
               cwd: e.cwd ?? null, permissionMode: e.permission_mode ?? null, createdAt: Date.now(),
-              deadline: Date.now() + HOLD_MS, res, timer: null };
+              deadline: Date.now() + HOLD_MS, profileDir, res, timer: null };
   p.timer = setTimeout(() => settle(id, null, 'expired'), HOLD_MS);
   // The hook timed out or its session went away. (A terminal answer does NOT close it: see pollRoster.)
   res.on('close', () => { if (pending.has(id)) settle(id, null, 'closed by Claude Code'); });
   pending.set(id, p);
-  if (e.session_id) session(e.session_id).lastEventAt = Date.now();
+  if (e.session_id && profileDir === configDir) session(e.session_id).lastEventAt = Date.now();
   broadcast({ type: 'new-request', id });
 }
+/** The held requests of the profile on the board. */
+const shownPending = () => [...pending.values()].filter((p) => p.profileDir === configDir);
 
 /** Answer a held request. `decision` null = no answer, the terminal dialog decides. */
 function settle(id, decision, why) {
@@ -382,6 +392,7 @@ function settle(id, decision, why) {
 function decide(body) {
   const p = pending.get(body?.id);
   if (!p) return { ok: false, error: 'That request is gone: answered in the terminal or expired.' };
+  if (p.profileDir !== configDir) return { ok: false, error: 'That request belongs to a profile that is not on the board.' };
   let decision;
   if (body.behavior === 'deny') {
     decision = { behavior: 'deny', message: String(body.message || 'Denied from the agent control panel.') };
@@ -1234,14 +1245,14 @@ const profiles = async () => ({ ok: true, active: profile.id, profiles: await Pr
   const d = describeProfile(p), a = await signedIn(p);
   return a === undefined ? d : { ...d, account: a };
 })) });
-/** Shows another profile's sessions. Requests held here go back to their terminals; messages waiting to be sent are dropped. */
+/** Shows another profile's sessions. Requests held here stay held, for when this profile is back; messages waiting
+ *  to be sent are dropped. */
 function switchProfile(body) {
   const p = listProfiles().find((x) => x.id === body?.id);
   if (!p) return { ok: false, error: 'There is no such profile.' };
   if (p.dir === profile.dir) return { ok: true };
-  const held = pending.size, queued = [...inbox.values()].reduce((n, q) => n + q.length, 0);
-  if ((held || queued) && body.force !== true) return { ok: false, confirm: true, held, queued };
-  for (const id of [...pending.keys()]) settle(id, null, 'profile switched');
+  const queued = [...inbox.values()].reduce((n, q) => n + q.length, 0);
+  if (queued && body.force !== true) return { ok: false, confirm: true, queued };
   for (const m of [inbox, sessions, stops, files, turns]) m.clear();
   for (const s of [dismissed, saidRead]) s.clear();
   useProfile(p);
@@ -1409,7 +1420,7 @@ function snapshot() {
       queued: inbox.get(s.sessionId) ?? [], working: isWorking(s),
       subagents: [...s.subagents.values()].map((a) => ({ ...a, stopping: !a.stoppedAt && stops.has(stopKey(s.sessionId, a.agentId)) })),
     }; }),
-    pending: [...[...pending.values()].map(({ res, timer, ...p }) => p), ...openRequests()],
+    pending: [...shownPending().map(({ res, timer, profileDir, ...p }) => p), ...openRequests()],
     _ts: now,
   };
 }
@@ -1467,9 +1478,9 @@ async function handle(req, res) {
     if (req.method !== 'POST' || req.headers.origin) return send(res, 403, { error: 'hooks only' });
     let e;
     try { e = await readBody(req); } catch { return send(res, 400, ''); }
-    // Another profile's session (its hooks point here too): answer nothing, its terminal decides.
-    if (otherProfile(e)) return send(res, 200, '');
-    if (url.pathname === '/hook/event') { const reply = onHookEvent(e); return send(res, 200, reply ?? ''); }
+    // Another profile's session (its hooks point here too) is not shown: its events are nothing to us. Its
+    // permission requests are held all the same, for when its profile is back on the board.
+    if (url.pathname === '/hook/event') { const reply = otherProfile(e) ? null : onHookEvent(e); return send(res, 200, reply ?? ''); }
     if (url.pathname === '/hook/permission') {
       // Nobody watching, or paused, or World's own Claude call: answer nothing, the terminal decides.
       if (!armed || !watched() || quietIds.has(e?.session_id)) return send(res, 200, '');

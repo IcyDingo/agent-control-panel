@@ -2588,13 +2588,11 @@ async function chooseProfile(p, item) {
   if (p.id === snap.profile?.id) { closeProfiles(); return; }
   const r = await api('/api/profile', { id: p.id, force: profArmed === p.id });
   if (r.confirm) {
-    // Held requests and unsent messages belong to this profile's sessions: switching hands the requests back to their
-    // terminals and drops the messages.
+    // Unsent messages belong to this profile's sessions: switching drops them. (Held requests stay held, and show
+    // again when this profile is back.)
     profArmed = p.id;
     item.classList.add('armed');
-    const lost = [r.held && `${r.held} waiting request${r.held > 1 ? 's go back to their terminals' : ' goes back to its terminal'}`,
-      r.queued && `${r.queued} unsent message${r.queued > 1 ? 's are' : ' is'} dropped`].filter(Boolean).join(', and ');
-    item.querySelector('.p2').textContent = `Switch anyway: ${lost}.`;
+    item.querySelector('.p2').textContent = `Switch anyway: ${r.queued} unsent message${r.queued > 1 ? 's are' : ' is'} dropped.`;
     return;
   }
   closeProfiles();

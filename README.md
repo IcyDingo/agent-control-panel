@@ -144,8 +144,9 @@ one started with `CLAUDE_CONFIG_DIR=~/.claude-<name>`. The panel shows one profi
 account and plan from `claude auth status`, and switches between them.
 
 - Switching swaps the board to that profile's sessions, and new agents launch in it.
-- A request held for the old profile's sessions goes back to its terminal, and an unsent message is
-  dropped. When there are any, it asks first.
+- A request held for the old profile's sessions stays held, out of sight, and shows again when that
+  profile is back; a permission request from a profile that isn't on the board is held the same way.
+  An unsent message is dropped. When there is one, it asks first.
 - The choice is remembered, in `~/Library/Application Support/Agent Panel/prefs.json` (`ACP_PREFS`
   names another file, so a second panel on another port keeps a choice of its own). Without one,
   the panel starts in the profile it was started under (`CLAUDE_CONFIG_DIR`), else the first one whose
