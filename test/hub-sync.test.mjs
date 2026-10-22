@@ -94,6 +94,15 @@ test('three schedules within ten seconds make one push of the system and one of 
   assert.equal(t.sync.state().nextAt, null);
 });
 
+test("the upload carries only the signed-in account's probes", async () => {
+  const probe = (by, to) => ({ kind: 'probe', at: at(0), price: 4000, earnedAt: 0, ang: 0, by, to });
+  const t = setup({ purchases: [PUSH, probe({ x: 10, y: 20 }, { x: 1, y: 2 }), probe({ x: 99, y: 99 }, { x: 3, y: 4 })] });
+  t.hub.status = () => ({ loggedIn: true, device: 'd1', account: { handle: 'alice', x: 10, y: 20 } });
+  t.sync.schedule({ urgent: true });
+  await t.c.tick(10_000);
+  assert.deepEqual(t.system()[0].body.snapshot.probes, [{ ang: 0, progress: 1, to: { x: 1, y: 2 } }]);
+});
+
 test('an urgent schedule shortens a pending wait, and a normal one never lengthens it', async () => {
   const t = setup();
   t.sync.schedule();
