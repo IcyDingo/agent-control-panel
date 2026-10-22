@@ -12,6 +12,7 @@ import { createAccounts } from './accounts.mjs';
 import { createAuth } from './auth.mjs';
 import { createSystems } from './systems.mjs';
 import { createOrders } from './orders.mjs';
+import { createUniverse } from './universe.mjs';
 import { createLive } from './live.mjs';
 import { createLimits, subjectOf, privatePeer } from './limits.mjs';
 import { authorizeUrl, exchange } from './github.mjs';
@@ -79,6 +80,7 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now, ra
   const auth = createAuth(db, { now });
   const systems = createSystems(db, { now });
   const orders = createOrders(db, { now });
+  const universe = createUniverse(db);
   const live = createLive();
   const limits = createLimits({ now, ...(rates ? { rates } : {}) });
 
@@ -183,6 +185,12 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now, ra
     const account = /^-?\d{1,9}$/.test(x ?? '') && /^-?\d{1,9}$/.test(y ?? '') ? accounts.byCoords(Number(x), Number(y)) : null;
     return showSystem(res, unlisted(account) ? null : account);
   });
+  // The names of the galaxies at some spots (probes found them): listed galaxies with a system only.
+  route('GET', '/api/systems/named', 'pub', ({ res, q }) => {
+    const spots = String(q.get('at') ?? '').split(';').map((pair) => /^(-?\d{1,9}),(-?\d{1,9})$/.exec(pair));
+    if (!spots.length || spots.length > 64 || spots.some((m) => !m)) return fail(res, 422, 'Say which spots: up to 64 of x,y.');
+    send(res, 200, { ok: true, galaxies: universe.named(spots.map((m) => ({ x: Number(m[1]), y: Number(m[2]) }))) }, { cache: 'public, max-age=30' });
+  }, { limit: ['named', 'ip'] });
   route('GET', /^\/api\/systems\/@(?<handle>[^/]+)$/, 'pub', ({ res, params }) => showSystem(res, accounts.byHandle(params.handle)));
 
   // Signing in and out. Each is limited per address: a sign-in is the one thing a stranger can make the hub do.
@@ -283,13 +291,28 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now, ra
   route('PUT', '/api/me/status', 'tok', ({ res, who, body }) => outcome(res, systems.putStatus(who.accountId, body)), { limit: ['status', 'account'] });
   route('GET', '/api/me/status', 'any', ({ res, who }) => send(res, 200, { ok: true, status: systems.getStatus(who.accountId) }));
 
+  // Where a probe from the Mac goes: `{ ang, skip }`, skip being what this account found or has on the way.
+  const spot = (v) => Number.isInteger(v) && Math.abs(v) <= 1e9;
+  route('POST', '/api/me/probe', 'tok', ({ res, who, body }) => {
+    const { ang, skip } = body;
+    if (typeof ang !== 'number' || !Number.isFinite(ang) || !Array.isArray(skip) || skip.length > 512
+      || !skip.every((c) => c !== null && typeof c === 'object' && spot(c.x) && spot(c.y))) return fail(res, 422, 'Say which way, and what to skip.');
+    const r = universe.target(who.accountId, ang, skip);
+    r.ok ? send(res, 200, r) : send(res, 404, { ok: false, none: true, error: "There's no one new to find yet." });
+  }, { limit: ['probe', 'account'] });
+
   // Orders: placed in the browser, executed by the Mac, announced to it over the stream.
   route('GET', '/api/me/orders', 'any', ({ res, who, q }) => {
     if (q.get('status') === 'pending') return send(res, 200, { ok: true, orders: orders.pending(who.accountId) });
     const n = Math.floor(Number(q.get('limit')));
     send(res, 200, { ok: true, orders: orders.list(who.accountId, Number.isFinite(n) ? Math.min(50, Math.max(1, n)) : 20) });
   });
+  // A Mac from before version 2 would push from Home whatever the order said, or not know a probe: those wait for it.
+  const needsUpdate = (body) => (body?.kind === 'probe' ? 'send a probe'
+    : body?.kind === 'frontier' && body.from !== undefined && body.from !== 'home' ? 'push from a colony' : null);
   route('POST', '/api/me/orders', 'web', ({ res, who, body }) => {
+    const need = needsUpdate(body);
+    if (need && (systems.get(who.accountId)?.pv ?? 0) < 2) return fail(res, 409, `Update the panel on your Mac to ${need}.`);
     const r = orders.place(who.accountId, body);
     if (r.ok) live.emit(who.accountId, 'order', r.order);
     outcome(res, r);

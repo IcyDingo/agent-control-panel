@@ -5,6 +5,9 @@
 import crypto from 'node:crypto';
 import { validProjection, PROJECTION_VERSION, LEVELS } from '../world.mjs';
 
+/** The versions a Mac may upload: this one, and the one before probes (a Mac not yet updated). */
+const UPLOADS = [1, PROJECTION_VERSION];
+
 const fail = (status, error, more = {}) => ({ ok: false, status, error, ...more });
 const day = (ms) => new Date(ms).toISOString().slice(0, 10);
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
@@ -19,11 +22,12 @@ function cleanStatus(s) {
   const todayKeys = ['credit', 'commits', 'added', 'removed', 'tokens', 'multiplier'];
   if (!num(s.balance) || typeof s.building !== 'boolean') return null;
   if (!['frontier', 'rocket', 'build'].every((k) => num(prices[k])) || !todayKeys.every((k) => num(today[k]))) return null;
+  if (prices.probe !== undefined && !num(prices.probe)) return null; // a Mac from before probes leaves it out
   if (!num(home.xp) || !num(home.today)) return null;
   if (typeof mac.name !== 'string' || mac.name.trim().length > 40 || typeof mac.online !== 'boolean') return null;
   return {
     balance: s.balance,
-    prices: { frontier: prices.frontier, rocket: prices.rocket, build: prices.build },
+    prices: { frontier: prices.frontier, rocket: prices.rocket, build: prices.build, ...(prices.probe !== undefined && { probe: prices.probe }) },
     today: Object.fromEntries(todayKeys.map((k) => [k, today[k]])),
     home: { xp: home.xp, today: home.today },
     building: s.building,
@@ -35,9 +39,11 @@ export function createSystems(db, { now = Date.now } = {}) {
   const row = (sql, ...args) => db.prepare(sql).get(...args);
 
   /** Store an upload: `{ pv, seq, device, snapshot }`. An older `seq` is stale (409); the same content is `unchanged`, and
-   *  still counts as the Mac being there (the half-hour heartbeat), so it moves `received_at` and the page's last active. */
+   *  still counts as the Mac being there (the half-hour heartbeat), so it moves `received_at` and the page's last active.
+   *  The snapshot is kept in this version, and `pv` as the Mac sent it: what its Mac can run (a push from a colony, a
+   *  probe) depends on it. */
   function put(accountId, { pv, seq, device, snapshot } = {}) {
-    const clean = pv === PROJECTION_VERSION ? validProjection(snapshot) : null;
+    const clean = UPLOADS.includes(pv) && snapshot?.pv === pv ? validProjection(snapshot) : null;
     if (!clean || !num(seq)) return fail(422, SYSTEM_REFUSED);
 
     const stored = row('SELECT seq, hash FROM systems WHERE account_id = ?', accountId);
@@ -45,7 +51,7 @@ export function createSystems(db, { now = Date.now } = {}) {
 
     const json = JSON.stringify(clean), hash = crypto.createHash('sha256').update(json).digest('hex');
     if (stored && stored.hash === hash) {
-      db.prepare('UPDATE systems SET seq = MAX(seq, ?), received_at = ? WHERE account_id = ?').run(seq, now(), accountId);
+      db.prepare('UPDATE systems SET seq = MAX(seq, ?), pv = ?, received_at = ? WHERE account_id = ?').run(seq, pv, now(), accountId);
       return { ok: true, seq: Math.max(seq, stored.seq), hash, unchanged: true };
     }
 
@@ -55,7 +61,7 @@ export function createSystems(db, { now = Date.now } = {}) {
       ON CONFLICT(account_id) DO UPDATE SET pv = excluded.pv, seq = excluded.seq, hash = excluded.hash, device = excluded.device,
         snapshot = excluded.snapshot, level = excluded.level, stage = excluded.stage, days_worked = excluded.days_worked,
         colonies = excluded.colonies, builds = excluded.builds, received_at = excluded.received_at`)
-      .run(accountId, PROJECTION_VERSION, seq, hash, typeof device === 'string' && device.length <= 100 ? device : null, json,
+      .run(accountId, pv, seq, hash, typeof device === 'string' && device.length <= 100 ? device : null, json,
         level, LEVELS[level - 1][1], clean.daysActive, clean.planets.filter((p) => p.colony !== null).length, clean.builds.length, now());
     return { ok: true, seq, hash };
   }
@@ -63,7 +69,7 @@ export function createSystems(db, { now = Date.now } = {}) {
   function get(accountId) {
     const r = row('SELECT * FROM systems WHERE account_id = ?', accountId);
     return !r ? null : {
-      snapshot: JSON.parse(r.snapshot), level: r.level, stage: r.stage, daysWorked: r.days_worked,
+      snapshot: JSON.parse(r.snapshot), pv: r.pv, level: r.level, stage: r.stage, daysWorked: r.days_worked,
       colonies: r.colonies, builds: r.builds, receivedAt: r.received_at,
     };
   }
@@ -90,8 +96,8 @@ export function createSystems(db, { now = Date.now } = {}) {
         x: account.x, y: account.y, joined: day(account.createdAt), visibility: account.visibility,
       },
       stats: system
-        ? { level: system.level, stage: system.stage, daysWorked: system.daysWorked, colonies: system.colonies, builds: system.builds, lastActive: day(system.receivedAt) }
-        : { level: 1, stage: LEVELS[0][1], daysWorked: 0, colonies: 0, builds: 0, lastActive: null },
+        ? { level: system.level, stage: system.stage, daysWorked: system.daysWorked, colonies: system.colonies, builds: system.builds, lastActive: day(system.receivedAt), pv: system.pv }
+        : { level: 1, stage: LEVELS[0][1], daysWorked: 0, colonies: 0, builds: 0, lastActive: null, pv: 0 },
       system: system ? system.snapshot : null,
     };
   }

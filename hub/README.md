@@ -62,12 +62,14 @@ calls and then that many per minute:
 | A Mac pushing its status | account | 30 a minute |
 | Placing an order | account | 10 a minute |
 | Claiming or finishing an order | account | 30 a minute |
+| A Mac asking where a probe goes | account | 30 a minute |
+| Looking up the names of found galaxies | address | 60 a minute |
 
 Behind a proxy every connection comes from the proxy's address, so set `HUB_TRUST_PROXY=1` there or every visitor
 shares one bucket. An IPv6 visitor is their whole /64: one person holds that many addresses, so they share a bucket.
 
 An **unlisted** galaxy (a choice on the profile page) is reached by its link and nothing else: its page and its API
-answer carry `X-Robots-Tag: noindex`, and it cannot be found by its coordinates. `robots.txt` allows `/` and `/@…`
+answer carry `X-Robots-Tag: noindex`, it cannot be found by its coordinates, and no probe finds it or names it. `robots.txt` allows `/` and `/@…`
 and keeps crawlers out of `/api/`, `/me` and `/device`.
 
 ## Behind Caddy
