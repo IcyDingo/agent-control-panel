@@ -26,7 +26,7 @@ const STUBS = {
     '    echo "$prog" > "$HOME/Library/LaunchAgents/local.agent-panel.plist"',
     '    echo "Background service local.agent-panel installed" ;;',
     '  *"daemon remove") echo "Background service removed" ;;',
-    '  *login*) echo "Linked to @ada." ;;',
+    '  *login*) [ -n "${STUB_LOGIN_FAILS:-}" ] && exit 1; echo "Linked to @ada." ;;',
     'esac'),
   curl: sh(
     'out=; url=',
@@ -45,8 +45,9 @@ const STUBS = {
   sleep: sh('exit 0'),
 };
 
-/** A temp HOME, the stubs (all of them unless `without` names one), and the release archive. */
-function fixture(t, { without = [] } = {}) {
+/** A temp HOME, the stubs (all of them unless `without` names one), and the release archive (with its launcher.sh
+ * unless `launcher` is false). */
+function fixture(t, { without = [], launcher = true } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'in stall-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const home = path.join(root, 'ho me');
@@ -59,7 +60,7 @@ function fixture(t, { without = [] } = {}) {
   const release = path.join(root, 'src', `agent-control-panel-${SHA}`);
   fs.mkdirSync(release, { recursive: true });
   fs.writeFileSync(path.join(release, 'server.mjs'), '');
-  fs.copyFileSync(LAUNCHER, path.join(release, 'launcher.sh'));
+  if (launcher) fs.copyFileSync(LAUNCHER, path.join(release, 'launcher.sh'));
   const archive = path.join(root, 'release.tgz');
   execFileSync('tar', ['-czf', archive, '-C', path.join(root, 'src'), `agent-control-panel-${SHA}`],
     { env: { ...process.env, COPYFILE_DISABLE: '1' } });
@@ -72,7 +73,7 @@ function fixture(t, { without = [] } = {}) {
       env: { PATH: `${stubs}:/usr/bin:/bin:/usr/sbin:/sbin`, HOME: home, STUB_LOG: log, STUB_ARCHIVE: archive,
         STUB_RELEASE: RELEASE, ...env },
     }, (err, stdout, stderr) => resolve({ code: err ? err.code : 0, stdout: String(stdout), stderr: String(stderr) })));
-  return { home, stubs, dir, plist, lines, go };
+  return { root, home, stubs, dir, plist, lines, go };
 }
 
 test('without node it stops with the nodejs.org sentence', async (t) => {
@@ -130,6 +131,7 @@ test('a service from another folder is taken over, and says so', async (t) => {
   const r = await f.go();
   assert.equal(r.code, 0, r.stdout + r.stderr);
   assert.ok(r.stdout.includes('A background service already runs from another folder'));
+  assert.ok(r.stdout.indexOf('another folder') > r.stdout.indexOf('Background service local.agent-panel installed'));
 });
 
 test('when the service does not answer it says where the log is and still signs in', async (t) => {
@@ -156,4 +158,56 @@ test('--uninstall removes the service and the folder and lists what is left', as
   assert.ok(f.lines().some((l) => l.includes('daemon remove')));
   assert.ok(r.stdout.includes('hub.json'));
   assert.ok(r.stdout.includes('Logs/Agent Panel'));
+});
+
+test('an archive that is not the release is a stop that leaves nothing behind', async (t) => {
+  const f = fixture(t);
+  const html = path.join(f.root, 'page.html');
+  fs.writeFileSync(html, '<!doctype html><title>Not found</title>\n');
+  const r = await f.go([], { STUB_ARCHIVE: html });
+  assert.equal(r.code, 1);
+  assert.ok(r.stdout.includes('The archive did not look like the release.'));
+  assert.deepEqual(fs.readdirSync(f.dir), []);
+});
+
+test('a download cut short is a stop, even when tar made the top folder before it failed', async (t) => {
+  const f = fixture(t);
+  const cut = path.join(f.root, 'cut.tgz');
+  // Uncompressed, so the folder's header comes first and the cut lands in the files after it.
+  const big = path.join(f.root, 'src', `agent-control-panel-${SHA}`, 'big.bin');
+  fs.writeFileSync(big, Buffer.alloc(64 * 1024, 7));
+  execFileSync('tar', ['-cf', cut, '-C', path.join(f.root, 'src'), `agent-control-panel-${SHA}`],
+    { env: { ...process.env, COPYFILE_DISABLE: '1' } });
+  fs.truncateSync(cut, 1536);
+  const r = await f.go([], { STUB_ARCHIVE: cut });
+  assert.equal(r.code, 1);
+  assert.ok(r.stdout.includes('The archive did not look like the release.'));
+  assert.deepEqual(fs.readdirSync(f.dir), []);
+});
+
+test('a release without launcher.sh is a stop, and nothing is switched to it', async (t) => {
+  const f = fixture(t, { launcher: false });
+  const r = await f.go();
+  assert.equal(r.code, 1);
+  assert.ok(r.stdout.includes('The archive did not look like the release.'));
+  assert.deepEqual(fs.readdirSync(f.dir), []);
+  assert.equal(f.lines().some((l) => l.includes('daemon install')), false);
+});
+
+test('an unknown flag or a --link without a code prints the usage and exits 2', async (t) => {
+  const f = fixture(t);
+  for (const args of [['--bogus'], ['--link'], ['--link', ''], ['--link', '--no-update']]) {
+    const r = await f.go(args);
+    assert.equal(r.code, 2, args.join(' '));
+    assert.ok(r.stderr.startsWith('usage: '), args.join(' '));
+  }
+  assert.equal(fs.existsSync(f.dir), false);
+});
+
+test('a sign-in that fails is a stop with a sentence', async (t) => {
+  const f = fixture(t);
+  const r = await f.go(['--link', 'dc-old'], { STUB_LOGIN_FAILS: '1' });
+  assert.equal(r.code, 1);
+  assert.ok(r.stdout.includes("The worker is installed but this Mac isn't signed in. Run the line again; with --link, get a new code from the website first."));
+  assert.ok(!r.stdout.includes('Done.'));
 });
