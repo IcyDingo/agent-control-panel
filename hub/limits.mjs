@@ -20,13 +20,18 @@ export const PRUNE_AT = 5000;
 export function createLimits({ now = Date.now, rates = RATES } = {}) {
   const table = new Map(); // "name\nsubject" → { tokens, at }
   const nameOf = (key) => key.slice(0, key.indexOf('\n'));
-  const fill = (b, [n, perMs], t) => { b.tokens = Math.min(n, b.tokens + ((t - b.at) * n) / perMs); b.at = t; };
+  // A clock that steps back (an NTP correction) must not drain a bucket: time only ever adds tokens.
+  const fill = (b, [n, perMs], t) => { b.tokens = Math.min(n, b.tokens + (Math.max(0, t - b.at) * n) / perMs); b.at = Math.max(b.at, t); };
 
+  // Pruning walks the whole table, so it must not happen on every insert when a flood keeps the table full of buckets
+  // still owed tokens: after a prune the next one waits until the table has doubled.
+  let pruneAt = PRUNE_AT;
   function prune(t) {
     for (const [key, b] of table) {
       fill(b, rates[nameOf(key)], t);
       if (b.tokens >= rates[nameOf(key)][0]) table.delete(key);
     }
+    pruneAt = Math.max(PRUNE_AT, 2 * table.size);
   }
 
   /** Spends one call of `name` for `subject`: { ok: true }, or { ok: false, retryAfter } in whole seconds (at least 1). */
@@ -36,7 +41,7 @@ export function createLimits({ now = Date.now, rates = RATES } = {}) {
     const [n, perMs] = rate, t = now(), key = `${name}\n${subject}`;
     let b = table.get(key);
     if (!b) {
-      if (table.size >= PRUNE_AT) prune(t);
+      if (table.size >= pruneAt) prune(t);
       b = { tokens: n, at: t };
       table.set(key, b);
     } else fill(b, rate, t);
@@ -45,4 +50,29 @@ export function createLimits({ now = Date.now, rates = RATES } = {}) {
   }
 
   return { take, size: () => table.size };
+}
+
+/** The subject a visitor's address makes: an IPv4 address as it is (a mapped `::ffff:1.2.3.4` becomes `1.2.3.4`), an
+ *  IPv6 address cut to its /64, because one visitor holds a whole /64 (or more) and could otherwise take a fresh bucket
+ *  for every request. Anything unparseable is used as it came. */
+export function subjectOf(address) {
+  let a = String(address ?? '').trim().toLowerCase();
+  if (a.startsWith('::ffff:') && a.includes('.')) a = a.slice(7);
+  if (!a.includes(':')) return a;
+  const [head, tail] = a.split('::');
+  if (tail === undefined && head.split(':').length !== 8) return a;
+  const h = head ? head.split(':') : [], t = tail ? tail.split(':') : [];
+  const groups = [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill('0'), ...t];
+  return `${groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, '')).join(':')}::/64`;
+}
+
+/** Whether `address` is one a proxy of ours would connect from: loopback, or a private range (Docker's bridge, a LAN).
+ *  A forwarded-for header from anywhere else is a visitor's claim, not a proxy's word. */
+export function privatePeer(address) {
+  let a = String(address ?? '').trim().toLowerCase();
+  if (a.startsWith('::ffff:') && a.includes('.')) a = a.slice(7);
+  if (a === '::1' || a.startsWith('127.')) return true;
+  if (/^10\./.test(a) || /^192\.168\./.test(a) || /^172\.(1[6-9]|2\d|3[01])\./.test(a)) return true;
+  if (/^f[cd][0-9a-f]{2}:/.test(a)) return true; // fc00::/7, the private IPv6 block
+  return false;
 }

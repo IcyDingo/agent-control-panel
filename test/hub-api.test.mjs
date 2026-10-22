@@ -61,7 +61,7 @@ after(async () => { await hub.close(); await off.close(); });
 /** One request. `host` is 127.0.0.1 unless a test says otherwise; returns the status, parsed JSON, raw text and headers. */
 async function call(method, p, { body, cookie, cookieRaw, token, origin, host = '127.0.0.1', on = port, raw, xff } = {}) {
   const headers = { host };
-  if (xff) headers['x-forwarded-for'] = xff;
+  if (xff !== undefined) headers['x-forwarded-for'] = xff;
   if (cookie) headers.cookie = `hub_s=${cookie}`;
   if (cookieRaw) headers.cookie = cookieRaw;
   if (token) headers.authorization = `Bearer ${token}`;
@@ -470,7 +470,15 @@ test('limits: behind a trusted proxy the last forwarded address is the visitor; 
     assert.equal((await signin('1.1.1.1')).status, 429, 'that address has had its ten');
     assert.equal((await signin('2.2.2.2')).status, 200, 'another address has not');
     assert.equal((await signin('9.9.9.9, 1.1.1.1')).status, 429, 'the last entry is the proxy\'s own, the rest is what the visitor claims');
+    assert.equal((await signin('2.2.2.2, ')).status, 200, 'a trailing empty entry is skipped: this is 2.2.2.2 again');
+    for (let i = 0; i < 8; i++) assert.equal((await signin('2.2.2.2')).status, 200);
+    assert.equal((await signin('2.2.2.2')).status, 429, 'and 2.2.2.2 has now had its ten');
     assert.equal((await signin('')).status, 200, 'an empty header falls back to the socket');
+    assert.equal((await signin(' , ')).status, 200, 'so does one with only blank entries');
+    // One visitor holds a whole IPv6 /64: addresses in it share a bucket, the next /64 has its own.
+    for (let i = 0; i < 10; i++) assert.equal((await signin(`2a01:4f8:1:2:${i}:${i}:${i}:${i}`)).status, 200);
+    assert.equal((await signin('2a01:4f8:1:2:ffff::1')).status, 429, 'the same /64 is the same visitor');
+    assert.equal((await signin('2a01:4f8:1:3::1')).status, 200, 'the next /64 is not');
   } finally { await trusted.close(); }
   const plain = await strictHub();
   try {

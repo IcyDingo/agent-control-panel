@@ -13,6 +13,8 @@ test('config reads the environment with the documented defaults', () => {
   assert.equal(c.trustProxy, false, 'X-Forwarded-For is ignored unless the hub is told it sits behind a proxy');
   assert.equal(loadConfig({ HUB_TRUST_PROXY: '1' }).trustProxy, true);
   assert.equal(loadConfig({ HUB_TRUST_PROXY: 'yes' }).trustProxy, false, 'only the documented value');
+  assert.equal(c.bindHost, '0.0.0.0', 'listens everywhere unless told where');
+  assert.equal(loadConfig({ HUB_HOST: '127.0.0.1' }).bindHost, '127.0.0.1');
   assert.throws(() => loadConfig({ HUB_PUBLIC_URL: 'https://hub.example.com', HUB_DEV_LOGIN: '1' }), /refused on an https/);
 });
 

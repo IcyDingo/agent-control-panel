@@ -35,7 +35,8 @@ All of them are environment variables, read once at start-up.
 | `HUB_GITHUB_CLIENT_ID` | none | The GitHub OAuth App's client id. |
 | `HUB_GITHUB_CLIENT_SECRET` | none | Its client secret. Sign-in with GitHub needs both. |
 | `HUB_DEV_LOGIN` | off | `1` allows the dev sign-in. Never on a public hub. |
-| `HUB_TRUST_PROXY` | off | `1` says the hub sits behind a proxy and takes each visitor's address from the last entry of `X-Forwarded-For` (the one the proxy appended). Off, the header is ignored. Only behind a proxy you run. |
+| `HUB_HOST` | `0.0.0.0` | The address to listen on. Behind Caddy on the same machine, `127.0.0.1` keeps the plain-http port off the internet. In a container leave it, Docker's port mapping does the binding. |
+| `HUB_TRUST_PROXY` | off | `1` says the hub sits behind a proxy and takes each visitor's address from the last entry of `X-Forwarded-For` (the one the proxy appended), but only on connections that come from loopback or a private range, where a proxy of yours would be. From anywhere else, and when off, the header is ignored. |
 
 ## Sign in with GitHub
 
@@ -63,7 +64,7 @@ calls and then that many per minute:
 | Claiming or finishing an order | account | 30 a minute |
 
 Behind a proxy every connection comes from the proxy's address, so set `HUB_TRUST_PROXY=1` there or every visitor
-shares one bucket.
+shares one bucket. An IPv6 visitor is their whole /64: one person holds that many addresses, so they share a bucket.
 
 An **unlisted** galaxy (a choice on the profile page) is reached by its link and nothing else: its page and its API
 answer carry `X-Robots-Tag: noindex`, and it cannot be found by its coordinates. `robots.txt` allows `/` and `/@…`
@@ -79,7 +80,8 @@ hub.example.com {
 }
 ```
 
-Set `HUB_PUBLIC_URL=https://hub.example.com` and `HUB_TRUST_PROXY=1`.
+Set `HUB_PUBLIC_URL=https://hub.example.com`, `HUB_TRUST_PROXY=1`, and `HUB_HOST=127.0.0.1` so that only Caddy can
+reach the plain-http port (in Docker, bind the mapping to 127.0.0.1 instead, as below).
 
 ## Docker
 

@@ -13,7 +13,7 @@ import { createAuth } from './auth.mjs';
 import { createSystems } from './systems.mjs';
 import { createOrders } from './orders.mjs';
 import { createLive } from './live.mjs';
-import { createLimits } from './limits.mjs';
+import { createLimits, subjectOf, privatePeer } from './limits.mjs';
 import { authorizeUrl, exchange } from './github.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -83,13 +83,16 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now, ra
   const limits = createLimits({ now, ...(rates ? { rates } : {}) });
 
   /** The visitor's address, for the limits: the socket's, or behind a trusted proxy the last X-Forwarded-For entry
-   *  (the one the proxy itself appended; anything before it was sent by the visitor and could say anything). */
+   *  (the one the proxy itself appended; anything before it was sent by the visitor and could say anything). The
+   *  header counts only when the connection itself comes from where a proxy of ours would be (loopback, a private
+   *  range): a visitor who reaches the port directly cannot name their own address. IPv6 is cut to its /64. */
   function clientIp(req) {
-    if (config.trustProxy) {
+    const peer = req.socket.remoteAddress ?? 'unknown';
+    if (config.trustProxy && privatePeer(peer)) {
       const last = String(req.headers['x-forwarded-for'] ?? '').split(',').map((s) => s.trim()).filter(Boolean).at(-1);
-      if (last) return last;
+      if (last) return subjectOf(last);
     }
-    return req.socket.remoteAddress ?? 'unknown';
+    return subjectOf(peer);
   }
 
   const publicHostname = new URL(config.publicUrl).hostname;
@@ -334,7 +337,7 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now, ra
     if (!res.headersSent) send(res, 500, { error: 'server error' }); else res.destroy();
   }));
 
-  const listen = (port = config.port, bindHost = '0.0.0.0') => new Promise((resolve, reject) => {
+  const listen = (port = config.port, bindHost = config.bindHost) => new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, bindHost, () => {
       server.off('error', reject);

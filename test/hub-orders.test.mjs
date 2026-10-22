@@ -436,3 +436,29 @@ test('a sign-out while the claim is in flight means the order is not run, even t
   assert.equal(t.orders.state().current, null);
   t.orders.stop();
 });
+
+test('a claim the hub paused with a 429 runs nothing and is asked again after 30 seconds, like a hub that is down', async () => {
+  const t = setup({ pending: [order('a')], claimAnswers: [{ ok: false, status: 429, body: { ok: false, error: 'Too many requests; try again in 5 seconds.' } }] });
+  t.orders.start();
+  await settle();
+  assert.deepEqual(t.ran, []);
+  assert.equal(t.timeouts.length, 1);
+  assert.equal(t.timeouts[0].ms, 30_000);
+  t.timeouts[0].fn();
+  await settle();
+  assert.deepEqual(t.ran, ['a'], 'the order was not written off as seen');
+  t.orders.stop();
+});
+
+test('a result the hub paused with a 429 is kept and sent again, not dropped', async () => {
+  const t = setup({ pending: [order('a')], doneAnswers: [{ ok: false, status: 429, body: { ok: false, error: 'Too many requests; try again in 5 seconds.' } }] });
+  t.orders.start();
+  await settle();
+  assert.deepEqual(t.done, []);
+  assert.equal(t.timeouts.length, 1);
+  t.timeouts[0].fn();
+  await settle();
+  assert.deepEqual(t.done.map((d) => d.id), ['a']);
+  assert.deepEqual(t.ran, ['a'], 'and the order ran once');
+  t.orders.stop();
+});
