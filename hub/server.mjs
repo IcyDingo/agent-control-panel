@@ -107,18 +107,22 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now } =
   const routes = [];
   const route = (method, pattern, who, handler, opts = {}) => routes.push({ method, pattern, who, handler, ...opts });
 
-  const staticFile = (file, cache) => async ({ res }) => {
+  // A page or script is sent with a tag of its content and `no-cache`: the browser keeps it but asks each time whether it
+  // changed, and a 304 says no. So a new version shows on the next load, with nothing to remember to bump.
+  const staticFile = (file) => async ({ req, res }) => {
     let data;
     try { data = await fs.promises.readFile(file); } catch { return fail(res, 404, 'Not found.'); }
+    const etag = `"${crypto.createHash('sha256').update(data).digest('base64url').slice(0, 22)}"`;
     // A page is never shown inside another site's frame (its buttons place orders and approve Macs).
-    const headers = path.extname(file) === '.html' ? { 'x-frame-options': 'DENY' } : undefined;
-    send(res, 200, data, { type: TYPES[path.extname(file)] ?? 'application/octet-stream', cache, headers });
+    const headers = { etag, ...(path.extname(file) === '.html' ? { 'x-frame-options': 'DENY' } : {}) };
+    if (req.headers['if-none-match'] === etag) return send(res, 304, '', { cache: 'no-cache', type: TYPES[path.extname(file)] ?? 'application/octet-stream', headers });
+    send(res, 200, data, { type: TYPES[path.extname(file)] ?? 'application/octet-stream', cache: 'no-cache', headers });
   };
 
   route('GET', '/healthz', 'pub', ({ res }) => send(res, 200, { ok: true, v: 1 }));
-  for (const [url, file] of Object.entries(STATIC)) route('GET', url, 'pub', staticFile(file, 'public, max-age=300'));
-  for (const [url, name] of Object.entries(PAGES)) route('GET', url, 'pub', staticFile(path.join(HERE, 'public', name), 'public, max-age=30'));
-  route('GET', /^\/@[^/]+$/, 'pub', staticFile(path.join(HERE, 'public', SYSTEM_PAGE), 'public, max-age=30'));
+  for (const [url, file] of Object.entries(STATIC)) route('GET', url, 'pub', staticFile(file));
+  for (const [url, name] of Object.entries(PAGES)) route('GET', url, 'pub', staticFile(path.join(HERE, 'public', name)));
+  route('GET', /^\/@[^/]+$/, 'pub', staticFile(path.join(HERE, 'public', SYSTEM_PAGE)));
 
   // Public reads of a system.
   const PUBLIC = { cache: 'public, max-age=30' };

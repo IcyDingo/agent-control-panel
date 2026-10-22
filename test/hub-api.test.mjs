@@ -425,6 +425,12 @@ test('bodies must be JSON objects; unknown paths and missing pages are 404; the 
   const js = await call('GET', '/world.js');
   assert.equal(js.status, 200);
   assert.match(js.headers.get('content-type'), /javascript/);
-  assert.equal(js.headers.get('cache-control'), 'public, max-age=300');
+  assert.equal(js.headers.get('cache-control'), 'no-cache', 'kept, but asked about on every load');
+  assert.match(js.headers.get('etag'), /^"[A-Za-z0-9_-]{22}"$/);
   assert.equal(js.text, fs.readFileSync(new URL('../public/world.js', import.meta.url), 'utf8'));
+  const same = await fetch(`http://127.0.0.1:${port}/world.js`, { headers: { 'if-none-match': js.headers.get('etag') } });
+  assert.equal(same.status, 304, 'an unchanged file is not sent again');
+  const other = await fetch(`http://127.0.0.1:${port}/world.js`, { headers: { 'if-none-match': '"something-else"' } });
+  assert.equal(other.status, 200, 'a changed file is');
+  assert.equal(page.headers.get('cache-control'), 'no-cache', 'pages too');
 });

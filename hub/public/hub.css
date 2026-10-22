@@ -85,7 +85,7 @@ select.field { padding-right: 6px; }
 /* The mascot, standing on the top of Home. */
 .mascot { display: block; }
 .mascot svg { display: block; width: 100%; height: auto; }
-.block .pilot { position: absolute; left: 50%; top: 0; transform: translate(-46%, -90%); }
+.block .pilot { position: absolute; left: 50%; top: 0; transform: translate(-50%, -92%); }
 .block .planet { left: 0; top: 0; box-shadow: inset -0.25em -0.25em 0.6em rgba(0, 0, 0, .55), 0 0 0 1px rgba(255, 255, 255, .04); font-size: 1vw; will-change: transform; }
 .block .planet.rust { width: 8%; background: radial-gradient(circle at 32% 30%, #d9a27f, #8a4f33 58%, #2a1712); }
 .block .planet.ice { width: 5.5%; background: radial-gradient(circle at 32% 30%, #dbe8f2, #7f9fb8 58%, #1d2a36); }

@@ -126,22 +126,23 @@
       el('div', { class: 'cap' }, el('span', { text: 'Last 100 days' }), el('span', { text: `${plural(count, 'day', 'days')} with work` })));
   }
 
-  /** The mascot: a small stone creature in the spirit of Rocky from Project Hail Mary. A rock of a body, no face, five
-   *  jointed legs ending in three-fingered hands, one leg raised in greeting with an amber chime above it. Static
-   *  markup of our own, so innerHTML is safe here. `px` is the width; the height follows (40 by 48 units). */
-  const MASCOT = `<svg viewBox="0 0 40 48" xmlns="http://www.w3.org/2000/svg">
-    <g stroke="#5a5248" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" fill="none">
-      <path d="M11 29 L6 38 L5 46"/><path d="M15 31 L12 39 L11 46"/><path d="M20 32 L20 40 L20 46"/><path d="M25 31 L28 39 L29 46"/><path d="M29 28 L35 20 L37 11"/>
+  /** The mascot: a small stone creature in the spirit of Rocky from Project Hail Mary, squared off like the mosaic. A
+   *  low, wide block of a body with square flecks, no face, five jointed legs splayed out and ending in three-fingered
+   *  hands, one leg raised in greeting with an amber chime above it. Static markup of our own, so innerHTML is safe
+   *  here. `px` is the width; the height follows (48 by 48 units, the feet on the bottom edge). */
+  const MASCOT = `<svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+    <g stroke="#5a5248" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none">
+      <path d="M12 35 L4 39 L3 46"/><path d="M17 37 L12 42 L11 46"/><path d="M24 38 L24 42 L24 46"/><path d="M31 37 L36 42 L37 46"/><path d="M34 33 L42 27 L44 18"/>
     </g>
     <g stroke="#5a5248" stroke-width="1.5" stroke-linecap="round" fill="none">
-      <path d="M5 46 l-2.4 1.4 M5 46 l0 2.5 M5 46 l2.4 1.4"/><path d="M11 46 l-2.4 1.4 M11 46 l0 2.5 M11 46 l2.4 1.4"/>
-      <path d="M20 46 l-2.4 1.4 M20 46 l0 2.5 M20 46 l2.4 1.4"/><path d="M29 46 l-2.4 1.4 M29 46 l0 2.5 M29 46 l2.4 1.4"/>
-      <path d="M37 11 l-2 -2.3 M37 11 l0.5 -3 M37 11 l2.6 -1.5"/>
+      <path d="M3 46 l-2.4 1.2 M3 46 l0 2.4 M3 46 l2.4 1.2"/><path d="M11 46 l-2.4 1.2 M11 46 l0 2.4 M11 46 l2.4 1.2"/>
+      <path d="M24 46 l-2.4 1.2 M24 46 l0 2.4 M24 46 l2.4 1.2"/><path d="M37 46 l-2.4 1.2 M37 46 l0 2.4 M37 46 l2.4 1.2"/>
+      <path d="M44 18 l-2.2 -2.2 M44 18 l0.4 -3 M44 18 l2.6 -1.4"/>
     </g>
-    <ellipse cx="20" cy="25" rx="11.5" ry="9" fill="#8f8678"/>
-    <path d="M9.5 23.5 Q20 11.5 30.5 23.5 Q20 21 9.5 23.5Z" fill="#aaa092"/>
-    <ellipse cx="15" cy="27" rx="2.2" ry="1.4" fill="#6f675b"/><ellipse cx="24.5" cy="29" rx="1.8" ry="1.2" fill="#6f675b"/><ellipse cx="21" cy="23" rx="1.4" ry="1" fill="#6f675b"/>
-    <circle cx="37.5" cy="4.5" r="1.5" fill="var(--amber)"/>
+    <rect x="9" y="23" width="30" height="16" rx="4" fill="#8f8678"/>
+    <rect x="9" y="23" width="30" height="6" rx="4" fill="#aaa092"/>
+    <rect x="14" y="31" width="3" height="3" fill="#6f675b"/><rect x="26" y="33" width="2.5" height="2.5" fill="#6f675b"/><rect x="33" y="30" width="2" height="2" fill="#6f675b"/><rect x="21" y="26" width="2" height="2" fill="#6f675b"/>
+    <circle cx="45" cy="11.5" r="1.5" fill="var(--amber)"/>
   </svg>`;
   function mascot(px = 40) {
     const box = el('span', { class: 'mascot', 'aria-hidden': 'true', style: `width:${px}px` });
