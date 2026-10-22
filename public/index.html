@@ -503,6 +503,8 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .w-list .linkish::before { content: ""; flex: none; width: 7px; height: 7px; background: var(--m, #cfe0ff); clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%); }
 .w-list [data-kind="cleanup"] { --m: #7ee0a8; }
 .w-list [data-kind="level"] { --m: #ffcf7a; }
+/* A system shown read-only (world.js enter with readOnly): nothing to spend, and none of the owner's own numbers. */
+body.w-readonly #w-build-box, body.w-readonly #w-rocket-box, body.w-readonly #w-push-box, body.w-readonly #w-today-box, body.w-readonly #w-total-box { display: none; }
 @media (max-width: 760px) { .w-side { position: static; width: auto; max-height: none; margin: calc(var(--sp-top, 52px) + 10px) 16px 0; } .w-zoom { max-width: calc(100% - 32px); } }
 
 /* ---------- space view: the same sessions as an orrery. You sit at the centre; the closer a session orbits, the sooner it needs you. ---------- */
@@ -875,12 +877,12 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
       <h2>Moments <span id="w-moments-n"></span></h2>
       <ul class="w-list" id="w-moments"></ul>
     </section>
-    <section class="w-box">
+    <section class="w-box" id="w-today-box">
       <h2>Today's work</h2>
       <dl id="w-today"></dl>
       <p class="warn" id="w-noemail" hidden></p>
     </section>
-    <section class="w-box">
+    <section class="w-box" id="w-total-box">
       <p id="w-total"></p>
       <p>Lines removed multiply the day's credit. Stars on the map are moments: a week of work, a big cleanup, a level
         Home reached. Click one to see what was done.</p>
