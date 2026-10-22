@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { LABEL, plistPath, logPath, install, remove, status } from './daemon.mjs';
 import { createHub } from './hub.mjs';
 
-const USAGE = 'usage: node server.mjs daemon install|remove|status | login | logout | status';
+const USAGE = 'usage: node server.mjs daemon install [--program <path>]|remove|status | login [--link <code>] | logout | status';
 
 /** Where this panel keeps its preferences; ACP_PREFS gives a second panel a folder of its own. The hub file lives beside it. */
 export const prefsPath = () => process.env.ACP_PREFS || path.join(os.homedir(), 'Library', 'Application Support', 'Agent Panel', 'prefs.json');
@@ -68,11 +68,14 @@ export async function main(argv) {
   const port = Number(process.env.ACP_PORT ?? 4747);
   try {
     if (sub === 'install') {
-      const repo = path.dirname(fileURLToPath(import.meta.url));
+      // --program names the worker install's launcher, which the service runs instead of `node server.mjs`.
+      const program = argv[2] === '--program' && argv[3] ? argv[3] : null;
+      if (argv.length > (program ? 4 : 2)) { console.error(USAGE); return 2; }
+      const repo = program ? path.dirname(program) : path.dirname(fileURLToPath(import.meta.url));
       // process.execPath is the resolved binary, which under Homebrew is a versioned Cellar path that a `brew upgrade`
       // deletes. install.sh passes the node on PATH as ACP_NODE, a link that keeps working across upgrades.
       const node = process.env.ACP_NODE || process.execPath;
-      const { label } = await install({ port, node, repo, pathEnv: process.env.PATH ?? '' });
+      const { label } = await install({ port, node, repo, pathEnv: process.env.PATH ?? '', program });
       console.log(`Background service ${label} installed (log: ${logPath(port)})`);
     } else if (sub === 'remove') {
       const { removed } = await remove({ port });

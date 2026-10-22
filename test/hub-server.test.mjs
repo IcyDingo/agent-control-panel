@@ -101,7 +101,7 @@ test('login from a terminal shows a code, finishes when it is approved, and stat
 test('a command the CLI does not know prints the usage and exits 2', async () => {
   const r = await cli(['nonsense'], tmp()).done;
   assert.equal(r.code, 2);
-  assert.match(r.out, /usage: node server\.mjs daemon install\|remove\|status \| login \| logout \| status/);
+  assert.match(r.out, /usage: node server\.mjs daemon install \[--program <path>\]\|remove\|status \| login \[--link <code>\] \| logout \| status/);
 });
 
 test('signing in from the page of a panel finishes by itself, and signing out ends it', async (t) => {

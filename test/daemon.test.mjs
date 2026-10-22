@@ -29,6 +29,22 @@ test('the plist runs the server from the repo with PATH, the port and ACP_DAEMON
   execFileSync('plutil', ['-lint', f]); // throws when launchd would refuse it
 });
 
+test('with a program the plist runs that path alone, from its folder, and keeps the environment', () => {
+  const xml = launchdPlist({ label: 'local.agent-panel', node: '/opt/node/bin/node', repo: '/h/Library/Application Support/Agent Panel/worker', port: 4747, pathEnv: '/usr/bin', log: '/tmp/d.log', program: '/h/Library/Application Support/Agent Panel/worker/run.sh' });
+  assert.match(xml, /<key>ProgramArguments<\/key><array><string>\/h\/Library\/Application Support\/Agent Panel\/worker\/run\.sh<\/string><\/array>/);
+  assert.doesNotMatch(xml, /server\.mjs/);
+  assert.match(xml, /<key>WorkingDirectory<\/key><string>\/h\/Library\/Application Support\/Agent Panel\/worker<\/string>/);
+  assert.match(xml, /<key>ACP_DAEMON<\/key><string>1<\/string>/);
+  const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'daemon-')), 'x.plist');
+  fs.writeFileSync(f, xml);
+  execFileSync('plutil', ['-lint', f]);
+});
+test('install passes the program through to the plist', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'daemon-'));
+  const r = await install({ port: 4747, node: '/n', repo: '/w', pathEnv: '/b', home, run: fakeRun(), program: '/w/run.sh' });
+  assert.match(fs.readFileSync(r.plist, 'utf8'), /<array><string>\/w\/run\.sh<\/string><\/array>/);
+});
+
 test('install writes the plist and the log folder, boots the old one out, then bootstraps the new', async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'daemon-')), run = fakeRun();
   const r = await install({ port: 4747, node: '/usr/local/bin/node', repo: '/r', pathEnv: '/usr/bin', home, run });
