@@ -156,11 +156,12 @@ export function createAuth(db, { now = Date.now, randomBytes = crypto.randomByte
     return { ok: true };
   }
 
-  function denyDevice(userCodeInput) {
+  /** Only a code still waiting can be refused, and the account that refused it is kept beside it. */
+  function denyDevice(userCodeInput, accountId = null) {
     const r = pendingByUserCode(userCodeInput);
     if (!r) return { ok: false, error: 'That code is not valid or has expired.' };
-    run("UPDATE device_codes SET status = 'denied' WHERE hash = ?", r.hash);
-    return { ok: true };
+    const changed = run("UPDATE device_codes SET status = 'denied', account_id = ? WHERE hash = ? AND status = 'pending'", accountId, r.hash).changes;
+    return Number(changed) ? { ok: true } : { ok: false, error: 'That code is not valid or has expired.' };
   }
 
   function pollDevice(deviceCode) {

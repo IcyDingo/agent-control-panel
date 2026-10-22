@@ -187,8 +187,8 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now } =
     const r = auth.approveDevice(body.user_code, who.accountId, label);
     r.ok ? send(res, 200, { ok: true }) : fail(res, 404, r.error);
   });
-  route('POST', '/api/device/deny', 'web', ({ res, body }) => {
-    const r = auth.denyDevice(body.user_code);
+  route('POST', '/api/device/deny', 'web', ({ res, who, body }) => {
+    const r = auth.denyDevice(body.user_code, who.accountId);
     r.ok ? send(res, 200, { ok: true }) : fail(res, 404, r.error);
   });
 

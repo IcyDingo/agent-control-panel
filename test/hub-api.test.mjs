@@ -203,7 +203,13 @@ test('a token can be revoked by id from the web; a device code can be denied; po
   assert.equal((await call('GET', '/api/me', { cookie })).json.tokens.length, mine.length);
 
   const a = (await call('POST', '/api/device/code')).json;
+  assert.equal((await call('POST', '/api/device/deny', { body: { user_code: a.user_code }, origin: ORIGIN })).status, 401);
   assert.equal((await call('POST', '/api/device/deny', { body: { user_code: a.user_code }, cookie, origin: ORIGIN })).status, 200);
+  assert.equal((await call('POST', '/api/device/deny', { body: { user_code: a.user_code }, cookie, origin: ORIGIN })).status, 404, 'a code is refused once');
+  assert.equal(hub.db.prepare('SELECT account_id FROM device_codes WHERE user_code = ?').get(a.user_code).account_id, hub.accounts.byHandle('alice').id, 'who refused it is kept');
+  const approved = (await call('POST', '/api/device/code')).json;
+  assert.equal((await call('POST', '/api/device/approve', { body: { user_code: approved.user_code }, cookie, origin: ORIGIN })).status, 200);
+  assert.equal((await call('POST', '/api/device/deny', { body: { user_code: approved.user_code }, cookie, origin: ORIGIN })).status, 404, 'an approved code cannot be refused');
   clock += 6000;
   assert.deepEqual((await call('POST', '/api/device/token', { body: { device_code: a.device_code } })).json, { ok: false, error: 'denied' });
   const b = (await call('POST', '/api/device/code')).json;
