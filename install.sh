@@ -90,10 +90,11 @@ app/build.sh
 if (( daemon )); then
   echo
   echo "Installing the background service:"
-  node server.mjs daemon install
+  ACP_NODE="$(command -v node)" node server.mjs daemon install ||
+    { fail "The background service didn't install (see the line above). The app still works; run ./install.sh again to retry."; exit 1; }
   answered=0
   for _ in $(seq 20); do
-    if curl -fsS "http://127.0.0.1:$port/" >/dev/null 2>&1; then answered=1; break; fi
+    if curl -fsS --max-time 2 "http://127.0.0.1:$port/" >/dev/null 2>&1; then answered=1; break; fi
     sleep 0.5
   done
   if (( answered )); then ok "The panel is running and World has started"
