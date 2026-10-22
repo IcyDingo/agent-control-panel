@@ -52,5 +52,5 @@ test('a taken port makes the daemon wait, not exit; it answers once the port fre
 test('an argument runs the CLI instead of the server', async () => {
   const r = await new Promise((resolve) => { const c = spawn(process.execPath, [SERVER, 'nonsense'], { env: process.env }); let out = ''; c.stdout.on('data', (d) => { out += d; }); c.stderr.on('data', (d) => { out += d; }); c.on('exit', (code) => resolve({ code, out })); });
   assert.equal(r.code, 2);
-  assert.match(r.out, /daemon install\|remove\|status/);
+  assert.match(r.out, /daemon install \[--program <path>\]\|remove\|status/);
 });

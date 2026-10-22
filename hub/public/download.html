@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Download · Universe</title>
-<meta name="description" content="Get Agent Panel for your Mac: three lines in a terminal, and your agents' work starts building a galaxy.">
+<meta name="description" content="Get the worker for your Mac: one line in a terminal, and your agents' work starts building a galaxy.">
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="/hub.css">
 </head>
@@ -21,35 +21,39 @@
   <main class="dl">
     <section class="get g24" aria-labelledby="get-h">
       <div class="text">
-        <h1 id="get-h">Get the panel</h1>
-        <p>Agent Panel is a page on your Mac that shows every Claude Code session and lets you answer them from one
-          place. It also counts your agents' work and grows your galaxy here.</p>
-        <p>You need a Mac on macOS 14 or newer, Claude Code 2.1.303 or newer, Node 20 or newer, and Apple's Command
-          Line Tools. The installer says what is missing.</p>
+        <h1 id="get-h">Get the worker</h1>
+        <p>One line in Terminal. It installs a small background service that counts your agents' work and keeps your
+          galaxy here up to date. You need a Mac on macOS 14 or newer and Node 20 or newer. Claude Code does the rest;
+          with Apple's Command Line Tools your commits count too.</p>
       </div>
-      <div class="code">
-        <pre id="install">git clone https://github.com/IcyDingo/agent-control-panel.git
-cd agent-control-panel
-./install.sh</pre>
-        <button class="btn small" id="copy" type="button">Copy</button>
+      <div class="side">
+        <div class="code">
+          <pre id="install"></pre>
+          <button class="btn small" id="copy" type="button">Copy</button>
+        </div>
+        <p class="note" id="link-note"></p>
+        <p class="more"><a href="/install">Read the script</a> before you run it.</p>
       </div>
     </section>
 
-    <section class="then g24" aria-label="What happens next">
-      <ol class="then-list">
-        <li><b>It builds Agent Panel.app</b> into your Applications folder and installs a background service, so your
-          work is counted whether or not the app is open. Keep the folder you cloned: the app runs from it.</li>
-        <li><b>Open Agent Panel.</b> macOS may ask whether it may use your Documents folder; the panel reads the
-          repositories your sessions work in. Press <b>Connect this profile</b> once, and sessions you start from then
-          on show up.</li>
-        <li><b>Sign in</b> from the Profile box in World, or with <code>node server.mjs login</code>. Approve the code
-          here with GitHub, and your galaxy gets its permanent spot in the Universe.</li>
-        <li><b>Update</b> with <code>git pull</code> and <code>./install.sh</code> again. It rebuilds the app and restarts
-          the service on the new code.</li>
-      </ol>
-      <p class="more">The full manual, with what is shared and what never leaves your Mac, is the
-        <a href="https://github.com/IcyDingo/agent-control-panel#readme" rel="noopener">README</a>. The hub itself can be
-        <a href="https://github.com/IcyDingo/agent-control-panel/blob/main/hub/README.md" rel="noopener">run on your own</a>.</p>
+    <section class="then g24" aria-labelledby="board-h">
+      <div class="text">
+        <h2 id="board-h">Want the session board too?</h2>
+        <p>It installs Agent Panel.app and takes the background service over from the worker; your galaxy stays as it
+          is.</p>
+        <p>You need a Mac on macOS 14 or newer, Claude Code 2.1.303 or newer, Node 20 or newer, and Apple's Command
+          Line Tools. The installer says what is missing.</p>
+      </div>
+      <div class="side">
+        <div class="code">
+          <pre>git clone https://github.com/IcyDingo/agent-control-panel.git
+cd agent-control-panel
+./install.sh</pre>
+        </div>
+        <p class="more">The full manual, with what is shared and what never leaves your Mac, is the
+          <a href="https://github.com/IcyDingo/agent-control-panel#readme" rel="noopener">README</a>. The hub itself can be
+          <a href="https://github.com/IcyDingo/agent-control-panel/blob/main/hub/README.md" rel="noopener">run on your own</a>.</p>
+      </div>
     </section>
   </main>
 
@@ -69,7 +73,31 @@ cd agent-control-panel
   const $ = (id) => document.getElementById(id);
   const { hashOf, pick, mosaic } = Hub;
 
-  // Copy the install lines; the button says so for a moment.
+  // The one line, from this hub's own address. Signed in with a link, the line also carries the link's code.
+  const line = (code) => `curl -fsSL ${location.origin}/install | sh` + (code ? ` -s -- --link ${code}` : '');
+  const note = $('link-note');
+  $('install').textContent = line();
+
+  // A link the person can run once. The code and the handle only ever go into the page as text.
+  async function makeLink(handle) {
+    const r = await Hub.api('POST', '/api/me/links');
+    note.textContent = '';
+    if (!r || !r.ok || !r.code) {
+      $('install').textContent = line();
+      note.textContent = 'A link could not be made right now; run the line and approve the code in the browser.';
+      return;
+    }
+    $('install').textContent = line(r.code);
+    const again = document.createElement('button');
+    again.className = 'btn small';
+    again.id = 'relink';
+    again.type = 'button';
+    again.textContent = 'Make a new link';
+    again.addEventListener('click', () => { again.disabled = true; makeLink(handle); });
+    note.append(`This line links the worker to @${handle}. It works once, for 15 minutes. `, again);
+  }
+
+  // Copy the install line; the button says so for a moment.
   $('copy').addEventListener('click', async () => {
     const button = $('copy');
     try { await navigator.clipboard.writeText($('install').textContent + '\n'); button.textContent = 'Copied'; }
@@ -85,9 +113,14 @@ cd agent-control-panel
   $('foot').prepend(mosaic(cells, 24));
 
   Hub.me().then((r) => {
-    if (!r) { $('signin').hidden = false; return; }
+    if (!r) {
+      $('signin').hidden = false;
+      note.textContent = 'Sign in with GitHub first and the line links the worker for you; or run it now and approve a code in the browser.';
+      return;
+    }
     $('mine').href = '/@' + encodeURIComponent(r.account.handle);
     $('mine').hidden = false;
+    makeLink(r.account.handle);
   });
 })();
 </script>

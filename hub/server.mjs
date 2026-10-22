@@ -24,14 +24,17 @@ const COOKIE = 'hub_s';
 const OAUTH_COOKIE = 'hub_oauth'; // binds the GitHub state to the browser that started the sign-in
 const SESSION_S = 30 * 24 * 3600;
 const DEFAULT_LABEL = 'Agent Panel on a Mac';
+const RELEASE_REPO = 'IcyDingo/agent-control-panel';
 
 // Only these names are ever read from disk; nothing is joined from the URL.
-const TYPES = { '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.html': 'text/html; charset=utf-8' };
+const TYPES = { '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.sh': 'text/plain; charset=utf-8', '.html': 'text/html; charset=utf-8' };
 const STATIC = {
   '/world.js': path.join(HERE, '..', 'public', 'world.js'),
   '/hub.js': path.join(HERE, 'public', 'hub.js'),
   '/hub.css': path.join(HERE, 'public', 'hub.css'),
   '/robots.txt': path.join(HERE, 'public', 'robots.txt'),
+  '/install': path.join(HERE, 'public', 'install.sh'),
+  '/install.sh': path.join(HERE, 'public', 'install.sh'),
 };
 const PAGES = { '/': 'index.html', '/download': 'download.html', '/me': 'me.html', '/device': 'device.html' };
 const SYSTEM_PAGE = 'system.html';
@@ -145,7 +148,8 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now, ra
   async function withVersions(html) {
     let out = String(html);
     for (const [url, file] of Object.entries(STATIC)) {
-      if (path.extname(file) === '.txt') continue;
+      // A text file or a script has no version link; the pages name /install by its plain address.
+      if (['.txt', '.sh'].includes(path.extname(file))) continue;
       const v = await currentVersion(file).catch(() => null);
       if (v) out = out.split(`"${url}"`).join(`"${url}?v=${v}"`);
     }
@@ -172,6 +176,9 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now, ra
   const NOINDEX = { 'x-robots-tag': 'noindex' };
 
   route('GET', '/healthz', 'pub', ({ res }) => send(res, 200, { ok: true, v: 1 }));
+  route('GET', '/api/release', 'pub', ({ res }) => (config.release
+    ? send(res, 200, { ok: true, sha: config.release, url: `https://codeload.github.com/${RELEASE_REPO}/tar.gz/${config.release}` }, { cache: 'public, max-age=30' })
+    : fail(res, 503, 'This hub does not name a release yet.')));
   for (const [url, file] of Object.entries(STATIC)) route('GET', url, 'pub', staticFile(file));
   for (const [url, name] of Object.entries(PAGES)) route('GET', url, 'pub', staticFile(path.join(HERE, 'public', name)));
   route('GET', /^\/@(?<handle>[^/]+)$/, 'pub', staticFile(path.join(HERE, 'public', SYSTEM_PAGE), ({ params }) => (unlisted(accounts.byHandle(params.handle)) ? NOINDEX : {})));
@@ -254,6 +261,10 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now, ra
   route('POST', '/api/device/deny', 'web', ({ res, who, body }) => {
     const r = auth.denyDevice(body.user_code, who.accountId);
     r.ok ? send(res, 200, { ok: true }) : fail(res, 404, r.error);
+  }, APPROVE);
+  route('POST', '/api/me/links', 'web', ({ res, who }) => {
+    const { device_code, expires_in } = auth.linkDevice(who.accountId);
+    send(res, 200, { ok: true, code: device_code, expires_in });
   }, APPROVE);
 
   // The signed-in account.

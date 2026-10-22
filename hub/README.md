@@ -37,6 +37,7 @@ All of them are environment variables, read once at start-up.
 | `HUB_DEV_LOGIN` | off | `1` allows the dev sign-in. Never on a public hub. |
 | `HUB_HOST` | `0.0.0.0` | The address to listen on. Behind Caddy on the same machine, `127.0.0.1` keeps the plain-http port off the internet. In a container leave it, Docker's port mapping does the binding. |
 | `HUB_TRUST_PROXY` | off | `1` says the hub sits behind a proxy and takes each visitor's address from the last entry of `X-Forwarded-For` (the one the proxy appended), but only on connections that come from loopback or a private range, where a proxy of yours would be. From anywhere else, and when off, the header is ignored. |
+| `HUB_RELEASE` | none | The commit (full sha) this hub runs; workers install and update to it. The deploy script writes it; unset, /api/release answers 503. |
 
 ## Sign in with GitHub
 
@@ -56,7 +57,7 @@ calls and then that many per minute:
 | Starting or finishing a GitHub sign-in, the dev sign-in | address | 10 a minute |
 | A Mac asking for a device code | address | 5 a minute |
 | A Mac polling for its token | address | 30 a minute (a code also paces itself with `slow_down`) |
-| Approving or denying a code | account | 10 a minute |
+| Approving or denying a code, making a link | account | 10 a minute |
 | Editing the profile | account | 10 a minute |
 | A Mac pushing its galaxy | account | 12 a minute |
 | A Mac pushing its status | account | 30 a minute |

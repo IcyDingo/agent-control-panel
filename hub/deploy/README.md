@@ -21,11 +21,28 @@ mkdir -p /srv/agent-hub && cd /srv/agent-hub
 git clone --depth 1 https://github.com/IcyDingo/agent-control-panel src
 cp src/hub/deploy/{compose.yml,update.sh,caddy-cloudflare.sh} . && cp src/hub/deploy/env.example .env
 chmod +x update.sh caddy-cloudflare.sh && chmod 600 .env   # then fill .env in
-docker compose up -d --build
+./update.sh                                                 # pulls, writes release.env, builds and starts the hub
 ./caddy-cloudflare.sh                                       # adds the universe.cashegg.com block to /etc/caddy/Caddyfile and reloads
 ```
 
-Every later release: `./update.sh`.
+Every later release: `./update.sh`. It also writes `release.env` with the commit it deployed, which the hub serves at `/api/release`: that is the version every worker installs and updates to.
+
+Upgrading an existing deploy: `compose.yml` and `update.sh` were copied into `/srv/agent-hub` once, at the first
+deploy, so one from before the one-line install runs the old `update.sh`, which writes no `release.env`; `/api/release`
+then answers 503 and the line stops at "The hub did not name a release". Copy both again from the pulled clone and run
+it:
+
+```sh
+git -C src pull -q --ff-only && cp src/hub/deploy/{compose.yml,update.sh} . && ./update.sh
+```
+
+Then edit the "Universe API" rule as the Cloudflare section below says, so `/install` skips the bot check too, and
+check both from outside the server:
+
+```sh
+curl -fsSL https://universe.cashegg.com/api/release            # {"ok":true,"sha":"…","url":"…"}
+curl -fsSL https://universe.cashegg.com/install | head -1      # #!/bin/sh
+```
 
 ## Cloudflare
 
@@ -36,12 +53,12 @@ As deployed, the record is proxied and the zone is on the Pro plan with Super Bo
 "Universe API", lets the Macs through while the pages keep the bot check:
 
 ```
-(http.host eq "universe.cashegg.com" and starts_with(http.request.uri.path, "/api/"))
+(http.host eq "universe.cashegg.com" and (starts_with(http.request.uri.path, "/api/") or http.request.uri.path in {"/install" "/install.sh"}))
 ```
 
 Action Skip, with Super Bot Fight Mode (and rate limiting) ticked and "All remaining custom rules" left unticked (the
 form refuses the two together). Everything a Mac calls is under `/api/`; the sign-in and the device approval are
-browser pages and stay protected. On the free plan the same product is Bot Fight Mode, which no rule can skip: there it
+browser pages and stay protected. `/install` is fetched by `curl`, which the bot check would otherwise challenge; the rule is edited in the Cloudflare dashboard, not by any script here. On the free plan the same product is Bot Fight Mode, which no rule can skip: there it
 must be off for the zone.
 
 Proxied, two things matter. Caddy must know the visitor's address: `caddy-cloudflare.sh` lists Cloudflare's ranges as

@@ -9,8 +9,9 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { LABEL, plistPath, logPath, install, remove, status } from './daemon.mjs';
 import { createHub } from './hub.mjs';
+import { workerOf } from './update.mjs';
 
-const USAGE = 'usage: node server.mjs daemon install|remove|status | login | logout | status';
+const USAGE = 'usage: node server.mjs daemon install [--program <path>]|remove|status | login [--link <code>] | logout | status';
 
 /** Where this panel keeps its preferences; ACP_PREFS gives a second panel a folder of its own. The hub file lives beside it. */
 export const prefsPath = () => process.env.ACP_PREFS || path.join(os.homedir(), 'Library', 'Application Support', 'Agent Panel', 'prefs.json');
@@ -18,10 +19,25 @@ const openHub = () => createHub({ file: path.join(path.dirname(prefsPath()), 'hu
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** The device sign-in from a terminal: show the code, open the page, and poll at the hub's pace until it ends. */
-async function login() {
+/** Signs in with a link when one is given, else (or when the link is spent) with the device sign-in from a terminal: show the
+ * code, open the page, and poll at the hub's pace until it ends. */
+async function login(link) {
   const hub = openHub();
-  if (hub.status().loggedIn) { const a = hub.status().account; console.log(`Already signed in${a ? ` as @${a.handle}` : ''}. Run \`node server.mjs logout\` first to switch.`); return 0; }
+  if (hub.status().loggedIn) {
+    const handle = hub.status().account?.handle;
+    console.log(`Already signed in as @${handle}. This Mac stays linked to @${handle}; to switch, run \`node server.mjs logout\` and then the line again.`);
+    return 0;
+  }
+  if (link) {
+    const out = await hub.linkDeviceLogin(link);
+    if (out === 'ok') {
+      const s = hub.status();
+      console.log(`Linked to @${s.account?.handle}. Your galaxy: ${s.url}/@${s.account?.handle}`);
+      return 0;
+    }
+    if (out === 'error') { console.error('The hub could not be reached. Run the line again in a moment.'); return 1; }
+    console.log('That link was already used or has run out; signing in the usual way.');
+  }
   const r = await hub.startDeviceLogin();
   if (!r.ok) { console.error(r.error); return 1; }
   console.log(`Open ${r.verificationUri} and enter ${r.userCode}`);
@@ -54,13 +70,15 @@ function hubLine() {
 /** Runs one command and returns the exit code: 0 done, 1 launchctl or the hub refused, 2 the command is not one of ours. */
 export async function main(argv) {
   const [cmd, sub] = argv;
-  if (cmd === 'login' && argv.length === 1) return login();
+  if (cmd === 'login' && (argv.length === 1 || (argv.length === 3 && argv[1] === '--link'))) return login(argv[2] ?? null);
   if (cmd === 'logout' && argv.length === 1) {
     const r = await openHub().logout();
     console.log(r.ok ? 'Signed out.' : r.error);
     return r.ok ? 0 : 1;
   }
   if (cmd === 'status' && argv.length === 1) {
+    const w = workerOf(path.dirname(fileURLToPath(import.meta.url)));
+    if (w) console.log(`Worker ${w.sha.slice(0, 7)}`);
     console.log(hubLine());
     return main(['daemon', 'status']);
   }
@@ -68,11 +86,14 @@ export async function main(argv) {
   const port = Number(process.env.ACP_PORT ?? 4747);
   try {
     if (sub === 'install') {
-      const repo = path.dirname(fileURLToPath(import.meta.url));
+      // --program names the worker install's launcher, which the service runs instead of `node server.mjs`.
+      const program = argv[2] === '--program' && argv[3] ? argv[3] : null;
+      if (argv.length > (program ? 4 : 2)) { console.error(USAGE); return 2; }
+      const repo = program ? path.dirname(program) : path.dirname(fileURLToPath(import.meta.url));
       // process.execPath is the resolved binary, which under Homebrew is a versioned Cellar path that a `brew upgrade`
       // deletes. install.sh passes the node on PATH as ACP_NODE, a link that keeps working across upgrades.
       const node = process.env.ACP_NODE || process.execPath;
-      const { label } = await install({ port, node, repo, pathEnv: process.env.PATH ?? '' });
+      const { label } = await install({ port, node, repo, pathEnv: process.env.PATH ?? '', program });
       console.log(`Background service ${label} installed (log: ${logPath(port)})`);
     } else if (sub === 'remove') {
       const { removed } = await remove({ port });
