@@ -2,9 +2,10 @@
 // developer's Claude), so this listens to the hub's event stream, runs each order through `execute` (the same functions
 // the panel's own buttons use), one at a time, and reports the outcome back to the hub.
 //
-// Orders arrive two ways: as events on the stream, and as the hub's list of pending ones, which is asked for at the start
-// and again whenever an order event arrives, since the stream reconnects out of sight and may have missed some. An id is
-// run once per session however often it is seen.
+// Orders arrive two ways: as events on the stream, and as the hub's list of pending ones, which is asked for at the start,
+// on every (re)connect of the stream (the hub replays nothing, so what was placed while it was down is only in the list)
+// and whenever an order event arrives. An id is run once per session however often it is seen. A result the hub did not
+// take is kept and sent again, never by running the order twice.
 
 const RETRY = 30_000;
 
@@ -23,6 +24,7 @@ export function createHubOrders({ hub, execute, onDone, timers = { setTimeout, c
   let chain = Promise.resolve();   // everything that touches orders waits its turn here
   let retry = null;
   const seen = new Set();    // ids started this session
+  const unreported = new Map();   // id -> the result the hub has not taken yet
 
   const enqueue = (fn) => {
     if (!controller) return chain;
@@ -41,21 +43,34 @@ export function createHubOrders({ hub, execute, onDone, timers = { setTimeout, c
     } catch (e) {
       result = { ok: false, error: `The Mac could not run it: ${e?.message ?? String(e)}` };
     }
-    const sent = await hub.request('POST', `/api/me/orders/${encodeURIComponent(order.id)}/done`, { body: result });
-    if (!sent.ok) log(`hub orders: could not report order ${order.id} (${sent.status}).`);
+    unreported.set(order.id, result);
+    await reportAll();
     try { await onDone?.(order, result); } catch (e) { log('hub orders: onDone failed:', e?.message ?? String(e)); }
     current = null;
   }
 
-  /** Run what the hub still has pending; if it cannot be asked, ask again in half a minute. */
-  async function drain() {
-    const r = await hub.request('GET', '/api/me/orders?status=pending');
-    if (r.status === 0 || r.status >= 500) {
-      if (controller && retry === null) {
-        retry = timers.setTimeout(() => { retry = null; if (controller) enqueue(drain); }, RETRY);
-      }
-      return;
+  /** Ask again in half a minute (once, however many ask). */
+  function retryLater() {
+    if (controller && retry === null) retry = timers.setTimeout(() => { retry = null; enqueue(drain); }, RETRY);
+  }
+
+  /**
+   * Send the hub the results it has not taken. Trouble at the hub (down, 5xx) keeps one for the next try; any other
+   * answer (it no longer knows the order, say) is final and the result is dropped.
+   */
+  async function reportAll() {
+    for (const [id, result] of [...unreported]) {
+      const sent = await hub.request('POST', `/api/me/orders/${encodeURIComponent(id)}/done`, { body: result });
+      if (sent.status === 0 || sent.status >= 500) { log(`hub orders: could not report order ${id} (${sent.status}).`); retryLater(); continue; }
+      unreported.delete(id);
     }
+  }
+
+  /** Report what is owed, then run what the hub still has pending; if it cannot be asked, ask again in half a minute. */
+  async function drain() {
+    await reportAll();
+    const r = await hub.request('GET', '/api/me/orders?status=pending');
+    if (r.status === 0 || r.status >= 500) { retryLater(); return; }
     for (const order of Array.isArray(r.body?.orders) ? r.body.orders : []) {
       if (!controller) return;
       await run(order);
@@ -72,7 +87,7 @@ export function createHubOrders({ hub, execute, onDone, timers = { setTimeout, c
       if (event !== 'order') return;
       enqueue(() => run(data));
       enqueue(drain);
-    }, { signal })
+    }, { signal, onOpen: () => { enqueue(drain); } })
       .catch((e) => log('hub orders: the stream failed:', e?.message ?? String(e)))
       .finally(() => { if (controller?.signal === signal) listening = false; });
   }

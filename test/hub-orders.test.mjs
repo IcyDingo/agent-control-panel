@@ -8,18 +8,21 @@ const settle = async () => { for (let i = 0; i < 20; i++) await new Promise((r) 
 const order = (id, extra = {}) => ({ id, kind: 'build', description: `build ${id}`, status: 'pending', createdAt: 1, ...extra });
 
 /** A hub whose pending list is `pending`, whose stream hands `streamed` to the listener and then waits to be aborted. */
-function setup({ pending = [], streamed = [], execute, onDone, answers = [] } = {}) {
+function setup({ pending = [], streamed = [], execute, onDone, answers = [], doneAnswers = [] } = {}) {
   const calls = [], done = [], extras = { fire: null, streams: 0 };
   const timeouts = [];
   const hub = {
     request: async (method, path, { body } = {}) => {
       calls.push({ method, path, body });
       if (method === 'GET') return answers.shift() ?? { ok: true, status: 200, body: { ok: true, orders: pending } };
+      const answer = doneAnswers.shift();
+      if (answer) return answer;
       done.push({ id: path.split('/')[4], ...body });
       return { ok: true, status: 200, body: { ok: true } };
     },
-    stream: (path, onEvent, { signal }) => new Promise((resolve) => {
+    stream: (path, onEvent, { signal, onOpen }) => new Promise((resolve) => {
       extras.streams++;
+      extras.open = () => onOpen();
       extras.fire = (o) => onEvent('order', o);
       Promise.resolve().then(async () => { for (const o of streamed) await onEvent('order', o); });
       signal.addEventListener('abort', () => resolve(), { once: true });
@@ -161,5 +164,70 @@ test('a hub that is down at the start is asked for the pending orders again afte
   await settle();
   assert.deepEqual(t.ran, ['a']);
   assert.equal(t.timeouts.length, 1);
+  t.orders.stop();
+});
+
+test('every time the stream (re)connects the pending orders are fetched again, and an order is run once', async () => {
+  const pending = [];
+  const t = setup({ pending });
+  t.orders.start();
+  await settle();
+  t.extras.open();
+  await settle();
+  assert.deepEqual(t.ran, []);
+  pending.push(order('z'));   // placed while the stream was down: no event will ever announce it
+  t.extras.open();
+  await settle();
+  assert.deepEqual(t.ran, ['z']);
+  t.extras.open();
+  await settle();
+  assert.deepEqual(t.ran, ['z']);
+  assert.equal(t.done.length, 1);
+  t.orders.stop();
+});
+
+test('a result the hub did not take is sent again later, and the order is not run again', async () => {
+  const t = setup({ pending: [order('a')], doneAnswers: [{ ok: false, status: 0, body: { error: 'Hub unreachable.' } }] });
+  t.orders.start();
+  await settle();
+  assert.deepEqual(t.ran, ['a']);
+  assert.deepEqual(t.done, []);
+  assert.deepEqual(t.dones.map(([id]) => id), ['a']);
+  assert.equal(t.timeouts.length, 1);
+  assert.equal(t.timeouts[0].ms, 30_000);
+  t.timeouts[0].fn();   // the hub still lists it as pending
+  await settle();
+  assert.deepEqual(t.ran, ['a']);
+  assert.deepEqual(t.done, [{ id: 'a', ok: true, caption: 'did a' }]);
+  assert.equal(t.dones.length, 1);
+  assert.equal(t.timeouts.length, 1);
+  t.orders.stop();
+});
+
+test('a result is sent again at the next drain, and keeps being tried every 30 seconds while the hub is down', async () => {
+  const down = { ok: false, status: 503, body: {} };
+  const t = setup({ pending: [order('a')], doneAnswers: [down, down] });
+  t.orders.start();
+  await settle();
+  t.timeouts[0].fn();
+  await settle();
+  assert.deepEqual(t.done, []);
+  assert.equal(t.timeouts.length, 2);
+  t.extras.open();   // a reconnect drains too
+  await settle();
+  assert.deepEqual(t.done.map((d) => d.id), ['a']);
+  assert.deepEqual(t.ran, ['a']);
+  t.orders.stop();
+});
+
+test('a result the hub refuses for good (it no longer knows the order) is dropped, not retried', async () => {
+  const t = setup({ pending: [order('a')], doneAnswers: [{ ok: false, status: 404, body: { error: 'No such order.' } }] });
+  t.orders.start();
+  await settle();
+  assert.equal(t.timeouts.length, 0);
+  t.extras.open();
+  await settle();
+  assert.deepEqual(t.ran, ['a']);
+  assert.equal(t.calls.filter((c) => c.method === 'POST').length, 1);
   t.orders.stop();
 });

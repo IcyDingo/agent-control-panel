@@ -54,7 +54,7 @@ function clock(start = 1_000_000) {
 function setup({ answers = {}, purchases = [PUSH], status = { balance: 1 } } = {}) {
   const c = clock();
   const calls = [], saves = [];
-  const state = { loggedIn: true, sync: null, purchases, answers: { ...answers } };
+  const state = { loggedIn: true, sync: null, purchases, status, answers: { ...answers } };
   const hub = {
     status: () => ({ loggedIn: state.loggedIn, device: 'd1' }),
     lastSync: () => state.sync,
@@ -66,7 +66,7 @@ function setup({ answers = {}, purchases = [PUSH], status = { balance: 1 } } = {
     },
   };
   const logs = [];
-  const sync = createHubSync({ hub, projection: () => summary(state.purchases), status: () => status, now: c.now, timers: c.timers, log: (...a) => logs.push(a) });
+  const sync = createHubSync({ hub, projection: () => summary(state.purchases), status: () => state.status, now: c.now, timers: c.timers, log: (...a) => logs.push(a) });
   const puts = (p) => calls.filter((x) => x.path === p);
   return { c, calls, saves, state, hub, sync, logs, system: () => puts('/api/me/system'), statusPuts: () => puts('/api/me/status') };
 }
@@ -198,10 +198,10 @@ test('a refused projection keeps the hub\'s sentence, is not retried, and a chan
   await t.sync.flush();
   assert.equal(t.sync.state().lastError, 'That world is too big.');
   assert.equal(t.sync.state().nextAt, null);
+  assert.equal(t.statusPuts().length, 0);
   await t.c.tick(3_600_000);
   await t.sync.flush();
   assert.equal(t.system().length, 1);
-  assert.equal(t.statusPuts().length, 0);
   t.state.purchases = [PUSH, ROCKET];
   await t.sync.flush();
   assert.equal(t.system().length, 2);
@@ -261,4 +261,61 @@ test('stop clears the pending timer', async () => {
   assert.equal(t.sync.state().pending, false);
   await t.c.tick(60_000);
   assert.equal(t.calls.length, 0);
+});
+
+test('a changed status is sent on its own, and an unchanged one with an unchanged projection sends nothing', async () => {
+  const t = setup();
+  await t.sync.flush();
+  assert.equal(t.system().length, 1);
+  assert.equal(t.statusPuts().length, 1);
+  await t.sync.flush();
+  assert.equal(t.calls.length, 2);
+  t.state.status = { balance: 2 };
+  await t.sync.flush();
+  assert.equal(t.system().length, 1);
+  assert.equal(t.statusPuts().length, 2);
+  assert.deepEqual(t.statusPuts()[1].body, { balance: 2 });
+  await t.sync.flush();
+  assert.equal(t.calls.length, 3);
+});
+
+test('an unchanged status is sent again at the half-hour heartbeat', async () => {
+  const t = setup();
+  await t.sync.flush();
+  await t.c.tick(31 * 60_000);
+  await t.sync.flush();
+  assert.equal(t.statusPuts().length, 2);
+});
+
+test('a status the hub did not take is tried again at the next flush, and its error clears once it is taken', async () => {
+  const t = setup({ answers: { 'PUT /api/me/status': { ok: false, status: 0, body: { error: 'Hub unreachable.' } } } });
+  await t.sync.flush();
+  assert.equal(t.sync.state().lastError, 'Hub unreachable.');
+  assert.equal(t.sync.state().nextAt, null);
+  await t.sync.flush();
+  assert.equal(t.statusPuts().length, 2);
+  assert.equal(t.system().length, 1);
+  delete t.state.answers['PUT /api/me/status'];
+  await t.sync.flush();
+  assert.equal(t.statusPuts().length, 3);
+  assert.equal(t.sync.state().lastError, null);
+});
+
+test('a push that fails after stop arms nothing, and schedule and flush do nothing once stopped', async () => {
+  const t = setup();
+  let fail;
+  t.hub.request = (method, p) => { t.calls.push({ method, path: p }); return new Promise((r) => { fail = () => r({ ok: false, status: 0, body: { error: 'Hub unreachable.' } }); }); };
+  const pushing = t.sync.flush();
+  await t.c.tick(0);
+  t.sync.stop();
+  fail();
+  await pushing;
+  assert.equal(t.sync.state().nextAt, null);
+  assert.equal(t.c.waiting(), 0);
+  assert.equal(t.sync.state().pending, false);
+  t.sync.schedule({ urgent: true });
+  assert.equal(t.c.waiting(), 0);
+  await t.sync.flush();
+  await t.c.tick(3_600_000);
+  assert.equal(t.calls.length, 1);
 });

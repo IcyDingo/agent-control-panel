@@ -226,9 +226,10 @@ export function createHub({
 
   /**
    * Hold the hub's event stream open and call `onEvent(event, data)` for each event. When it drops, wait 2 s, 4 s, ... up
-   * to a minute and connect again; a 401 means the token is dead, so stop. Resolves when `signal` aborts. Never throws.
+   * to a minute and connect again; a 401 means the token is dead, so stop. `onOpen()` is called (not waited for) each time a connection
+   * is made, before its events are read. Resolves when `signal` aborts. Never throws.
    */
-  async function stream(p, onEvent, { signal } = {}) {
+  async function stream(p, onEvent, { signal, onOpen } = {}) {
     let wait = FIRST_WAIT;
     while (!signal?.aborted) {
       let reader;
@@ -241,6 +242,7 @@ export function createHub({
           if (res.ok && res.body) {
             reader = res.body.getReader();
             signal?.addEventListener('abort', stop, { once: true });
+            try { onOpen?.(); } catch { /* a hook's trouble is not the stream's */ }   // events missed while it was down are the caller's to fetch
             const decoder = new TextDecoder();
             let buffer = '';
             for (;;) {

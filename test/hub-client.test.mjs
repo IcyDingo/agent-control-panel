@@ -445,3 +445,27 @@ test('a handler that throws does not break the stream', async () => {
   ac.abort();
   await done;
 });
+
+test('stream tells onOpen once per successful connect, not for a failed one, and a throwing onOpen does not break it', async () => {
+  const ac = new AbortController();
+  const lives = [];
+  const s = setup((c, n) => {
+    if (n === 1) return json({ ok: false }, 502);
+    const l = streamResponse(c.signal);
+    lives.push(l);
+    return l.res;
+  }, { sleep: async () => {} });
+  signedIn(s);
+  const got = [];
+  let opened = 0;
+  const done = s.hub.stream('/api/me/events', (e, d) => got.push(d), { signal: ac.signal, onOpen: () => { opened++; throw new Error('bad hook'); } });
+  await until(() => lives.length === 1);
+  assert.equal(opened, 1);
+  lives[0].push('data: 1\n\n');
+  await until(() => got.length === 1);
+  lives[0].end();
+  await until(() => lives.length === 2);
+  assert.equal(opened, 2);
+  ac.abort();
+  await done;
+});
