@@ -165,21 +165,24 @@ export function createHub({
     return save();
   }
 
+  /** The hub handed over a token: this Mac is signed in from now on. Returns whether it reached the file. */
+  function acceptToken(body) {
+    load();
+    if (foreign()) delete st.lastSync;   // that sync was with another hub
+    st.url = url;
+    st.token = body.token;
+    st.account = body.account ?? null;
+    st.pending = null;
+    signedOut = false;
+    return save();
+  }
+
   async function pollDeviceLogin() {
     load();
     const pending = st.pending;
     if (!pending?.deviceCode) return 'error';
     const r = await request('POST', '/api/device/token', { body: { device_code: pending.deviceCode } });
-    if (r.status === 200 && r.body.token) {
-      load();
-      if (foreign()) delete st.lastSync;   // that sync was with another hub
-      st.url = url;
-      st.token = r.body.token;
-      st.account = r.body.account ?? null;
-      st.pending = null;
-      signedOut = false;
-      return save() ? 'ok' : 'error';
-    }
+    if (r.status === 200 && r.body.token) return acceptToken(r.body) ? 'ok' : 'error';
     if (r.status === 428) return 'pending';
     if (r.status === 429) {   // the hub wants a longer gap between polls, and counts a poll made too soon against us
       load();
@@ -192,6 +195,17 @@ export function createHub({
     if (r.status === 410) { clearPending(); return 'expired'; }
     if (r.status === 403) { clearPending(); return 'denied'; }
     if (pending.expiresAt <= now()) clearPending();
+    return 'error';
+  }
+
+  // A link is a device code the owner approved on the website before this Mac ever asked, so there is nothing to wait for:
+  // one poll either hands over the token or says the code is gone.
+  async function linkDeviceLogin(code) {
+    const c = String(code ?? '').trim();
+    if (!/^[A-Za-z0-9_-]{1,200}$/.test(c)) return 'spent';
+    const r = await request('POST', '/api/device/token', { body: { device_code: c } });
+    if (r.status === 200 && r.body.token) return acceptToken(r.body) ? 'ok' : 'error';
+    if (r.status === 404 || r.status === 410 || r.status === 403) return 'spent';
     return 'error';
   }
 
@@ -294,5 +308,5 @@ export function createHub({
     }
   }
 
-  return { status, request, startDeviceLogin, pollDeviceLogin, cancelDeviceLogin, logout, saveSync, lastSync, refreshAccount, stream };
+  return { status, request, startDeviceLogin, pollDeviceLogin, linkDeviceLogin, cancelDeviceLogin, logout, saveSync, lastSync, refreshAccount, stream };
 }
