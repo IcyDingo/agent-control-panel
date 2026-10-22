@@ -108,6 +108,7 @@ or not you open it. Next:
      the panel reads the repositories your sessions work in.
   2. If you use more than one Claude Code profile, pick yours under Profile, top right.
   3. Click Connect this profile. Sessions you start after that show up on the board.
+  4. Optional: sign in to the hub with \`node server.mjs login\` to put your system on the universe map.
 
 Keep this folder where it is: the service runs the panel from here. After a git pull, run ./install.sh again: it
 restarts the service on the new code (requests the panel was holding go back to their terminals for a moment).
