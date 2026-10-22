@@ -232,3 +232,27 @@ test('an order not collected within a day expires, and the account can order aga
   assert.equal(orders.expire(T + 3 * ORDER_TTL_MS), 1);
   assert.equal(orders.expire(T + 3 * ORDER_TTL_MS), 0);
 });
+
+test('a claim moves an order to running once; done takes a running order; a stale running order expires', () => {
+  fresh();
+  orders.place(account.id, { kind: 'frontier', ang: 0 });
+  const other = accounts.signIn({ provider: 'github', subject: '2', login: 'bob' }).account;
+  assert.deepEqual(orders.claim(other.id, 'order-1', 'theirs'), { ok: false, status: 404, error: 'No such order.' });
+  const won = orders.claim(account.id, 'order-1', 'Studio');
+  assert.deepEqual([won.ok, won.order.id, won.order.status], [true, 'order-1', 'running']);
+  assert.deepEqual(orders.claim(account.id, 'order-1', 'Laptop'), { ok: false, status: 409, error: 'That order is no longer waiting.' });
+  assert.deepEqual({ ...db.prepare('SELECT device, claimed_at FROM orders WHERE id = ?').get('order-1') }, { device: 'Studio', claimed_at: T });
+  assert.deepEqual(orders.pending(account.id), [], 'only pending orders are handed out');
+  assert.equal(orders.place(account.id, { kind: 'frontier', ang: 1 }).status, 409, 'a running order is still the one out');
+  assert.deepEqual(orders.done(account.id, 'order-1', { ok: true }), { ok: true });
+  assert.equal(orders.list(account.id)[0].status, 'done');
+
+  orders.place(account.id, { kind: 'frontier', ang: 2 });
+  orders.claim(account.id, 'order-2', 'Studio');
+  clock = T + ORDER_TTL_MS;
+  assert.equal(orders.expire(), 1, 'a Mac that claimed it and never answered does not hold the account up for ever');
+  assert.equal(orders.list(account.id)[0].status, 'expired');
+  assert.equal(orders.done(account.id, 'order-2', { ok: true }).status, 404);
+  assert.equal(orders.claim(account.id, 'order-2', 'Studio').status, 409);
+  assert.equal(orders.place(account.id, { kind: 'frontier', ang: 3 }).ok, true);
+});

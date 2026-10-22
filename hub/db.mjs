@@ -97,6 +97,8 @@ export const MIGRATIONS = [
     body TEXT NOT NULL,
     status TEXT NOT NULL,
     created_at INTEGER NOT NULL,
+    device TEXT,
+    claimed_at INTEGER,
     done_at INTEGER,
     result TEXT
   );

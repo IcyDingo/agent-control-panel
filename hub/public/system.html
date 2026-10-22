@@ -264,15 +264,18 @@
       err.textContent = r.error; err.hidden = false;
       if (r.status === 409) recheck(); // an order is out already: say so, and wait for it
     }
-    /** Ask the hub what is pending. Still out: wait for it. Gone (the stream missed its end, or it expired): show how it ended. */
+    /** Ask the hub what is out (pending, or running on a Mac that claimed it). Still out: wait for it. Gone (the stream
+     *  missed its end, or it expired): show how it ended. */
     async function recheck() {
       if (placing) return;
       const r = await Hub.api('GET', '/api/me/orders?status=pending');
       if (!r.ok || placing) return; // no answer says nothing
       if (r.orders.length) { if (!busy) err.hidden = true; wait(true, r.orders[0].createdAt); return; }
-      if (!busy) return;
       const l = await Hub.api('GET', '/api/me/orders?limit=1');
+      if (placing) return;
       const last = l.ok ? l.orders[0] : null;
+      if (last?.status === 'running') { if (!busy) err.hidden = true; wait(true, last.createdAt); return; }
+      if (!busy) return;
       if (last?.result) finish(last.result);
       else finish({ ok: false, error: 'The order is no longer pending.' }, true);
     }

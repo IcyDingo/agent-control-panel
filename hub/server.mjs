@@ -236,6 +236,8 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now } =
     if (r.ok) live.emit(who.accountId, 'order', r.order);
     outcome(res, r);
   });
+  route('POST', /^\/api\/me\/orders\/(?<id>[^/]+)\/claim$/, 'tok', ({ res, who, params, body }) =>
+    outcome(res, orders.claim(who.accountId, params.id, body.device)));
   route('POST', /^\/api\/me\/orders\/(?<id>[^/]+)\/done$/, 'tok', ({ res, who, params, body }) => {
     const { id } = params;
     const r = orders.done(who.accountId, id, body);

@@ -311,6 +311,28 @@ test('orders: placed on the web, pushed to the Mac over the stream, reported don
   }
 });
 
+test('a Mac claims an order before running it: the first claim wins, a second is 409, and the winner reports it done', async () => {
+  const cookie = await login('dora');
+  const [one, two] = [await tokenFor('dora'), await tokenFor('dora')];
+  const stranger = await tokenFor('erin');
+  const placed = await call('POST', '/api/me/orders', { cookie, body: { kind: 'frontier', ang: 0 }, origin: ORIGIN });
+  const { id } = placed.json.order;
+  const path = `/api/me/orders/${id}/claim`;
+  assert.equal((await call('POST', path, { cookie, origin: ORIGIN, body: {} })).status, 403, 'claims are for the Mac');
+  assert.equal((await call('POST', path, { token: stranger, body: { device: 'theirs' } })).status, 404, 'not their order');
+  const won = await call('POST', path, { token: one, body: { device: 'mac-one' } });
+  assert.deepEqual([won.status, won.json.ok, won.json.order.id, won.json.order.status], [200, true, id, 'running']);
+  const lost = await call('POST', path, { token: two, body: { device: 'mac-two' } });
+  assert.deepEqual([lost.status, lost.json.ok], [409, false]);
+  assert.equal((await call('POST', path, { token: one, body: { device: 'mac-one' } })).status, 409, 'a claim is granted once');
+  assert.equal((await call('GET', '/api/me/orders?status=pending', { token: two })).json.orders.length, 0, 'a running order is not pending');
+  assert.equal(hub.db.prepare('SELECT device FROM orders WHERE id = ?').get(id).device, 'mac-one');
+  assert.equal((await call('POST', '/api/me/orders', { cookie, body: { kind: 'frontier', ang: 1 }, origin: ORIGIN })).status, 409, 'still one at a time');
+  const done = await call('POST', `/api/me/orders/${id}/done`, { token: one, body: { ok: true, caption: 'Pushed' } });
+  assert.deepEqual([done.status, done.json], [200, { ok: true }]);
+  assert.equal((await call('GET', '/api/me/orders?limit=1', { cookie })).json.orders[0].status, 'done');
+});
+
 test('the event stream takes a Bearer header or the cookie, never a token in the address', async () => {
   const token = await tokenFor();
   const viaQuery = await call('GET', `/api/me/events?t=${token}`);

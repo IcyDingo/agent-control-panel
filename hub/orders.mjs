@@ -1,5 +1,7 @@
 // The orders an owner places on the site and their Mac executes: a push of the frontier, a rocket, a build. The hub only
-// checks the shape and keeps the queue (one pending order per account, 24 hours to be collected); the Mac does the buying.
+// checks the shape and keeps the queue (one order out per account, 24 hours to land); the Mac does the buying. An order
+// goes pending → running when a Mac claims it, and only the Mac that claimed it runs it, so two Macs signed in to one
+// account never both buy the same thing; then done or failed, or expired if it never landed.
 import crypto from 'node:crypto';
 import { colonyName } from '../world.mjs';
 
@@ -28,9 +30,9 @@ const text300 = (v) => (typeof v === 'string' ? v.slice(0, 300) : undefined);
 export function createOrders(db, { now = Date.now, random = crypto.randomUUID } = {}) {
   const toOrder = (r) => ({ id: r.id, kind: r.kind, ...JSON.parse(r.body), status: r.status, createdAt: r.created_at });
 
-  /** Orders older than the TTL stop waiting; returns how many did. */
+  /** Orders older than the TTL stop waiting, and so does one claimed by a Mac that never said how it went; returns how many. */
   function expire(t = now()) {
-    return Number(db.prepare("UPDATE orders SET status = 'expired' WHERE status = 'pending' AND created_at + ? <= ?").run(ORDER_TTL_MS, t).changes);
+    return Number(db.prepare("UPDATE orders SET status = 'expired' WHERE status IN ('pending', 'running') AND created_at + ? <= ?").run(ORDER_TTL_MS, t).changes);
   }
 
   function place(accountId, body) {
@@ -39,7 +41,7 @@ export function createOrders(db, { now = Date.now, random = crypto.randomUUID } 
     db.exec('BEGIN');
     try {
       expire();
-      if (db.prepare("SELECT 1 FROM orders WHERE account_id = ? AND status = 'pending'").get(accountId)) {
+      if (db.prepare("SELECT 1 FROM orders WHERE account_id = ? AND status IN ('pending', 'running')").get(accountId)) {
         db.exec('ROLLBACK');
         return fail(409, "One thing at a time: the last order hasn't landed yet.");
       }
@@ -64,15 +66,27 @@ export function createOrders(db, { now = Date.now, random = crypto.randomUUID } 
     .all(accountId, limit)
     .map((r) => ({ ...toOrder(r), doneAt: r.done_at, result: r.result === null ? null : JSON.parse(r.result) }));
 
-  /** The Mac reports a pending order landed (`ok: true`) or failed. */
+  /** A Mac takes a pending order to run. One UPDATE decides, so of two Macs asking at once exactly one wins; the other
+   *  hears 409 (the order is no longer waiting) and leaves it alone. */
+  function claim(accountId, id, device) {
+    expire();
+    const by = typeof device === 'string' && device.length <= 100 ? device : null;
+    const changed = db.prepare("UPDATE orders SET status = 'running', device = ?, claimed_at = ? WHERE id = ? AND account_id = ? AND status = 'pending'")
+      .run(by, now(), String(id), accountId).changes;
+    const r = db.prepare('SELECT * FROM orders WHERE id = ? AND account_id = ?').get(String(id), accountId);
+    if (!r) return fail(404, 'No such order.');
+    return Number(changed) ? { ok: true, order: toOrder(r) } : fail(409, 'That order is no longer waiting.');
+  }
+
+  /** The Mac reports an order landed (`ok: true`) or failed. */
   function done(accountId, id, result) {
     const r = result !== null && typeof result === 'object' ? result : {};
     const kept = { ok: r.ok === true };
     for (const key of ['error', 'caption']) if (text300(r[key]) !== undefined) kept[key] = text300(r[key]);
-    const changed = db.prepare("UPDATE orders SET status = ?, done_at = ?, result = ? WHERE id = ? AND account_id = ? AND status = 'pending'")
+    const changed = db.prepare("UPDATE orders SET status = ?, done_at = ?, result = ? WHERE id = ? AND account_id = ? AND status IN ('pending', 'running')")
       .run(kept.ok ? 'done' : 'failed', now(), JSON.stringify(kept), String(id), accountId).changes;
     return Number(changed) ? { ok: true } : fail(404, 'No such order.');
   }
 
-  return { place, pending, list, done, expire };
+  return { place, pending, claim, list, done, expire };
 }
