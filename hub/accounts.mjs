@@ -14,11 +14,25 @@ const toAccount = (r) => !r ? null : {
 };
 const fail = (status, error) => ({ ok: false, status, error });
 
+/** `-<ordinal>` appended to the base, then `-<ordinal>-2`, `-3`, … until the handle is unused; the base is cut short
+ *  so the result stays within a handle's 39 characters and never ends in a dash. */
+function numbered(base, ordinal, n) {
+  const suffix = n === 1 ? `-${ordinal}` : `-${ordinal}-${n}`;
+  return base.slice(0, 39 - suffix.length).replace(/-+$/, '') + suffix;
+}
+
 export function createAccounts(db, { now = Date.now, random = crypto.randomUUID } = {}) {
   const row = (sql, ...args) => db.prepare(sql).get(...args);
   const byId = (id) => toAccount(row('SELECT * FROM accounts WHERE id = ?', id));
   const byHandle = (h) => toAccount(row('SELECT * FROM accounts WHERE handle = ?', String(h))); // the column is NOCASE
   const byCoords = (x, y) => toAccount(row('SELECT * FROM accounts WHERE x = ? AND y = ?', x, y));
+
+  const freeHandle = (base, ordinal) => {
+    for (let n = 1; ; n++) {
+      const candidate = numbered(base, ordinal, n);
+      if (!row('SELECT 1 FROM accounts WHERE handle = ?', candidate)) return candidate;
+    }
+  };
 
   /** The account behind this provider identity (made on the first sign-in). */
   function signIn({ provider, subject, login, avatar, email }) {
@@ -30,8 +44,7 @@ export function createAccounts(db, { now = Date.now, random = crypto.randomUUID 
       const ordinal = (row('SELECT MAX(ordinal) AS n FROM accounts').n ?? 0) + 1;
       const { x, y } = placeOf(ordinal);
       const wanted = cleanHandle(login);
-      const taken = wanted && row('SELECT 1 FROM accounts WHERE handle = ?', wanted);
-      const chosen = wanted && !taken ? wanted : `${wanted ?? 'dev'}-${ordinal}`;
+      const chosen = wanted && !row('SELECT 1 FROM accounts WHERE handle = ?', wanted) ? wanted : freeHandle(wanted ?? 'dev', ordinal);
       const picture = typeof avatar === 'string' && avatar.startsWith(AVATAR_PREFIX) ? avatar : null;
       const id = random(), t = now();
       db.prepare('INSERT INTO accounts (id, ordinal, handle, x, y, avatar, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')

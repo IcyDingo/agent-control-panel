@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { openDb } from '../hub/db.mjs';
 import { createAccounts } from '../hub/accounts.mjs';
 import { placeOf } from '../hub/coords.mjs';
+import { handle as cleanHandle } from '../hub/validate.mjs';
 
 const T = 1_700_000_000_000, WEEK = 7 * 24 * 3600 * 1000;
 let db, accounts, clock;
@@ -72,4 +73,26 @@ test('an account is found by id, handle or exact spot, and lists its identities'
   assert.equal(accounts.byCoords(a.x, a.y).id, a.id);
   assert.equal(accounts.byCoords(a.x + 1, a.y), null);
   assert.deepEqual(accounts.identitiesOf(a.id), [{ provider: 'github', login: 'alice' }]);
+});
+
+test('a numbered handle that is itself taken moves on to the next free one, so sign-in never fails', () => {
+  fresh();
+  accounts.signIn({ provider: 'github', subject: '1', login: 'alice' });
+  accounts.signIn({ provider: 'github', subject: '2', login: 'alice-3' });
+  const z = accounts.signIn({ provider: 'github', subject: '3', login: 'alice' });
+  assert.deepEqual([z.created, z.account.ordinal, z.account.handle], [true, 3, 'alice-3-2']);
+  const first = accounts.signIn({ provider: 'github', subject: '4', login: 'dev-5' });
+  const invalid = accounts.signIn({ provider: 'dev', subject: 'x', login: '-bad-' });
+  assert.deepEqual([first.account.handle, invalid.account.handle], ['dev-5', 'dev-5-2']);
+});
+
+test('a numbered handle stays a valid handle, even from a taken 39-character login', () => {
+  fresh();
+  const long = 'a'.repeat(39), dashed = 'a'.repeat(36) + '-bb'; // cutting 'dashed' short would leave a trailing dash
+  accounts.signIn({ provider: 'github', subject: '1', login: long });
+  const b = accounts.signIn({ provider: 'github', subject: '2', login: long }).account.handle;
+  accounts.signIn({ provider: 'github', subject: '3', login: dashed });
+  const c = accounts.signIn({ provider: 'github', subject: '4', login: dashed }).account.handle;
+  for (const h of [b, c]) assert.equal(cleanHandle(h), h);
+  assert.deepEqual([b, c.length <= 39], ['a'.repeat(37) + '-2', true]);
 });
