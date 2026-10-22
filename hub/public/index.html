@@ -28,13 +28,18 @@
         <button class="btn" type="submit">Visit</button>
       </form>
     </div>
-    <!-- The sky: a sun and a few planets drifting on the night sky. -->
-    <div class="block" aria-hidden="true">
+    <!-- The sky: Home in the middle with you standing on it, four planets on their orbits, the sun off to the side. -->
+    <div class="block" id="sky" aria-hidden="true">
       <span class="sun"></span>
-      <span class="planet rust"></span>
-      <span class="planet ice"></span>
-      <span class="planet sand"></span>
-      <span class="planet violet"></span>
+      <span class="ring" style="--rx:20;--ry:15"></span>
+      <span class="ring" style="--rx:29;--ry:22"></span>
+      <span class="ring" style="--rx:39;--ry:31"></span>
+      <span class="ring" style="--rx:47;--ry:39"></span>
+      <span class="planet violet" data-orbit="20 15 17 0.6"></span>
+      <span class="planet sand" data-orbit="29 22 27 2.4"></span>
+      <span class="planet rust" data-orbit="39 31 41 4.1"></span>
+      <span class="planet ice" data-orbit="47 39 56 5.3"></span>
+      <span class="home"><span class="pilot" id="pilot"></span></span>
     </div>
   </main>
 
@@ -59,7 +64,38 @@
 <script>
 (() => {
   const $ = (id) => document.getElementById(id);
-  const { el, hashOf, pick, mosaic } = Hub;
+  const { el, avatar, hashOf, pick, mosaic } = Hub;
+
+  // The orbits: each planet goes round Home on its own ellipse (data-orbit = "rx ry seconds phase", rx and ry in percent
+  // of the sky's width and height), passing behind Home on the far half. Still when the system asks for less motion.
+  const sky = $('sky'), CX = 0.5, CY = 0.53;
+  const planets = [...sky.querySelectorAll('.planet')].map((node) => {
+    const [rx, ry, period, phase] = node.dataset.orbit.split(' ').map(Number);
+    return { node, rx: rx / 100, ry: ry / 100, period, phase };
+  });
+  function place(seconds) {
+    const w = sky.clientWidth, h = sky.clientHeight;
+    for (const p of planets) {
+      const a = p.phase + (2 * Math.PI * seconds) / p.period, far = Math.sin(a) < 0; // the upper half of the ellipse is behind Home
+      const x = (CX + p.rx * Math.cos(a)) * w, y = (CY + p.ry * Math.sin(a)) * h, size = far ? 0.86 : 1.08;
+      p.node.style.transform = `translate(${x - p.node.offsetWidth / 2}px, ${y - p.node.offsetHeight / 2}px) scale(${size})`;
+      p.node.style.zIndex = far ? 1 : 3;
+    }
+  }
+  const still = matchMedia('(prefers-reduced-motion: reduce)');
+  const start = performance.now();
+  (function tick() {
+    place(still.matches ? 0 : (performance.now() - start) / 1000);
+    if (!still.matches) requestAnimationFrame(tick);
+  })();
+  still.addEventListener('change', () => place(0));
+  addEventListener('resize', () => place(still.matches ? 0 : (performance.now() - start) / 1000));
+
+  /** You, standing on Home: your picture when signed in, a visitor's blank face when not. */
+  function pilot(who) {
+    $('pilot').replaceChildren(avatar(who, 22), el('i', { class: 'body' }));
+  }
+  pilot({ handle: '?' });
 
   $('find').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -89,6 +125,7 @@
     $('profile').hidden = false;
     $('mine').href = '/@' + encodeURIComponent(r.account.handle);
     $('mine').hidden = false;
+    pilot(r.account);
   });
 })();
 </script>
