@@ -938,6 +938,7 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
 <script src="/world.js"></script>
 <script>
 const TOKEN = '__ACP_TOKEN__';
+window.ACP_VIEW = '__ACP_VIEW__'; // 'board' at /, 'world' at /world
 const COLS = [['waiting', 'Needs you'], ['busy', 'Working'], ['idle', 'Idle'], ['finished', 'Finished']];
 const LABEL = { waiting: 'Needs you', busy: 'Working', idle: 'Idle', finished: 'Finished', failed: 'Failed', stopping: 'Stopping', running: 'Running', done: 'Done', stopped: 'Stopped' };
 const KIND = { background: 'Background session', interactive: 'Terminal session' };
@@ -2756,6 +2757,7 @@ edge($('d-grip'), $('drawer'), 'right', widthOf('acp.drawerWidth', '--drawer-use
 edge($('r-grip'), $('board'), 'left', widthOf('acp.railWidth', '--rail-user', () => [240, Math.max(240, Math.min(560, innerWidth - 520))]));
 
 connect();
+if (window.ACP_VIEW === 'world') enterWorld();
 setInterval(() => { if (snap) { snap.now += 1000; render(); } }, 1000);
 </script>
 </body>

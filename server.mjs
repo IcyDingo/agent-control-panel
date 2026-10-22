@@ -20,6 +20,10 @@ import { createWorld, claudeArgs, readAnswer } from './world.mjs';
 import { findRemoved } from './versions.mjs';
 import { readChat } from './history.mjs';
 import { UNTRUSTED, trustKey, isTrusted, trustScript } from './trust.mjs';
+import { prefsPath } from './cli.mjs';
+import { createHub } from './hub.mjs';
+import { createHubSync } from './hub-sync.mjs';
+import { createHubOrders } from './hub-orders.mjs';
 
 // `node server.mjs <command>` runs the CLI (cli.mjs) and never starts the server.
 if (process.argv.length > 2) { const { main } = await import('./cli.mjs'); process.exit(await main(process.argv.slice(2))); }
@@ -82,7 +86,7 @@ const baseEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => !
 // CLAUDE_CONFIG_DIR=~/.claude-<name>. The panel shows one at a time; the choice is remembered across starts.
 const HOME = os.homedir();
 // ACP_PREFS gives a second panel (another ACP_PORT) a profile choice of its own.
-const PREFS = process.env.ACP_PREFS || path.join(HOME, 'Library', 'Application Support', 'Agent Panel', 'prefs.json');
+const PREFS = prefsPath();
 const HOOK_URL = `127.0.0.1:${PORT}/hook/`;
 function listProfiles() {
   let names = [];
@@ -1354,6 +1358,7 @@ async function scanWorld(git) {
   try { await world.scan({ git }); } catch (err) { console.error('world scan failed:', err?.message ?? err); }
   finally { worldScanning = false; }
   if (worldSummary().earned !== before) broadcast();
+  hubSync.schedule(); // after every scan, not only a changed one: the half-hour heartbeat is judged when this is called
 }
 /** World's numbers for the page. Nothing in them may take the panel down. */
 function worldSummary() {
@@ -1362,6 +1367,7 @@ function worldSummary() {
 function openWorld() {
   world.open();
   scanWorld(true);
+  hubSync.schedule({ urgent: true });
   return { ok: true, world: worldSummary() };
 }
 /** Spend World's credit: push the frontier, or send a rocket (world.mjs decides the price and whether it can). */
@@ -1369,6 +1375,7 @@ function buyInWorld(body) {
   const r = world.buy({ kind: body?.kind, ang: body?.ang, planet: body?.planet, name: body?.name });
   if (!r.ok) return r;
   broadcast();
+  hubSync.schedule({ urgent: true });
   return { ok: true, world: worldSummary() };
 }
 // The Claude calls behind Build it. `claude agents` lists one while it runs, so the roster and the hooks skip these.
@@ -1387,11 +1394,97 @@ async function askClaude(prompt) {
     return readAnswer(r);
   } finally { setTimeout(() => quietIds.delete(id), 120_000); } // until the roster has seen it go
 }
+let building = false; // a Build it is waiting on Claude; the hub's site shows it
 async function buildInWorld(body) {
-  const r = await world.build({ on: body?.on, description: body?.description, ask: askClaude });
+  building = true;
+  hubSync.schedule({ urgent: true });
+  try {
+    const r = await world.build({ on: body?.on, description: body?.description, ask: askClaude });
+    if (!r.ok) return r;
+    broadcast();
+    return { ok: true, caption: r.purchase.caption, world: worldSummary() };
+  } finally {
+    building = false;
+    hubSync.schedule({ urgent: true }); // the purchase, if there was one, and the end of "building"
+  }
+}
+
+// ---------------------------------------------------------------- hub
+
+// The hosted hub (hub.mjs): signing in, keeping it in step with World (hub-sync.mjs) and running the orders placed on
+// its site (hub-orders.mjs). Signed out, none of this makes a request. The credentials live in hub.json beside the prefs.
+const hub = createHub({ file: path.join(path.dirname(PREFS), 'hub.json') });
+/** What only the owner sees on the hub: the balance, the prices, today and whether a build is under way. Null until World starts. */
+function ownerStatus() {
+  const w = worldSummary();
+  if (!w.started) return null;
+  return {
+    balance: w.balance, prices: { frontier: w.prices.frontier, rocket: w.prices.rocket, build: w.prices.build },
+    today: { credit: w.today.credit, commits: w.today.commits, added: w.today.added, removed: w.today.removed, tokens: w.today.tokens, multiplier: w.today.multiplier },
+    home: { xp: w.home.xp, today: w.home.today }, building,
+    mac: { name: os.hostname().slice(0, 40), online: true }, // the hub refuses a longer name
+  };
+}
+const hubSync = createHubSync({ hub, projection: () => (world.started() ? worldSummary() : null), status: ownerStatus });
+/** An order from the hub's site, run like the panel's own buttons; only the outcome goes back. */
+async function runOrder(order) {
+  const r = order.kind === 'build' ? await buildInWorld(order) : buyInWorld(order);
+  return { ok: r.ok, error: r.error, caption: r.caption };
+}
+const hubOrders = createHubOrders({ hub, execute: runOrder, onDone: () => { hubSync.schedule({ urgent: true }); broadcast(); } });
+/** The hub as the page sees it (never the token). */
+function hubInfo() {
+  const { url, loggedIn, account, pending } = hub.status();
+  return { url, loggedIn, account, pending, sync: hubSync.state(), orders: hubOrders.state() };
+}
+
+// A sign-in started from the page is finished here: poll at the hub's pace (it may grow it, so it is read every round)
+// until the hub says yes, no or never. One loop at a time; a cancel (or the code running out) ends it.
+let loginTimer = null, loginRun = 0, loginActive = false;
+function stopLoginLoop() { clearTimeout(loginTimer); loginRun++; loginActive = false; }
+function startLoginLoop() {
+  if (loginActive) return;
+  loginActive = true;
+  const run = ++loginRun;
+  const round = () => {
+    const pending = hub.status().pending;
+    if (!pending) { loginActive = false; broadcast(); return; }
+    loginTimer = setTimeout(async () => {
+      const outcome = await hub.pollDeviceLogin();
+      if (run !== loginRun) return;
+      if (outcome === 'pending') return round();
+      loginActive = false;
+      if (outcome === 'ok') { hubOrders.start(); hubSync.schedule({ urgent: true }); }
+      broadcast();
+    }, pending.interval * 1000);
+  };
+  round();
+}
+async function hubLoginStart() {
+  const live = hub.status().pending;
+  if (loginActive && live) return { ok: true, userCode: live.userCode, verificationUri: live.verificationUri, expiresAt: live.expiresAt };
+  const r = await hub.startDeviceLogin();
   if (!r.ok) return r;
+  startLoginLoop();
   broadcast();
-  return { ok: true, caption: r.purchase.caption, world: worldSummary() };
+  return { ok: true, userCode: r.userCode, verificationUri: r.verificationUri, expiresAt: r.expiresAt };
+}
+function hubLoginCancel() {
+  stopLoginLoop();
+  const r = hub.cancelDeviceLogin();
+  broadcast();
+  return { ok: r };
+}
+async function hubLogout() {
+  stopLoginLoop();
+  hubOrders.stop();
+  const r = await hub.logout();
+  broadcast();
+  return r;
+}
+async function hubSyncNow() {
+  await hubSync.flush();
+  return { ok: true, sync: hubSync.state() };
 }
 
 // ---------------------------------------------------------------- deleted versions
@@ -1435,7 +1528,7 @@ async function checkVersions() {
 function snapshot() {
   const now = Date.now();
   return {
-    now, armed, rosterError, port: PORT, profile: profileInfo, world: worldSummary(), oldVersions,
+    now, armed, rosterError, port: PORT, profile: profileInfo, world: worldSummary(), hub: hubInfo(), oldVersions,
     sessions: [...sessions.values()].map(({ spawns, hereCwd, rosterCwd, ranCwd, editTops, ...s }) => {
       const here = ranCwd ?? hereCwd ?? s.cwd, git = placeOut(gitPlace(here));
       return {
@@ -1513,8 +1606,10 @@ async function handle(req, res) {
     return send(res, 404, '');
   }
 
-  if (req.method === 'GET' && url.pathname === '/') {
-    return send(res, 200, page().replace('__ACP_TOKEN__', TOKEN), 'text/html; charset=utf-8');
+  // The same page twice: / is the board, /world opens straight on the universe (the page reads ACP_VIEW).
+  if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/world')) {
+    const view = url.pathname === '/' ? 'board' : 'world';
+    return send(res, 200, page().replace('__ACP_TOKEN__', TOKEN).replace('__ACP_VIEW__', view), 'text/html; charset=utf-8');
   }
 
   if (req.method === 'GET' && url.pathname === '/world.js') {
@@ -1566,7 +1661,9 @@ async function handle(req, res) {
                       '/api/profiles': profiles, '/api/profile': switchProfile, '/api/profile/connect': connectProfile,
                       '/api/answer-open': answerOpen, '/api/world/open': openWorld, '/api/world/buy': buyInWorld,
                       '/api/world/build': buildInWorld, '/api/history': history,
-                      '/api/trust-terminal': openTrustTerminal };
+                      '/api/trust-terminal': openTrustTerminal,
+                      '/api/hub/status': () => ({ ok: true, hub: hubInfo() }), '/api/hub/login/start': hubLoginStart,
+                      '/api/hub/login/cancel': hubLoginCancel, '/api/hub/logout': hubLogout, '/api/hub/sync': hubSyncNow };
     if (Object.hasOwn(ACTIONS, url.pathname)) {
       let r;
       try { r = await ACTIONS[url.pathname](body); } catch (err) { r = { ok: false, error: String(err?.message ?? err).slice(0, 300) }; }
@@ -1611,6 +1708,11 @@ server.listen(PORT, '127.0.0.1', () => {
   setInterval(() => { if (looking()) checkVersions(); }, VERSIONS_MS);
   setInterval(() => { prune(); broadcast(); }, 10_000);
   setInterval(() => scanWorld(worldScans++ % 5 === 0), WORLD_MS);
+  // The order stream stops itself when the hub says 401, and a `login` from a terminal never tells this process, so
+  // ask every minute; start() does nothing while it is already running.
+  const startOrders = () => { if (hub.status().loggedIn) hubOrders.start(); };
+  startOrders();
+  setInterval(startOrders, WORLD_MS);
   // A World that can't be saved (an unwritable prefs folder) must not take the panel down: under launchd it would crash-loop.
   if (DAEMON && !world.started()) {
     try { openWorld(); } catch (err) { console.error('world could not start:', err?.message ?? err); }
