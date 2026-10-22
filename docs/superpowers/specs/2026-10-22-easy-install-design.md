@@ -72,7 +72,7 @@ app is an extra for people who want the board.
 | Requirements | Node 20+, macOS 14+. Apple's Command Line Tools are optional: without them the worker counts tokens but not commits, and the script says so and goes on **(call)** |
 | Panel app on top | `install.sh` keeps using the clone it runs from (today's behaviour), and when a worker service exists it replaces it with one that runs from the clone, saying so; `./install.sh --uninstall` puts nothing back. The two never run side by side on one port **(call)** |
 | Worker on top of the app | The one line on a Mac whose service already runs from a clone takes the service over, saying so: "The background service ran from <path>; it now runs from the worker install and updates itself. The app keeps working with it." The app reuses any server on its port, so nothing else changes **(call)** |
-| Re-running the line signed in | `login --link` on a Mac signed in to the same account says "Already linked to @you" and does nothing; signed in to another account it refuses with today's sentence (sign out first), and the unspent link expires on its own **(call)** |
+| Re-running the line signed in | `login --link` on a Mac that is signed in does nothing and says so: "Already signed in as @you. This Mac stays linked to @you; to switch, run `node server.mjs logout` and then the line again." The Mac cannot tell whose account a link names without spending it, so the sentence is the same for both cases, and the unspent link expires on its own **(call)** |
 
 ## Hub side
 
@@ -108,10 +108,10 @@ app is an extra for people who want the board.
   delete them.
 - **`worker/run.sh`** (the launcher, written by the script, 30 lines, never versioned): what the plist runs. It reads
   `worker/current`, and before `exec node current/server.mjs` it handles a switch: `worker/switch` (written by the
-  update: `{ "to": sha, "from": sha, "tries": n }`) means a new version is being tried. If `worker/started` already
-  names `to`, the switch file is removed. Otherwise `tries` goes up, and at 3 the launcher points `current` back at
-  `from`, writes `worker/rolled-back` with `to` and the time (the worker reports it to the hub's devices list and the
-  panel), and removes the switch file. A version that cannot start therefore costs at most three launchd restarts
+  update, one line `<to> <from> <tries>`, so the launcher needs no JSON parser) means a new version is being tried. If
+  `worker/started` already names `to`, the switch file is removed. Otherwise `tries` goes up, and at 3 the launcher
+  points `current` back at `from`, writes `worker/rolled-back` (one line `<to> <time>`; the panel's snapshot shows it,
+  the hub is not told this round), and removes the switch file. A version that cannot start therefore costs at most three launchd restarts
   (30 s with `ThrottleInterval 10`), and the launcher is the one thing that is always present and never updated.
   `node` is found the way the plist finds it today (`ACP_NODE` baked at install).
 - **`cli.mjs`**: `login --link <code>` writes the pending code to `hub.json` and polls once (the code is approved
@@ -158,10 +158,10 @@ code in the browser." Then "Want the session board too?" with the app's three li
 
 - `test/hub-api.test.mjs`: `/install` served as text with no-cache; `POST /api/me/links` needs a web session and the
   Origin, answers a code that `POST /api/device/token` turns into a token at once, a second link replaces the first
-  (the first polls to 404), the code expires; `/api/release` answers `HUB_RELEASE` with the codeload address, 503
-  when it is unset.
-- `test/hub-client.test.mjs`: `login --link` with an approved code signs in with one poll; with a spent one falls back
-  to a fresh device login; signed in to the same account says so and does nothing; to another, refuses.
+  (the first polls to 410 and its token is revoked), the code expires; `/api/release` answers `HUB_RELEASE` with the
+  codeload address, 503 when it is unset.
+- `test/hub-client.test.mjs`: the link sign-in with an approved code signs in with one poll; a spent one is reported
+  so the CLI can fall back to a fresh device login; the hub unreachable is an error, not a fallback.
 - `test/update.test.mjs` (new): with a fake hub and a temp `worker/` folder: same sha does nothing; a new sha is
   downloaded, verified, `switch` written, `current` moved and the process asked to exit; a bad archive (wrong top
   folder) is discarded; `{ "auto": false }` never asks; old folders are pruned.
