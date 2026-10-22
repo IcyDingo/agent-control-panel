@@ -150,7 +150,7 @@ test('starting a device login saves the pending code in the file', async () => {
   assert.equal(s.fetch.calls[0].method, 'POST');
   assert.equal(s.read().pending.deviceCode, 'dc-secret');
   const st = s.hub.status();
-  assert.deepEqual(st.pending, { userCode: 'ABCD-EFGH', verificationUri: CODE.verification_uri_complete, expiresAt: 1_900_000 });
+  assert.deepEqual(st.pending, { userCode: 'ABCD-EFGH', verificationUri: CODE.verification_uri_complete, expiresAt: 1_900_000, interval: 5 });
   assert.ok(!JSON.stringify(st).includes('dc-secret'));
 });
 
@@ -160,6 +160,90 @@ test('a device login that the hub refuses says why and saves nothing', async () 
   assert.equal(fs.existsSync(s.file), false);
   const down = setup(() => { throw new Error('boom'); });
   assert.deepEqual(await down.hub.startDeviceLogin(), { ok: false, error: 'Hub unreachable.' });
+});
+
+test('slow_down lengthens the poll interval by 5 s each time, in the file and in status', async () => {
+  const s = setup((c) => (c.url.endsWith('/device/code') ? json(CODE) : json({ ok: false, error: 'slow_down' }, 429)));
+  await s.hub.startDeviceLogin();
+  assert.equal(await s.hub.pollDeviceLogin(), 'pending');
+  assert.equal(s.hub.status().pending.interval, 10);
+  assert.equal(await s.hub.pollDeviceLogin(), 'pending');
+  assert.equal(s.hub.status().pending.interval, 15);
+  assert.equal(s.read().pending.interval, 15);
+  assert.equal(s.read().pending.deviceCode, 'dc-secret');
+});
+
+test('a null body from the hub is an error, not a crash', async () => {
+  const s = setup(() => new Response('null', { status: 200 }));
+  const r = await s.hub.startDeviceLogin();
+  assert.equal(r.ok, false);
+  assert.deepEqual((await s.hub.request('GET', '/x')).body, {});
+  const p = setup((c) => (c.url.endsWith('/device/code') ? json(CODE) : new Response('null', { status: 200 })));
+  await p.hub.startDeviceLogin();
+  assert.equal(await p.hub.pollDeviceLogin(), 'error');
+});
+
+test('a file that cannot be written is a return value, never a throw', async () => {
+  const s = setup(() => json(CODE));
+  fs.writeFileSync(path.join(s.dir, 'sub'), 'a file where the folder should be');
+  assert.deepEqual(await s.hub.startDeviceLogin(), { ok: false, error: 'Could not write the hub file.' });
+  assert.equal(s.hub.saveSync({ seq: 1, hash: 'h', at: 1 }), false);
+  assert.equal(s.logs.length, 2);
+  assert.ok(s.logs.every((l) => !l.includes('dc-secret')));
+});
+
+test('a folder that turns read-only fails sign-in polling, cancelling and syncing without throwing', async () => {
+  const s = setup((c) => (c.url.endsWith('/device/code') ? json(CODE) : json({ ok: true, token: 'hub_new', account: ACCOUNT })));
+  await s.hub.startDeviceLogin();
+  const folder = path.dirname(s.file);
+  fs.chmodSync(folder, 0o500);
+  try {
+    assert.equal(await s.hub.pollDeviceLogin(), 'error');
+    assert.equal(s.hub.status().loggedIn, false);
+    assert.equal(s.hub.cancelDeviceLogin(), false);
+    assert.equal(s.hub.saveSync({ seq: 1, hash: 'h', at: 1 }), false);
+    assert.equal(fs.readdirSync(folder).join(), 'hub.json');
+    assert.ok(s.logs.every((l) => !l.includes('hub_new')));
+  } finally { fs.chmodSync(folder, 0o700); }
+});
+
+test('every write uses a tmp file of its own and leaves none behind', () => {
+  const s = setup();
+  const seenTmp = new Set();
+  const realRename = fs.renameSync;
+  fs.renameSync = (from, to) => { seenTmp.add(from); return realRename(from, to); };
+  try {
+    s.hub.saveSync({ seq: 1, hash: 'a', at: 1 });
+    s.hub.saveSync({ seq: 2, hash: 'b', at: 2 });
+  } finally { fs.renameSync = realRename; }
+  assert.equal(seenTmp.size, 2);
+  assert.deepEqual(fs.readdirSync(path.dirname(s.file)), ['hub.json']);
+});
+
+test('a token issued by another hub is never sent to this one', async () => {
+  const s = setup();
+  fs.mkdirSync(path.dirname(s.file), { recursive: true });
+  fs.writeFileSync(s.file, JSON.stringify({ v: 1, url: 'http://other.example', device: 'dev-1', token: 'hub_other', account: ACCOUNT }));
+  const st = s.hub.status();
+  assert.equal(st.loggedIn, false);
+  assert.equal(st.account, null);
+  await s.hub.request('GET', '/api/me');
+  assert.equal(s.fetch.calls[0].headers.authorization, undefined);
+  s.hub.saveSync({ seq: 1, hash: 'h', at: 1 });
+  assert.equal(s.read().url, 'http://other.example');   // a sync does not re-bind the token to this hub
+  assert.equal(s.hub.status().loggedIn, false);
+});
+
+test('signing in again replaces a login made for another hub', async () => {
+  const s = setup((c) => (c.url.endsWith('/device/code') ? json(CODE) : json({ ok: true, token: 'hub_new', account: ACCOUNT })));
+  fs.mkdirSync(path.dirname(s.file), { recursive: true });
+  fs.writeFileSync(s.file, JSON.stringify({ v: 1, url: 'http://other.example', device: 'dev-1', token: 'hub_other', account: ACCOUNT, lastSync: { seq: 9, hash: 'x', at: 1 } }));
+  await s.hub.startDeviceLogin();
+  assert.equal(await s.hub.pollDeviceLogin(), 'ok');
+  assert.equal(s.read().url, 'http://hub.test');
+  assert.equal(s.read().token, 'hub_new');
+  assert.equal(s.hub.lastSync(), null);
+  assert.equal(s.hub.status().loggedIn, true);
 });
 
 test('polling 428, 428, 200 ends signed in with the token only in a private file', async () => {
@@ -240,7 +324,7 @@ test('writing the file keeps it private even when it already existed with looser
   fs.chmodSync(s.file, 0o644);
   s.hub.saveSync({ seq: 1, hash: 'h', at: 1 });
   assert.equal(fs.statSync(s.file).mode & 0o777, 0o600);
-  assert.equal(fs.existsSync(`${s.file}.tmp`), false);
+  assert.deepEqual(fs.readdirSync(path.dirname(s.file)), ['hub.json']);
 });
 
 test('logging out revokes the token on the hub and deletes the file', async () => {
@@ -255,6 +339,12 @@ test('logging out revokes the token on the hub and deletes the file', async () =
   assert.equal(fs.existsSync(s.file), false);
   assert.equal(s.hub.status().loggedIn, false);
   assert.equal(s.hub.status().device, device);
+});
+
+test('logging out reports a file it cannot remove instead of throwing', async () => {
+  const s = setup();
+  fs.mkdirSync(s.file, { recursive: true });   // a folder where the file should be: rmSync refuses
+  assert.deepEqual(await s.hub.logout(), { ok: false, error: 'Could not remove the hub file.' });
 });
 
 test('logging out still deletes the file when the hub cannot be reached, and asks nothing when signed out', async () => {

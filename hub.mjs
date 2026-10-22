@@ -80,18 +80,33 @@ export function createHub({
     if (typeof st.device === 'string' && st.device) device = st.device;
   }
 
-  /** Write the file privately: tmp, rename, and chmod in case it existed with looser rights. */
+  /**
+   * Write the file privately: a tmp of its own (so two writers never share one), rename, and chmod in case the file
+   * existed with looser rights. A failure is logged (never with the token) and returned as false, and the file is read
+   * again next time so memory never claims what the disk does not hold.
+   */
   function save() {
-    st = { ...st, v: 1, url, device };
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    const tmp = `${file}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(st, null, 2), { mode: 0o600 });
-    fs.renameSync(tmp, file);
-    fs.chmodSync(file, 0o600);
-    seen = mtime();
+    const tmp = `${file}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
+    try {
+      // a token belongs to the hub that issued it: a file for another hub keeps that hub's url
+      st = { ...st, v: 1, url: foreign() ? st.url : url, device };
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(tmp, JSON.stringify(st, null, 2), { mode: 0o600 });
+      fs.renameSync(tmp, file);
+      fs.chmodSync(file, 0o600);
+      seen = mtime();
+      return true;
+    } catch (e) {
+      try { fs.rmSync(tmp, { force: true }); } catch { /* nothing more to do */ }
+      seen = undefined;
+      log(`hub: could not write ${file} (${e?.code ?? 'error'}).`);
+      return false;
+    }
   }
 
-  const loggedIn = () => typeof st.token === 'string' && st.token !== '' && !signedOut;
+  /** The file holds a login for some other hub than the one we are pointed at. */
+  const foreign = () => typeof st.url === 'string' && st.url !== '' && st.url !== url;
+  const loggedIn = () => typeof st.token === 'string' && st.token !== '' && !signedOut && !foreign();
   const live = (pending) => (pending && pending.expiresAt > now() ? pending : null);
 
   function status() {
@@ -101,7 +116,7 @@ export function createHub({
       url,
       loggedIn: loggedIn(),
       account: loggedIn() ? st.account ?? null : null,
-      pending: p ? { userCode: p.userCode, verificationUri: p.verificationUri, expiresAt: p.expiresAt } : null,
+      pending: p ? { userCode: p.userCode, verificationUri: p.verificationUri, expiresAt: p.expiresAt, interval: p.interval ?? 5 } : null,
       device,
     };
   }
@@ -120,6 +135,7 @@ export function createHub({
       const text = await res.text();
       let parsed = {};
       if (text) { try { parsed = JSON.parse(text); } catch { /* not JSON (a proxy's page): no body */ } }
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) parsed = {};
       if (res.status === 401 && bearer) signedOut = true;
       return { ok: res.ok, status: res.status, body: parsed };
     } catch {
@@ -130,22 +146,23 @@ export function createHub({
   async function startDeviceLogin() {
     const r = await request('POST', '/api/device/code');
     const b = r.body;
-    if (!r.ok || !b.device_code || !b.user_code) return { ok: false, error: b.error || UNREACHABLE };
+    if (!r.ok || !b.device_code || !b.user_code) return { ok: false, error: b.error || (r.status ? 'The hub sent an unexpected answer.' : UNREACHABLE) };
     load();
     const pending = {
       userCode: b.user_code, verificationUri: b.verification_uri_complete ?? b.verification_uri,
       expiresAt: now() + (b.expires_in ?? 900) * 1000, interval: b.interval ?? 5, deviceCode: b.device_code,
     };
     st.pending = pending;
-    save();
+    if (!save()) return { ok: false, error: 'Could not write the hub file.' };
     return { ok: true, userCode: pending.userCode, verificationUri: pending.verificationUri, expiresAt: pending.expiresAt, interval: pending.interval };
   }
 
+  /** True when nothing is pending afterwards. */
   function clearPending() {
     load();
-    if (!st.pending) return;
+    if (!st.pending) return true;
     st.pending = null;
-    save();
+    return save();
   }
 
   async function pollDeviceLogin() {
@@ -155,14 +172,23 @@ export function createHub({
     const r = await request('POST', '/api/device/token', { body: { device_code: pending.deviceCode } });
     if (r.status === 200 && r.body.token) {
       load();
+      if (foreign()) delete st.lastSync;   // that sync was with another hub
+      st.url = url;
       st.token = r.body.token;
       st.account = r.body.account ?? null;
       st.pending = null;
       signedOut = false;
-      save();
-      return 'ok';
+      return save() ? 'ok' : 'error';
     }
-    if (r.status === 428 || r.status === 429) return 'pending';
+    if (r.status === 428) return 'pending';
+    if (r.status === 429) {   // the hub wants a longer gap between polls, and counts a poll made too soon against us
+      load();
+      if (st.pending?.deviceCode === pending.deviceCode) {
+        st.pending = { ...st.pending, interval: (st.pending.interval ?? 5) + 5 };
+        save();
+      }
+      return 'pending';
+    }
     if (r.status === 410) { clearPending(); return 'expired'; }
     if (r.status === 403) { clearPending(); return 'denied'; }
     if (pending.expiresAt <= now()) clearPending();
@@ -174,16 +200,23 @@ export function createHub({
   async function logout() {
     load();
     if (loggedIn()) await request('DELETE', '/api/me/tokens/self');
-    fs.rmSync(file, { force: true });
+    try {
+      fs.rmSync(file, { force: true });
+    } catch (e) {
+      seen = undefined;
+      log(`hub: could not remove ${file} (${e?.code ?? 'error'}).`);
+      return { ok: false, error: 'Could not remove the hub file.' };
+    }
     st = {};
     seen = null;
     signedOut = false;
+    return { ok: true };
   }
 
   function saveSync({ seq, hash, at }) {
     load();
     st.lastSync = { seq, hash, at };
-    save();
+    return save();
   }
 
   function lastSync() {
