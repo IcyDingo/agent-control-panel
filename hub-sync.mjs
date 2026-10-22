@@ -78,6 +78,8 @@ export function createHubSync({ hub, projection, status, now = Date.now, timers 
         return;
       }
       if (r.status === 0 || r.status >= 500) { setError(sentence(r, UNREACHABLE)); backoff(); return; }
+      // The Mac validated the projection before sending it, so a hub that refuses its shape is most likely another version.
+      if (r.status === 422) { setError('The hub refused the system; it may be running a different version.'); refusedHash = hash; return; }
       if (!r.ok) { setError(sentence(r, 'The hub refused the world.')); refusedHash = hash; return; }
       hub.saveSync({ seq, hash, at: now() });
       lastOk = now();

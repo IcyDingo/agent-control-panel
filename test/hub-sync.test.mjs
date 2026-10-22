@@ -193,10 +193,10 @@ test('a change made while the hub is down does not hurry the retry', async () =>
   assert.equal(t.sync.state().nextAt, t.c.now() + 30_000);
 });
 
-test('a refused projection keeps the hub\'s sentence, is not retried, and a changed one is sent again', async () => {
-  const t = setup({ answers: { [SYSTEM]: { ok: false, status: 422, body: { ok: false, error: 'That world is too big.' } } } });
+test('a refused projection says the hub may be another version, is not retried, and a changed one is sent again', async () => {
+  const t = setup({ answers: { [SYSTEM]: { ok: false, status: 422, body: { ok: false, error: 'The system could not be read; nothing was stored.' } } } });
   await t.sync.flush();
-  assert.equal(t.sync.state().lastError, 'That world is too big.');
+  assert.equal(t.sync.state().lastError, 'The hub refused the system; it may be running a different version.');
   assert.equal(t.sync.state().nextAt, null);
   assert.equal(t.statusPuts().length, 0);
   await t.c.tick(3_600_000);
