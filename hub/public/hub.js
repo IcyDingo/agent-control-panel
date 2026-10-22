@@ -3,11 +3,12 @@
 (() => {
   const AVATARS = 'https://avatars.githubusercontent.com/';
 
-  /** Same-origin fetch with the session cookie, JSON in and out. Always resolves: { ok: false, error, status? } on any failure. */
-  async function api(method, path, body) {
+  /** Same-origin fetch with the session cookie, JSON in and out. Always resolves: { ok: false, error, status? } on any failure.
+   *  `{ cache }` passes through to fetch ('no-store' when an answer the browser kept would be stale). */
+  async function api(method, path, body, { cache } = {}) {
     try {
       const res = await fetch(path, {
-        method, credentials: 'same-origin',
+        method, credentials: 'same-origin', ...(cache && { cache }),
         headers: body === undefined ? undefined : { 'content-type': 'application/json' },
         body: body === undefined ? undefined : JSON.stringify(body),
       });

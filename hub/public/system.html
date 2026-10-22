@@ -228,10 +228,10 @@
       macNote();
       sync();
     }
-    /** Why nothing has happened yet: the Mac says it is offline, it has never sent a status, or an order has waited over 2 minutes. */
+    /** Why nothing has happened yet: the Mac has never sent a status, or an order has waited over 2 minutes. */
     function macNote() {
       const slow = busy && orderAt !== null && Date.now() - orderAt > 120_000;
-      $('o-mac').hidden = !(slow || (status !== null && !status.mac?.online) || (statusLoaded && status === null));
+      $('o-mac').hidden = !(slow || (statusLoaded && status === null));
     }
     async function loadStatus() {
       const r = await Hub.api('GET', '/api/me/status');
@@ -297,7 +297,8 @@
     }
     async function catchUp() {
       loadStatus();
-      const r = await Hub.api('GET', `/api/systems/@${encodeURIComponent(handle)}`);
+      // The public read is cacheable for 30 s; the new picture is what this is waiting for, so skip the browser's copy.
+      const r = await Hub.api('GET', `/api/systems/@${encodeURIComponent(handle)}`, undefined, { cache: 'no-store' });
       if (!r.ok || !r.system) return;
       sys = r.system;
       fill(); sync();
