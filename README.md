@@ -437,7 +437,8 @@ board shows, with hooks off, no tools, MCP servers or slash commands, and no ses
 ## Hub
 
 The hub is a small website that gives each panel a page of its own: your system, drawn the way World draws it, which
-anyone can open and which sits at a fixed place on a shared universe map, so people can find your sun from theirs.
+anyone with your handle or link can open. Your system has fixed coordinates on the hub, shown on your page; a map of
+everyone's suns is the next slice.
 You choose whether to sign in. Until you do, nothing in this section runs and nothing leaves your Mac.
 
 **Sign in** from the **Profile** box in World's side panel (**Sign in with GitHub**), or from a terminal:
@@ -466,11 +467,11 @@ finer than a day.
 Your Mac also tells the hub its own state so your page can show it to you and nobody else: your balance, the prices,
 today's numbers, whether a build is running, and the Mac's name. That is shown only to you, signed in.
 
-The panel sends about ten seconds after something changes, and once every 30 minutes otherwise, so your page knows the
-Mac is still there. A hub that is down never slows the panel: it tries again later.
+The panel sends about ten seconds after something changes, a second after a purchase or an order, and once every
+30 minutes otherwise, so your page knows the Mac is still there. A hub that is down never slows the panel: it tries again later.
 
-**Your page** is `<hub>/@handle`. `<hub>/me` is where you edit your profile: name, bio, link, and whether you are
-listed. Unlisted takes you off the universe map, but anyone with your link can still open your page.
+**Your page** is `<hub>/@handle`. `<hub>/me` is where you edit your profile: handle, name, bio, link, and whether you are
+listed. Unlisted asks search engines not to index your page; a link still opens it.
 
 **Spending from your page.** Signed in on the hub, you can push the frontier, send a rocket and build from your page,
 and your Mac does it. An order from the site goes through the same code as the panel's buttons, so the same prices
@@ -515,7 +516,9 @@ An endpoint that approves commands is worth protecting, even on localhost:
   in to. The page in your browser never talks to the hub: the local server does, for the page, behind the same token
   and Origin checks as everything else. There is no CORS on either side.
 - What leaves your Mac is an allow-list projection of World, copied key by key (a field added later stays private until
-  it is listed) and checked again on the hub before it is stored. The hub stores tokens and session ids hashed.
+  it is listed) and checked again on the hub before it is stored. The hub stores tokens and session ids hashed; the one
+  exception is a token you have just approved, which the hub holds in clear only until your Mac collects it or the code
+  runs out (15 minutes).
 
 ## Uninstall
 
