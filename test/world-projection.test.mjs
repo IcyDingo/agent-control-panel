@@ -50,9 +50,20 @@ test('a brand-new World projects: no purchases, no frontier, level 1', () => {
 test('the projection is deterministic and round-trips through the validator unchanged', () => {
   const s = rich(), a = publicProjection(s), b = publicProjection(s);
   assert.equal(JSON.stringify(a), JSON.stringify(b));
-  const v = validProjection(JSON.parse(JSON.stringify(a)));
+  const input = JSON.parse(JSON.stringify(a)), v = validProjection(input);
   assert.deepEqual(v, a);
-  assert.notEqual(v, a, 'a fresh object, never the input');
+  assert.ok(v !== input && v.home !== input.home && v.sun !== input.sun && v.planets !== input.planets && v.builds[0].pieces !== input.builds[0].pieces, 'a fresh object all the way down, never the input');
+  input.home.level = 1; input.builds[0].pieces[0].count = 99;
+  assert.deepEqual(v, a, 'changing the input afterwards does not reach the result');
+});
+
+test('the projection copies a build piece key by key: a stray field in a stored piece does not leave', () => {
+  const piece = { ...BUILD.pieces[0], prompt: 'PRIVATE-NOTE' };
+  const s = seeded({ tokens: { [key(at(0))]: 2_000_000 }, purchases: [PUSH, { ...BUILD, pieces: [piece] }], now: at(3) }).world.summary();
+  const p = publicProjection(s);
+  assert.equal(JSON.stringify(p).includes('PRIVATE-NOTE'), false);
+  assert.ok(p.builds[0].pieces !== s.builds[0].pieces && p.builds[0].pieces[0] !== s.builds[0].pieces[0]);
+  assert.deepEqual(p.builds[0].pieces, BUILD.pieces);
 });
 
 test('the validator refuses what the renderer must never see', () => {
@@ -79,6 +90,10 @@ test('the validator refuses what the renderer must never see', () => {
   bad((p) => { p.frontier = Array.from({ length: 65 }, () => p.frontier[0] ?? { ang: 0, bought: 150, lit: 0, tip: 60 }); }, '65 lobes');
   bad((p) => { p.moments[0].kind = 'secret'; }, 'a moment kind off the list');
   bad((p) => { p.moments[0].info = { credit: 1 }; }, 'a moment carrying info');
+  bad((p) => { p.builds[0].caption = 'x'.repeat(81); }, 'an 81-letter caption is refused, not cut');
+  bad((p) => { p.builds[0].pieces[0].prompt = 'PRIVATE-NOTE'; }, 'a piece with an extra key is refused, not stripped');
+  bad((p) => { delete p.moments.find((m) => m.kind === 'week').from; }, 'a week without its first day');
+  bad((p) => { p.moments.find((m) => m.kind === 'cleanup').from = '2026-10-12'; }, 'a cleanup with a first day');
   assert.equal(validProjection(null), null);
   assert.equal(validProjection('{}'), null);
   const relabeled = copy(); relabeled.home.stage = 'Paradise';

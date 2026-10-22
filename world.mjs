@@ -184,7 +184,8 @@ export function publicProjection(s) {
     moments: s.moments.map((m) => (m.from === undefined
       ? { id: m.id, kind: m.kind, name: m.name, day: m.day, x: m.x, y: m.y }
       : { id: m.id, kind: m.kind, name: m.name, day: m.day, from: m.from, x: m.x, y: m.y })),
-    builds: s.builds.map((b) => ({ id: b.id, on: b.on, caption: b.caption, pieces: b.pieces, day: dayKey(b.at) })),
+    builds: s.builds.map((b) => ({ id: b.id, on: b.on, caption: b.caption,
+      pieces: b.pieces.map((x) => ({ kind: x.kind, colour: x.colour, size: x.size, place: x.place, count: x.count })), day: dayKey(b.at) })),
   };
 }
 
@@ -238,7 +239,8 @@ export function validProjection(p) {
   for (const m of p.moments) {
     if (!shape(m, ['id', 'kind', 'name', 'day', 'x', 'y'], ['from']) || !str(m.id, 40) || !PROJECTION_MOMENTS.includes(m.kind) || !str(m.name, 80)
       || !day(m.day) || !num(m.x, -1e6, 1e6) || !num(m.y, -1e6, 1e6)) return null;
-    if (Object.hasOwn(m, 'from')) {
+    if (Object.hasOwn(m, 'from') !== (m.kind === 'week')) return null; // a week has its first day; nothing else does
+    if (m.kind === 'week') {
       if (!day(m.from)) return null;
       moments.push({ id: m.id, kind: m.kind, name: m.name, day: m.day, from: m.from, x: m.x, y: m.y });
     } else moments.push({ id: m.id, kind: m.kind, name: m.name, day: m.day, x: m.x, y: m.y });
@@ -248,7 +250,8 @@ export function validProjection(p) {
   const builds = [];
   for (const b of p.builds) {
     if (!shape(b, ['id', 'on', 'caption', 'pieces', 'day']) || typeof b.id !== 'string' || !/^b\d{1,4}$/.test(b.id)
-      || !(b.on === 'home' || ids.has(b.on)) || !day(b.day)) return null;
+      || !(b.on === 'home' || ids.has(b.on)) || !day(b.day) || !str(b.caption, 80) || !Array.isArray(b.pieces)
+      || !b.pieces.every((x) => shape(x, ['kind', 'colour', 'size', 'place', 'count']))) return null; // refused, never trimmed
     const built = validBuild({ caption: b.caption, pieces: b.pieces });
     if (!built) return null;
     builds.push({ id: b.id, on: b.on, caption: built.caption, pieces: built.pieces, day: b.day });
