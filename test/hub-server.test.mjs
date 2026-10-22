@@ -49,7 +49,7 @@ test('the panel opens World at boot and the hub shows the system', async () => {
 test('an order placed on the hub is run by the Mac and answered in its own words', async () => {
   const placed = await hubCall('POST', '/api/me/orders', { kind: 'frontier', ang: 0 });
   assert.equal(placed.status, 200, JSON.stringify(placed.json));
-  const order = await until(async () => (await hubCall('GET', '/api/me/orders')).json?.orders?.find((o) => o.status !== 'pending'));
+  const order = await until(async () => (await hubCall('GET', '/api/me/orders')).json?.orders?.find((o) => o.status !== 'pending' && o.status !== 'running'));
   assert.ok(order, 'the order was never answered: ' + panel.log());
   assert.equal(order.status, 'failed');
   assert.match(order.result.error, /costs 4,000 credit/);
