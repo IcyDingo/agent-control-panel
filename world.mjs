@@ -66,10 +66,16 @@ const angDiff = (a, b) => Math.abs(normAng(a - b));
 /** A number in [0, 1) that is always the same for this World and this name. */
 const hash = (seed, name) => parseInt(crypto.createHash('sha1').update(`${seed}:${name}`).digest('hex').slice(0, 8), 16) / 2 ** 32;
 const toMap = (ang, along, off) => ({ x: Math.cos(ang) * along - Math.sin(ang) * off, y: Math.sin(ang) * along + Math.cos(ang) * off });
+// The star Home orbits: near Home, inside its light, never where a planet can be.
+export const SUN_DIST = 90, SUN_R = 9, SUN_LOOKS = ['gold', 'white', 'orange', 'blue'];
+export function sunOf(seed) {
+  const ang = 2 * Math.PI * hash(seed, 'sun');
+  return { x: Math.cos(ang) * SUN_DIST, y: Math.sin(ang) * SUN_DIST, r: SUN_R, look: SUN_LOOKS[Math.floor(hash(seed, 'sun look') * SUN_LOOKS.length)] };
+}
 /** Local midnight after a day (YYYY-MM-DD). */
 const dayEnd = (day) => { const [y, m, d] = day.split('-').map(Number); return new Date(y, m - 1, d + 1).getTime(); };
 const addDays = (day, n) => { const [y, m, d] = day.split('-').map(Number); return dayKey(new Date(y, m - 1, d + n).getTime()); };
-const LOOKS = ['rust', 'ice', 'sand', 'violet'];
+export const LOOKS = ['rust', 'ice', 'sand', 'violet'];
 
 /** The frontier from the pushes bought: its lobes, each lit as far as the credit earned since each push reaches (`peak`
  *  is the most World has seen earned, so the light never goes back), and the planets they hold, found or not yet. */
@@ -465,6 +471,7 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
     const { lobes, planets } = frontierOf(st.purchases, peak, st.seed), colonies = new Map();
     for (const p of st.purchases) if (p.kind === 'rocket') colonies.set(p.planet, { name: p.name, at: p.at });
     const s = { started: true, startedAt: st.startedAt, seed: st.seed, earned, spent, balance: earned - spent, home, reach: homeReach(home.xp),
+      sun: sunOf(st.seed), daysActive: Object.values(days).filter((x) => dayCredit(x) > 0).length,
       today: { day: today, commits: t.commits, added: t.added, removed: t.removed, multiplier: multiplier(t.added, t.removed), tokens: t.tokens, credit: dayCredit(t) },
       prices: { frontier: priceOf('frontier', st.purchases), rocket: priceOf('rocket', st.purchases), build: priceOf('build', st.purchases) },
       frontier: lobes.map((l) => ({ ang: l.ang, bought: l.pushes.length * PUSH_LEN, lit: l.lit, tip: l.tip })),
