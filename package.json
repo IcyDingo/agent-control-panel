@@ -9,7 +9,7 @@
   },
   "scripts": {
     "start": "node server.mjs",
-    "test": "node --test"
+    "test": "node --no-warnings=ExperimentalWarning --test"
   },
   "license": "MIT",
   "repository": {
