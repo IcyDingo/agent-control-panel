@@ -102,6 +102,24 @@ export function frontierOf(purchases, peak, seed) {
   return { lobes, planets: planets.map((p) => ({ ...p, found: p.lobe.tip >= p.along + 8 })), litBy };
 }
 
+/** The light sampled on an n×n grid (row by row, 0 to 1) with every pocket of dark the light walls in filled: a cell
+ *  darker than `dark` that the dark outside (a flood from the edge over cells that dark) cannot reach is lit full. A
+ *  copy; light is never dimmed. world.js draws the map with a copy of this. */
+export function walledIn(grid, n, dark = 0.3) {
+  const out = Float32Array.from(grid), open = new Uint8Array(n * n), stack = [];
+  const reach = (i, j) => { const k = j * n + i; if (!open[k] && grid[k] < dark) { open[k] = 1; stack.push(k); } };
+  for (let k = 0; k < n; k++) { reach(k, 0); reach(k, n - 1); reach(0, k); reach(n - 1, k); }
+  while (stack.length) {
+    const k = stack.pop(), i = k % n, j = (k - i) / n;
+    if (i > 0) reach(i - 1, j);
+    if (i < n - 1) reach(i + 1, j);
+    if (j > 0) reach(i, j - 1);
+    if (j < n - 1) reach(i, j + 1);
+  }
+  for (let k = 0; k < n * n; k++) if (grid[k] < dark && !open[k]) out[k] = 1;
+  return out;
+}
+
 /** The stretches of work the map marks: each finished week with work in it, each finished day that removed 500 lines or
  *  more and more than it added, and each level Home reached from 3 up (at once). Each sits in the light as it was then:
  *  along the lobe growing at the time, else in Home's light. Never about repositories. */

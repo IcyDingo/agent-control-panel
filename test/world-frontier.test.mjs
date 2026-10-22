@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createWorld, frontierOf, priceOf, PRICES, PUSH_LEN, LIGHT_CREDIT, LOBE_START, lobeRadius, homeReach } from '../world.mjs';
+import { createWorld, frontierOf, priceOf, PRICES, PUSH_LEN, LIGHT_CREDIT, LOBE_START, lobeRadius, homeReach, walledIn } from '../world.mjs';
 
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 9, 12, 9, 0); // a Monday
@@ -254,4 +254,35 @@ test('a moment along a colony lobe sits along that lobe', () => {
   const week = s.moments.find((m) => m.kind === 'week');
   assert.ok(week, 'the week is a moment');
   assert.ok(toSegment(week, p0, { x: p0.x, y: p0.y + l.tip }) <= lobeRadius(l.tip, l.tip), 'inside the colony lobe');
+});
+
+// ---------------------------------------------------------------- dark walled in by light
+
+/** A 9×9 grid lit 1 on the square ring 3 cells from the middle, 0 elsewhere; `gap` leaves one cell of the ring dark. */
+function ring({ gap = false } = {}) {
+  const n = 9, g = new Float32Array(n * n);
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) if (Math.max(Math.abs(i - 4), Math.abs(j - 4)) === 3) g[j * n + i] = 1;
+  if (gap) g[1 * n + 4] = 0;
+  return { n, g };
+}
+
+test('a ring of light fills the dark inside it', () => {
+  const { n, g } = ring(), out = walledIn(g, n);
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const d = Math.max(Math.abs(i - 4), Math.abs(j - 4));
+    assert.equal(out[j * n + i], d <= 3 ? 1 : 0, `${i},${j}`);
+  }
+});
+
+test('a gap in the ring lets the dark out', () => {
+  const { n, g } = ring({ gap: true }), out = walledIn(g, n);
+  assert.equal(out[4 * n + 4], 0, 'the middle stays dark');
+  assert.equal(out[1 * n + 4], 0, 'and so does the gap');
+});
+
+test('light is never dimmed, and the grid passed in is left alone', () => {
+  const n = 5, g = new Float32Array(n * n).map((_, k) => (k % 3) * 0.4), before = [...g], out = walledIn(g, n);
+  assert.deepEqual([...g], before);
+  for (let k = 0; k < n * n; k++) assert.ok(out[k] >= g[k]);
+  for (let k = 0; k < n * n; k++) if (g[k] >= 0.3) assert.equal(out[k], g[k]);
 });
