@@ -89,12 +89,12 @@ test('a snapshot the validator refuses is a 422 and nothing changes', () => {
   const p = projection();
   systems.put(account.id, upload(p, 1));
   const before = systems.get(account.id);
-  for (const bad of [{ ...p, balance: 99 }, null, 'text', { ...p, pv: 2 }]) {
+  for (const bad of [{ ...p, balance: 99 }, null, 'text', { ...p, pv: 3 }]) {
     assert.deepEqual(systems.put(account.id, upload(bad, 2)), { ok: false, status: 422, error: 'The system could not be read; nothing was stored.' });
   }
   assert.equal(systems.put(account.id, upload(p, 'x')).status, 422);
   assert.equal(systems.put(account.id, upload(p, Infinity)).status, 422);
-  assert.equal(systems.put(account.id, { ...upload(p, 2), pv: 2 }).status, 422, 'the upload names another version');
+  assert.equal(systems.put(account.id, { ...upload(p, 2), pv: 3 }).status, 422, 'the upload names another version');
   assert.deepEqual(systems.get(account.id), before);
   const bob = accounts.signIn({ provider: 'github', subject: '2', login: 'bob' }).account;
   assert.equal(systems.put(bob.id, upload({ ...p, extra: 1 })).ok, false);
@@ -132,6 +132,53 @@ test('the owner status is shape-checked, stored as a copy, and read back', () =>
   assert.deepEqual(systems.getStatus(account.id), STATUS(), 'a refused status leaves the stored one');
 });
 
+test('a version 1 upload is accepted and kept as version 1, read as version 2', () => {
+  fresh();
+  const v2 = projection(), v1 = JSON.parse(JSON.stringify(v2));
+  v1.pv = 1; delete v1.probes;
+  for (const l of v1.frontier) delete l.from;
+  assert.equal(systems.put(account.id, upload(v1, 1, { pv: 1 })).ok, true);
+  const got = systems.get(account.id);
+  assert.equal(got.pv, 1);
+  assert.deepEqual(got.snapshot, { ...v2, probes: [] });
+  assert.equal(systems.publicView(accounts.byId(account.id), got).stats.pv, 1);
+  assert.equal(systems.put(account.id, upload(v2, 2, { pv: 1 })).status, 422, 'the upload and its snapshot must name the same version');
+});
+
+test('a version 2 upload with probes is accepted', () => {
+  fresh();
+  const p = { ...projection(), probes: [{ ang: 0, progress: 1, to: { x: 5, y: 6 } }, { ang: 1, progress: 0.25 }] };
+  assert.equal(systems.put(account.id, upload(p, 1)).ok, true);
+  assert.deepEqual([systems.get(account.id).pv, systems.get(account.id).snapshot.probes], [2, p.probes]);
+});
+
+test('the owner status may say what a probe costs, and may leave it out', () => {
+  fresh();
+  const with4000 = STATUS(); with4000.prices.probe = 4000;
+  assert.equal(systems.putStatus(account.id, with4000).ok, true);
+  assert.equal(systems.getStatus(account.id).prices.probe, 4000);
+  assert.equal(systems.putStatus(account.id, STATUS()).ok, true);
+  assert.equal('probe' in systems.getStatus(account.id).prices, false);
+  const bad = STATUS(); bad.prices.probe = 'free';
+  assert.equal(systems.putStatus(account.id, bad).ok, false);
+});
+
+test('a push order may name where it leaves from; a probe order keeps its direction', () => {
+  fresh();
+  const a = orders.place(account.id, { kind: 'frontier', ang: 1, from: 'p3' });
+  assert.deepEqual([a.order.ang, a.order.from], [1, 'p3']);
+  orders.done(account.id, a.order.id, { ok: true });
+  const h = orders.place(account.id, { kind: 'frontier', ang: 1, from: 'home' });
+  assert.equal(h.order.from, 'home');
+  orders.done(account.id, h.order.id, { ok: true });
+  const q = orders.place(account.id, { kind: 'probe', ang: -1, junk: 2 });
+  assert.deepEqual(q.order, { id: q.order.id, kind: 'probe', ang: -1, status: 'pending', createdAt: T });
+  orders.done(account.id, q.order.id, { ok: true });
+  for (const body of [{ kind: 'frontier', ang: 1, from: 'moon' }, { kind: 'frontier', ang: 1, from: 3 }, { kind: 'probe' }, { kind: 'probe', ang: 'n' }]) {
+    assert.equal(orders.place(account.id, body).status, 422, JSON.stringify(body));
+  }
+});
+
 test('a public view carries the profile and the stats and never the owner status', () => {
   fresh();
   systems.putStatus(account.id, STATUS());
@@ -141,7 +188,7 @@ test('a public view carries the profile and the stats and never the owner status
   const view = systems.publicView(accounts.byId(account.id), systems.get(account.id));
   assert.deepEqual(Object.keys(view), ['profile', 'stats', 'system']);
   assert.deepEqual(view.profile, { handle: 'alice', name: null, bio: null, link: null, avatar: null, x: account.x, y: account.y, joined: '2026-10-22', visibility: 'public' });
-  assert.deepEqual(view.stats, { level: p.home.level, stage: p.home.stage, daysWorked: 21, colonies: 1, builds: 1, lastActive: '2026-10-22' });
+  assert.deepEqual(view.stats, { level: p.home.level, stage: p.home.stage, daysWorked: 21, colonies: 1, builds: 1, lastActive: '2026-10-22', pv: 2 });
   assert.deepEqual(view.system, p);
   const text = JSON.stringify(view);
   for (const word of ['balance', 'prices', 'multiplier', 'Studio', 'email', 'show_friends', 'showFriends', 'createdAt']) assert.equal(text.includes(word), false, `leaks ${word}`);
@@ -150,7 +197,7 @@ test('a public view carries the profile and the stats and never the owner status
 test('a public view of an account with no system shows a bare rock', () => {
   fresh();
   const view = systems.publicView(accounts.byId(account.id), null);
-  assert.deepEqual(view.stats, { level: 1, stage: 'Bare rock', daysWorked: 0, colonies: 0, builds: 0, lastActive: null });
+  assert.deepEqual(view.stats, { level: 1, stage: 'Bare rock', daysWorked: 0, colonies: 0, builds: 0, lastActive: null, pv: 0 });
   assert.equal(view.system, null);
 });
 

@@ -1,4 +1,4 @@
-// The orders an owner places on the site and their Mac executes: a push of the frontier, a rocket, a build. The hub only
+// The orders an owner places on the site and their Mac executes: a push of the frontier, a rocket, a build, a probe. The hub only
 // checks the shape and keeps the queue (one order out per account, 24 hours to land); the Mac does the buying. An order
 // goes pending → running when a Mac claims it, and only the Mac that claimed it runs it, so two Macs signed in to one
 // account never both buy the same thing; then done or failed, or expired if it never landed.
@@ -14,7 +14,12 @@ const fail = (status, error) => ({ ok: false, status, error });
 /** The fields an order of this kind keeps, as a fresh object, or null when the body isn't a well-formed one. */
 function cleanBody(b) {
   if (b === null || typeof b !== 'object') return null;
-  if (b.kind === 'frontier') return typeof b.ang === 'number' && Number.isFinite(b.ang) ? { ang: b.ang } : null;
+  const ang = typeof b.ang === 'number' && Number.isFinite(b.ang) ? b.ang : null;
+  if (b.kind === 'frontier') { // from Home, or a colony the Mac checks
+    if (ang === null || (b.from !== undefined && !(b.from === 'home' || (typeof b.from === 'string' && PLANET.test(b.from))))) return null;
+    return b.from === undefined ? { ang } : { ang, from: b.from };
+  }
+  if (b.kind === 'probe') return ang === null ? null : { ang };
   if (b.kind === 'rocket') {
     const name = colonyName(b.name);
     return typeof b.planet === 'string' && PLANET.test(b.planet) && name !== null ? { planet: b.planet, name } : null;

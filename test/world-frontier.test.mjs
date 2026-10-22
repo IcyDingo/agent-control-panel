@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createWorld, frontierOf, priceOf, PRICES, PUSH_LEN, LIGHT_CREDIT, LOBE_START, lobeRadius, homeReach } from '../world.mjs';
+import { createWorld, frontierOf, priceOf, PRICES, PUSH_LEN, LIGHT_CREDIT, LOBE_START, lobeRadius, homeReach, walledIn } from '../world.mjs';
 
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 9, 12, 9, 0); // a Monday
@@ -23,7 +23,7 @@ const credit = (c) => c * 10_000; // tokens for c credit
 const saved = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 
 test('a push and a rocket cost 4,000 every time, like a build', () => {
-  assert.deepEqual(PRICES, { frontier: 4000, rocket: 4000, build: 4000 });
+  assert.deepEqual(PRICES, { frontier: 4000, rocket: 4000, build: 4000, probe: 4000 });
   assert.equal(priceOf('frontier', []), 4000);
   const two = [{ kind: 'frontier', price: 4000 }, { kind: 'frontier', price: 5000 }, { kind: 'rocket', price: 8000 }];
   assert.equal(priceOf('frontier', two), 4000, 'pushes bought before do not raise it');
@@ -39,7 +39,7 @@ test('a build costs the same wherever it goes, however many came before', () => 
 
 test('the summary carries the prices', () => {
   const { world } = seeded();
-  assert.deepEqual(world.summary().prices, { frontier: 4000, rocket: 4000, build: 4000 });
+  assert.deepEqual(world.summary().prices, { frontier: 4000, rocket: 4000, build: 4000, probe: 4000 });
 });
 
 test('a push needs the full price', () => {
@@ -193,4 +193,96 @@ test('moments sit in the light: in Home’s before any push, along the lobe grow
   assert.equal(lobe.tip, LOBE_START + lobe.lit);
   assert.ok(along > 0 && along <= lobe.tip && off <= lobeRadius(along, lobe.tip), `the week after sits in the lobe (along ${along}, off ${off})`);
   assert.deepEqual(reload().summary().moments, s.moments, 'and stays put');
+});
+
+// ---------------------------------------------------------------- pushing from a colony
+
+const PUSH0 = { kind: 'frontier', at: at(0), price: 4000, earnedAt: 0, ang: 0 };
+const VESTA = { kind: 'rocket', at: at(0), price: 4000, earnedAt: 0, planet: 'p0', name: 'Vesta' };
+const fromVesta = (ang, extra = {}) => ({ kind: 'frontier', at: at(0), price: 4000, earnedAt: 0, ang, from: 'p0', ...extra });
+/** How far a point is from the segment `a` → `b`. */
+const toSegment = (p, a, b) => {
+  const dx = b.x - a.x, dy = b.y - a.y, k = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy)));
+  return Math.hypot(p.x - a.x - k * dx, p.y - a.y - k * dy);
+};
+
+test('a push leaves from a colony, starting 30 px out from it', () => {
+  const { lobes, planets } = frontierOf([PUSH0, VESTA, fromVesta(Math.PI / 2)], 1e9, 7);
+  const p0 = planets.find((p) => p.id === 'p0'), l = lobes[1];
+  assert.deepEqual([l.from, l.ox, l.oy, l.start], ['p0', p0.x, p0.y, 30]);
+  assert.equal(l.tip, 30 + PUSH_LEN, 'lit all the way');
+  assert.deepEqual([lobes[0].from, lobes[0].ox, lobes[0].oy, lobes[0].start], ['home', 0, 0, LOBE_START]);
+  for (const q of planets.filter((q) => q.lobe === l)) assert.ok(toSegment(q, { x: l.ox, y: l.oy }, { x: l.ox, y: l.oy + l.tip }) < 20, 'out along the colony lobe');
+});
+
+test('pushes join only from the same place', () => {
+  const two = frontierOf([PUSH0, VESTA, fromVesta(0.1)], 1e9, 7).lobes;
+  assert.deepEqual(two.map((l) => [l.from, l.pushes.length]), [['home', 1], ['p0', 1]], 'a colony push near a Home lobe starts its own');
+  const joined = frontierOf([PUSH0, VESTA, fromVesta(0.1), fromVesta(0.15)], 1e9, 7).lobes;
+  assert.deepEqual(joined.map((l) => [l.from, l.pushes.length]), [['home', 1], ['p0', 2]]);
+});
+
+test('a push from a bare planet, an unknown place or a planet not found is refused', () => {
+  const bare = seeded({ tokens: { [key(at(0))]: credit(30_000) }, purchases: [PUSH0] });
+  for (const from of ['p0', 'p9', 'nowhere', 7]) {
+    assert.deepEqual(bare.world.buy({ kind: 'frontier', ang: 0, from }), { ok: false, error: 'Push from Home or one of your colonies.' }, String(from));
+  }
+  assert.equal(saved(bare.file).purchases.length, 1);
+});
+
+test('a push from a colony is kept with where it left from; one from Home keeps none', () => {
+  const { world, file } = seeded({ tokens: { [key(at(0))]: credit(30_000) }, purchases: [PUSH0, VESTA] });
+  assert.equal(world.buy({ kind: 'frontier', ang: 1, from: 'p0' }).ok, true);
+  assert.equal(world.buy({ kind: 'frontier', ang: 2, from: 'home' }).ok, true);
+  assert.equal(world.buy({ kind: 'frontier', ang: 3 }).ok, true);
+  const [a, b, c] = saved(file).purchases.slice(-3);
+  assert.equal(a.from, 'p0');
+  assert.ok(!('from' in b) && !('from' in c));
+  assert.deepEqual(world.summary().frontier.map((l) => l.from), ['home', 'p0', 'home', 'home']);
+});
+
+test('a push with no from is from Home, and the summary is as it was', () => {
+  const { world } = seeded({ tokens: { [key(at(0))]: credit(30_000) }, purchases: [PUSH0] });
+  assert.deepEqual(world.summary().frontier, [{ from: 'home', ang: 0, bought: PUSH_LEN, lit: PUSH_LEN, tip: LOBE_START + PUSH_LEN }]);
+});
+
+test('a moment along a colony lobe sits along that lobe', () => {
+  const tokens = {};
+  for (let d = 0; d < 5; d++) tokens[key(at(d))] = credit(2_000);
+  const { world } = seeded({ tokens, purchases: [PUSH0, VESTA, fromVesta(Math.PI / 2)], now: at(8) });
+  const s = world.summary(), p0 = s.planets.find((p) => p.id === 'p0'), l = s.frontier[1];
+  const week = s.moments.find((m) => m.kind === 'week');
+  assert.ok(week, 'the week is a moment');
+  assert.ok(toSegment(week, p0, { x: p0.x, y: p0.y + l.tip }) <= lobeRadius(l.tip, l.tip), 'inside the colony lobe');
+});
+
+// ---------------------------------------------------------------- dark walled in by light
+
+/** A 9×9 grid lit 1 on the square ring 3 cells from the middle, 0 elsewhere; `gap` leaves one cell of the ring dark. */
+function ring({ gap = false } = {}) {
+  const n = 9, g = new Float32Array(n * n);
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) if (Math.max(Math.abs(i - 4), Math.abs(j - 4)) === 3) g[j * n + i] = 1;
+  if (gap) g[1 * n + 4] = 0;
+  return { n, g };
+}
+
+test('a ring of light fills the dark inside it', () => {
+  const { n, g } = ring(), out = walledIn(g, n);
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const d = Math.max(Math.abs(i - 4), Math.abs(j - 4));
+    assert.equal(out[j * n + i], d <= 3 ? 1 : 0, `${i},${j}`);
+  }
+});
+
+test('a gap in the ring lets the dark out', () => {
+  const { n, g } = ring({ gap: true }), out = walledIn(g, n);
+  assert.equal(out[4 * n + 4], 0, 'the middle stays dark');
+  assert.equal(out[1 * n + 4], 0, 'and so does the gap');
+});
+
+test('light is never dimmed, and the grid passed in is left alone', () => {
+  const n = 5, g = new Float32Array(n * n).map((_, k) => (k % 3) * 0.4), before = [...g], out = walledIn(g, n);
+  assert.deepEqual([...g], before);
+  for (let k = 0; k < n * n; k++) assert.ok(out[k] >= g[k]);
+  for (let k = 0; k < n * n; k++) if (g[k] >= 0.3) assert.equal(out[k], g[k]);
 });

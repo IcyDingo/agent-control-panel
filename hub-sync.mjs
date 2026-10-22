@@ -63,7 +63,8 @@ export function createHubSync({ hub, projection, status, now = Date.now, timers 
     if (!hub.status().loggedIn) return;
     const summary = projection();
     if (!summary) return;
-    const valid = validProjection(publicProjection(summary));
+    const account = hub.status().account; // its spot: only the probes it sent leave
+    const valid = validProjection(publicProjection(summary, account ? { x: account.x, y: account.y } : null));
     if (!valid) { setError('The world could not be projected; nothing was sent.'); return; }
     const hash = crypto.createHash('sha256').update(JSON.stringify(valid)).digest('hex');
     const last = hub.lastSync();

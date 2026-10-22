@@ -1389,13 +1389,50 @@ function openWorld() {
   hubSync.schedule({ urgent: true });
   return { ok: true, world: worldSummary() };
 }
-/** Spend World's credit: push the frontier, or send a rocket (world.mjs decides the price and whether it can). */
+/** Spend World's credit: push the frontier (from Home or a colony), or send a rocket (world.mjs decides the price and
+ *  whether it can). */
 function buyInWorld(body) {
-  const r = world.buy({ kind: body?.kind, ang: body?.ang, planet: body?.planet, name: body?.name });
+  const r = world.buy({ kind: body?.kind, ang: body?.ang, from: body?.from, planet: body?.planet, name: body?.name });
   if (!r.ok) return r;
   broadcast();
   hubSync.schedule({ urgent: true });
   return { ok: true, world: worldSummary() };
+}
+/** Where the hub says a probe toward `ang` goes, `skip` being what this account found or has on the way (world.probe's
+ *  `find`). */
+async function findProbeTarget(ang, skip) {
+  const r = await hub.request('POST', '/api/me/probe', { body: { ang, skip } });
+  if (r.ok && r.body.target) return { ok: true, target: r.body.target };
+  return r.status === 404 && r.body.none ? { ok: false, none: true } : { ok: false, error: r.body.error ?? 'The hub could not be reached.' };
+}
+/** This account's spot in the Universe, or null signed out. */
+function mySpot() {
+  const a = hub.status().account;
+  return a ? { x: a.x, y: a.y } : null;
+}
+/** Send a probe: the hub aims it, World pays for it. */
+async function probeInWorld(body) {
+  const r = await world.probe({ ang: body?.ang, me: mySpot(), find: findProbeTarget });
+  if (!r.ok) return r;
+  broadcast();
+  hubSync.schedule({ urgent: true });
+  return { ok: true, caption: 'a probe is on its way', world: worldSummary() };
+}
+/** Whether a probe would find anyone now (the Probe card asks before its button can be pressed); nothing is bought. */
+async function probeReady() {
+  const me = mySpot();
+  if (!me || !world.started()) return { ok: true, ready: false };
+  const skip = (worldSummary().probes ?? []).filter((q) => q.by?.x === me.x && q.by?.y === me.y).map((q) => q.to);
+  const r = await findProbeTarget(0, skip);
+  return { ok: true, ready: r.ok, none: Boolean(r.none) };
+}
+/** The names of the galaxies at these spots (the ones this account's probes found), from the hub; none signed out. */
+async function foundGalaxies(body) {
+  const at = Array.isArray(body?.at) ? body.at.filter((c) => Number.isInteger(c?.x) && Number.isInteger(c?.y)).slice(0, 64) : [];
+  if (!at.length || !hub.status().loggedIn) return { ok: true, galaxies: [] };
+  const r = await hub.request('GET', `/api/systems/named?at=${at.map((c) => `${c.x},${c.y}`).join(';')}`);
+  // No answer is not "no one": the page keeps what it drew and asks again.
+  return r.ok && Array.isArray(r.body?.galaxies) ? { ok: true, galaxies: r.body.galaxies } : { ok: false, error: 'The hub could not be reached.' };
 }
 // The Claude calls behind Build it. `claude agents` lists one while it runs, so the roster and the hooks skip these.
 const quietIds = new Set();
@@ -1438,7 +1475,7 @@ function ownerStatus() {
   const w = worldSummary();
   if (!w.started) return null;
   return {
-    balance: w.balance, prices: { frontier: w.prices.frontier, rocket: w.prices.rocket, build: w.prices.build },
+    balance: w.balance, prices: { frontier: w.prices.frontier, rocket: w.prices.rocket, build: w.prices.build, probe: w.prices.probe },
     today: { credit: w.today.credit, commits: w.today.commits, added: w.today.added, removed: w.today.removed, tokens: w.today.tokens, multiplier: w.today.multiplier },
     home: { xp: w.home.xp, today: w.home.today }, building,
     mac: { name: os.hostname().slice(0, 40), online: true }, // the hub refuses a longer name
@@ -1447,7 +1484,7 @@ function ownerStatus() {
 const hubSync = createHubSync({ hub, projection: () => (world.started() ? worldSummary() : null), status: ownerStatus });
 /** An order from the hub's site, run like the panel's own buttons; only the outcome goes back. */
 async function runOrder(order) {
-  const r = order.kind === 'build' ? await buildInWorld(order) : buyInWorld(order);
+  const r = order.kind === 'build' ? await buildInWorld(order) : order.kind === 'probe' ? await probeInWorld(order) : buyInWorld(order);
   return { ok: r.ok, error: r.error, caption: r.caption };
 }
 // Each time the stream (re)connects, the account is asked for again: a handle changed on the site moves "Your page".
@@ -1687,7 +1724,8 @@ async function handle(req, res) {
                       '/api/folders': listFolders, '/api/folder': folderInfo, '/api/pick-folder': pickFolder,
                       '/api/profiles': profiles, '/api/profile': switchProfile, '/api/profile/connect': connectProfile,
                       '/api/answer-open': answerOpen, '/api/world/open': openWorld, '/api/world/buy': buyInWorld,
-                      '/api/world/build': buildInWorld, '/api/history': history,
+                      '/api/world/build': buildInWorld, '/api/world/probe': probeInWorld, '/api/world/probe-ready': probeReady,
+                      '/api/world/found': foundGalaxies, '/api/history': history,
                       '/api/trust-terminal': openTrustTerminal,
                       '/api/hub/status': () => ({ ok: true, hub: hubInfo() }), '/api/hub/login/start': hubLoginStart,
                       '/api/hub/login/cancel': hubLoginCancel, '/api/hub/logout': hubLogout, '/api/hub/sync': hubSyncNow };

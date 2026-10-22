@@ -574,3 +574,67 @@ test('an unlisted galaxy is reached by its link only: noindex on its page and AP
   assert.equal((await call('GET', `/api/systems/at?x=${me.x}&y=${me.y}`)).json.profile.handle, 'bob');
   assert.equal((await call('GET', '/@nobody-here')).headers.get('x-robots-tag'), null, 'an unknown handle is the plain shell');
 });
+
+// ---- probes ----
+
+/** Sign `name` in, give them a system (version `pv`), and return their token, cookie and spot. */
+async function synced(name, pv = PROJECTION_VERSION) {
+  const cookie = await login(name), token = await tokenFor(name), me = (await call('GET', '/api/me', { cookie })).json.account;
+  let snapshot = projection();
+  if (pv === 1) { snapshot = JSON.parse(JSON.stringify(snapshot)); snapshot.pv = 1; delete snapshot.probes; for (const l of snapshot.frontier) delete l.from; }
+  const r = await call('PUT', '/api/me/system', { token, body: { pv, seq: clock++, device: 'Studio', snapshot } });
+  assert.equal(r.status, 200, r.text);
+  return { cookie, token, me };
+}
+
+test('a probe asks the hub where to go: a listed galaxy with a system, never yourself, until no one is left', async () => {
+  const pia = await synced('pia'), quin = await synced('quin'), rue = await synced('rue');
+  assert.equal((await call('PATCH', '/api/me/profile', { cookie: rue.cookie, origin: ORIGIN, body: { visibility: 'unlisted' } })).status, 200);
+  assert.equal((await call('POST', '/api/me/probe', { body: { ang: 0, skip: [] } })).status, 401);
+  for (const body of [{ ang: 'east', skip: [] }, { ang: 0 }, { ang: 0, skip: [{ x: 1.5, y: 0 }] }, { ang: 0, skip: Array(513).fill({ x: 0, y: 0 }) }]) {
+    assert.equal((await call('POST', '/api/me/probe', { token: pia.token, body })).status, 422, JSON.stringify(body));
+  }
+  const skip = [], found = [];
+  for (let i = 0; i < 50; i++) {
+    const r = await call('POST', '/api/me/probe', { token: pia.token, body: { ang: i, skip } });
+    if (r.status === 404) { assert.deepEqual(r.json, { ok: false, none: true, error: "There's no one new to find yet." }); break; }
+    assert.equal(r.status, 200, r.text);
+    const { x, y, handle } = r.json.target;
+    assert.notEqual(handle, 'pia');
+    assert.notEqual(handle, 'rue', 'never an unlisted galaxy');
+    assert.equal((await call('GET', `/api/systems/at?x=${x}&y=${y}`)).json.profile.handle, handle, 'a listed galaxy, where it says');
+    skip.push({ x, y }); found.push(handle);
+  }
+  assert.ok(found.includes('quin'), `found ${found}`);
+  assert.equal(new Set(found).size, found.length, 'never the same one twice');
+  void quin;
+});
+
+test('the names of found galaxies: listed ones with a system only', async () => {
+  const sal = await synced('sal'), tod = await synced('tod');
+  const hidden = await login('uma');
+  const uma = (await call('GET', '/api/me', { cookie: hidden })).json.account;
+  const at = (spots) => call('GET', `/api/systems/named?at=${spots.map((c) => `${c.x},${c.y}`).join(';')}`);
+  const r = await at([sal.me, tod.me, uma, { x: 999_999, y: 1 }]);
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.json.galaxies.map((g) => g.handle), ['sal', 'tod'], 'Uma has no system; nobody lives at the last');
+  assert.deepEqual(Object.keys(r.json.galaxies[0]), ['x', 'y', 'handle', 'name', 'avatar', 'look']);
+  assert.equal((await call('PATCH', '/api/me/profile', { cookie: tod.cookie, origin: ORIGIN, body: { visibility: 'unlisted' } })).status, 200);
+  assert.deepEqual((await at([sal.me, tod.me])).json.galaxies.map((g) => g.handle), ['sal'], 'unlisted: not named');
+  for (const q of ['', 'x', '1,2;3', '1.5,2', Array.from({ length: 65 }, (_, i) => `${i},0`).join(';')]) {
+    assert.equal((await call('GET', `/api/systems/named?at=${q}`)).status, 422, q);
+  }
+});
+
+test('probe and colony-push orders wait for a Mac on version 2', async () => {
+  const old = await synced('vic', 1);
+  const place = (body) => call('POST', '/api/me/orders', { cookie: old.cookie, origin: ORIGIN, body });
+  assert.deepEqual([(await place({ kind: 'probe', ang: 0 })).status, (await place({ kind: 'probe', ang: 0 })).json.error], [409, 'Update the panel on your Mac to send a probe.']);
+  assert.deepEqual((await place({ kind: 'frontier', ang: 0, from: 'p0' })).json.error, 'Update the panel on your Mac to push from a colony.');
+  const home = await place({ kind: 'frontier', ang: 0, from: 'home' });
+  assert.equal(home.status, 200, 'a push from Home is fine');
+  assert.equal((await call('POST', `/api/me/orders/${home.json.order.id}/done`, { token: old.token, body: { ok: true } })).status, 200);
+  await synced('vic', 2);
+  const probe = await place({ kind: 'probe', ang: 0 });
+  assert.equal(probe.status, 200, probe.text);
+});

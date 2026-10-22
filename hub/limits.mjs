@@ -14,6 +14,8 @@ export const RATES = {
   status: [30, 60_000], // a Mac pushing its status; per account
   order: [10, 60_000], // placing an order; per account
   order_step: [30, 60_000], // claiming or finishing one; per account
+  probe: [30, 60_000], // a Mac asking where a probe goes; per account
+  named: [60, 60_000], // the names of found galaxies; per address
 };
 export const PRUNE_AT = 5000;
 

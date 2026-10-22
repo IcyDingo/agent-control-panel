@@ -26,7 +26,7 @@ const PRIVATE = ['earned', 'spent', 'balance', 'prices', 'today', 'xp', 'noEmail
 
 test('the projection has exactly the public keys and nothing private in its text', () => {
   const s = rich(), p = publicProjection(s), text = JSON.stringify(p);
-  assert.deepEqual(Object.keys(p), ['pv', 'seed', 'since', 'daysActive', 'worked', 'home', 'reach', 'sun', 'frontier', 'planets', 'moments', 'builds']);
+  assert.deepEqual(Object.keys(p), ['pv', 'seed', 'since', 'daysActive', 'worked', 'home', 'reach', 'sun', 'frontier', 'planets', 'moments', 'builds', 'probes']);
   assert.deepEqual(p.worked, Array.from({ length: 21 }, (_, d) => key(at(d))), 'the days with work in them, oldest first');
   assert.deepEqual(Object.keys(p.home), ['level', 'stage']);
   for (const word of PRIVATE) assert.equal(text.includes(word), false, `leaks ${word}`);
@@ -40,6 +40,15 @@ test('the projection has exactly the public keys and nothing private in its text
   assert.deepEqual(Object.keys(p.moments.find((m) => m.kind === 'cleanup')), ['id', 'kind', 'name', 'day', 'x', 'y']);
   assert.equal(publicProjection({ started: false }), null);
   assert.equal(publicProjection(undefined), null);
+});
+
+test('a version 1 projection still reads, every lobe from Home and no probes', () => {
+  const v2 = publicProjection(rich()), v1 = JSON.parse(JSON.stringify(v2));
+  v1.pv = 1; delete v1.probes;
+  for (const l of v1.frontier) delete l.from;
+  assert.deepEqual(validProjection(v1), { ...v2, probes: [] });
+  v1.frontier[0].from = 'home';
+  assert.equal(validProjection(v1), null, 'version 1 has no places');
 });
 
 test('a brand-new World projects: no purchases, no frontier, level 1', () => {
@@ -91,7 +100,7 @@ test('the validator refuses what the renderer must never see', () => {
   const good = publicProjection(rich()), copy = () => JSON.parse(JSON.stringify(good));
   const bad = (mutate, why) => { const p = copy(); mutate(p); assert.equal(validProjection(p), null, why); };
   bad((p) => { p.extra = 1; }, 'an extra key');
-  bad((p) => { p.pv = 2; }, 'another version');
+  bad((p) => { p.pv = 3; }, 'another version');
   bad((p) => { p.seed = 2 ** 31; }, 'seed out of range');
   bad((p) => { p.seed = 1.5; }, 'seed not an integer');
   bad((p) => { p.since = '2026-1-1'; }, 'a malformed day');
@@ -108,7 +117,13 @@ test('the validator refuses what the renderer must never see', () => {
   bad((p) => { p.builds[0].on = 'p9'; }, 'a build on a planet that is not there');
   bad((p) => { p.builds[0].pieces[0].kind = 'volcano'; }, 'a piece off the catalogue');
   bad((p) => { p.builds = Array.from({ length: 1001 }, (_, i) => ({ ...p.builds[0], id: `b${i}` })); }, '1001 builds');
-  bad((p) => { p.frontier = Array.from({ length: 65 }, () => p.frontier[0] ?? { ang: 0, bought: 150, lit: 0, tip: 60 }); }, '65 lobes');
+  bad((p) => { p.frontier = Array.from({ length: 65 }, () => p.frontier[0] ?? { from: 'home', ang: 0, bought: 150, lit: 0, tip: 60 }); }, '65 lobes');
+  bad((p) => { p.frontier[0].from = 'p9'; }, 'a lobe from a planet that is not in the projection');
+  bad((p) => { delete p.frontier[0].from; }, 'a version 2 lobe without its place');
+  bad((p) => { p.probes = [{ ang: 0, progress: 0.5, to: { x: 1, y: 2 } }]; }, 'a probe target before arrival');
+  bad((p) => { p.probes = [{ ang: 0, progress: 1, to: { x: 1.5, y: 2 } }]; }, 'a target off the spiral');
+  bad((p) => { p.probes = [{ ang: 0, progress: 2 }]; }, 'a probe past its target');
+  bad((p) => { p.probes = [{ ang: 0, progress: 0.5, handle: 'kim' }]; }, 'a probe carrying anything else');
   bad((p) => { p.moments[0].kind = 'secret'; }, 'a moment kind off the list');
   bad((p) => { p.moments[0].info = { credit: 1 }; }, 'a moment carrying info');
   bad((p) => { p.builds[0].caption = 'x'.repeat(81); }, 'an 81-letter caption is refused, not cut');

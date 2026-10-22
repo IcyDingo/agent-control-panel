@@ -429,16 +429,19 @@ today's XP; the board says so when Home reaches a new level.
   `~/Library/Application Support/Agent Panel/world/world.json`. Git is only read.
 
 **The rail** on World's right has a button for each thing you can do or look at: **Profile**, **Build**, **Send a
-rocket**, **Push the frontier**, **Moments** and **Today's work**. Each opens its card beside the rail, one at a time;
+rocket**, **Push the frontier**, **Send a probe** (signed in to the hub), **Moments** and **Today's work**. Each opens its card beside the rail, one at a time;
 click its button again, or ×, and the map has the whole window. World opens on Build the first time, then on the card
 you had open last. A dot on the rocket means the frontier found a planet for a colony. Profile shows your last 100
 days as a mosaic, a square a day and amber when your agents worked, signed in or not.
 
-**Push the frontier** to spend credit. Pick a direction (from the list, or **Aim on the map**) and the dark that way
-lights up as you keep working: a push opens 150 px of map and is fully lit after 3,000 more credit earned, about ten
-normal days. A push within 20° of an earlier one makes that stretch longer. The first push always finds a planet and
-each later one finds one half the time; it shows once the light reaches it, and a click flies there. A push
-costs 4,000, every time. Light never goes back, even when a day's multiplier moves.
+**Push the frontier** to spend credit. Pick where it leaves from, Home or one of your colonies (a chip each; the map
+flies there), then a direction (from the list, or **Aim on the map**) and the dark that way lights up as you keep
+working: a push opens 150 px of map and is fully lit after 3,000 more credit earned, about ten normal days. A push
+from a colony starts at the colony, so the map grows branches out to where you settled. A push from the same place
+within 20° of an earlier one makes that stretch longer. Dark that the light walls in all round counts as lit, so
+three branches that close a triangle fill it. The first push always finds a planet and each later one finds one half
+the time; it shows once the light reaches it, and a click flies there. A push costs 4,000, every time. Light never
+goes back, even when a day's multiplier moves.
 
 **Moments** mark the map where they happened: each finished week with work (Monday to Sunday), each finished day that
 removed 500 lines or more and more than it added ("Big cleanup"), and each Home level from 3 up. The Moments card lists
@@ -465,8 +468,8 @@ board shows, with hooks off, no tools, MCP servers or slash commands, and no ses
 ## Hub
 
 The hub is a small website that gives each panel a page of its own: your galaxy, drawn the way World draws it, which
-anyone with your handle or link can open. Your galaxy has fixed coordinates on the hub, shown on your page; a map of
-everyone's suns is the next slice.
+anyone with your handle or link can open. Your galaxy has fixed coordinates on the hub, shown on your page, and
+other people's galaxies are out there around it, to be found with probes (below).
 You choose whether to sign in. The Mac sends nothing to the hub until it is signed in (by the one line run from the
 Download page while signed in, by `node server.mjs login`, or from the panel's Profile box), except the worker's
 daily release check: a plain GET with no token, followed by a download from GitHub. The panel's own work stays local
@@ -490,6 +493,9 @@ service picks it up.
 
 - Your planets, the colonies on them with their names, your builds with their captions and pieces, your moments (with
   their day and kind), Home's level and stage, how many days you have been active, which of the last 100 days had work in them, and your sun.
+- Your probes: the direction each was sent, how far along it is, and, once it has arrived, the galaxy it found. Your
+  page shows its own Universe, so anyone on it sees the galaxies you found. To aim a probe the hub is told its
+  direction and the galaxies you have already found.
 - A small profile you write on the hub: your name, a bio, a link. Your GitHub handle and picture come with it. On the
   same page you can set your galaxy to **unlisted**: it still opens for anyone with the link, but search engines are
   told to leave it out and it cannot be found by its coordinates.
@@ -503,12 +509,22 @@ today's numbers, whether a build is running, and the Mac's name. That is shown o
 The panel sends about ten seconds after something changes, a second after a purchase or an order, and once every
 30 minutes otherwise, so your page knows the Mac is still there. A hub that is down never slows the panel: it tries again later.
 
+**The Universe** is the zoom past **Map**, signed in: your galaxy, drawn as a small spiral, in the dark. You start
+alone and find the others by sending probes from the **Send a probe** card. Pick a direction (from the list, or **Aim
+on the map**) and the hub aims the probe at the nearest galaxy that way you haven't found: the nearest within 60° of
+where you pointed, or if there is none, the nearest anywhere. A probe costs 4,000 and arrives after 3,000 more credit
+earned; on its way it shows as a dot heading out the way you sent it. When it arrives that galaxy appears, with its
+handle, and a click opens its page. A probe always finds someone; if there is no one left to find, the card says so
+and nothing is spent. Unlisted galaxies are never found, and a galaxy that is found isn't told. Signed out, there is
+no Universe.
+
 **Your page** is `<hub>/@handle`. `<hub>/me` is where you edit your profile: handle, name, bio, link, and whether you are
 listed. Unlisted asks search engines not to index your page; a link still opens it.
 
-**Spending from your page.** Signed in on the hub, you can push the frontier, send a rocket and build from your page,
-and your Mac does it: **Your orders** on the page's rail, which only you see, has Build, Rocket and Push as tabs, and
-Build's chips fly the map to the planet the build goes on. An order from the site goes through the same code as the panel's buttons, so the same prices
+**Spending from your page.** Signed in on the hub, you can push the frontier, send a rocket, build and send a probe
+from your page, and your Mac does it: **Your orders** on the page's rail, which only you see, has Build, Rocket, Push
+and Probe as tabs, and the Build and Push chips fly the map to the place the build goes on or the push leaves from.
+A Mac whose panel predates probes is asked for neither a probe nor a push from a colony: update it first. An order from the site goes through the same code as the panel's buttons, so the same prices
 and rules apply, and the page shows what happened, or the Mac's own sentence when it said no ("It costs 4,000 credit,
 and you have 3,200."). One order at a time. With two Macs signed in to one account, an order is run by whichever
 signed-in Mac claims it first, and an order whose Mac went away while running it is released after an hour. If the
