@@ -28,8 +28,6 @@ Goals:
 Non-goals this round:
 - Telling a galaxy it was found (no notification system exists yet; "@you's probe reached you" is a later step).
 - An in-app visit mode. A found galaxy opens its page on the hub in the browser **(call)**.
-- Probes from the site's owner orders. Probes are bought in the app only **(call: keeps the first round small; an
-  order tab can follow)**.
 - 3D, and a fly-through view **(owner)**.
 
 Anti-goals:
@@ -135,6 +133,14 @@ page on the same site. This is what lets pages link to each other **(owner)**. A
 and handle, and probes in flight as moving lights without their target; nothing private (no balance, no credit) is
 shown **(call)**.
 
+**Sending a probe from the page** **(owner)**. The owner's **Your orders** card gets a fourth tab, **Probe**, beside
+Build, Rocket and Push: the same eight directions (and **Aim on the map** on the page's Universe view), the price, and
+**Send a probe**. It places an order `{ kind: 'probe', ang }` that the Mac runs like the others: it asks the hub for the
+target and buys, exactly as from the app. The page does not check beforehand whether anyone is left to find (the hub
+does not know where probes in flight are headed); if no one is, the order fails with "There's no one new to find yet.
+Nothing was spent." **(call)**. Like a push from a colony, the tab shows only when the owner's stored projection is
+version 2, and the hub refuses a probe order while it is version 1.
+
 ## The hub side
 
 - **Finding a target**: a new authenticated call from the Mac (token, like `PUT /api/me/system`), given the direction
@@ -151,7 +157,8 @@ shown **(call)**.
 - **Orders**: a `frontier` order may carry `from` (section 1). A Mac not yet updated would ignore `from` and push from
   Home, spending 4,000 on the wrong push. So the page shows the "Push from" chips only when the owner's stored
   projection is version 2, and the hub refuses a `from` other than `'home'` while it is version 1 ("Update the panel
-  on your Mac to push from a colony.") **(call)**.
+  on your Mac to push from a colony.") **(call)**. A `probe` order (`{ ang }`) is a new kind, refused the same way
+  while the projection is version 1.
 
 ## Where it lives
 
