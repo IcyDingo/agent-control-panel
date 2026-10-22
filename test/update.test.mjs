@@ -6,9 +6,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
-import { workerOf, markStarted, rolledBack, prune, checkForUpdate } from '../update.mjs';
+import { generateKeyPairSync } from 'node:crypto';
+import { workerOf, markStarted, rolledBack, prune, checkForUpdate, releaseOf, writeRelease, recordCheck, lastCheck } from '../update.mjs';
+import { rawPublicKey, signRelease } from '../release-keys.mjs';
 
 const A = '1'.repeat(40), B = '2'.repeat(40);
+// The release keys of these tests are made here, so no key is committed; B is release N, signed by the one key.
+const { publicKey, privateKey } = generateKeyPairSync('ed25519');
+const PUB = rawPublicKey(publicKey), N = 5, SIG = signRelease(N, B, privateKey);
 // The only place a release is fetched from, whatever the hub's answer says.
 const ARCHIVE = `https://codeload.github.com/IcyDingo/agent-control-panel/tar.gz/${B}`;
 // Where the worker asks GitHub whether B is on main.
@@ -52,11 +57,11 @@ function hub(release, bytes = null, compare = () => json({ status: 'behind' })) 
   fn.calls = calls;
   return fn;
 }
-const names = (sha) => json({ ok: true, sha, url: 'http://hub.test/archive.tgz' });
+const names = (sha, extra = {}) => json({ ok: true, sha, n: N, sigs: [SIG], url: 'http://hub.test/archive.tgz', ...extra });
 
 function check(w, fetch) {
   const exits = [], logs = [];
-  const result = checkForUpdate({ worker: w, hubUrl: 'http://hub.test', fetch, run, exit: (c) => exits.push(c), log: (m) => logs.push(m) });
+  const result = checkForUpdate({ worker: w, hubUrl: 'http://hub.test', fetch, run, keys: [PUB], exit: (c) => exits.push(c), log: (m) => logs.push(m) });
   return result.then((r) => ({ ...r, exits, logs }));
 }
 const leftovers = (dir) => fs.readdirSync(dir).filter((n) => n.endsWith('.tgz') || n.endsWith('.tmp'));
@@ -73,7 +78,7 @@ test('the same sha does nothing but prune', async () => {
   const w = worker();
   fs.mkdirSync(path.join(w.dir, '3'.repeat(40)));
   fs.mkdirSync(path.join(w.dir, `${B}.tmp`));
-  const r = await check(w, hub(names(A)));
+  const r = await check(w, hub(names(A, { sigs: [signRelease(N, A, privateKey)] })));
   assert.equal(r.outcome, 'current');
   assert.equal(fs.existsSync(path.join(w.dir, '3'.repeat(40))), false);
   assert.deepEqual(leftovers(w.dir), []);
@@ -132,7 +137,7 @@ test('when GitHub does not answer the compare, nothing is downloaded', async () 
 
 test("the release is fetched from GitHub's archive for that commit, never from the address the hub gives", async () => {
   const w = worker();
-  const fetch = hub(json({ ok: true, sha: B, url: 'http://elsewhere.test/archive.tgz' }), archive(`agent-control-panel-${B}`));
+  const fetch = hub(names(B, { url: 'http://elsewhere.test/archive.tgz' }), archive(`agent-control-panel-${B}`));
   const r = await check(w, fetch);
   assert.equal(r.outcome, 'switched');
   assert.equal(fetch.calls.some((c) => c.url.startsWith('http://elsewhere.test')), false);
@@ -202,4 +207,53 @@ test('markStarted and rolledBack read and write their one-line files', () => {
   assert.equal(rolledBack(w.dir), null);
   fs.writeFileSync(path.join(w.dir, 'rolled-back'), `${B} 2026-10-22T10:00:00Z\n`);
   assert.deepEqual(rolledBack(w.dir), { sha: B, at: '2026-10-22T10:00:00Z' });
+});
+
+test('a release the keys did not sign is an error with no compare and no download', async () => {
+  const w = worker();
+  for (const bad of [{ sigs: [] }, { sigs: ['x'.repeat(86)] }, { sigs: undefined }, { n: '5' }, { n: 5.5 }, { n: 0 }, { sigs: SIG }]) {
+    const fetch = hub(names(B, bad), archive(`agent-control-panel-${B}`));
+    const r = await check(w, fetch);
+    assert.deepEqual([r.outcome, r.error], ['error', `Release ${B.slice(0, 7)} is not signed by a known key.`], JSON.stringify(bad));
+    assert.equal(fetch.calls.length, 1, 'only the hub was asked');
+    assert.equal(fs.existsSync(path.join(w.dir, 'switch')), false);
+  }
+  const other = generateKeyPairSync('ed25519');
+  const fetch = hub(names(B, { sigs: [signRelease(N, B, other.privateKey)] }), archive(`agent-control-panel-${B}`));
+  assert.equal((await check(w, fetch)).error, `Release ${B.slice(0, 7)} is not signed by a known key.`, 'an unknown key');
+  assert.equal((await checkForUpdate({ worker: w, hubUrl: 'http://hub.test', fetch: hub(names(B)), run, keys: [], exit: () => {}, log: () => {} })).outcome, 'error', 'no keys, nothing installs');
+});
+
+test('a release numbered below the one on record is an error; the record is written at a switch and rewritten after corruption', async () => {
+  const w = worker();
+  writeRelease(w.dir, A, 9);
+  const fetch = hub(names(B), archive(`agent-control-panel-${B}`));
+  const r = await check(w, fetch);
+  assert.deepEqual([r.outcome, r.error], ['error', `Release ${B.slice(0, 7)} is older than the one running.`]);
+  assert.equal(fetch.calls.length, 1);
+  for (const junk of ['garbage\n', `${A}\n`, `${A} x\n`, '']) {
+    fs.writeFileSync(path.join(w.dir, 'release'), junk);
+    assert.equal(releaseOf(w.dir), null, JSON.stringify(junk));
+  }
+  const ok = await check(w, hub(names(B), archive(`agent-control-panel-${B}`)));
+  assert.equal(ok.outcome, 'switched', 'a corrupt record is no floor');
+  assert.deepEqual(releaseOf(w.dir), { sha: B, n: N });
+});
+
+test('the same sha records its number the first time, so a fresh install gets a floor at its first check', async () => {
+  const w = worker();
+  const r = await check(w, hub(names(A, { sigs: [signRelease(N, A, privateKey)] })));
+  assert.equal(r.outcome, 'current');
+  assert.deepEqual(releaseOf(w.dir), { sha: A, n: N });
+});
+
+test('recordCheck and lastCheck keep the last outcome and its sentence', () => {
+  const w = worker();
+  assert.equal(lastCheck(w.dir), null);
+  recordCheck(w.dir, { outcome: 'error', error: 'Release 2222222 is not signed by a known key.' }, () => Date.parse('2026-10-22T10:00:00Z'));
+  assert.deepEqual(lastCheck(w.dir), { at: '2026-10-22T10:00:00.000Z', outcome: 'error', error: 'Release 2222222 is not signed by a known key.' });
+  recordCheck(w.dir, { outcome: 'current' });
+  assert.equal(lastCheck(w.dir).outcome, 'current');
+  fs.writeFileSync(path.join(w.dir, 'last-check'), '{');
+  assert.equal(lastCheck(w.dir), null);
 });

@@ -8,6 +8,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { RELEASE_KEYS, validN, verifyRelease } from './release-keys.mjs';
 
 export const SHA_RE = /^[0-9a-f]{40}$/;
 // A release is fetched from GitHub's archive of this repository, never from an address the hub gives: the hub only names
@@ -66,6 +67,34 @@ export function prune(worker) {
   }
 }
 
+/** The release this worker last proved, from `release` (`<sha> <n>`), or null when it is missing or not that. */
+export function releaseOf(dir) {
+  const [sha, n, ...more] = (read(path.join(dir, 'release')) ?? '').trim().split(/\s+/);
+  return SHA_RE.test(sha ?? '') && /^[0-9]+$/.test(n ?? '') && !more.length && validN(Number(n)) ? { sha, n: Number(n) } : null;
+}
+
+/** Records the release number this worker runs. It is written beside and renamed over, like `switch`. */
+export function writeRelease(dir, sha, n) {
+  fs.writeFileSync(path.join(dir, 'release.new'), `${sha} ${n}\n`);
+  fs.renameSync(path.join(dir, 'release.new'), path.join(dir, 'release'));
+}
+
+/** Keeps the outcome of the last check (`last-check`, JSON), so `status` and the panel can say what happened. */
+export function recordCheck(dir, result, now = Date.now) {
+  const { outcome, sha, error } = result;
+  const record = { at: new Date(now()).toISOString(), outcome, ...(sha !== undefined && { sha }), ...(error !== undefined && { error }) };
+  fs.writeFileSync(path.join(dir, 'last-check.new'), JSON.stringify(record) + '\n');
+  fs.renameSync(path.join(dir, 'last-check.new'), path.join(dir, 'last-check'));
+}
+
+/** The record `recordCheck` made, or null when there is none or it cannot be read. */
+export function lastCheck(dir) {
+  try {
+    const record = JSON.parse(read(path.join(dir, 'last-check')));
+    return record && typeof record === 'object' && !Array.isArray(record) ? record : null;
+  } catch { return null; }
+}
+
 const errorOf = (err) => String(err?.message ?? err);
 
 /** Null when `sha` is on main (GitHub's compare of main with it says `identical` or `behind`), else the error to report.
@@ -82,10 +111,10 @@ async function notOnMain(sha, fetch) {
   return res.ok || res.status === 404 ? `Release ${sha.slice(0, 7)} is not on main.` : 'GitHub did not answer.';
 }
 
-/** Asks the hub for its release and switches to it when it is not the running one. The outcome says what happened:
- * `off` (updates are turned off), `current` (already running it), `held` (the launcher rolled this release back, so it is
+/** Asks the hub for its release and switches to it when a known key signed it, it is not the running one, and its number is
+ * not below the one on record. The outcome says what happened: `off` (updates are turned off), `current` (already running it), `held` (the launcher rolled this release back, so it is
  * not tried again), `switched` (exit has been called), or `error`. */
-export async function checkForUpdate({ worker, hubUrl, fetch = globalThis.fetch, run, now = Date.now, exit = (c) => process.exit(c), log = console.log }) {
+export async function checkForUpdate({ worker, hubUrl, fetch = globalThis.fetch, run, keys = RELEASE_KEYS, now = Date.now, exit = (c) => process.exit(c), log = console.log }) {
   const { dir } = worker;
   if (!autoUpdate(dir)) return { outcome: 'off' };
 
@@ -95,10 +124,20 @@ export async function checkForUpdate({ worker, hubUrl, fetch = globalThis.fetch,
     release = await res.json().catch(() => null);
     if (!res.ok || !release?.ok) return { outcome: 'error', error: release?.error ?? `The hub answered ${res.status}.` };
   } catch (err) { return { outcome: 'error', error: errorOf(err) }; }
-  const { sha } = release;
+  const { sha, n, sigs } = release;
   if (!SHA_RE.test(sha ?? '')) return { outcome: 'error', error: 'The hub named no release.' };
-  if (sha === worker.sha) { prune(worker); return { outcome: 'current' }; }
+  // Nothing is fetched, compared or written for a release no known key signed.
+  if (!verifyRelease(n, sha, sigs, keys)) return { outcome: 'error', error: `Release ${sha.slice(0, 7)} is not signed by a known key.` };
+  // The number on record is a floor: a signature over an old release stays valid forever, so the number is what stops
+  // someone holding a key from pointing a worker back at a release with a known flaw.
+  const floor = releaseOf(dir);
+  if (sha === worker.sha) {
+    if (!floor || floor.n < n) { try { writeRelease(dir, sha, n); } catch {} }
+    prune(worker);
+    return { outcome: 'current' };
+  }
   if (rolledBack(dir)?.sha === sha) return { outcome: 'held', sha };
+  if (floor && floor.n > n) return { outcome: 'error', error: `Release ${sha.slice(0, 7)} is older than the one running.` };
   const off = await notOnMain(sha, fetch);
   if (off) return { outcome: 'error', error: off };
 
@@ -128,6 +167,7 @@ export async function checkForUpdate({ worker, hubUrl, fetch = globalThis.fetch,
     made.push(swNew, sw);
     fs.writeFileSync(swNew, `${sha} ${worker.sha} 0\n`);
     fs.renameSync(swNew, sw);
+    writeRelease(dir, sha, n);
     // A new link renamed over the old one replaces the link itself in one step; `current` is never missing or half made.
     remove(link);
     made.push(link);
