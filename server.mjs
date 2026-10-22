@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { execFile, spawn } from 'node:child_process';
 import { createWorld, claudeArgs, readAnswer } from './world.mjs';
 import { findRemoved } from './versions.mjs';
+import { readChat } from './history.mjs';
 
 const PORT = Number(process.env.ACP_PORT ?? 4747);
 const ROSTER_MS = 3000;
@@ -658,6 +659,13 @@ function lastSaid(sessionId) {
     if (text) return text;
   }
   return null;
+}
+/** A session's conversation for the panel's chat, newest last; asking for more reads further back. */
+async function history(body) {
+  const file = transcriptFile(body?.sessionId);
+  if (!file) return { ok: false, error: 'Its transcript is not in this profile.' };
+  const limit = Number.isInteger(body?.limit) ? Math.min(2000, Math.max(20, body.limit)) : 60;
+  return { ok: true, ...(await readChat(file, { limit })) };
 }
 const atPrompt = (s) => Boolean(s.inRoster && s.status === 'busy' && !isEnded(s)
   && !hasRunningSub(s) && turnIsOver(s.sessionId));
@@ -1518,7 +1526,7 @@ async function handle(req, res) {
                       '/api/folders': listFolders, '/api/folder': folderInfo, '/api/pick-folder': pickFolder,
                       '/api/profiles': profiles, '/api/profile': switchProfile, '/api/profile/connect': connectProfile,
                       '/api/answer-open': answerOpen, '/api/world/open': openWorld, '/api/world/buy': buyInWorld,
-                      '/api/world/build': buildInWorld };
+                      '/api/world/build': buildInWorld, '/api/history': history };
     if (Object.hasOwn(ACTIONS, url.pathname)) {
       let r;
       try { r = await ACTIONS[url.pathname](body); } catch (err) { r = { ok: false, error: String(err?.message ?? err).slice(0, 300) }; }

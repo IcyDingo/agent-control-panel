@@ -36,8 +36,12 @@ keeps its count and the name of its newest session; the panel remembers what you
 with Idle and Finished folded. Drag the rail's right edge to widen it (double-click for the default).
 Each session is a tile with its name, how many subagents it's running, its age, and one line saying
 what it's doing or what it last said. Click a tile to open its panel in the rest of the window. The
-panel holds what it's asking, what it's doing now, a reply box, and its subagents, each titled with
-the task its parent gave it. When the open session goes away, the top of Needs you takes its place;
+panel reads like a chat: its name and what you can do on top, the conversation in the middle, and
+what it's asking, what it's doing now and the box to write in pinned along the bottom. The chat keeps
+to reading width on a big screen. **Details** folds away its folder and branch, and **Expand** gives it
+the whole window (**Collapse** brings the board back). Its subagents, each titled with the task its
+parent gave it, get a column on the right when the panel is wide (its tab folds it to a strip) and sit
+under the conversation when it isn't. When the open session goes away, the top of Needs you takes its place;
 close it yourself and the space offers that one instead. On a narrow window the rail takes the width
 and an open session covers it.
 
@@ -208,9 +212,16 @@ your words.
 
 ## Messaging a session
 
-Every session's panel has a **Chat**: its last reply, what you sent it from here, and a message box
-with the session's mode and **Send** along its bottom. When its last reply ends with a numbered or
-lettered list, each option shows as a chip that fills the box; add to it if you like.
+Every session's panel has a **Chat**: the conversation so far, read from its transcript, with a message
+box with the session's mode and **Send** along its bottom. Each of your messages shows with the reply
+Claude ended on (not its running commentary between tool calls); **Show earlier** reads further back,
+and a compacted stretch shows as a note. It opens at the newest message and keeps it in view as more
+arrive, unless you scrolled up to read. When its last reply ends with a numbered or lettered list,
+each option shows as a chip that fills the box; add to it if you like.
+
+**Enter** sends at once: the message leaves the box and shows in the chat as sending. If it doesn't
+go through, it goes back into the box (ahead of anything you typed since) and the panel says why.
+Shift+Enter starts a new line.
 How a message gets in depends on the kind of session, because only Claude Code's own ways in count
 as you: text a hook hands back reaches the model as hook output, and it rightly won't take
 instructions from that.
