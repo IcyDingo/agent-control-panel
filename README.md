@@ -418,8 +418,8 @@ days as a mosaic, a square a day and amber when your agents worked, signed in or
 **Push the frontier** to spend credit. Pick a direction (from the list, or **Aim on the map**) and the dark that way
 lights up as you keep working: a push opens 150 px of map and is fully lit after 3,000 more credit earned, about ten
 normal days. A push within 20° of an earlier one makes that stretch longer. The first push always finds a planet and
-each later one finds one half the time; it shows once the light reaches it, and a click flies there. The first push
-costs 4,000, and each one after costs a quarter more. Light never goes back, even when a day's multiplier moves.
+each later one finds one half the time; it shows once the light reaches it, and a click flies there. A push
+costs 4,000, every time. Light never goes back, even when a day's multiplier moves.
 
 **Moments** mark the map where they happened: each finished week with work (Monday to Sunday), each finished day that
 removed 500 lines or more and more than it added ("Big cleanup"), and each Home level from 3 up. The Moments card lists
@@ -428,7 +428,7 @@ the newest; a click on one, or on its star, opens it there with what was done an
 **Send a rocket** to a bare planet the frontier found, and name the colony it lands (up to 24 letters, digits,
 spaces, apostrophes or hyphens; not Home, and not another colony's name). The view pulls out, the rocket flies from
 where you are, and the view flies in to the colony; with reduced motion it goes straight there. Colonies have a
-button each beside **Home** and **Map**. A rocket costs 8,000 at first, and each one after costs a quarter more.
+button each beside **Home** and **Map**. A rocket costs 4,000, every time.
 
 **Build** on Home or a colony: pick it in the Build card (a chip each, or its button beside **Home** and **Map**; either
 flies there), describe it (up to 300 characters) and press **Build on** it, or Enter. Claude turns the

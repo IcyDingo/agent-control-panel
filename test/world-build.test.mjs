@@ -128,12 +128,12 @@ test('Claude is not asked when the build could not be bought anyway', async () =
 });
 
 test('one build at a time, and the balance is checked again when the answer comes', async () => {
-  const { world, file } = seeded({ earned: 20_000 }); // 8,000 to spend
+  const { world, file } = seeded({ earned: 19_000 }); // 7,000 to spend
   let answer;
   const slow = () => new Promise((resolve) => { answer = resolve; });
   const first = world.build({ on: 'home', description: 'rings', ask: slow });
   assert.deepEqual(await world.build({ on: 'home', description: 'moons', ask: asker() }), { ok: false, error: 'A build is already under way.' });
-  assert.equal(world.buy({ kind: 'frontier', ang: 1 }).ok, true, 'a push spends 5,000 meanwhile');
+  assert.equal(world.buy({ kind: 'frontier', ang: 1 }).ok, true, 'a push spends 4,000 meanwhile');
   answer({ ok: true, value: ANSWER });
   assert.deepEqual(await first, { ok: false, error: 'It costs 4,000 credit, and you have 3,000. Nothing was spent.' });
   assert.equal(saved(file).purchases.filter((p) => p.kind === 'build').length, 0);

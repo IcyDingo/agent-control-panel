@@ -37,10 +37,10 @@ test('a rocket lands a colony on a planet the frontier found, and costs what it 
   const r = world.buy({ kind: 'rocket', planet: 'p0', name: 'Vesta' });
   assert.equal(r.ok, true, r.error);
   const p = saved(file).purchases.at(-1);
-  assert.deepEqual({ kind: p.kind, price: p.price, planet: p.planet, name: p.name, at: p.at }, { kind: 'rocket', price: 8000, planet: 'p0', name: 'Vesta', at: at(0) });
+  assert.deepEqual({ kind: p.kind, price: p.price, planet: p.planet, name: p.name, at: p.at }, { kind: 'rocket', price: 4000, planet: 'p0', name: 'Vesta', at: at(0) });
   const s = world.summary();
   assert.deepEqual(s.planets[0].colony, { name: 'Vesta', at: at(0) });
-  assert.deepEqual([s.spent, s.balance, s.prices.rocket], [12_000, 18_000, 10_000]);
+  assert.deepEqual([s.spent, s.balance, s.prices.rocket], [8_000, 22_000, 4_000]);
 });
 
 test('a colony is kept: it is there after a restart', () => {
@@ -50,8 +50,8 @@ test('a colony is kept: it is there after a restart', () => {
 });
 
 test('a rocket needs the full price', () => {
-  const { world, file } = seeded({ earned: 11_999 });
-  assert.deepEqual(world.buy({ kind: 'rocket', planet: 'p0', name: 'Vesta' }), { ok: false, error: 'It costs 8,000 credit, and you have 7,999.' });
+  const { world, file } = seeded({ earned: 7_999 });
+  assert.deepEqual(world.buy({ kind: 'rocket', planet: 'p0', name: 'Vesta' }), { ok: false, error: 'It costs 4,000 credit, and you have 3,999.' });
   assert.equal(saved(file).purchases.length, 1);
 });
 
@@ -96,5 +96,5 @@ test('two colonies cannot share a name', () => {
   assert.equal(world.buy({ kind: 'rocket', planet: found[1], name: 'Ceres' }).ok, true);
   const s = world.summary();
   assert.deepEqual(s.planets.filter((p) => p.colony).map((p) => p.colony.name), ['Vesta', 'Ceres']);
-  assert.deepEqual([s.prices.rocket, s.prices.frontier], [12_500, 9_800], 'rockets rise on their own');
+  assert.deepEqual([s.prices.rocket, s.prices.frontier], [4_000, 4_000], 'the next ones cost the same');
 });
