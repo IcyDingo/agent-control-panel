@@ -23,7 +23,7 @@ const credit = (c) => c * 10_000; // tokens for c credit
 const saved = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 
 test('a push and a rocket cost 4,000 every time, like a build', () => {
-  assert.deepEqual(PRICES, { frontier: 4000, rocket: 4000, build: 4000 });
+  assert.deepEqual(PRICES, { frontier: 4000, rocket: 4000, build: 4000, probe: 4000 });
   assert.equal(priceOf('frontier', []), 4000);
   const two = [{ kind: 'frontier', price: 4000 }, { kind: 'frontier', price: 5000 }, { kind: 'rocket', price: 8000 }];
   assert.equal(priceOf('frontier', two), 4000, 'pushes bought before do not raise it');
@@ -39,7 +39,7 @@ test('a build costs the same wherever it goes, however many came before', () => 
 
 test('the summary carries the prices', () => {
   const { world } = seeded();
-  assert.deepEqual(world.summary().prices, { frontier: 4000, rocket: 4000, build: 4000 });
+  assert.deepEqual(world.summary().prices, { frontier: 4000, rocket: 4000, build: 4000, probe: 4000 });
 });
 
 test('a push needs the full price', () => {

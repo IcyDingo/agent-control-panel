@@ -50,9 +50,9 @@ export const homeReach = (xp) => 46 + 120 * Math.sqrt(Math.min(1, xp / 100 / 40)
 
 // ---------------------------------------------------------------- spending: the frontier, and the moments on the map
 
-/** What each kind costs: the same every time, a push, a rocket or a build, however many came before. A purchase keeps
-    the price it was bought at, so what was spent stays what it was. */
-export const PRICES = { frontier: 4000, rocket: 4000, build: 4000 };
+/** What each kind costs: the same every time, a push, a rocket, a build or a probe, however many came before. A purchase
+    keeps the price it was bought at, so what was spent stays what it was. */
+export const PRICES = { frontier: 4000, rocket: 4000, build: 4000, probe: 4000 };
 export const priceOf = (kind) => PRICES[kind];
 /** A push buys this much lobe (map px) from Home outward, lit as this much credit is earned after it. */
 export const PUSH_LEN = 150, LIGHT_CREDIT = 3000;
@@ -192,17 +192,20 @@ export function colonyName(raw) {
 // on every upload and the page on everything it fetches: it builds a fresh object from what it checked, and returns null
 // at the first value that is oversize, non-finite, off the list or not one of the allowed keys.
 
-export const PROJECTION_VERSION = 1;
+export const PROJECTION_VERSION = 2;
 
-export function publicProjection(s) {
+/** `me` is the signed-in account's spot in the Universe: only its probes leave (a probe belongs to the account that sent
+ *  it), and none signed out. A probe's target leaves once it has arrived, never before. */
+export function publicProjection(s, me = null) {
   if (!s?.started) return null;
+  const mine = (q) => me && q.by?.x === me.x && q.by?.y === me.y;
   return {
     pv: PROJECTION_VERSION, seed: s.seed, since: dayKey(s.startedAt), daysActive: s.daysActive,
     worked: s.worked.slice(-WORKED_DAYS), // which recent days had work, never how much: the page's mosaic of days
     home: { level: s.home.level, stage: s.home.stage },
     reach: s.reach,
     sun: { x: s.sun.x, y: s.sun.y, r: s.sun.r, look: s.sun.look },
-    frontier: s.frontier.map((l) => ({ ang: l.ang, bought: l.bought, lit: l.lit, tip: l.tip })),
+    frontier: s.frontier.map((l) => ({ from: l.from, ang: l.ang, bought: l.bought, lit: l.lit, tip: l.tip })),
     planets: s.planets.map((p) => ({ id: p.id, x: p.x, y: p.y, look: p.look,
       colony: p.colony ? { name: p.colony.name, day: dayKey(p.colony.at) } : null })),
     moments: s.moments.map((m) => (m.from === undefined
@@ -210,16 +213,20 @@ export function publicProjection(s) {
       : { id: m.id, kind: m.kind, name: m.name, day: m.day, from: m.from, x: m.x, y: m.y })),
     builds: s.builds.map((b) => ({ id: b.id, on: b.on, caption: b.caption,
       pieces: b.pieces.map((x) => ({ kind: x.kind, colour: x.colour, size: x.size, place: x.place, count: x.count })), day: dayKey(b.at) })),
+    probes: (s.probes ?? []).filter(mine).map((q) => (q.arrived
+      ? { ang: q.ang, progress: 1, to: { x: q.to.x, y: q.to.y } } : { ang: q.ang, progress: q.progress })),
   };
 }
 
 const PROJECTION_KEYS = ['pv', 'seed', 'since', 'daysActive', 'home', 'reach', 'sun', 'frontier', 'planets', 'moments', 'builds'];
+/** Version 1 (before pushes from colonies and probes) is still read: every lobe from Home, no probes. */
+const READS = [1, PROJECTION_VERSION];
 const PROJECTION_MOMENTS = ['week', 'cleanup', 'level'];
 /** How many worked days a projection carries (the latest ones); `worked` is optional so a projection from before it still reads. */
 export const WORKED_DAYS = 100;
 
-/** A projection as the hub keeps it and the page draws it: a fresh object with the same keys, or null when anything is
- *  off. Never returns `p` or any part of it. */
+/** A projection as the hub keeps it and the page draws it: a fresh object with the same keys (in this version, whichever
+ *  of READS it came in), or null when anything is off. Never returns `p` or any part of it. */
 export function validProjection(p) {
   const obj = (o) => o !== null && typeof o === 'object' && !Array.isArray(o);
   // The object has exactly these keys (and, optionally, these), in any order.
@@ -230,7 +237,8 @@ export function validProjection(p) {
   const str = (v, max) => typeof v === 'string' && v.length <= max;
   const list = (v, max) => Array.isArray(v) && v.length <= max;
 
-  if (!shape(p, PROJECTION_KEYS, ['worked']) || p.pv !== PROJECTION_VERSION || !int(p.seed, 0, 2 ** 31 - 1) || !day(p.since)
+  const v1 = p?.pv === 1;
+  if (!shape(p, v1 ? PROJECTION_KEYS : [...PROJECTION_KEYS, 'probes'], ['worked']) || !READS.includes(p.pv) || !int(p.seed, 0, 2 ** 31 - 1) || !day(p.since)
     || !int(p.daysActive, 0, 100_000) || !num(p.reach, 0, 1e6)) return null;
   const worked = [];
   if (Object.hasOwn(p, 'worked')) {
@@ -246,13 +254,6 @@ export function validProjection(p) {
     || !SUN_LOOKS.includes(p.sun.look)) return null;
   const sun = { x: p.sun.x, y: p.sun.y, r: p.sun.r, look: p.sun.look };
 
-  if (!list(p.frontier, 64)) return null;
-  const frontier = [];
-  for (const l of p.frontier) {
-    if (!shape(l, ['ang', 'bought', 'lit', 'tip']) || !num(l.ang, -Math.PI, Math.PI) || !num(l.bought, 0, 1e6) || !num(l.lit, 0, 1e6) || !num(l.tip, 0, 1e6)) return null;
-    frontier.push({ ang: l.ang, bought: l.bought, lit: l.lit, tip: l.tip });
-  }
-
   if (!list(p.planets, 256)) return null;
   const planets = [], ids = new Set();
   for (const q of p.planets) {
@@ -266,6 +267,16 @@ export function validProjection(p) {
       colony = { name, day: q.colony.day };
     }
     planets.push({ id: q.id, x: q.x, y: q.y, look: q.look, colony });
+  }
+
+  if (!list(p.frontier, 64)) return null;
+  const frontier = [];
+  for (const l of p.frontier) { // from Home, or from a planet this projection has
+    if (!shape(l, v1 ? ['ang', 'bought', 'lit', 'tip'] : ['from', 'ang', 'bought', 'lit', 'tip']) || !num(l.ang, -Math.PI, Math.PI)
+      || !num(l.bought, 0, 1e6) || !num(l.lit, 0, 1e6) || !num(l.tip, 0, 1e6)) return null;
+    const from = v1 ? 'home' : l.from;
+    if (!(from === 'home' || ids.has(from))) return null;
+    frontier.push({ from, ang: l.ang, bought: l.bought, lit: l.lit, tip: l.tip });
   }
 
   if (!list(p.moments, 4000)) return null;
@@ -291,7 +302,19 @@ export function validProjection(p) {
     builds.push({ id: b.id, on: b.on, caption: built.caption, pieces: built.pieces, day: b.day });
   }
 
-  return { pv: PROJECTION_VERSION, seed: p.seed, since: p.since, daysActive: p.daysActive, worked, home, reach: p.reach, sun, frontier, planets, moments, builds };
+  const probes = [];
+  if (!v1) {
+    if (!list(p.probes, 256)) return null;
+    const spot = (v) => Number.isInteger(v) && Math.abs(v) <= 1e9;
+    for (const q of p.probes) { // a target only once the probe has arrived
+      const arrived = obj(q) && q.progress === 1;
+      if (!shape(q, arrived ? ['ang', 'progress', 'to'] : ['ang', 'progress']) || !num(q.ang, -Math.PI, Math.PI) || !num(q.progress, 0, 1)) return null;
+      if (arrived && !(shape(q.to, ['x', 'y']) && spot(q.to.x) && spot(q.to.y))) return null;
+      probes.push(arrived ? { ang: q.ang, progress: 1, to: { x: q.to.x, y: q.to.y } } : { ang: q.ang, progress: q.progress });
+    }
+  }
+
+  return { pv: PROJECTION_VERSION, seed: p.seed, since: p.since, daysActive: p.daysActive, worked, home, reach: p.reach, sun, frontier, planets, moments, builds, probes };
 }
 
 // ---------------------------------------------------------------- building from a description
@@ -489,7 +512,7 @@ const real = (p) => { try { return fs.realpathSync.native(p); } catch { return p
  *  function returning them). Nothing is written until open(). `run` is the server's execFile wrapper and `gitPlace` its
  *  folder → git checkout lookup. */
 export function createWorld({ file, configDirs, gitPlace, run, now = Date.now }) {
-  let st = null, memo = null, building = false;
+  let st = null, memo = null, building = false, probing = false;
   try {
     const loaded = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (valid(loaded)) st = loaded;
@@ -608,11 +631,15 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
       sun: sunOf(st.seed), daysActive: Object.values(days).filter((x) => dayCredit(x) > 0).length,
       worked: Object.keys(days).filter((d) => dayCredit(days[d]) > 0).sort(), // the days with work in them, oldest first
       today: { day: today, commits: t.commits, added: t.added, removed: t.removed, multiplier: multiplier(t.added, t.removed), tokens: t.tokens, credit: dayCredit(t) },
-      prices: { frontier: priceOf('frontier', st.purchases), rocket: priceOf('rocket', st.purchases), build: priceOf('build', st.purchases) },
+      prices: { frontier: priceOf('frontier'), rocket: priceOf('rocket'), build: priceOf('build'), probe: priceOf('probe') },
       frontier: lobes.map((l) => ({ from: l.from, ang: l.ang, bought: l.pushes.length * PUSH_LEN, lit: l.lit, tip: l.tip })),
       planets: planets.filter((p) => p.found).map((p) => ({ id: p.id, x: p.x, y: p.y, look: p.look, colony: colonies.get(p.id) ?? null })),
       moments: momentsOf(days, today, st.purchases, st.seed),
       builds: st.purchases.filter((p) => p.kind === 'build').map((p, i) => ({ id: `b${i}`, on: p.on, caption: p.caption, pieces: p.pieces, at: p.at })),
+      probes: st.purchases.filter((p) => p.kind === 'probe').map((p, i) => {
+        const progress = Math.min(1, Math.max(0, (peak - p.earnedAt) / LIGHT_CREDIT));
+        return { id: `q${i}`, ang: p.ang, by: p.by, to: p.to, progress, arrived: progress >= 1 };
+      }),
       noEmail: st.noEmail ?? [], gitFailed: st.gitFailed ?? [] };
     memo = { today, summary: s };
     return s;
@@ -656,7 +683,7 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
         if (taken) return fail(`${taken} is taken. Pick another name.`);
         item = { planet, name: named };
       } else return fail('That is not something World sells.');
-      const price = priceOf(kind, st.purchases);
+      const price = priceOf(kind);
       if (s.balance < price) return fail(`It costs ${fmt(price)} credit, and you have ${fmt(Math.max(0, s.balance))}.`);
       const peak = Math.max(st.peak ?? 0, s.earned);
       const p = { kind, at: now(), price, earnedAt: peak, ...item };
@@ -677,7 +704,7 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
       if (!text) return fail('Describe what to build.');
       if (text.length > 300) return fail('Describe it in 300 characters or fewer.');
       const short = () => { // the balance can move while Claude thinks: a push, say
-        const price = priceOf('build', st.purchases), balance = summary().balance;
+        const price = priceOf('build'), balance = summary().balance;
         return balance < price ? `It costs ${fmt(price)} credit, and you have ${fmt(Math.max(0, balance))}.` : null;
       };
       if (short()) return fail(short());
@@ -695,7 +722,37 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
       if (!drawn) return fail("Claude's answer couldn't be drawn. Nothing was spent; try saying it another way.");
       if (short()) return fail(`${short()} Nothing was spent.`);
       const peak = Math.max(st.peak ?? 0, summary().earned);
-      const p = { kind: 'build', at: now(), price: priceOf('build', st.purchases), earnedAt: peak, on, description: text, ...drawn };
+      const p = { kind: 'build', at: now(), price: priceOf('build'), earnedAt: peak, on, description: text, ...drawn };
+      st.peak = peak;
+      st.purchases.push(p);
+      save();
+      return { ok: true, purchase: p };
+    },
+    /** Send a probe toward `ang` (radians, map space) from `me`, this account's spot in the Universe (null signed out).
+     *  `find(ang, skip)` is the hub's answer: `{ ok, target: { x, y, handle } }`, `{ ok: false, none: true }` when there is
+     *  no one new to find, or `{ ok: false, error }`; `skip` is what this account found or has on the way. Credit is
+     *  taken only once the hub answered; one probe aimed at a time. */
+    async probe({ ang, me, find } = {}) {
+      if (!st) return fail('Open World first.');
+      if (!me) return fail('Sign in to send a probe.');
+      if (typeof ang !== 'number' || !Number.isFinite(ang)) return fail('Pick a direction to send it.');
+      if (probing) return fail('A probe is being aimed already.');
+      const short = () => {
+        const price = priceOf('probe'), balance = summary().balance;
+        return balance < price ? `It costs ${fmt(price)} credit, and you have ${fmt(Math.max(0, balance))}.` : null;
+      };
+      if (short()) return fail(short());
+      const mine = (p) => p.kind === 'probe' && p.by?.x === me.x && p.by?.y === me.y;
+      const skip = st.purchases.filter(mine).map((p) => ({ x: p.to.x, y: p.to.y }));
+      probing = true;
+      let answer;
+      try { answer = await find(normAng(ang), skip); } catch { answer = null; } finally { probing = false; }
+      if (answer?.none) return fail("There's no one new to find yet. Nothing was spent.");
+      const to = answer?.ok ? answer.target : null;
+      if (!to || !Number.isInteger(to.x) || !Number.isInteger(to.y)) return fail("The hub can't be reached, so a probe can't be aimed. Try again later.");
+      if (short()) return fail(`${short()} Nothing was spent.`);
+      const peak = Math.max(st.peak ?? 0, summary().earned);
+      const p = { kind: 'probe', at: now(), price: priceOf('probe'), earnedAt: peak, ang: normAng(ang), by: { x: me.x, y: me.y }, to: { x: to.x, y: to.y } };
       st.peak = peak;
       st.purchases.push(p);
       save();

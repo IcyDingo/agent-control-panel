@@ -89,12 +89,12 @@ test('a snapshot the validator refuses is a 422 and nothing changes', () => {
   const p = projection();
   systems.put(account.id, upload(p, 1));
   const before = systems.get(account.id);
-  for (const bad of [{ ...p, balance: 99 }, null, 'text', { ...p, pv: 2 }]) {
+  for (const bad of [{ ...p, balance: 99 }, null, 'text', { ...p, pv: 3 }]) {
     assert.deepEqual(systems.put(account.id, upload(bad, 2)), { ok: false, status: 422, error: 'The system could not be read; nothing was stored.' });
   }
   assert.equal(systems.put(account.id, upload(p, 'x')).status, 422);
   assert.equal(systems.put(account.id, upload(p, Infinity)).status, 422);
-  assert.equal(systems.put(account.id, { ...upload(p, 2), pv: 2 }).status, 422, 'the upload names another version');
+  assert.equal(systems.put(account.id, { ...upload(p, 2), pv: 3 }).status, 422, 'the upload names another version');
   assert.deepEqual(systems.get(account.id), before);
   const bob = accounts.signIn({ provider: 'github', subject: '2', login: 'bob' }).account;
   assert.equal(systems.put(bob.id, upload({ ...p, extra: 1 })).ok, false);
