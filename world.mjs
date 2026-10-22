@@ -160,6 +160,103 @@ export function colonyName(raw) {
   return name.length <= 24 && /^[\p{L}\p{M}\p{N} '’-]+$/u.test(name) && /[\p{L}\p{N}]/u.test(name) ? name : null;
 }
 
+// ---------------------------------------------------------------- what may leave this Mac
+//
+// A hosted hub shows each developer's system to strangers, so only its shape may leave: where things are, what they look
+// like and the day they happened, never the numbers that paid for them (credit, prices, tokens, lines, commits), never a
+// repository or a prompt. `publicProjection` is an allow-list copy of a summary, key by key, never a spread, so a field
+// added to the summary later stays private until it is added here. `validProjection` is its mirror, which the hub runs
+// on every upload and the page on everything it fetches: it builds a fresh object from what it checked, and returns null
+// at the first value that is oversize, non-finite, off the list or not one of the allowed keys.
+
+export const PROJECTION_VERSION = 1;
+
+export function publicProjection(s) {
+  if (!s?.started) return null;
+  return {
+    pv: PROJECTION_VERSION, seed: s.seed, since: dayKey(s.startedAt), daysActive: s.daysActive,
+    home: { level: s.home.level, stage: s.home.stage },
+    reach: s.reach,
+    sun: { x: s.sun.x, y: s.sun.y, r: s.sun.r, look: s.sun.look },
+    frontier: s.frontier.map((l) => ({ ang: l.ang, bought: l.bought, lit: l.lit, tip: l.tip })),
+    planets: s.planets.map((p) => ({ id: p.id, x: p.x, y: p.y, look: p.look,
+      colony: p.colony ? { name: p.colony.name, day: dayKey(p.colony.at) } : null })),
+    moments: s.moments.map((m) => (m.from === undefined
+      ? { id: m.id, kind: m.kind, name: m.name, day: m.day, x: m.x, y: m.y }
+      : { id: m.id, kind: m.kind, name: m.name, day: m.day, from: m.from, x: m.x, y: m.y })),
+    builds: s.builds.map((b) => ({ id: b.id, on: b.on, caption: b.caption, pieces: b.pieces, day: dayKey(b.at) })),
+  };
+}
+
+const PROJECTION_KEYS = ['pv', 'seed', 'since', 'daysActive', 'home', 'reach', 'sun', 'frontier', 'planets', 'moments', 'builds'];
+const PROJECTION_MOMENTS = ['week', 'cleanup', 'level'];
+
+/** A projection as the hub keeps it and the page draws it: a fresh object with the same keys, or null when anything is
+ *  off. Never returns `p` or any part of it. */
+export function validProjection(p) {
+  const obj = (o) => o !== null && typeof o === 'object' && !Array.isArray(o);
+  // The object has exactly these keys (and, optionally, these), in any order.
+  const shape = (o, keys, optional = []) => obj(o) && Object.keys(o).every((k) => keys.includes(k) || optional.includes(k)) && keys.every((k) => Object.hasOwn(o, k));
+  const num = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
+  const int = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+  const day = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+  const str = (v, max) => typeof v === 'string' && v.length <= max;
+  const list = (v, max) => Array.isArray(v) && v.length <= max;
+
+  if (!shape(p, PROJECTION_KEYS) || p.pv !== PROJECTION_VERSION || !int(p.seed, 0, 2 ** 31 - 1) || !day(p.since)
+    || !int(p.daysActive, 0, 100_000) || !num(p.reach, 0, 1e6)) return null;
+  if (!shape(p.home, ['level', 'stage']) || !int(p.home.level, 1, LEVELS.length)) return null;
+  const home = { level: p.home.level, stage: LEVELS[p.home.level - 1][1] };
+  if (!shape(p.sun, ['x', 'y', 'r', 'look']) || !num(p.sun.x, -1e6, 1e6) || !num(p.sun.y, -1e6, 1e6) || !num(p.sun.r, 0, 1e3)
+    || !SUN_LOOKS.includes(p.sun.look)) return null;
+  const sun = { x: p.sun.x, y: p.sun.y, r: p.sun.r, look: p.sun.look };
+
+  if (!list(p.frontier, 64)) return null;
+  const frontier = [];
+  for (const l of p.frontier) {
+    if (!shape(l, ['ang', 'bought', 'lit', 'tip']) || !num(l.ang, -Math.PI, Math.PI) || !num(l.bought, 0, 1e6) || !num(l.lit, 0, 1e6) || !num(l.tip, 0, 1e6)) return null;
+    frontier.push({ ang: l.ang, bought: l.bought, lit: l.lit, tip: l.tip });
+  }
+
+  if (!list(p.planets, 256)) return null;
+  const planets = [], ids = new Set();
+  for (const q of p.planets) {
+    if (!shape(q, ['id', 'x', 'y', 'look', 'colony']) || typeof q.id !== 'string' || !/^p\d{1,4}$/.test(q.id) || ids.has(q.id)
+      || !num(q.x, -1e6, 1e6) || !num(q.y, -1e6, 1e6) || !LOOKS.includes(q.look)) return null;
+    ids.add(q.id);
+    let colony = null;
+    if (q.colony !== null) {
+      const name = shape(q.colony, ['name', 'day']) ? colonyName(q.colony.name) : null;
+      if (name === null || !day(q.colony.day)) return null;
+      colony = { name, day: q.colony.day };
+    }
+    planets.push({ id: q.id, x: q.x, y: q.y, look: q.look, colony });
+  }
+
+  if (!list(p.moments, 4000)) return null;
+  const moments = [];
+  for (const m of p.moments) {
+    if (!shape(m, ['id', 'kind', 'name', 'day', 'x', 'y'], ['from']) || !str(m.id, 40) || !PROJECTION_MOMENTS.includes(m.kind) || !str(m.name, 80)
+      || !day(m.day) || !num(m.x, -1e6, 1e6) || !num(m.y, -1e6, 1e6)) return null;
+    if (Object.hasOwn(m, 'from')) {
+      if (!day(m.from)) return null;
+      moments.push({ id: m.id, kind: m.kind, name: m.name, day: m.day, from: m.from, x: m.x, y: m.y });
+    } else moments.push({ id: m.id, kind: m.kind, name: m.name, day: m.day, x: m.x, y: m.y });
+  }
+
+  if (!list(p.builds, 1000)) return null;
+  const builds = [];
+  for (const b of p.builds) {
+    if (!shape(b, ['id', 'on', 'caption', 'pieces', 'day']) || typeof b.id !== 'string' || !/^b\d{1,4}$/.test(b.id)
+      || !(b.on === 'home' || ids.has(b.on)) || !day(b.day)) return null;
+    const built = validBuild({ caption: b.caption, pieces: b.pieces });
+    if (!built) return null;
+    builds.push({ id: b.id, on: b.on, caption: built.caption, pieces: built.pieces, day: b.day });
+  }
+
+  return { pv: PROJECTION_VERSION, seed: p.seed, since: p.since, daysActive: p.daysActive, home, reach: p.reach, sun, frontier, planets, moments, builds };
+}
+
 // ---------------------------------------------------------------- building from a description
 
 const fail = (error) => ({ ok: false, error });
