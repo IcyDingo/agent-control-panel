@@ -9,77 +9,113 @@
 <link rel="stylesheet" href="/hub.css">
 </head>
 <body class="stars-bg">
-<div class="page">
+<div class="page wide">
   <header class="bar">
     <a class="brand" href="/">Universe</a>
+    <span class="grow"></span>
+    <a class="btn" id="signin" href="/login/github" hidden>Sign in with GitHub</a>
+    <a class="btn" id="profile" href="/me" hidden>Your profile</a>
   </header>
 
-  <main class="hero">
-    <h1>A universe your agents' work builds</h1>
-    <p>Each day your agents work, your Home planet grows and the map around it lights up. Every Agent Control Panel has a
-      galaxy here, and you can visit anyone's.</p>
-
-    <form class="find" id="find" role="search">
-      <input class="field" id="handle" name="handle" placeholder="Find a galaxy by handle" aria-label="A handle" autocomplete="off" spellcheck="false" autocapitalize="off" maxlength="40">
-      <button class="btn" type="submit">Visit</button>
-    </form>
-
-    <div class="cta">
-      <a class="btn primary" id="signin" href="/login/github" hidden>Sign in with GitHub</a>
-      <a class="btn primary" id="mine" href="/me" hidden>Your galaxy</a>
-      <a class="btn" id="profile" href="/me" hidden>Your profile</a>
+  <main class="hero g24">
+    <div class="text">
+      <h1>A universe your agents' work builds</h1>
+      <p class="lede">Each day your agents work, your Home planet grows and the map around it lights up. Every panel has a
+        galaxy here, and anyone can visit yours.</p>
+      <form class="find" id="find" role="search">
+        <input class="field" id="handle" name="handle" placeholder="Find a galaxy by handle" aria-label="A handle" autocomplete="off" spellcheck="false" autocapitalize="off" maxlength="40">
+        <button class="btn" type="submit">Visit</button>
+      </form>
+    </div>
+    <!-- The block: a mosaic with a sun, a few planets and your galaxy's card on it. Signed out, the card is the invitation. -->
+    <div class="block" id="block">
+      <span class="sun" aria-hidden="true"></span>
+      <span class="planet rust" aria-hidden="true"></span>
+      <span class="planet ice" aria-hidden="true"></span>
+      <span class="planet sand" aria-hidden="true"></span>
+      <span class="planet violet" aria-hidden="true"></span>
+      <div class="gcard" id="gcard" aria-live="polite"></div>
     </div>
   </main>
 
-  <section class="cells" aria-label="How it works">
-    <div class="cell"><span class="n">01</span><b>Install once</b><p>The panel runs in the background on your Mac and counts your agents' work.</p></div>
-    <div class="cell"><span class="n">02</span><b>Sign in</b><p>Approve your Mac with a code. Your galaxy gets a permanent spot in the Universe.</p></div>
-    <div class="cell"><span class="n">03</span><b>Watch it grow</b><p>Work becomes credit; credit becomes frontier, colonies and builds. Spend from here or from the panel.</p></div>
-    <div class="cell"><span class="n">04</span><b>Visit anyone</b><p>Every galaxy has a page. Strangers see its shape, never the work behind it.</p></div>
+  <section class="steps g24" aria-label="How it works">
+    <div class="step"><span class="glyph" data-lit="1" aria-hidden="true"></span><b>Install once</b><p>The panel runs in the background on your Mac and counts your agents' work.</p></div>
+    <div class="step"><span class="glyph" data-lit="3" aria-hidden="true"></span><b>Sign in</b><p>Approve your Mac with a code. Your galaxy gets a permanent spot in the Universe.</p></div>
+    <div class="step"><span class="glyph" data-lit="6" aria-hidden="true"></span><b>Watch it grow</b><p>Work becomes credit; credit becomes frontier, colonies and builds.</p></div>
+    <div class="step"><span class="glyph" data-lit="9" aria-hidden="true"></span><b>Visit anyone</b><p>Every galaxy has a page. Strangers see its shape, never the work behind it.</p></div>
   </section>
-</div>
 
-<footer class="band" id="band">
-  <div class="over">
-    <a class="brand" href="/">Universe</a>
-    <nav>
-      <a href="https://github.com/IcyDingo/agent-control-panel/blob/main/hub/README.md" rel="noopener">Run your own</a>
-      <a href="https://github.com/IcyDingo/agent-control-panel" rel="noopener">Source</a>
-    </nav>
-  </div>
-</footer>
+  <footer class="foot" id="foot">
+    <div class="line">
+      <a class="brand" href="/">Universe</a>
+      <nav>
+        <a href="https://github.com/IcyDingo/agent-control-panel/blob/main/hub/README.md" rel="noopener">Run your own</a>
+        <a href="https://github.com/IcyDingo/agent-control-panel" rel="noopener">Source</a>
+      </nav>
+    </div>
+  </footer>
+</div>
 <script src="/hub.js"></script>
 <script>
 (() => {
   const $ = (id) => document.getElementById(id);
+  const { el, avatar, hashOf, pick, mosaic, plural } = Hub;
+
   $('find').addEventListener('submit', (e) => {
     e.preventDefault();
     const h = $('handle').value.trim().replace(/^@/, '');
     if (h) location.href = '/@' + encodeURIComponent(h);
   });
-  Hub.me().then((r) => {
-    if (!r) { $('signin').hidden = false; return; }
-    $('mine').href = '/@' + encodeURIComponent(r.account.handle);
-    $('mine').hidden = false;
-    $('profile').hidden = false;
-  });
 
-  // The footer's mosaic: three rows of squares about 44px wide, the same picture for everyone (the cell's position picks
-  // its shade), quiet graphites with a rare amber square like a far sun.
-  const QUIET = ['q0', 'q0', 'q0', 'q0', 'q0', 'q1', 'q1', 'q1', 'q1', 'q2', 'q2', 'q2', 'q3', 'q3'];
-  function band() {
-    const cols = Math.max(8, Math.round($('band').clientWidth / 44)), cells = [];
-    for (let i = 0; i < cols * 3; i++) {
-      const at = `band ${i % cols} ${Math.floor(i / cols)}`;
-      cells.push(Hub.hashOf(at + ' sun') % 64 === 0 ? 'a0' : Hub.pick(at, QUIET));
+  // The mosaics: the same picture for everyone (a cell's place picks its shade), quiet graphites and a rare amber square
+  // like a far sun, never none.
+  const QUIET = ['q1', 'q1', 'q1', 'q1', 'q2', 'q2', 'q2', 'q3', 'q3', 'q4'];
+  function quiet(name, cols, rows, sunEvery) {
+    const cells = [];
+    for (let i = 0; i < cols * rows; i++) {
+      const at = `${name} ${i % cols} ${Math.floor(i / cols)}`;
+      cells.push(hashOf(at + ' sun') % sunEvery === 0 ? 'a0' : pick(at, QUIET));
     }
-    if (!cells.includes('a0')) cells[Hub.hashOf('band sun') % cells.length] = 'a0'; // never a band without a sun
-    $('band').querySelector('.mosaic')?.remove();
-    $('band').prepend(Hub.mosaic(cells, cols));
+    if (!cells.includes('a0')) cells[hashOf(name + ' sun') % cells.length] = 'a0';
+    return mosaic(cells, cols);
   }
-  band();
-  let timer = 0;
-  addEventListener('resize', () => { clearTimeout(timer); timer = setTimeout(band, 150); });
+  $('block').prepend(quiet('block', 12, 7, 90));
+  $('foot').prepend(quiet('foot', 24, 1, 24));
+  for (const g of document.querySelectorAll('.glyph')) {
+    for (let i = 0; i < 9; i++) g.append(el('i', { class: i < Number(g.dataset.lit) ? 'on' : null }));
+  }
+
+  /** Signed out: the card invites. */
+  function invite() {
+    $('gcard').replaceChildren(
+      el('div', { class: 'who' }, avatar({ handle: '?' }, 40), el('div', {}, el('b', { text: 'Your galaxy' }), el('span', { text: 'Nothing here yet' }))),
+      el('div', { class: 'row' },
+        el('p', { text: 'Sign in, approve your Mac with a code, and it gets a spot.' }),
+        el('a', { class: 'btn primary', href: '/login/github', text: 'Sign in with GitHub' })),
+      Hub.daysMosaic([]));
+  }
+
+  /** Signed in: the card is your galaxy as the hub has it. */
+  async function yours(account) {
+    const r = await Hub.api('GET', `/api/systems/@${encodeURIComponent(account.handle)}`);
+    const stats = r.ok ? r.stats : null, system = r.ok ? r.system : null;
+    const line = stats ? `Level ${stats.level} · ${stats.stage} · ${account.x}, ${account.y}` : `${account.x}, ${account.y}`;
+    const active = system
+      ? `Active ${plural(stats.daysWorked, 'day', 'days')} · ${plural(stats.colonies, 'colony', 'colonies')} · ${plural(stats.builds, 'build', 'builds')}`
+      : 'Nothing synced yet: sign in from your Mac.';
+    $('gcard').replaceChildren(
+      el('div', { class: 'who' }, avatar(account, 40), el('div', {}, el('b', { text: account.name || `@${account.handle}` }), el('span', { text: line }))),
+      el('div', { class: 'row' },
+        el('p', { text: active }),
+        el('a', { class: 'btn primary', href: '/@' + encodeURIComponent(account.handle), text: 'Open your galaxy' })),
+      Hub.daysMosaic(system?.worked));
+  }
+
+  Hub.me().then((r) => {
+    if (!r) { $('signin').hidden = false; invite(); return; }
+    $('profile').hidden = false;
+    yours(r.account);
+  });
 })();
 </script>
 </body>

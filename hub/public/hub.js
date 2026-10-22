@@ -108,5 +108,23 @@
     return grid;
   }
 
-  window.Hub = { api, me, events, rel, el, avatar, safeUrl, hashOf, pick, mosaic };
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  /** The last 100 days as a mosaic, oldest first, today at the bottom right: amber for a day the agents worked, graphite
+   *  for a quiet one, with a caption. `worked` is the projection's list of days; anything else means no days. */
+  function daysMosaic(worked) {
+    const had = new Set(Array.isArray(worked) ? worked : []), now = new Date(), cells = [];
+    let count = 0;
+    for (let back = 99; back >= 0; back--) {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - back);
+      const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const lit = had.has(k);
+      if (lit) count++;
+      cells.push(pick(k, lit ? ['a0', 'a0', 'a1', 'a2'] : ['q1', 'q1', 'q2', 'q2', 'q3', 'q4']));
+    }
+    return el('div', { class: 'days' },
+      mosaic(cells, 20),
+      el('div', { class: 'cap' }, el('span', { text: 'Last 100 days' }), el('span', { text: `${plural(count, 'day', 'days')} with work` })));
+  }
+
+  window.Hub = { api, me, events, rel, el, avatar, safeUrl, hashOf, pick, mosaic, daysMosaic, plural };
 })();
