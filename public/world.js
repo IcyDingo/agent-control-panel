@@ -16,6 +16,7 @@
   let z = 0, zTo = 0, pan = { x: 0, y: 0 }, drag = null, focus = { x: 0, y: 0 }, focusTo = { x: 0, y: 0 }, here = 'home';
   let aiming = false, aimAng = null, picked = null, hover = null;
   let flight = null, sending = false, rocketSig = '', rocketHere = null, coloniesSig = '', momentsSig = ''; // a rocket on its way: its colony shows once it lands
+  let card = null, placesSig = '', daysSig = ''; // the rail's open card, the Build chips and the Profile's days as last drawn
   const MAP = 900, ZMAX = 40, scaleOf = (v) => Math.pow(ZMAX, 1 - v); // the map spans MAP px zoomed out, ×40 close up
   const LOBE_START = 60, lobeRadius = (along, tip) => 34 + 26 * along / (tip + 40); // world.mjs's lobe shape
   const BODY = { home: 6, planet: 4.5 }; // radius on the map, map px
@@ -498,6 +499,7 @@
     here = id; focusTo = { x: p.x, y: p.y }; pan = { x: 0, y: 0 };
     zoomTo(0);
     if (world) { showBuild(); showRocket(); }
+    opts.onPlace?.(id);
   }
   function showMap(at = { x: 0, y: 0 }) { focusTo = { ...at }; pan = { x: 0, y: 0 }; zoomTo(zFit()); }
   /** What is under a point on the canvas: a planet, Home, or a moment. */
@@ -520,6 +522,11 @@
   function wire() {
     cv = $('w-canvas'); x = cv.getContext('2d');
     if ($('w-profile')) wireProfile(); // the panel's; the hub's page has no such box
+    if ($('w-rail')) {
+      personMark = [...($('w-rail-avatar')?.childNodes ?? [])].map((n) => n.cloneNode(true));
+      for (const b of $('w-rail').querySelectorAll('[data-card]')) b.onclick = () => openCard(card === b.dataset.card ? null : b.dataset.card);
+      for (const b of $('w-side').querySelectorAll('.w-card-x')) b.onclick = () => openCard(null);
+    }
     cv.addEventListener('wheel', (e) => { e.preventDefault(); zoomTo(zTo + e.deltaY * 0.0015); }, { passive: false });
     cv.addEventListener('pointerdown', (e) => {
       drag = { x: e.clientX - pan.x, y: e.clientY - pan.y, at: [e.clientX, e.clientY], moved: false };
@@ -558,7 +565,28 @@
     $('w-build').onclick = build;
   }
 
-  // ---------- the side panel: Home's level, what to spend on, moments, and today's numbers
+  // ---------- the side panel: a rail of buttons, each opening one card (what to spend on, moments, today's numbers), and
+  // Home's level in a box of its own. One card at a time, or none and the map clear.
+  const railButton = (name) => $('w-rail')?.querySelector(`[data-card="${name}"]:not([hidden])`) ?? null;
+  function openCard(name) {
+    if (!$('w-rail')) return;
+    card = name && railButton(name) ? name : null;
+    for (const b of $('w-rail').querySelectorAll('[data-card]')) {
+      b.classList.toggle('on', b.dataset.card === card);
+      b.setAttribute('aria-pressed', String(b.dataset.card === card));
+    }
+    for (const s of $('w-side').querySelectorAll('.w-card[data-card]')) s.hidden = s.dataset.card !== card;
+    if (card && opts.card?.key) try { localStorage.setItem(opts.card.key, card); } catch { /* not remembered, no harm */ }
+  }
+  /** The card a World opens with: the one open last time, else the page's first. */
+  function firstCard() {
+    let last = null;
+    if (opts.card?.key) try { last = localStorage.getItem(opts.card.key); } catch { /* none remembered */ }
+    return last && railButton(last) ? last : opts.card?.first ?? null;
+  }
+  /** A dot on a rail button: `has` something waiting for you, `busy` while it runs. */
+  const mark = (name, cls, on) => railButton(name)?.classList.toggle(cls, Boolean(on));
+
   const COMPASS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
   /** Map space has y pointing down, so north is -π/2. */
   const compass = (ang) => COMPASS[Math.round(((ang + Math.PI / 2) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) / (Math.PI / 4)) % 8];
@@ -606,15 +634,38 @@
   }
   /** Build on the place you are looking at: Home or a colony. Claude takes a few seconds; one build at a time. */
   let buildingOn = null;
+  /** The places you can build on, Home first: a chip each, its dot the planet's colour. */
+  function showPlaces() {
+    const box = $('w-build-on');
+    if (!box) return;
+    const list = [{ id: 'home', name: 'Home', dot: '#4a86c0' },
+      ...planets().filter(colonyOf).map((p) => ({ id: p.id, name: p.colony.name, dot: LOOK[p.look]?.[0] ?? '#cfe0ff' }))];
+    const sig = list.map((q) => `${q.id}:${q.name}`).join();
+    if (sig !== placesSig) { // rebuilt only when the places change, so focus survives updates
+      placesSig = sig;
+      box.replaceChildren(...list.map((q) => {
+        const b = document.createElement('button'), dot = document.createElement('i');
+        b.type = 'button'; b.className = 'w-place'; b.dataset.place = q.id;
+        dot.style.background = q.dot;
+        b.append(dot, q.name);
+        b.onclick = () => flyTo(q.id);
+        return b;
+      }));
+    }
+    for (const b of box.children) { b.classList.toggle('on', b.dataset.place === here); b.setAttribute('aria-pressed', String(b.dataset.place === here)); }
+  }
   function showBuild() {
     if (opts.readOnly) return;
+    showPlaces();
+    mark('build', 'busy', buildingOn);
     const box = $('w-build-box'), p = placeOf(here), yours = here === 'home' || (p && colonyOf(p));
     box.hidden = !yours;
+    if ($('w-build-none')) $('w-build-none').hidden = Boolean(yours);
     if (!yours) return;
-    $('w-build-title').textContent = `Build on ${placeName(here)}`;
+    $('w-build-title').textContent = 'Build';
     const price = world.prices?.build ?? 0, b = $('w-build'), text = $('w-build-text');
     $('w-build-price').textContent = `${fmt(price)} credit`;
-    b.textContent = buildingOn ? `Building on ${placeName(buildingOn)}…` : 'Build it';
+    b.textContent = buildingOn ? `Building on ${placeName(buildingOn)}…` : `Build on ${placeName(here)}`;
     b.disabled = Boolean(buildingOn) || !text.value.trim() || !can(price);
     text.disabled = Boolean(buildingOn);
     $('w-build-why').hidden = can(price);
@@ -639,6 +690,8 @@
     if (opts.readOnly) return;
     const list = planets().filter((p) => !p.colony), box = $('w-rocket-box');
     box.hidden = !list.length;
+    if ($('w-rocket-none')) $('w-rocket-none').hidden = list.length > 0;
+    mark('rocket', 'has', list.length);
     if (!list.length) return;
     const sel = $('w-rocket-to'), sig = list.map((p) => p.id).join();
     if (sig !== rocketSig) { // rebuilt only when the planets change, so an open list stays open
@@ -687,7 +740,6 @@
   }
   /** The zoom bar: Home, each colony, the map. */
   function showColonies() {
-    if (opts.readOnly) return;
     const list = planets().filter(colonyOf), sig = list.map((p) => `${p.id}:${p.colony.name}`).join();
     if (sig === coloniesSig) return;
     coloniesSig = sig;
@@ -701,9 +753,10 @@
   }
   function pick(id) {
     picked = id;
-    const m = (world.moments ?? []).find((q) => q.id === id), card = $('w-moment');
-    card.hidden = !m;
+    const m = (world.moments ?? []).find((q) => q.id === id), box = $('w-moment');
+    box.hidden = !m;
     if (!m) return;
+    openCard('moments');
     if (z < 0.5) showMap({ x: m.x, y: m.y }); else focusTo = { x: m.x, y: m.y };
     $('w-m-name').textContent = momentTitle(m);
     const i = m.info;
@@ -722,6 +775,7 @@
   }
   function showMoments(list) {
     $('w-moments-box').hidden = !list.length;
+    if ($('w-moments-none')) $('w-moments-none').hidden = list.length > 0;
     $('w-moments-n').textContent = list.length ? String(list.length) : '';
     const newest = list.slice(-6).reverse(), sig = newest.map((m) => m.id).join();
     if (sig === momentsSig) return; // rebuilt only when they change, so focus and clicks survive updates
@@ -743,9 +797,11 @@
     $('w-xp').hidden = $('w-bar').parentElement.hidden = $('w-next').hidden = h.xp == null;
     $('w-xp').textContent = h.next ? `${fmt(xp)} / ${fmt(h.next.at)} XP` : `${fmt(xp)} XP`;
     $('w-bar').style.width = pct(h.next ? (xp - (h.at ?? 0)) / (h.next.at - (h.at ?? 0)) : 1) + '%';
-    $('w-next').textContent = h.next ? `Next: level ${h.next.level}, ${h.next.name}.` : 'The top level. The frontier keeps growing the map.';
+    $('w-next').textContent = h.next ? `${h.stage} → ${h.next.name}` : `${h.stage}, the top level`;
     $('w-xp-today').hidden = $('w-bar-today').parentElement.hidden = h.today == null;
-    $('w-xp-today').textContent = `+${fmt(h.today ?? 0)} XP today. ` + ((h.today ?? 0) >= 100 ? 'More work gives more.' : 'A full day gives 100.');
+    $('w-xp-today').textContent = `+${fmt(h.today ?? 0)} today`;
+    $('w-xp-today').title = `+${fmt(h.today ?? 0)} XP today. ` + ((h.today ?? 0) >= 100 ? 'More work gives more.' : 'A full day gives 100.')
+      + " A full day's work, 300 credit, is about an hour of one agent working. Past it, each doubling of the work gives 50 XP more.";
     $('w-bar-today').style.width = pct((h.today ?? 0) / 100) + '%';
     $('w-credit').textContent = fmt(Math.max(0, w.balance ?? 0));
     if (!opts.readOnly) { // today's numbers, the totals and the notes are the owner's alone
@@ -765,6 +821,7 @@
       if (w.gitFailed?.length) notes.push(`Commits in ${names(w.gitFailed)} couldn't be read this time: git didn't answer in time. What was counted stays.`);
       $('w-noemail').hidden = !notes.length;
       $('w-noemail').textContent = notes.join(' ');
+      showDays(w);
     }
     showPush();
     showBuild();
@@ -774,9 +831,47 @@
     if (picked && !(w.moments ?? []).some((m) => m.id === picked)) pick(null);
   }
 
+  // ---------- Profile's days: the last 100 as the galaxy page's mosaic draws them (hub/public/hub.js daysMosaic, copied),
+  // amber for a day with work, and the line of stats above. The Mac knows its own days, signed in or not.
+  function hashOf(s) {
+    let h = 2166136261;
+    for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+    return h >>> 0;
+  }
+  const pickOf = (s, list) => list[hashOf(s) % list.length];
+  const plural = (n, one, many) => `${fmt(n)} ${n === 1 ? one : many}`;
+  function daysMosaic(worked) {
+    const had = new Set(worked), now = new Date(), grid = document.createElement('div');
+    grid.className = 'mosaic'; grid.setAttribute('aria-hidden', 'true'); grid.style.setProperty('--cols', '20');
+    let count = 0;
+    for (let back = 99; back >= 0; back--) {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - back);
+      const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const lit = had.has(k), cell = document.createElement('span');
+      if (lit) count++;
+      cell.className = pickOf(k, lit ? ['a0', 'a0', 'a1', 'a2'] : ['q1', 'q1', 'q2', 'q2', 'q3', 'q4']);
+      grid.append(cell);
+    }
+    const box = document.createElement('div'), cap = document.createElement('div'), a = document.createElement('span'), b = document.createElement('span');
+    box.className = 'days'; cap.className = 'cap';
+    a.textContent = 'Last 100 days'; b.textContent = `${plural(count, 'day', 'days')} with work`;
+    cap.append(a, b); box.append(grid, cap);
+    return box;
+  }
+  function showDays(w) {
+    if (!$('w-pf-days')) return;
+    const colonies = planets().filter(colonyOf).length, builds = (w.builds ?? []).length;
+    const since = new Date(w.startedAt).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    $('w-pf-stats').textContent = `Active ${plural(w.daysActive ?? 0, 'day', 'days')} · ${plural(colonies, 'colony', 'colonies')} · ${plural(builds, 'build', 'builds')} · World since ${since}`;
+    const worked = w.worked ?? [], sig = `${new Date().toDateString()}|${worked.join()}`;
+    if (sig === daysSig) return; // redrawn when a day is added, or the date turns
+    daysSig = sig;
+    $('w-pf-days').replaceChildren(daysMosaic(worked));
+  }
+
   // ---------- Profile: the hub account, or the way to sign in to one. The page passes the hub's state with each summary;
   // the sign-in itself is the server's (it polls the hub), so this only starts it, shows the code, and follows the snapshots.
-  let hubNow = null, orderBase = null, loginCancelled = false;
+  let hubNow = null, orderBase = null, loginCancelled = false, personMark = [];
   const ago = (t) => {
     const s = Math.max(0, (Date.now() - t) / 1000);
     return s < 60 ? 'just now' : s < 3600 ? `${Math.floor(s / 60)} min ago` : s < 172_800 ? `${Math.floor(s / 3600)} h ago` : `${Math.floor(s / 86_400)} days ago`;
@@ -814,6 +909,7 @@
       const a = h.account, base = String(h.url ?? '').replace(/\/+$/, ''), sig = `${a.avatar}|${a.name}|${a.handle}`;
       err.hidden = true;
       if ($('w-pf-avatar')._sig !== sig) { $('w-pf-avatar')._sig = sig; $('w-pf-avatar').replaceChildren(avatarOf(a)); }
+      if ($('w-rail-avatar') && $('w-rail-avatar')._sig !== sig) { $('w-rail-avatar')._sig = sig; $('w-rail-avatar').replaceChildren(avatarOf(a)); }
       $('w-pf-handle').textContent = `@${a.handle}`;
       $('w-pf-xy').textContent = `${a.x}, ${a.y}`.replaceAll('-', '−');
       const page = $('w-pf-page'), edit = $('w-pf-edit');
@@ -826,6 +922,8 @@
       $('w-pf-order').hidden = !cur;
       if (cur) $('w-pf-order').textContent = `Running an order from the site: ${orderText(cur)}…`;
     } else {
+      const r = $('w-rail-avatar');
+      if (r?._sig) { r._sig = null; r.replaceChildren(...personMark.map((n) => n.cloneNode(true))); } // signed out: the page's person mark
       const p = h.pending, live = Boolean(p);
       $('w-pf-start').hidden = live; $('w-pf-wait').hidden = !live;
       if (live) {
@@ -898,6 +996,7 @@
       here = 'home'; flight = null; focus = { x: 0, y: 0 }; focusTo = { x: 0, y: 0 };
       show(summary);
       showHub(opts.hub);
+      if (opts.card) openCard(firstCard());
       fit();
       zoomTo(0); z = 0; pan = { x: 0, y: 0 };
       t0 = performance.now();
@@ -913,6 +1012,8 @@
       showHub(hub, before);
     },
     exit() { cancelAnimationFrame(raf); raf = 0; drag = null; flight = null; if (aiming) setAim(false); document.body.classList.remove('w-readonly'); },
+    /** Fly to a place: 'home' or a planet's id (the galaxy page's build chips use it). */
+    flyTo(id) { if (raf) flyTo(id); },
     /** Where a point on the map (map px, Home at 0,0) is on the canvas now. */
     at(mx, my) { return view ? [view.cx + mx * view.s, view.cy + my * view.s] : null; },
   };
