@@ -18,6 +18,8 @@ const PUB = rawPublicKey(publicKey), N = 5, SIG = signRelease(N, B, privateKey);
 const ARCHIVE = `https://codeload.github.com/IcyDingo/agent-control-panel/tar.gz/${B}`;
 // Where the worker asks GitHub whether B is on main.
 const COMPARE = `https://api.github.com/repos/IcyDingo/agent-control-panel/compare/main...${B}`;
+// Where it asks GitHub whether B descends from A, the release it runs.
+const DESCENT = `https://api.github.com/repos/IcyDingo/agent-control-panel/compare/${A}...${B}`;
 const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'update-')));
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
 const run = (cmd, args, opts = {}) => new Promise((resolve) =>
@@ -43,14 +45,16 @@ function archive(top) {
 }
 
 /** A fake network: the hub's `/api/release` answers `release` (a Response, or a function that throws), GitHub's compare
- * for B `compare` (by default B is behind main, so on it), GitHub's archive address for B the bytes, and any other address
- * (the hub's own `url` among them) a 404. Every call is recorded. */
-function hub(release, bytes = null, compare = () => json({ status: 'behind' })) {
+ * of main with B `compare` (by default B is behind main, so on it), its compare of A with B `descent` (by default B is
+ * ahead of A, so it follows the running release), GitHub's archive address for B the bytes, and any other address (the
+ * hub's own `url` among them) a 404. Every call is recorded. */
+function hub(release, bytes = null, compare = () => json({ status: 'behind' }), descent = () => json({ status: 'ahead' })) {
   const calls = [];
   const fn = async (url, init = {}) => {
     calls.push({ url: String(url), redirect: init.redirect, ...(init.headers ? { accept: init.headers.accept } : {}) });
     if (String(url) === 'http://hub.test/api/release') return typeof release === 'function' ? release() : release;
     if (String(url) === COMPARE) return compare();
+    if (String(url) === DESCENT) return descent();
     if (String(url) === ARCHIVE) return new Response(bytes);
     return json({ ok: false, error: 'Not found.' }, 404);
   };
@@ -107,9 +111,42 @@ test('a release is downloaded only once GitHub says it is on main', async () => 
     const fetch = hub(names(B), archive(`agent-control-panel-${B}`), () => json({ status }));
     const r = await check(w, fetch);
     assert.equal(r.outcome, 'switched', status);
-    assert.deepEqual(fetch.calls.map((c) => c.url), ['http://hub.test/api/release', COMPARE, ARCHIVE]);
+    assert.deepEqual(fetch.calls.map((c) => c.url), ['http://hub.test/api/release', COMPARE, DESCENT, ARCHIVE]);
     assert.deepEqual(fetch.calls[1], { url: COMPARE, redirect: 'error', accept: 'application/vnd.github+json' });
+    assert.deepEqual(fetch.calls[2], { url: DESCENT, redirect: 'error', accept: 'application/vnd.github+json' });
   }
+});
+
+test('a release that does not descend from the running one is an error and nothing is downloaded', async () => {
+  const answers = {
+    behind: () => json({ status: 'behind' }),
+    diverged: () => json({ status: 'diverged' }),
+    identical: () => json({ status: 'identical' }),
+    'a 404': () => json({ message: 'Not Found' }, 404),
+    'a thrown error': () => { throw new TypeError('fetch failed'); },
+  };
+  for (const [what, descent] of Object.entries(answers)) {
+    const w = worker();
+    const fetch = hub(names(B), archive(`agent-control-panel-${B}`), undefined, descent);
+    const r = await check(w, fetch);
+    assert.deepEqual([r.outcome, r.error], ['error', 'Release 2222222 does not follow the release running here.'], what);
+    assert.deepEqual(fetch.calls.map((c) => c.url), ['http://hub.test/api/release', COMPARE, DESCENT], what);
+    assert.equal(fs.existsSync(path.join(w.dir, 'switch')), false, what);
+    assert.equal(fs.existsSync(path.join(w.dir, B)), false, what);
+    assert.equal(fs.readlinkSync(path.join(w.dir, 'current')), path.join(w.dir, A), what);
+    assert.equal(releaseOf(w.dir), null, `${what}: no number is recorded`);
+    assert.deepEqual(r.exits, [], what);
+  }
+});
+
+test('a release with the same number as the one on record but another commit is installed only when it descends', async () => {
+  const w = worker();
+  writeRelease(w.dir, A, N);
+  const refused = await check(w, hub(names(B), archive(`agent-control-panel-${B}`), undefined, () => json({ status: 'behind' })));
+  assert.equal(refused.error, 'Release 2222222 does not follow the release running here.');
+  assert.deepEqual(releaseOf(w.dir), { sha: A, n: N });
+  const ok = await check(w, hub(names(B), archive(`agent-control-panel-${B}`)));
+  assert.equal(ok.outcome, 'switched');
 });
 
 test('a release that is not on main, as a fork\'s commit would be, is an error and nothing is downloaded', async () => {

@@ -113,7 +113,8 @@ main() {
   chmod 755 "$DIR/run.sh.new"
   mv -f "$DIR/run.sh.new" "$DIR/run.sh"
   ln -sfn "$DIR/$sha" "$DIR/current"
-  rm -f "$DIR/switch"
+  # A fresh install starts clean: no switch for the launcher, and no release number or last check from an earlier install.
+  rm -f "$DIR/switch" "$DIR/release" "$DIR/last-check"
   [ "$update" = 1 ] || printf '{ "auto": false }\n' > "$DIR/update.json"
 
   # The app installer's service runs the panel from a clone; installing here points the same service at run.sh.

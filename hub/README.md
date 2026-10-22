@@ -76,10 +76,12 @@ and keeps crawlers out of `/api/`, `/me` and `/device`.
 ## Releases
 
 A release is a commit on `main`, a number, and one signature per signing key. The number is the commit count on `main`
-(`git rev-list --count`), so it only ever goes up. The signature covers the number and the commit together, so nobody
-can give an old commit a new number. The hub serves the release at `/api/release`, and a worker installs nothing else:
-not what GitHub says is newest, and never a number lower than the one it already runs. Every step below runs on the
-maintainer's Mac, in a checkout of this repository.
+(`git rev-list --count`), so it goes up from one release to the next, and the signature covers the number and the
+commit together. The hub serves the release at `/api/release`, and a worker installs nothing else: only a signed
+release that is on `main` **and descends from the release it runs**, so neither a stolen key nor a stolen server can
+send it back to older code. Whoever holds the key chooses the number, so the number is only a first filter; before it
+downloads, the worker asks GitHub whether the new commit comes after the one it runs, and that is what holds. Every
+step below runs on the maintainer's Mac, in a checkout of this repository.
 
 Make the signing key once:
 
@@ -130,13 +132,13 @@ daily, and one that has been asleep longer has to be re-installed. Then delete t
 
 If a key is stolen (the file and its passphrase), do the same at once and without the wait: remove it from
 `RELEASE_KEYS` in a release signed by the key or keys that remain. Until a worker has that release, the thief can sign
-only a commit that is on `main` and newer than what the worker runs, so they would also need the GitHub account, and
+any number, but the worker installs only a commit that is on `main` and descends from the release it runs, so they would also need the GitHub account, and
 `main` is protected so that even the account can change it only through a pull request made in the open. Keep that
 protection on; the design counts on it.
 
 A worker that refuses a release says so, and keeps running the release it has. On that Mac, the `status` command
-prints the last check, for example `Last update check <time>: Release 1a2b3c4 is not signed by a known key.` or
-`Release 1a2b3c4 is older than the one running.`:
+prints the last check, for example `Last update check <time>: Release 1a2b3c4 is not signed by a known key.`,
+`Release 1a2b3c4 is older than the one running.` or `Release 1a2b3c4 does not follow the release running here.`:
 
 ```sh
 node "$HOME/Library/Application Support/Agent Panel/worker/current/server.mjs" status

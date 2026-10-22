@@ -1,7 +1,7 @@
 // The worker updates itself. An installed worker runs from `worker/<sha>/`, with `worker/current` pointing at it and
 // launchd starting a fixed launcher (`worker/run.sh`) that runs `current/server.mjs`. Once a day the running version asks
-// the hub which release is out; a new one that GitHub says is on main is unpacked beside it, `current` is pointed at
-// it, and the process exits so launchd starts the launcher again. The launcher reads `switch` (`<to> <from> <tries>`)
+// the hub which release is out; a new one that GitHub says is on main and descends from the running one is unpacked
+// beside it, `current` is pointed at it, and the process exits so launchd starts the launcher again. The launcher reads `switch` (`<to> <from> <tries>`)
 // and goes back to `<from>` after three failed starts, writing `rolled-back`; a version that starts proves itself by
 // writing `started`.
 // Nothing here throws: an update that cannot be done leaves the running version as it was.
@@ -15,8 +15,9 @@ export const SHA_RE = /^[0-9a-f]{40}$/;
 // the commit, so a hub that is wrong or not the hub at all can at most point at code that was really published here.
 const ARCHIVE_URL = 'https://codeload.github.com/IcyDingo/agent-control-panel/tar.gz/';
 // GitHub serves every commit of the repository's fork network under that same archive address, so the address alone
-// does not hold the hub to code published here. Before a download, GitHub is asked how the commit compares with main.
-const COMPARE_URL = 'https://api.github.com/repos/IcyDingo/agent-control-panel/compare/main...';
+// does not hold the hub to code published here. Before a download, GitHub is asked how the commit compares with main,
+// and with the release running here.
+const COMPARE_URL = 'https://api.github.com/repos/IcyDingo/agent-control-panel/compare/';
 
 const RELEASE_TIMEOUT_MS = 8000;
 // A release is the whole repository; a slow line may need a while, but a download that never ends must not hang forever.
@@ -103,22 +104,36 @@ export function lastCheck(dir) {
 
 const errorOf = (err) => String(err?.message ?? err);
 
+/** How GitHub says `head` compares with `base`: its status (`ahead` when `base` is an ancestor of `head`, `behind`,
+ * `identical` or `diverged`); an empty string when GitHub does not know one of the commits in this repository (a 404) or
+ * gives no status; null when GitHub did not answer. */
+async function compareStatus(base, head, fetch) {
+  let res, body;
+  try {
+    res = await fetch(`${COMPARE_URL}${base}...${head}`, { headers: { accept: 'application/vnd.github+json' }, redirect: 'error', signal: AbortSignal.timeout(RELEASE_TIMEOUT_MS) });
+    body = await res.json().catch(() => null);
+  } catch { return null; }
+  if (res.ok) return typeof body?.status === 'string' ? body.status : '';
+  return res.status === 404 ? '' : null;
+}
+
 /** Null when `sha` is on main (GitHub's compare of main with it says `identical` or `behind`), else the error to report.
  * Only this unattended daily path asks: the install script does not, since the person running it is there, and the hub
  * they just visited is the same trust root as the script itself. */
 async function notOnMain(sha, fetch) {
-  let res, body;
-  try {
-    res = await fetch(COMPARE_URL + sha, { headers: { accept: 'application/vnd.github+json' }, redirect: 'error', signal: AbortSignal.timeout(RELEASE_TIMEOUT_MS) });
-    body = await res.json().catch(() => null);
-  } catch { return 'GitHub did not answer.'; }
-  if (res.ok && (body?.status === 'identical' || body?.status === 'behind')) return null;
-  // A commit GitHub does not know in this repository is answered 404; anything else not ok means GitHub was not there.
-  return res.ok || res.status === 404 ? `Release ${sha.slice(0, 7)} is not on main.` : 'GitHub did not answer.';
+  const status = await compareStatus('main', sha, fetch);
+  if (status === 'identical' || status === 'behind') return null;
+  return status === null ? 'GitHub did not answer.' : `Release ${sha.slice(0, 7)} is not on main.`;
 }
 
-/** Asks the hub for its release and switches to it when a known key signed it, it is not the running one, and its number is
- * not below the one on record. The outcome says what happened: `off` (updates are turned off), `current` (already running it), `held` (the launcher rolled this release back, so it is
+/** Null when `sha` descends from the release running here (GitHub's compare of the running commit with it says `ahead`),
+ * else the error to report. Any other answer, or none, is the same refusal: a worker only ever moves forward. */
+async function notAfter(running, sha, fetch) {
+  return (await compareStatus(running, sha, fetch)) === 'ahead' ? null : `Release ${sha.slice(0, 7)} does not follow the release running here.`;
+}
+
+/** Asks the hub for its release and switches to it when a known key signed it, it is not the running one, its number is
+ * not below the one on record, and GitHub says it is on main and descends from the running one. The outcome says what happened: `off` (updates are turned off), `current` (already running it), `held` (the launcher rolled this release back, so it is
  * not tried again), `switched` (exit has been called), or `error`. */
 export async function checkForUpdate({ worker, hubUrl, fetch = globalThis.fetch, run, keys = RELEASE_KEYS, now = Date.now, exit = (c) => process.exit(c), log = console.log }) {
   const { dir } = worker;
@@ -138,8 +153,9 @@ export async function checkForUpdate({ worker, hubUrl, fetch = globalThis.fetch,
   if (!SHA_RE.test(sha ?? '')) return { outcome: 'error', error: 'The hub named no release.' };
   // Nothing is fetched, compared or written for a release no known key signed.
   if (!verifyRelease(n, sha, sigs, keys)) return { outcome: 'error', error: `Release ${sha.slice(0, 7)} is not signed by a known key.` };
-  // The number on record is a floor: a signature over an old release stays valid forever, so the number is what stops
-  // someone holding a key from pointing a worker back at a release with a known flaw.
+  // The number on record is a floor, but one the key holder chooses: whoever has the key can give an old commit any number.
+  // It is a cheap first filter and the record `status` shows; what actually stops a return to old code is the descent
+  // check below, which asks GitHub whether the new release comes after the running one in the repository's history.
   const floor = releaseOf(dir);
   if (sha === worker.sha) {
     if (!floor || floor.n < n) { try { writeRelease(dir, sha, n); } catch {} }
@@ -150,6 +166,10 @@ export async function checkForUpdate({ worker, hubUrl, fetch = globalThis.fetch,
   if (floor && floor.n > n) return { outcome: 'error', error: `Release ${sha.slice(0, 7)} is older than the one running.` };
   const off = await notOnMain(sha, fetch);
   if (off) return { outcome: 'error', error: off };
+  // A commit on main may still be older than the running release, or come from a side branch merged into main; only a
+  // release the running one is an ancestor of is installed, so neither a key nor a hub can send a worker back.
+  const behind = await notAfter(worker.sha, sha, fetch);
+  if (behind) return { outcome: 'error', error: behind };
 
   const tgz = path.join(dir, `${sha}.tgz`), tmp = path.join(dir, `${sha}.tmp`), dest = path.join(dir, sha);
   const top = `agent-control-panel-${sha}`;
@@ -177,8 +197,7 @@ export async function checkForUpdate({ worker, hubUrl, fetch = globalThis.fetch,
     made.push(swNew, sw);
     fs.writeFileSync(swNew, `${sha} ${worker.sha} 0\n`);
     fs.renameSync(swNew, sw);
-    // The floor: a signature over an old release is valid forever, so the number is what stops a thief with a key from
-    // pointing a worker back at it.
+    // The record of the number, the floor for the next check and what `status` shows.
     writeRelease(dir, sha, n);
     // A new link renamed over the old one replaces the link itself in one step; `current` is never missing or half made.
     remove(link);
