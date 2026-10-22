@@ -240,7 +240,10 @@ body.resizing .drawer { transition: none; }
 .d-top-band { flex: none; max-height: 45%; overflow: auto; padding-block: 16px 14px; background: var(--top); }
 .d-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding-block: 16px 20px; }
 .d-foot { flex: none; max-height: 62%; overflow: auto; padding-block: 10px 14px; }
-.d-foot .sec.needs { margin: 2px 0 12px; }
+/* What it asks you, and the options its last reply offered, come at the end of the chat: one place to scroll. */
+.d-scroll .sec.needs { margin-top: 20px; }
+.d-scroll .chips { margin: 0; }
+.chips:empty { display: none; }
 .d-now { margin-bottom: 8px; }
 .d-now:last-child { margin-bottom: 0; }
 .d-head-now { margin-top: 12px; }
@@ -753,15 +756,15 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
               <button class="linkish d-earlier" type="button" id="d-earlier" hidden>Show earlier</button>
               <div class="thread" id="d-thread" aria-live="polite"></div>
             </section>
+            <div class="chips" id="d-chips" hidden></div>
+            <section class="sec needs" id="d-needs" hidden><h4 class="rule">Needs you <span class="n" id="d-needs-n"></span></h4><div class="cards" id="d-cards"></div></section>
             <div class="d-subs-in" id="d-subs-in"><div id="d-subs"></div></div>
           </div>
         </div>
         <div class="d-foot">
           <div class="d-col">
-            <section class="sec needs" id="d-needs" hidden><h4 class="rule">Needs you <span class="n" id="d-needs-n"></span></h4><div class="cards" id="d-cards"></div></section>
             <div class="d-now" id="d-line"></div>
             <div id="d-compose" hidden>
-              <div class="chips" id="d-chips"></div>
               <div class="composer">
                 <textarea id="d-reply" rows="2" placeholder="Answer it, or tell it what to do next" aria-label="Your message"></textarea>
                 <div class="c-bar">
@@ -1421,7 +1424,7 @@ function renderDrawer(vis) {
   setText($('d-needs-n'), rs.length > 1 ? String(rs.length) : '');
   const want = rs.map((p) => {
     let c = cards.get(p.id);
-    if (!c) { c = { req: p, el: buildCard(p) }; cards.set(p.id, c); }
+    if (!c) { c = { req: p, el: buildCard(p) }; cards.set(p.id, c); stick = true; }
     setText(c.el.querySelector('.req-age'), 'waiting ' + ago(snap.now - p.createdAt));
     return c;
   });
@@ -1607,14 +1610,17 @@ $('d-side-tab').onclick = () => { sideFolded = !sideFolded; pref('acp.subsFolded
 new ResizeObserver(() => { const s = open && sessionOf(open); if (s && !$('drawer').hidden) placeSubs(s); }).observe($('drawer'));
 function renderCompose(s, st) {
   const live = bgLive(s), queue = willQueue(s, st), show = live || queue || canReply(s, st);
+  $('d-chips').hidden = !show;
+  if (show) {
+    const said = lastSaidOf(s);
+    patch($('d-chips'), said ?? '', () => optionsIn(said).map((o) => el('button', { class: 'chip', type: 'button', title: o.text,
+      onclick: () => { const ta = $('d-reply'); ta.value = `${o.key}. ${o.text}`; ta.focus(); fit(ta); syncSend(); } }, el('b', { text: o.key }), o.text)));
+  }
   $('d-chat').hidden = !renderThread(s) && !show;
   $('d-compose').hidden = !show;
   if (!show) return;
   const running = s.inRoster && !isOver(s), term = s.kind === 'interactive';
   setAttr($('d-reply'), 'placeholder', s.working ? 'Tell it something while it works' : 'Answer it, or tell it what to do next');
-  const said = lastSaidOf(s);
-  patch($('d-chips'), said ?? '', () => optionsIn(said).map((o) => el('button', { class: 'chip', type: 'button', title: o.text,
-    onclick: () => { const ta = $('d-reply'); ta.value = `${o.key}. ${o.text}`; ta.focus(); fit(ta); syncSend(); } }, el('b', { text: o.key }), o.text)));
   // Its mode: a background job switches the moment you pick; a terminal session carries on in it once your message restarts it.
   const to = switching.get(s.sessionId), picked = live ? null : modePicks.get(s.sessionId);
   patch($('d-mode'), JSON.stringify([s.sessionId, s.mode]), () => [
