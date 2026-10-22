@@ -243,6 +243,8 @@ body.resizing .drawer { transition: none; }
 .d-foot .sec.needs { margin: 2px 0 12px; }
 .d-now { margin-bottom: 8px; }
 .d-now:last-child { margin-bottom: 0; }
+.d-head-now { margin-top: 12px; }
+.d-head-now:empty { display: none; }
 .d-earlier { display: block; margin: 0 auto 14px; }
 .d-scroll .sec:first-child { margin-top: 0; }
 /* Its subagents, in a column of their own beside a wide panel. The tab folds it to a strip. */
@@ -744,7 +746,7 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
          the panel is wide, and sit under the conversation when it isn't. -->
     <div class="d-cols">
       <div class="d-main">
-        <div class="d-top-band"><div class="d-col" id="d-head"></div></div>
+        <div class="d-top-band"><div class="d-col" id="d-head"></div><div class="d-col d-head-now" id="d-head-now"></div></div>
         <div class="d-scroll" id="d-scroll">
           <div class="d-col">
             <section class="sec" id="d-chat" hidden>
@@ -1428,6 +1430,7 @@ function renderDrawer(vis) {
   for (const c of want) if (!c.fitted && c.el.offsetParent !== null) { c.fitted = true; c.el._fit(); }
 
   patch($('d-line'), JSON.stringify([st, s.lastTool?.tool, s.lastTool?.text, s.waitingFor, s.leftRosterAt, s.state, rs.length, s.bgTasks, s.hostsPanel]), () => nowLine(s, st, rs));
+  placeNow(s, st);
   renderCompose(s, st);
 
   // The tree's buttons only rebuild when its shape changes; each subagent's "now" line updates on its own.
@@ -1592,6 +1595,13 @@ function placeSubs(s) {
   $('d-side-tab').setAttribute('aria-expanded', String(!sideFolded));
   $('d-side-tab').title = sideFolded ? 'Show its subagents' : 'Fold its subagents away';
   setText($('d-side-n'), String(s.subagents.length));
+}
+/** What it is running sits at the bottom of the header while it works alone; with a subagent at work, or anything else to
+    say, the line stays by the box. */
+function placeNow(s, st) {
+  const up = st === 'busy' && Boolean(s.lastTool) && !s.subagents.some((a) => subState(s, a) === 'running');
+  if (up && $('d-line').parentElement !== $('d-head-now')) $('d-head-now').append($('d-line'));
+  if (!up && $('d-line').nextElementSibling !== $('d-compose')) $('d-compose').before($('d-line'));
 }
 $('d-side-tab').onclick = () => { sideFolded = !sideFolded; pref('acp.subsFolded', sideFolded ? '1' : '0'); render(); };
 new ResizeObserver(() => { const s = open && sessionOf(open); if (s && !$('drawer').hidden) placeSubs(s); }).observe($('drawer'));
