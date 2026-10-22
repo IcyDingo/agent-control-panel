@@ -54,9 +54,10 @@ before(async () => {
 after(async () => { await hub.close(); await off.close(); });
 
 /** One request. `host` is 127.0.0.1 unless a test says otherwise; returns the status, parsed JSON, raw text and headers. */
-async function call(method, p, { body, cookie, token, origin, host = '127.0.0.1', on = port, raw } = {}) {
+async function call(method, p, { body, cookie, cookieRaw, token, origin, host = '127.0.0.1', on = port, raw } = {}) {
   const headers = { host };
   if (cookie) headers.cookie = `hub_s=${cookie}`;
+  if (cookieRaw) headers.cookie = cookieRaw;
   if (token) headers.authorization = `Bearer ${token}`;
   if (origin) headers.origin = origin;
   const payload = raw ?? (body === undefined ? undefined : JSON.stringify(body));
@@ -73,7 +74,7 @@ async function call(method, p, { body, cookie, token, origin, host = '127.0.0.1'
   });
   let json = null; try { json = JSON.parse(r.text); } catch { /* not json */ }
   const h = r.res.headers;
-  return { status: r.res.statusCode, json, text: r.text, headers: { get: (k) => h[k.toLowerCase()] ?? null }, setCookie: h['set-cookie']?.[0] ?? null };
+  return { status: r.res.statusCode, json, text: r.text, headers: { get: (k) => (k === 'set-cookie-all' ? h['set-cookie'] : h[k.toLowerCase()]) ?? null }, setCookie: h['set-cookie']?.[0] ?? null };
 }
 const cookieOf = (r) => /hub_s=([^;]+)/.exec(r.setCookie ?? '')?.[1] ?? null;
 /** Dev sign-in as a user; returns the session id. */
@@ -138,12 +139,21 @@ test('without a dev login the route is a 404; GitHub sign-in redirects, exchange
   assert.equal(to.origin + to.pathname, 'https://github.com/login/oauth/authorize');
   assert.equal(to.searchParams.get('redirect_uri'), `${ORIGIN}/auth/github/callback`);
   const state = to.searchParams.get('state');
-  const done = await call('GET', `/auth/github/callback?code=c&state=${state}`, { on: offPort });
+  assert.equal(go.setCookie, `hub_oauth=${state}; HttpOnly; Path=/auth/github; SameSite=Lax; Max-Age=600`, 'the state is tied to this browser');
+
+  // A valid state without the browser's cookie (the login-CSRF link an attacker forwards) signs nobody in and spends the cookie.
+  const forged = await call('GET', `/auth/github/callback?code=c&state=${state}`, { on: offPort });
+  assert.deepEqual([forged.status, forged.json.error], [400, 'That sign-in link has expired; try again.']);
+  assert.equal(forged.setCookie, 'hub_oauth=; HttpOnly; Path=/auth/github; SameSite=Lax; Max-Age=0');
+  assert.equal((await call('GET', `/auth/github/callback?code=c&state=${state}`, { on: offPort, cookieRaw: 'hub_oauth=other' })).status, 400, 'a different cookie is no better');
+
+  const done = await call('GET', `/auth/github/callback?code=c&state=${state}`, { on: offPort, cookieRaw: `hub_oauth=${state}` });
   assert.equal(done.status, 302);
   assert.equal(done.headers.get('location'), '/me');
   assert.ok(cookieOf(done));
   assert.equal((await call('GET', '/api/me', { cookie: cookieOf(done), on: offPort })).json.account.handle, 'octo');
-  assert.equal((await call('GET', `/auth/github/callback?code=c&state=${state}`, { on: offPort })).status, 400, 'a state is good once');
+  assert.equal(done.headers.get('set-cookie-all').at(-1), 'hub_oauth=; HttpOnly; Path=/auth/github; SameSite=Lax; Max-Age=0');
+  assert.equal((await call('GET', `/auth/github/callback?code=c&state=${state}`, { on: offPort, cookieRaw: `hub_oauth=${state}` })).status, 400, 'a state is good once');
 });
 
 test('the device flow: a code, the pending poll, the owner approves, the Mac gets a token once, and can revoke it', async () => {

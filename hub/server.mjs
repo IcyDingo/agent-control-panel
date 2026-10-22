@@ -18,6 +18,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MAX_BODY = 16 * 1024;
 const MAX_SYSTEM_BODY = 512 * 1024;
 const COOKIE = 'hub_s';
+const OAUTH_COOKIE = 'hub_oauth'; // binds the GitHub state to the browser that started the sign-in
 const SESSION_S = 30 * 24 * 3600;
 const DEFAULT_LABEL = 'Agent Panel on a Mac';
 
@@ -82,6 +83,7 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now } =
   let boundPort = null;
 
   const sessionCookie = (id, maxAge = SESSION_S) => `${COOKIE}=${id}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${maxAge}${secure}`;
+  const oauthCookie = (state, maxAge) => `${OAUTH_COOKIE}=${state}; HttpOnly; Path=/auth/github; SameSite=Lax; Max-Age=${maxAge}${secure}`;
   const startSession = (req, accountId) => sessionCookie(auth.createSession(accountId, req.headers['user-agent']));
 
   /** Who is calling: the Bearer token if one is sent (and it wins, valid or not), else the session cookie. */
@@ -129,16 +131,21 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now } =
     if (!config.github) return fail(res, 404, 'GitHub sign-in is not configured on this hub.');
     const state = auth.newState(q.get('return_to'));
     const location = authorizeUrl({ clientId: config.github.clientId, state, redirectUri: `${config.publicUrl}/auth/github/callback` });
-    send(res, 302, '', { headers: { location } });
+    send(res, 302, '', { headers: { location, 'set-cookie': oauthCookie(state, 600) } });
   });
   route('GET', '/auth/github/callback', 'pub', async ({ req, res, q }) => {
     if (!config.github) return fail(res, 404, 'GitHub sign-in is not configured on this hub.');
-    const taken = auth.takeState(q.get('state'));
-    if (!taken) return fail(res, 400, 'That sign-in link has expired; try again.');
+    // The state must come back in the cookie of the browser that began the sign-in, or a link an attacker authorised
+    // would sign a victim into the attacker's account. Either way the cookie is spent.
+    const clear = oauthCookie('', 0);
+    const state = q.get('state');
+    const mine = state && cookieValue(req, OAUTH_COOKIE) === state;
+    const taken = mine ? auth.takeState(state) : null;
+    if (!taken) return fail(res, 400, 'That sign-in link has expired; try again.', {}, { headers: { 'set-cookie': clear } });
     const who = await exchange({ code: q.get('code'), clientId: config.github.clientId, clientSecret: config.github.clientSecret, fetch });
-    if (!who) return fail(res, 502, 'GitHub did not confirm the sign-in.');
+    if (!who) return fail(res, 502, 'GitHub did not confirm the sign-in.', {}, { headers: { 'set-cookie': clear } });
     const { account } = accounts.signIn({ provider: 'github', subject: who.subject, login: who.login, avatar: who.avatar });
-    send(res, 302, '', { headers: { location: taken.returnTo ?? '/me', 'set-cookie': startSession(req, account.id) } });
+    send(res, 302, '', { headers: { location: taken.returnTo ?? '/me', 'set-cookie': [startSession(req, account.id), clear] } });
   });
   route('POST', '/auth/dev', 'pub', ({ req, res, body }) => {
     if (!config.devLogin) return fail(res, 404, 'Dev sign-in is off on this hub.');
