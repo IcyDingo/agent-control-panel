@@ -392,8 +392,8 @@ never goes back. The levels:
 | 7–9 | settlements with lights at night, cities under an atmosphere, terraformed with a moon | 1,200, 1,600, 2,000 |
 | 10–12 | an orbital ring, a star port on it, twin moons | 2,600, 3,300, 4,000 |
 
-Level 9 takes about a month of normal weekdays. World's side panel shows the level, the XP toward the next, and today's
-XP; the board says so when Home reaches a new level.
+Level 9 takes about a month of normal weekdays. The box at World's top left shows the level, the XP toward the next, and
+today's XP; the board says so when Home reaches a new level.
 
 - **Tokens** come from the transcripts of every Claude Code profile on this Mac, sessions and subagents: what was
   sent and written, once per reply. Cache reads don't count. There is one World, whichever profile the board shows.
@@ -409,6 +409,12 @@ XP; the board says so when Home reaches a new level.
 - Work from before the first open doesn't count. World is kept in
   `~/Library/Application Support/Agent Panel/world/world.json`. Git is only read.
 
+**The rail** on World's right has a button for each thing you can do or look at: **Profile**, **Build**, **Send a
+rocket**, **Push the frontier**, **Moments** and **Today's work**. Each opens its card beside the rail, one at a time;
+click its button again, or ×, and the map has the whole window. World opens on Build the first time, then on the card
+you had open last. A dot on the rocket means the frontier found a planet for a colony. Profile shows your last 100
+days as a mosaic, a square a day and amber when your agents worked, signed in or not.
+
 **Push the frontier** to spend credit. Pick a direction (from the list, or **Aim on the map**) and the dark that way
 lights up as you keep working: a push opens 150 px of map and is fully lit after 3,000 more credit earned, about ten
 normal days. A push within 20° of an earlier one makes that stretch longer. The first push always finds a planet and
@@ -416,20 +422,21 @@ each later one finds one half the time; it shows once the light reaches it, and 
 costs 4,000, and each one after costs a quarter more. Light never goes back, even when a day's multiplier moves.
 
 **Moments** mark the map where they happened: each finished week with work (Monday to Sunday), each finished day that
-removed 500 lines or more and more than it added ("Big cleanup"), and each Home level from 3 up. The side panel lists
-the newest; a click opens its card with what was done and flies to it.
+removed 500 lines or more and more than it added ("Big cleanup"), and each Home level from 3 up. The Moments card lists
+the newest; a click on one, or on its star, opens it there with what was done and flies to it.
 
 **Send a rocket** to a bare planet the frontier found, and name the colony it lands (up to 24 letters, digits,
 spaces, apostrophes or hyphens; not Home, and not another colony's name). The view pulls out, the rocket flies from
 where you are, and the view flies in to the colony; with reduced motion it goes straight there. Colonies have a
 button each beside **Home** and **Map**. A rocket costs 8,000 at first, and each one after costs a quarter more.
 
-**Build** on Home or a colony: describe it (up to 300 characters) and press **Build it** or Enter. Claude turns the
+**Build** on Home or a colony: pick it in the Build card (a chip each, or its button beside **Home** and **Map**; either
+flies there), describe it (up to 300 characters) and press **Build on** it, or Enter. Claude turns the
 words into pieces World can draw: moons, rings, a ring city, city lights, land and ocean colours, an atmosphere,
 mountains, domes, space stations, a space elevator, aurora and beacons, each with a colour, size, place and count.
 Every build costs 4,000, wherever it goes and however many came before. Credit is taken only when the answer draws:
-if Claude can't be reached, the profile isn't signed in, or the answer doesn't fit, nothing is spent and the side
-panel says why. One build at a time.
+if Claude can't be reached, the profile isn't signed in, or the answer doesn't fit, nothing is spent and the Build
+card says why. One build at a time.
 
 That call is the only time World uses Claude: `claude -p --model haiku` with a JSON schema, under the profile the
 board shows, with hooks off, no tools, MCP servers or slash commands, and no session saved. It runs in
@@ -443,7 +450,7 @@ anyone with your handle or link can open. Your galaxy has fixed coordinates on t
 everyone's suns is the next slice.
 You choose whether to sign in. Until you do, nothing in this section runs and nothing leaves your Mac.
 
-**Sign in** from the **Profile** box in World's side panel (**Sign in with GitHub**), or from a terminal:
+**Sign in** from the **Profile** card in World's rail (**Sign in with GitHub**), or from a terminal:
 
 ```
 node server.mjs login      # prints a code and a link, and opens the link
@@ -453,7 +460,7 @@ node server.mjs logout     # revokes this Mac's token on the hub and forgets it
 
 Either way you get a code like `BKQT-7W3N` and a link. Open the link, sign in to the hub with GitHub if it asks, and
 approve the code; the panel notices and says who you are. The code runs out after 15 minutes. **Sign out** in the
-Profile box does what `logout` does. Your sign-in is kept in `hub.json`, beside `prefs.json` in
+Profile card does what `logout` does. Your sign-in is kept in `hub.json`, beside `prefs.json` in
 `~/Library/Application Support/Agent Panel`. If you sign in from a terminal while the background service runs, the
 service picks it up.
 
@@ -478,7 +485,8 @@ The panel sends about ten seconds after something changes, a second after a purc
 listed. Unlisted asks search engines not to index your page; a link still opens it.
 
 **Spending from your page.** Signed in on the hub, you can push the frontier, send a rocket and build from your page,
-and your Mac does it. An order from the site goes through the same code as the panel's buttons, so the same prices
+and your Mac does it: **Your orders** on the page's rail, which only you see, has Build, Rocket and Push as tabs, and
+Build's chips fly the map to the planet the build goes on. An order from the site goes through the same code as the panel's buttons, so the same prices
 and rules apply, and the page shows what happened, or the Mac's own sentence when it said no ("It costs 4,000 credit,
 and you have 3,200."). One order at a time. With two Macs signed in to one account, an order is run by whichever
 signed-in Mac claims it first, and an order whose Mac went away while running it is released after an hour. If the
