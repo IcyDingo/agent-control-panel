@@ -52,7 +52,7 @@ export const homeReach = (xp) => 46 + 120 * Math.sqrt(Math.min(1, xp / 100 / 40)
 
 /** What each kind costs first. Each push or rocket makes the next of its kind a quarter dearer: reaching further and
     founding another colony is the progression. A build costs the same wherever it goes, however many came before. */
-export const PRICES = { frontier: 4000, rocket: 8000, build: 6000 };
+export const PRICES = { frontier: 4000, rocket: 8000, build: 4000 };
 export const priceOf = (kind, purchases) => (kind === 'build' ? PRICES.build
   : Math.round(PRICES[kind] * 1.25 ** purchases.filter((p) => p.kind === kind).length / 100) * 100);
 /** A push buys this much lobe (map px) from Home outward, lit as this much credit is earned after it. */

@@ -414,7 +414,7 @@ button each beside **Home** and **Map**. A rocket costs 8,000 at first, and each
 **Build** on Home or a colony: describe it (up to 300 characters) and press **Build it** or Enter. Claude turns the
 words into pieces World can draw: moons, rings, a ring city, city lights, land and ocean colours, an atmosphere,
 mountains, domes, space stations, a space elevator, aurora and beacons, each with a colour, size, place and count.
-Every build costs 6,000, wherever it goes and however many came before. Credit is taken only when the answer draws:
+Every build costs 4,000, wherever it goes and however many came before. Credit is taken only when the answer draws:
 if Claude can't be reached, the profile isn't signed in, or the answer doesn't fit, nothing is spent and the side
 panel says why. One build at a time.
 
