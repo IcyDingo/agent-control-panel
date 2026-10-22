@@ -973,13 +973,15 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
 
     <section class="w-box w-card" data-card="push" aria-label="Push the frontier" hidden>
       <header><h2>Push the frontier</h2><button class="btn small quiet w-card-x" type="button" aria-label="Close" title="Close"></button></header>
+      <div class="w-places" id="w-push-from" role="group" aria-label="Where to push from"></div>
       <div class="w-part" id="w-push-box">
-        <p>Pick a direction from Home. The dark lights up that way as you keep working, and it can find a planet.</p>
+        <p id="w-push-text">Pick a direction from Home. The dark lights up that way as you keep working, and it can find a planet.</p>
         <div class="w-row"><select class="field" id="w-dir" aria-label="Direction to push"></select><button class="btn small" type="button" id="w-aim">Aim on the map</button></div>
         <div class="w-act"><span id="w-push-price"></span><button class="btn small go" type="button" id="w-push" disabled>Pick a direction</button></div>
         <p id="w-push-why" hidden></p>
         <p class="err" id="w-push-err" role="alert" hidden></p>
       </div>
+      <p id="w-push-none" hidden>Pick Home or one of your colonies to push from.</p>
     </section>
 
     <section class="w-box w-card" data-card="moments" aria-label="Moments" hidden>

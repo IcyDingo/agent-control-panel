@@ -16,7 +16,7 @@
   let z = 0, zTo = 0, pan = { x: 0, y: 0 }, drag = null, focus = { x: 0, y: 0 }, focusTo = { x: 0, y: 0 }, here = 'home';
   let aiming = false, aimAng = null, picked = null, hover = null;
   let flight = null, sending = false, rocketSig = '', rocketHere = null, coloniesSig = '', momentsSig = ''; // a rocket on its way: its colony shows once it lands
-  let card = null, placesSig = '', daysSig = ''; // the rail's open card, the Build chips and the Profile's days as last drawn
+  let card = null, daysSig = ''; // the rail's open card and the Profile's days as last drawn
   const MAP = 900, ZMAX = 40, scaleOf = (v) => Math.pow(ZMAX, 1 - v); // the map spans MAP px zoomed out, ×40 close up
   const LOBE_START = 60, lobeRadius = (along, tip) => 34 + 26 * along / (tip + 40); // world.mjs's lobe shape
   const BODY = { home: 6, planet: 4.5 }; // radius on the map, map px
@@ -61,6 +61,8 @@
   const reach = () => world?.reach ?? 46;
   const lobes = () => world?.frontier ?? [];
   const planets = () => world?.planets ?? [];
+  /** Where a lobe leaves from (map px): Home, or the colony it was pushed from. */
+  const originOf = (l) => (l.from && l.from !== 'home' ? planets().find((p) => p.id === l.from) : null) ?? { x: 0, y: 0 };
   /** How the light grows with the world, worked out once per paint rather than for every point it lights: `w` widens
    *  each shape of light as Home levels up (terraforming it), colonies are founded and things are built, so a grown
    *  world's light reads as one cloud rather than patches; and each colony lights the space around it, a little more
@@ -77,8 +79,8 @@
   function lit(mx, my) {
     let dark = 1 - fall(Math.hypot(mx, my), reach()); // where two lights' edges overlap they add up: no seam between them
     for (const l of lobes()) {
-      const ux = Math.cos(l.ang), uy = Math.sin(l.ang), along = clamp(mx * ux + my * uy, 0, l.tip);
-      dark *= 1 - fall(Math.hypot(mx - ux * along, my - uy * along), lobeRadius(along, l.tip));
+      const o = originOf(l), dx = mx - o.x, dy = my - o.y, ux = Math.cos(l.ang), uy = Math.sin(l.ang), along = clamp(dx * ux + dy * uy, 0, l.tip);
+      dark *= 1 - fall(Math.hypot(dx - ux * along, dy - uy * along), lobeRadius(along, l.tip));
     }
     if (sun()) dark *= 1 - fall(Math.hypot(mx - sun().x, my - sun().y), 70); // the sun's own glow
     for (const c of shine.colonies) dark *= 1 - fall(Math.hypot(mx - c.x, my - c.y), c.r);
@@ -87,22 +89,42 @@
   /** How far the world reaches from Home (map px): the light, the sun, what the frontier bought, the planets it found
    *  and the colonies' light, as far as the bloom has widened it. */
   const extent = () => Math.max(reach() * (shine.w + 0.15), ...(sun() ? [Math.hypot(sun().x, sun().y) + 70 * shine.w] : []),
-    ...lobes().map((l) => LOBE_START + Math.max(l.bought + 60, l.lit + lobeRadius(l.tip, l.tip) * shine.w)),
+    ...lobes().map((l) => Math.hypot(originOf(l).x, originOf(l).y) + (l.tip - l.lit) + Math.max(l.bought + 60, l.lit + lobeRadius(l.tip, l.tip) * shine.w)),
     ...planets().map((p) => Math.hypot(p.x, p.y) + 30), ...shine.colonies.map((c) => Math.hypot(c.x, c.y) + c.r * shine.w));
+  /** world.mjs's walledIn, copied: the light on an n×n grid with every pocket of dark it walls in lit full. */
+  function walledIn(grid, n, dark = 0.3) {
+    const out = Float32Array.from(grid), open = new Uint8Array(n * n), stack = [];
+    const reach = (i, j) => { const k = j * n + i; if (!open[k] && grid[k] < dark) { open[k] = 1; stack.push(k); } };
+    for (let k = 0; k < n; k++) { reach(k, 0); reach(k, n - 1); reach(0, k); reach(n - 1, k); }
+    while (stack.length) {
+      const k = stack.pop(), i = k % n, j = (k - i) / n;
+      if (i > 0) reach(i - 1, j);
+      if (i < n - 1) reach(i + 1, j);
+      if (j > 0) reach(i, j - 1);
+      if (j < n - 1) reach(i, j + 1);
+    }
+    for (let k = 0; k < n * n; k++) if (grid[k] < dark && !open[k]) out[k] = 1;
+    return out;
+  }
+  const CELL = 6; // map px per sample of the light: fixed, so a pocket closed at one size of map stays closed as it grows
   /** The light and the stars in it, drawn again only when the world changes, sampled small and drawn up smoothly so
-   *  its edge is soft. */
+   *  its edge is soft. A pocket of dark the light walls in is drawn lit. */
   function paint() {
     const grown = shineOf(), sig = JSON.stringify([world?.reach, world?.sun, lobes(), planets().map((p) => p.id), grown]);
     if (sky && sig === skySig) return;
     skySig = sig; shine = grown;
-    const E = extent(), n = 128, c = document.createElement('canvas');
+    const n = clamp(Math.ceil(2 * extent() / CELL), 128, 512), E = Math.max(extent(), n * CELL / 2), c = document.createElement('canvas');
     c.width = c.height = n;
-    const gx = c.getContext('2d');
-    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
-      const l = lit(((i + 0.5) / n - 0.5) * 2 * E, ((j + 0.5) / n - 0.5) * 2 * E);
-      if (l > 0) { gx.fillStyle = `rgba(36,62,110,${0.45 * l})`; gx.fillRect(i, j, 1, 1); }
-    }
-    sky = { E, glow: c, stars: made.stars.map((s) => ({ ...s, l: lit(s.x, s.y) })).filter((s) => s.l > 0.02) };
+    const gx = c.getContext('2d'), raw = new Float32Array(n * n);
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) raw[j * n + i] = lit(((i + 0.5) / n - 0.5) * 2 * E, ((j + 0.5) / n - 0.5) * 2 * E);
+    const grid = walledIn(raw, n);
+    for (let k = 0; k < n * n; k++) if (grid[k] > 0) { gx.fillStyle = `rgba(36,62,110,${0.45 * grid[k]})`; gx.fillRect(k % n, Math.floor(k / n), 1, 1); }
+    /** The light at a point, pockets filled: the grid's cell, or the light itself off the grid. */
+    const at = (mx, my) => {
+      const i = Math.floor((mx / (2 * E) + 0.5) * n), j = Math.floor((my / (2 * E) + 0.5) * n);
+      return i >= 0 && j >= 0 && i < n && j < n ? Math.max(lit(mx, my), grid[j * n + i]) : lit(mx, my);
+    };
+    sky = { E, glow: c, stars: made.stars.map((s) => ({ ...s, l: at(s.x, s.y) })).filter((s) => s.l > 0.02) };
   }
 
   function mix(a, b, k) {
@@ -398,7 +420,7 @@
     x.closePath(); x.fill();
     if (on) { x.strokeStyle = 'rgba(227,171,62,.8)'; x.lineWidth = 1.2; x.beginPath(); x.arc(px, py, 11, 0, 7); x.stroke(); }
   }
-  /** The direction a push would take, from Home: dashed, with an arrowhead. */
+  /** The direction a push would take, from where it leaves: dashed, with an arrowhead. */
   function drawArrow(hx, hy, ang, len, a) {
     const ex = hx + Math.cos(ang) * len, ey = hy + Math.sin(ang) * len;
     x.strokeStyle = `rgba(227,171,62,${a})`; x.fillStyle = `rgba(227,171,62,${a})`; x.lineWidth = 2; x.setLineDash([6, 6]);
@@ -442,7 +464,8 @@
       }
       if (sun()) { const [ux, uy] = to(sun().x, sun().y), ur = Math.max(2.5, sun().r * s); if (seen(ux, uy, ur * 3)) drawSun(ux, uy, ur, t); }
       for (const l of lobes()) if (l.lit < l.bought) { // what the frontier bought and hasn't lit yet: a faint trail ahead
-        const [ax, ay] = to(Math.cos(l.ang) * l.tip, Math.sin(l.ang) * l.tip), [bx, by] = to(Math.cos(l.ang) * (LOBE_START + l.bought), Math.sin(l.ang) * (LOBE_START + l.bought));
+        const o = originOf(l), end = l.tip - l.lit + l.bought;
+        const [ax, ay] = to(o.x + Math.cos(l.ang) * l.tip, o.y + Math.sin(l.ang) * l.tip), [bx, by] = to(o.x + Math.cos(l.ang) * end, o.y + Math.sin(l.ang) * end);
         x.strokeStyle = 'rgba(227,171,62,.35)'; x.lineWidth = 1.5; x.setLineDash([3, 7]);
         x.beginPath(); x.moveTo(ax, ay); x.lineTo(bx, by); x.stroke(); x.setLineDash([]);
       }
@@ -485,7 +508,10 @@
       }
     }
     if (flight && drawRocket(flight, now, to)) land(flight);
-    if (aimAng != null && z > 0.4) drawArrow(hx, hy, aimAng, Math.max(90, Math.min(220, (LOBE_START + PUSH_PX) * s)), aiming ? 0.95 : 0.6);
+    if (aimAng != null && z > 0.4 && pushFrom()) { // from the place a push would leave from
+      const o = placeOf(pushFrom()), [ox, oy] = to(o.x, o.y);
+      drawArrow(ox, oy, aimAng, Math.max(90, Math.min(220, (LOBE_START + PUSH_PX) * s)), aiming ? 0.95 : 0.6);
+    }
     const name = placeName(here);
     $('w-where').textContent = z < 0.3 ? name : z > 0.7 ? 'Map' : `Leaving ${name}`;
     raf = requestAnimationFrame(frame);
@@ -496,7 +522,7 @@
   /** The zoom that shows the whole world: 1 is the first map, more is further out. */
   const zFit = () => {
     const vw = (W || 1200) - side(), need = Math.max(MAP * 0.5, extent()) / (Math.min(vw, H || 800) * 0.48);
-    return clamp(1 + Math.log(need) / Math.log(ZMAX), 1, 1.8);
+    return clamp(1 + Math.log(need) / Math.log(ZMAX), 1, 3); // branches off colonies can reach far past the first map
   };
   function zoomTo(v) {
     zTo = clamp(v, 0, zFit());
@@ -514,7 +540,7 @@
     if (!p) return;
     here = id; focusTo = { x: p.x, y: p.y }; pan = { x: 0, y: 0 };
     zoomTo(0);
-    if (world) { showBuild(); showRocket(); }
+    if (world) { showBuild(); showRocket(); showPush(); }
     opts.onPlace?.(id);
   }
   function showMap(at = { x: 0, y: 0 }) { focusTo = { ...at }; pan = { x: 0, y: 0 }; zoomTo(zFit()); }
@@ -528,9 +554,9 @@
     return m ? { moment: m } : null;
   }
   function aimAt(px, py) {
-    const { s, cx, cy } = view;
-    aimAng = Math.atan2(py - cy, px - cx);
-    if (Math.hypot(px - cx, py - cy) < 6 * s) return;
+    const { s, cx, cy } = view, o = placeOf(pushFrom() ?? 'home'), ox = cx + o.x * s, oy = cy + o.y * s;
+    if (Math.hypot(px - ox, py - oy) < 6 * s) return;
+    aimAng = Math.atan2(py - oy, px - ox);
     showPush();
   }
   /** An Enter that only finishes an accent or an input method's word (WebKit says so with keyCode 229). */
@@ -630,8 +656,16 @@
     if (on) { if (aimAng == null) aimAng = -Math.PI / 4; showMap(); }
     showPush();
   }
+  /** Where a push would leave from: the place the map is on, when it is Home or a colony. */
+  const pushFrom = () => (here === 'home' || colonyOf(placeOf(here) ?? {}) ? here : null);
   function showPush() {
     if (opts.readOnly) return;
+    showPlaces($('w-push-from'));
+    const from = pushFrom();
+    $('w-push-box').hidden = !from;
+    if ($('w-push-none')) $('w-push-none').hidden = Boolean(from);
+    if (!from) return;
+    $('w-push-text').textContent = `Pick a direction from ${placeName(from)}. The dark lights up that way as you keep working, and it can find a planet.`;
     const price = world.prices?.frontier ?? 0;
     $('w-push-price').textContent = `${fmt(price)} credit`;
     // No direction (none yet, or just pushed) shows the list's placeholder, so any direction can be picked again.
@@ -643,29 +677,29 @@
     $('w-push-why').textContent = `You have ${fmt(Math.max(0, world.balance))}. Work earns more.`;
   }
   async function push() {
-    if (aimAng == null) return;
+    const from = pushFrom();
+    if (aimAng == null || !from) return;
     const b = $('w-push'), err = $('w-push-err');
     b.disabled = true; err.hidden = true;
-    const r = await opts.api('/api/world/buy', { kind: 'frontier', ang: aimAng });
+    const r = await opts.api('/api/world/buy', { kind: 'frontier', ang: aimAng, from });
     if (!r.ok) { err.textContent = r.error || 'That did not go through.'; err.hidden = false; showPush(); return; }
-    opts.toast?.(`The frontier is pushed ${compass(aimAng)}. It lights up that way as you work.`);
-    const ang = aimAng;
+    opts.toast?.(`The frontier is pushed ${compass(aimAng)} from ${placeName(from)}. It lights up that way as you work.`);
+    const ang = aimAng, o = placeOf(from);
     aimAng = null;
     setAim(false);
     AgentWorld.update(r.world);
-    showMap({ x: Math.cos(ang) * 90, y: Math.sin(ang) * 90 });
+    showMap({ x: o.x + Math.cos(ang) * 90, y: o.y + Math.sin(ang) * 90 });
   }
   /** Build on the place you are looking at: Home or a colony. Claude takes a few seconds; one build at a time. */
   let buildingOn = null;
-  /** The places you can build on, Home first: a chip each, its dot the planet's colour. */
-  function showPlaces() {
-    const box = $('w-build-on');
+  /** The places you can build on or push from, Home first: a chip each in `box`, its dot the planet's colour. */
+  function showPlaces(box = $('w-build-on')) {
     if (!box) return;
     const list = [{ id: 'home', name: 'Home', dot: '#4a86c0' },
       ...planets().filter(colonyOf).map((p) => ({ id: p.id, name: p.colony.name, dot: LOOK[p.look]?.[0] ?? '#cfe0ff' }))];
     const sig = list.map((q) => `${q.id}:${q.name}`).join();
-    if (sig !== placesSig) { // rebuilt only when the places change, so focus survives updates
-      placesSig = sig;
+    if (sig !== box.dataset.sig) { // rebuilt only when the places change, so focus survives updates
+      box.dataset.sig = sig;
       box.replaceChildren(...list.map((q) => {
         const b = document.createElement('button'), dot = document.createElement('i');
         b.type = 'button'; b.className = 'w-place'; b.dataset.place = q.id;
