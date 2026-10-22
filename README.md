@@ -371,6 +371,9 @@ from then on, with lit space widening around Home when you zoom out (scroll, or 
 around). No agents in it: their work only arrives as credit. While it is open, its top bar says how many sessions need
 you, and takes you back to the board at the first.
 
+Beside Home sits its **sun**, placed by your world's seed: it lights Home's day side and the colonies', and marks your
+system on the map.
+
 Credit is earned per calendar day: `(lines added ÷ 10 + tokens ÷ 10,000) × multiplier`, where lines removed raise the
 multiplier from ×1 up to ×4, so a cleanup day pays best. The side panel shows today's numbers.
 
