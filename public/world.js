@@ -401,14 +401,11 @@
     x.restore();
     return k >= 1;
   }
-  /** The sun Home orbits: a corona, its disc, and six faint rays turning slowly. */
-  function drawSun(px, py, r, t) {
-    const c = SUN[sun().look] ?? SUN.gold, g = x.createRadialGradient(px, py, r, px, py, 3 * r), spin = calm.matches ? 0 : t / 20000;
+  /** The sun Home orbits: a corona and its disc. */
+  function drawSun(px, py, r) {
+    const c = SUN[sun().look] ?? SUN.gold, g = x.createRadialGradient(px, py, r, px, py, 3 * r);
     g.addColorStop(0, rgba(c, 0.35)); g.addColorStop(1, rgba(c, 0));
     x.fillStyle = g; x.beginPath(); x.arc(px, py, 3 * r, 0, 7); x.fill();
-    x.strokeStyle = rgba(c, 0.18); x.lineWidth = 1; x.beginPath();
-    for (let i = 0; i < 6; i++) { const a = spin + i * Math.PI / 3; x.moveTo(px + Math.cos(a) * r, py + Math.sin(a) * r); x.lineTo(px + Math.cos(a) * 2.2 * r, py + Math.sin(a) * 2.2 * r); }
-    x.stroke();
     x.fillStyle = c; x.beginPath(); x.arc(px, py, r, 0, 7); x.fill();
   }
   /** A moment: a four-pointed star in its kind's colour. */
@@ -427,6 +424,83 @@
     x.beginPath(); x.moveTo(hx + Math.cos(ang) * 14, hy + Math.sin(ang) * 14); x.lineTo(ex, ey); x.stroke(); x.setLineDash([]);
     x.beginPath(); x.moveTo(ex + Math.cos(ang) * 10, ey + Math.sin(ang) * 10);
     x.lineTo(ex + Math.cos(ang + 2.5) * 9, ey + Math.sin(ang + 2.5) * 9); x.lineTo(ex + Math.cos(ang - 2.5) * 9, ey + Math.sin(ang - 2.5) * 9); x.fill();
+  }
+
+  // ---------- the Universe: your sun among the galaxies your probes found, drawn in hub units (the spiral's), not map px
+  const PROBE_SHOW = 240; // how far out a probe on its way is drawn (hub units), at the fraction of the way it has come
+  let found = [], foundSig = null, foundSeen = null, probeReady = null; // the found galaxies, named; whether a probe would find anyone
+  /** This account's spot in the Universe: the page's owner, or the account signed in here; null signed out. */
+  const meSpot = () => opts.universe?.me?.() ?? (hubNow?.loggedIn && hubNow.account ? { x: hubNow.account.x, y: hubNow.account.y } : null);
+  const universeOn = () => Boolean(opts.universe && meSpot());
+  /** This account's probes, their target only once arrived: a summary has every account's (with `by`), a projection only its owner's. */
+  function myProbes() {
+    const me = meSpot();
+    return (world?.probes ?? []).filter((q) => !q.by || (me && q.by.x === me.x && q.by.y === me.y))
+      .map((q) => ({ ang: q.ang, progress: q.progress, to: q.progress >= 1 ? q.to : null }));
+  }
+  /** Ask for the found galaxies' names and suns when the spots change; unlisted ones come back missing and are not drawn. */
+  function loadFound() {
+    const at = universeOn() ? myProbes().filter((q) => q.to).map((q) => q.to) : [], sig = at.map((c) => `${c.x},${c.y}`).join(';');
+    if (sig === foundSig) return;
+    foundSig = sig;
+    if (!at.length) { found = []; foundSeen ??= new Set(); return; }
+    opts.universe.names(at).then((list) => {
+      if (foundSig !== sig) return;
+      found = Array.isArray(list) ? list : [];
+      if (foundSeen && !opts.readOnly) for (const g of found) if (!foundSeen.has(g.handle)) opts.toast?.(`Your probe found @${g.handle}'s galaxy.`);
+      foundSeen = new Set(found.map((g) => g.handle));
+      showProbe();
+    }).catch(() => {});
+  }
+  /** The Universe's transform: your sun at the middle, zoomed to fit what you found (300 hub units across at least). */
+  function uView() {
+    const me = meSpot(), vw = W - side(), flying = myProbes().some((q) => !q.to);
+    const far = Math.max(300, ...found.map((g) => Math.hypot(g.x - me.x, g.y - me.y) * 1.15), flying ? PROBE_SHOW * 1.15 : 0);
+    return { me, cx: vw / 2 + pan.x, cy: H / 2 + pan.y, k: Math.min(vw, H || 800) * 0.42 / far };
+  }
+  /** A galaxy as the Universe shows it: a glowing core in its sun's colour and two arms of stars winding out, turning
+   *  slowly. Its spot picks the tilt and the scatter, so a galaxy looks the same to everyone who has found it. */
+  function drawGalaxy(px, py, r, t, look, at) {
+    const c = SUN[look] ?? SUN.gold, rnd = rng(((at.x * 73856093) ^ (at.y * 19349663)) >>> 0);
+    const tilt = 0.45 + 0.4 * rnd(), turn = rnd() * Math.PI, spin = calm.matches ? 0 : t / 90000;
+    x.save(); x.translate(px, py); x.rotate(turn); x.scale(1, tilt);
+    const g = x.createRadialGradient(0, 0, 0, 0, 0, r * 1.3);
+    g.addColorStop(0, rgba(c, 0.55)); g.addColorStop(0.3, rgba(c, 0.16)); g.addColorStop(1, rgba(c, 0));
+    x.fillStyle = g; x.beginPath(); x.arc(0, 0, r * 1.3, 0, 7); x.fill();
+    for (let arm = 0; arm < 2; arm++) for (let i = 0; i < 90; i++) {
+      const f = i / 90, a = spin + arm * Math.PI + f * 3.6 + (rnd() - 0.5) * 0.5, d = r * (0.1 + 0.9 * f) * (0.9 + 0.2 * rnd());
+      x.fillStyle = f < 0.35 ? rgba(c, 0.85 - f) : `rgba(220,230,255,${0.75 - 0.6 * f})`;
+      x.fillRect(Math.cos(a) * d, Math.sin(a) * d, 1.3, 1.3 / tilt);
+    }
+    x.fillStyle = c; x.beginPath(); x.arc(0, 0, Math.max(1.6, r * 0.09), 0, 7); x.fill();
+    x.restore();
+  }
+  function drawUniverse(a, t) {
+    const u = uView(), to = (gx, gy) => [u.cx + (gx - u.me.x) * u.k, u.cy + (gy - u.me.y) * u.k];
+    x.globalAlpha = a;
+    const bg = x.createRadialGradient(u.cx, u.cy, 10, u.cx, u.cy, Math.max(W, H) * 0.8);
+    bg.addColorStop(0, '#0a1020'); bg.addColorStop(1, '#020309');
+    x.fillStyle = bg; x.fillRect(0, 0, W, H);
+    const r = rng(7777); // far stars drift slower than near ones as you pan: depth, in 2D
+    for (let i = 0; i < 320; i++) {
+      const depth = 0.1 + 0.6 * r(), sx = ((r() * W + pan.x * depth) % W + W) % W, sy = ((r() * H + pan.y * depth) % H + H) % H;
+      x.fillStyle = `rgba(220,230,255,${0.08 + 0.4 * depth})`; x.fillRect(sx, sy, depth > 0.55 ? 1.6 : 1, depth > 0.55 ? 1.6 : 1);
+    }
+    for (const q of myProbes()) if (!q.to) { // on its way: along where it was aimed, never toward its target
+      const d = q.progress * PROBE_SHOW, [px, py] = to(u.me.x + Math.cos(q.ang) * d, u.me.y + Math.sin(q.ang) * d);
+      x.strokeStyle = 'rgba(227,171,62,.35)'; x.lineWidth = 1; x.setLineDash([2, 6]);
+      x.beginPath(); x.moveTo(u.cx, u.cy); x.lineTo(px, py); x.stroke(); x.setLineDash([]);
+      x.fillStyle = '#e3ab3e'; x.beginPath(); x.arc(px, py, 2.6, 0, 7); x.fill();
+    }
+    for (const g of found) {
+      const [px, py] = to(g.x, g.y);
+      drawGalaxy(px, py, 24, t, g.look, g);
+      if (hover === `@${g.handle}` || found.length < 10) label(`@${g.handle}`, px, py + 32, hover === `@${g.handle}` ? '#e3e7ed' : '#8c96a4', 12);
+    }
+    drawGalaxy(u.cx, u.cy, 34, t, sun()?.look, u.me);
+    label(`${opts.universe.name ?? 'You'} · ${u.me.x}, ${u.me.y}`.replaceAll('-', '−'), u.cx, u.cy + 42, '#e3e7ed', 12);
+    if (aiming === 'probe' && probeAng != null) drawArrow(u.cx, u.cy, probeAng, Math.min(W, H) * 0.22, 0.95);
+    x.globalAlpha = 1;
   }
 
   // ---------- the frame
@@ -462,7 +536,7 @@
         const sz = st.b > 0.93 ? 2.2 : st.b > 0.75 ? 1.5 : 1;
         x.fillRect(sx, sy, sz, sz);
       }
-      if (sun()) { const [ux, uy] = to(sun().x, sun().y), ur = Math.max(2.5, sun().r * s); if (seen(ux, uy, ur * 3)) drawSun(ux, uy, ur, t); }
+      if (sun()) { const [ux, uy] = to(sun().x, sun().y), ur = Math.max(2.5, sun().r * s); if (seen(ux, uy, ur * 3)) drawSun(ux, uy, ur); }
       for (const l of lobes()) if (l.lit < l.bought) { // what the frontier bought and hasn't lit yet: a faint trail ahead
         const o = originOf(l), end = l.tip - l.lit + l.bought;
         const [ax, ay] = to(o.x + Math.cos(l.ang) * l.tip, o.y + Math.sin(l.ang) * l.tip), [bx, by] = to(o.x + Math.cos(l.ang) * end, o.y + Math.sin(l.ang) * end);
@@ -508,12 +582,15 @@
       }
     }
     if (flight && drawRocket(flight, now, to)) land(flight);
-    if (aimAng != null && z > 0.4 && pushFrom()) { // from the place a push would leave from
+    const uA = universeOn() ? clamp((z - zFit() - 0.15) / 0.6) : 0; // past Map, the Universe fades in over it
+    if (aimAng != null && z > 0.4 && pushFrom() && uA < 1) { // from the place a push would leave from
       const o = placeOf(pushFrom()), [ox, oy] = to(o.x, o.y);
       drawArrow(ox, oy, aimAng, Math.max(90, Math.min(220, (LOBE_START + PUSH_PX) * s)), aiming ? 0.95 : 0.6);
     }
+    if (uA > 0) drawUniverse(uA, t);
+    view.uA = uA;
     const name = placeName(here);
-    $('w-where').textContent = z < 0.3 ? name : z > 0.7 ? 'Map' : `Leaving ${name}`;
+    $('w-where').textContent = uA > 0.5 ? 'Universe' : z < 0.3 ? name : z > 0.7 ? 'Map' : `Leaving ${name}`;
     raf = requestAnimationFrame(frame);
   }
   const PUSH_PX = 150; // world.mjs PUSH_LEN: how far a push reaches, for the aiming arrow
@@ -524,12 +601,17 @@
     const vw = (W || 1200) - side(), need = Math.max(MAP * 0.5, extent()) / (Math.min(vw, H || 800) * 0.48);
     return clamp(1 + Math.log(need) / Math.log(ZMAX), 1, 3); // branches off colonies can reach far past the first map
   };
+  /** The furthest out: the map, and past it the Universe when there is one to show. */
+  const zMax = () => zFit() + (universeOn() ? 1.2 : 0);
   function zoomTo(v) {
-    zTo = clamp(v, 0, zFit());
-    if (zTo < 0.2) pan = { x: 0, y: 0 };
+    const was = zTo;
+    zTo = clamp(v, 0, zMax());
+    if (zTo < 0.2 || (was > zFit() + 0.5) !== (zTo > zFit() + 0.5)) pan = { x: 0, y: 0 }; // the Universe and the map pan apart
     for (const b of document.querySelectorAll('.w-zoom [data-place]')) b.classList.toggle('on', zTo < 0.5 && b.dataset.place === here);
-    $('w-map').classList.toggle('on', zTo >= 0.5);
+    $('w-map').classList.toggle('on', zTo >= 0.5 && zTo <= zFit() + 0.5);
+    $('w-universe')?.classList.toggle('on', zTo > zFit() + 0.5);
   }
+  function showUniverse() { pan = { x: 0, y: 0 }; zoomTo(zMax()); }
   /** A place you can fly to: Home, or a planet the frontier found (map px). */
   const placeOf = (id) => (id === 'home' ? { x: 0, y: 0 } : planets().find((q) => q.id === id));
   /** A planet's colony, once its rocket has landed. */
@@ -546,6 +628,10 @@
   function showMap(at = { x: 0, y: 0 }) { focusTo = { ...at }; pan = { x: 0, y: 0 }; zoomTo(zFit()); }
   /** What is under a point on the canvas: a planet, Home, or a moment. */
   function hit(px, py) {
+    if (view?.uA > 0.5) { // the Universe: the galaxies you found
+      const u = uView(), g = found.find((q) => Math.hypot(u.cx + (q.x - u.me.x) * u.k - px, u.cy + (q.y - u.me.y) * u.k - py) < 26);
+      return g ? { galaxy: g } : null;
+    }
     if (!view || z < 0.35) return null;
     const { s, cx, cy, bodyR } = view, d = (mx, my) => Math.hypot(cx + mx * s - px, cy + my * s - py);
     for (const p of planets()) if (d(p.x, p.y) < Math.max(12, bodyR(BODY.planet))) return { planet: p.id };
@@ -554,6 +640,7 @@
     return m ? { moment: m } : null;
   }
   function aimAt(px, py) {
+    if (aiming === 'probe') { const u = uView(); probeAng = Math.atan2(py - u.cy, px - u.cx); showProbe(); return; }
     const { s, cx, cy } = view, o = placeOf(pushFrom() ?? 'home'), ox = cx + o.x * s, oy = cy + o.y * s;
     if (Math.hypot(px - ox, py - oy) < 6 * s) return;
     aimAng = Math.atan2(py - oy, px - ox);
@@ -576,7 +663,7 @@
       if (aiming) aimAt(e.offsetX, e.offsetY);
     });
     cv.addEventListener('pointermove', (e) => {
-      if (!drag) { const h = hit(e.offsetX, e.offsetY); hover = h?.moment?.id ?? null; cv.style.cursor = aiming ? 'crosshair' : h ? 'pointer' : ''; return; }
+      if (!drag) { const h = hit(e.offsetX, e.offsetY); hover = h?.moment?.id ?? (h?.galaxy ? `@${h.galaxy.handle}` : null); cv.style.cursor = aiming ? 'crosshair' : h ? 'pointer' : ''; return; }
       if (Math.hypot(e.clientX - drag.at[0], e.clientY - drag.at[1]) > 4) drag.moved = true;
       if (aiming) aimAt(e.offsetX, e.offsetY);
       else if (z > 0.3) pan = { x: e.clientX - drag.x, y: e.clientY - drag.y };
@@ -588,13 +675,23 @@
       const h = hit(e.offsetX, e.offsetY);
       if (h?.planet) flyTo(h.planet);
       else if (h?.moment) pick(h.moment.id);
+      else if (h?.galaxy) opts.universe?.visit?.(h.galaxy.handle);
     });
     $('w-home').onclick = () => flyTo('home');
     $('w-map').onclick = () => showMap();
+    if ($('w-universe')) $('w-universe').onclick = showUniverse;
+    if ($('w-universe-hint')) $('w-universe-hint').onclick = () => openCard('profile');
+    if ($('w-probe')) {
+      $('w-probe-dir').replaceChildren(new Option('Direction', '', true, true), ...COMPASS.map((c, i) => new Option(c[0].toUpperCase() + c.slice(1), String(i * Math.PI / 4 - Math.PI / 2))));
+      $('w-probe-dir').options[0].disabled = true;
+      $('w-probe-dir').onchange = () => { probeAng = Number($('w-probe-dir').value); showProbe(); };
+      $('w-probe-aim').onclick = () => setAim(aiming === 'probe' ? false : 'probe');
+      $('w-probe').onclick = sendProbe;
+    }
     new ResizeObserver(() => { if (raf) fit(); }).observe(cv);
     $('w-dir').replaceChildren(new Option('Direction', '', true, true), ...COMPASS.map((c, i) => new Option(c[0].toUpperCase() + c.slice(1), String(i * Math.PI / 4 - Math.PI / 2))));
     $('w-dir').options[0].disabled = true;
-    $('w-aim').onclick = () => setAim(!aiming);
+    $('w-aim').onclick = () => setAim(aiming === 'push' ? false : 'push');
     $('w-dir').onchange = () => { aimAng = Number($('w-dir').value); showPush(); };
     $('w-push').onclick = push;
     $('w-m-close').onclick = () => pick(null);
@@ -619,6 +716,7 @@
     }
     for (const s of $('w-side').querySelectorAll('.w-card[data-card]')) s.hidden = s.dataset.card !== card;
     if (card && opts.card?.key) try { localStorage.setItem(opts.card.key, card); } catch { /* not remembered, no harm */ }
+    if (card === 'probe') checkProbe();
   }
   /** The card a World opens with: the one open last time, else the page's first. */
   function firstCard() {
@@ -648,13 +746,19 @@
     return [dt, dd];
   }
   const can = (price) => (world?.balance ?? 0) >= price;
+  /** Aim on the map: a push (`'push'`, on the map) or a probe (`'probe'`, on the Universe), or stop (false). */
   function setAim(on) {
     aiming = on;
-    $('w-aim').classList.toggle('on', on);
-    $('w-aim').textContent = on ? 'Done aiming' : 'Aim on the map';
+    for (const [id, kind] of [['w-aim', 'push'], ['w-probe-aim', 'probe']]) {
+      if (!$(id)) continue;
+      $(id).classList.toggle('on', on === kind);
+      $(id).textContent = on === kind ? 'Done aiming' : 'Aim on the map';
+    }
     cv.style.cursor = on ? 'crosshair' : '';
-    if (on) { if (aimAng == null) aimAng = -Math.PI / 4; showMap(); }
+    if (on === 'push') { if (aimAng == null) aimAng = -Math.PI / 4; showMap(); }
+    if (on === 'probe') { if (probeAng == null) probeAng = -Math.PI / 4; showUniverse(); }
     showPush();
+    showProbe();
   }
   /** Where a push would leave from: the place the map is on, when it is Home or a colony. */
   const pushFrom = () => (here === 'home' || colonyOf(placeOf(here) ?? {}) ? here : null);
@@ -689,6 +793,62 @@
     setAim(false);
     AgentWorld.update(r.world);
     showMap({ x: o.x + Math.cos(ang) * 90, y: o.y + Math.sin(ang) * 90 });
+  }
+  /** Send a probe: shown signed in. The hub aims it at the nearest galaxy that way you haven't found; it arrives as you work. */
+  let probeAng = null, probing = false;
+  function showProbe() {
+    const on = universeOn();
+    if ($('w-universe')) $('w-universe').hidden = !on;
+    if ($('w-universe-hint')) $('w-universe-hint').hidden = on || !opts.universe;
+    if (zTo > zMax()) zoomTo(zMax());
+    loadFound();
+    if (opts.readOnly || !$('w-probe')) return;
+    const rail = $('w-rail')?.querySelector('[data-card="probe"]');
+    if (rail) rail.hidden = !on;
+    if (!on) { if (card === 'probe') openCard(null); return; }
+    const mine = myProbes(), flying = mine.filter((q) => !q.to);
+    mark('probe', 'has', flying.length, flying.length === 1 ? 'a probe is on its way' : `${flying.length} probes are on their way`);
+    const price = world.prices?.probe ?? 0, b = $('w-probe'), nobody = probeReady === false;
+    $('w-probe-price').textContent = `${fmt(price)} credit`;
+    $('w-probe-dir').value = probeAng == null ? '' : String(COMPASS.indexOf(compass(probeAng)) * Math.PI / 4 - Math.PI / 2);
+    b.textContent = probing ? 'Aiming…' : probeAng == null ? 'Pick a direction' : `Send a probe ${compass(probeAng)}`;
+    b.disabled = probing || probeAng == null || !can(price) || nobody;
+    $('w-probe-why').hidden = can(price);
+    $('w-probe-why').textContent = `You have ${fmt(Math.max(0, world.balance))}. Work earns more.`;
+    $('w-probe-none').hidden = !(nobody || !mine.length);
+    $('w-probe-none').textContent = nobody ? "There's no one new to find yet." : 'Send a probe to find the galaxies around you.';
+    const items = [...flying.map((q) => ({ text: `On its way ${compass(q.ang)}, ${Math.floor(q.progress * 100)}% there` })),
+      ...found.map((g) => ({ text: `Found @${g.handle}`, visit: g.handle }))];
+    $('w-probe-list').hidden = !items.length;
+    $('w-probe-list').replaceChildren(...items.map((it) => {
+      const li = document.createElement('li');
+      if (!it.visit) { li.textContent = it.text; return li; }
+      const a = document.createElement('button');
+      a.type = 'button'; a.className = 'linkish'; a.textContent = it.text; a.onclick = () => opts.universe.visit(it.visit);
+      li.append(a);
+      return li;
+    }));
+  }
+  /** Ask whether a probe would find anyone now; an unreachable hub says nothing, and the probe itself will say so. */
+  async function checkProbe() {
+    if (opts.readOnly || !universeOn()) return;
+    const r = await opts.api('/api/world/probe-ready', {});
+    probeReady = r?.ok && r.none ? false : true;
+    showProbe();
+  }
+  async function sendProbe() {
+    if (probeAng == null || probing) return;
+    const err = $('w-probe-err'), ang = probeAng;
+    probing = true; err.hidden = true; showProbe();
+    const r = await opts.api('/api/world/probe', { ang });
+    probing = false;
+    if (!r.ok) { err.textContent = r.error || 'That did not go through.'; err.hidden = false; showProbe(); checkProbe(); return; }
+    opts.toast?.(`A probe is on its way ${compass(ang)}. It arrives as you keep working.`);
+    probeAng = null;
+    if (aiming === 'probe') setAim(false);
+    AgentWorld.update(r.world);
+    showUniverse();
+    checkProbe();
   }
   /** Build on the place you are looking at: Home or a colony. Claude takes a few seconds; one build at a time. */
   let buildingOn = null;
@@ -881,6 +1041,7 @@
       showDays(w);
     }
     showPush();
+    showProbe();
     showBuild();
     showRocket();
     showColonies();
@@ -1054,6 +1215,8 @@
       here = 'home'; flight = null; focus = { x: 0, y: 0 }; focusTo = { x: 0, y: 0 };
       show(summary);
       showHub(opts.hub);
+      found = []; foundSig = null; foundSeen = null; probeReady = null; probeAng = null;
+      showProbe(); // the Universe and the Probe card follow the account the hub says is signed in
       if (opts.card) openCard(firstCard());
       fit();
       zoomTo(0); z = 0; pan = { x: 0, y: 0 };
@@ -1068,6 +1231,7 @@
       paint();
       show(summary);
       showHub(hub, before);
+      showProbe();
       opts.onPlace?.(here); // the place may have changed underneath: a bare planet the map is on can be a colony now
     },
     exit() { cancelAnimationFrame(raf); raf = 0; drag = null; flight = null; if (aiming) setAim(false); document.body.classList.remove('w-readonly'); },

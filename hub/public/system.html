@@ -60,6 +60,7 @@
           <button type="button" role="tab" data-tab="build" aria-selected="true">Build</button>
           <button type="button" role="tab" data-tab="rocket" aria-selected="false">Rocket</button>
           <button type="button" role="tab" data-tab="push" aria-selected="false">Push</button>
+          <button type="button" role="tab" data-tab="probe" aria-selected="false" id="o-probe-tab" hidden>Probe</button>
         </div>
         <div id="w-owner-controls">
           <div class="own-ctl" data-tab="build" role="tabpanel">
@@ -78,9 +79,16 @@
             <p id="o-rocket-none">The frontier hasn't found a bare planet yet. Push the frontier to find one.</p>
           </div>
           <div class="own-ctl" data-tab="push" role="tabpanel" hidden>
+            <div class="w-places" id="o-from" role="group" aria-label="Where to push from" hidden></div>
             <select class="field" id="o-dir" aria-label="Direction to push"></select>
             <div class="w-act"><span id="o-push-price"></span><button class="btn small go" type="button" id="o-push" disabled>Push</button></div>
             <p id="o-push-why" hidden></p>
+          </div>
+          <div class="own-ctl" data-tab="probe" role="tabpanel" hidden>
+            <p>A probe finds the nearest galaxy that way you haven't found, and arrives as you keep working.</p>
+            <select class="field" id="o-probe-dir" aria-label="Direction to send it"></select>
+            <div class="w-act"><span id="o-probe-price"></span><button class="btn small go" type="button" id="o-probe" disabled>Send a probe</button></div>
+            <p id="o-probe-why" hidden></p>
           </div>
           <p id="o-say" aria-live="polite" hidden></p>
           <p class="warn" id="o-mac" hidden>Your Mac hasn't picked this up yet. The service runs it as soon as the Mac is awake.</p>
@@ -131,7 +139,7 @@
       <p id="w-total"></p>
     </section>
   </aside>
-  <div class="w-zoom"><button class="btn small on" type="button" id="w-home" data-place="home">Home</button><span id="w-colonies"></span><button class="btn small" type="button" id="w-map">Map</button></div>
+  <div class="w-zoom"><button class="btn small on" type="button" id="w-home" data-place="home">Home</button><span id="w-colonies"></span><button class="btn small" type="button" id="w-map">Map</button><button class="btn small" type="button" id="w-universe" hidden>Universe</button></div>
 </div>
 
 <script src="/hub.js"></script>
@@ -214,17 +222,20 @@
   /** The planet colours world.js draws (its LOOK), for the build chips' dots. */
   const LOOK = { rust: '#d9a27f', ice: '#dbe8f2', sand: '#e6d3a3', violet: '#c9b3e0' };
 
-  function owner(first) {
+  function owner(first, firstStats) {
     let sys = first, status = null, statusLoaded = false, busy = false, placing = false, orderAt = null, ticks = 0, timer = null;
-    let buildOn = 'home'; // where a build order goes: the place the map is on, when it is Home or a colony (world.js onPlace)
+    let buildOn = 'home'; // where a build or push order goes: the place the map is on, when it is Home or a colony (world.js onPlace)
+    let pv = firstStats?.pv ?? 0; // what the owner's Mac runs: from version 2, a push from a colony and a probe
+    const pushFrom = () => (pv >= 2 ? buildOn : 'home');
     const say = $('o-say'), err = $('o-err');
     const price = (kind) => status?.prices?.[kind] ?? null;
     const colonies = () => (sys?.planets ?? []).filter((p) => p.colony);
     const placeName = (id) => (id === 'home' ? 'Home' : colonies().find((p) => p.id === id)?.colony.name ?? null);
     const kinds = [
-      { kind: 'frontier', btn: $('o-push'), why: $('o-push-why'), tag: $('o-push-price'), ready: () => $('o-dir').value !== '' },
+      { kind: 'frontier', btn: $('o-push'), why: $('o-push-why'), tag: $('o-push-price'), ready: () => $('o-dir').value !== '' && Boolean(pushFrom()) },
       { kind: 'rocket', btn: $('o-rocket'), why: $('o-rocket-why'), tag: $('o-rocket-price'), ready: () => Boolean($('o-planet').value && $('o-name').value.trim()) },
       { kind: 'build', btn: $('o-build'), why: $('o-build-why'), tag: $('o-build-price'), ready: () => Boolean($('o-desc').value.trim() && buildOn) },
+      { kind: 'probe', btn: $('o-probe'), why: $('o-probe-why'), tag: $('o-probe-price'), ready: () => $('o-probe-dir').value !== '' && pv >= 2 },
     ];
 
     /** The lists that come from the system: the bare planets to send a rocket to, and the places to build on. */
@@ -239,12 +250,15 @@
       }));
       if (bare.some((p) => p.id === keepPlanet)) $('o-planet').value = keepPlanet;
       // Home and each colony, a chip each; picking one flies the map there, and the map says where the build goes.
-      $('o-on').replaceChildren(...[{ id: 'home', name: 'Home', dot: '#4a86c0' }, ...colonies().map((p) => ({ id: p.id, name: p.colony.name, dot: LOOK[p.look] ?? '#cfe0ff' }))]
-        .map((q) => {
-          const b = el('button', { type: 'button', class: 'w-place', 'data-place': q.id }, el('i', { style: `background:${q.dot}` }), q.name);
-          b.onclick = () => AgentWorld.flyTo(q.id);
-          return b;
-        }));
+      const places = [{ id: 'home', name: 'Home', dot: '#4a86c0' }, ...colonies().map((p) => ({ id: p.id, name: p.colony.name, dot: LOOK[p.look] ?? '#cfe0ff' }))];
+      for (const box of [$('o-on'), $('o-from')]) box.replaceChildren(...places.map((q) => {
+        const b = el('button', { type: 'button', class: 'w-place', 'data-place': q.id }, el('i', { style: `background:${q.dot}` }), q.name);
+        b.onclick = () => AgentWorld.flyTo(q.id);
+        return b;
+      }));
+      // A Mac before version 2 pushes from Home whatever it is told, and knows no probes: it is asked for neither.
+      $('o-from').hidden = pv < 2;
+      $('o-probe-tab').hidden = pv < 2;
       if (buildOn && !placeName(buildOn)) buildOn = null; // a colony that is gone
     }
     /** Which buttons can be pressed: nothing while an order is out, and not what the balance can't pay for. */
@@ -258,19 +272,22 @@
       }
       if (!buildOn && $('o-build-why').hidden) { $('o-build-why').hidden = false; $('o-build-why').textContent = 'Pick Home or one of your colonies to build there.'; }
       $('o-build').textContent = buildOn ? `Build on ${placeName(buildOn)}` : 'Build it';
-      for (const b of $('o-on').children) {
+      if (!pushFrom() && $('o-push-why').hidden) { $('o-push-why').hidden = false; $('o-push-why').textContent = 'Pick Home or one of your colonies to push from.'; }
+      $('o-push').textContent = pushFrom() ? `Push from ${placeName(pushFrom())}` : 'Push';
+      for (const b of [...$('o-on').children, ...$('o-from').children]) {
         b.classList.toggle('on', b.dataset.place === buildOn);
         b.setAttribute('aria-pressed', String(b.dataset.place === buildOn));
         b.disabled = busy;
       }
-      for (const id of ['o-dir', 'o-planet', 'o-name', 'o-desc']) $(id).disabled = busy;
+      for (const id of ['o-dir', 'o-planet', 'o-name', 'o-desc', 'o-probe-dir']) $(id).disabled = busy;
     }
     function showStatus() {
       const on = status !== null;
       $('o-balance').hidden = $('o-prices').hidden = !on;
       if (on) {
         $('o-balance').textContent = `${fmt(status.balance)} credit`;
-        $('o-prices').textContent = `Push ${fmt(status.prices.frontier)} · Rocket ${fmt(status.prices.rocket)} · Build ${fmt(status.prices.build)}`;
+        $('o-prices').textContent = `Push ${fmt(status.prices.frontier)} · Rocket ${fmt(status.prices.rocket)} · Build ${fmt(status.prices.build)}`
+          + (status.prices.probe != null ? ` · Probe ${fmt(status.prices.probe)}` : '');
       }
       macNote();
       sync();
@@ -351,21 +368,23 @@
       const r = await Hub.api('GET', `/api/systems/@${encodeURIComponent(handle)}`, undefined, { cache: 'no-store' });
       if (!r.ok || !r.system) return;
       sys = r.system;
+      pv = r.stats?.pv ?? pv;
       fill(); sync();
       AgentWorld.update(r.system);
     }
 
-    kinds[0].btn.onclick = () => place({ kind: 'frontier', ang: Number($('o-dir').value) });
+    kinds[0].btn.onclick = () => pushFrom() && place({ kind: 'frontier', ang: Number($('o-dir').value), ...(pv >= 2 && { from: pushFrom() }) });
     kinds[1].btn.onclick = () => place({ kind: 'rocket', planet: $('o-planet').value, name: $('o-name').value.trim() });
     kinds[2].btn.onclick = () => buildOn && place({ kind: 'build', on: buildOn, description: $('o-desc').value.trim() });
-    for (const id of ['o-dir', 'o-planet', 'o-name', 'o-desc']) $(id).addEventListener('input', sync);
-    // Build, Rocket and Push as tabs: one at a time.
+    kinds[3].btn.onclick = () => place({ kind: 'probe', ang: Number($('o-probe-dir').value) });
+    for (const id of ['o-dir', 'o-planet', 'o-name', 'o-desc', 'o-probe-dir']) $(id).addEventListener('input', sync);
+    // Build, Rocket, Push and Probe as tabs: one at a time.
     const tabs = [...document.querySelectorAll('#w-owner [role="tab"]')];
     for (const t of tabs) t.onclick = () => {
       for (const u of tabs) u.setAttribute('aria-selected', String(u === t));
       for (const p of document.querySelectorAll('#w-owner-controls > [data-tab]')) p.hidden = p.dataset.tab !== t.dataset.tab;
     };
-    $('o-dir').replaceChildren(el('option', { value: '', text: 'Pick a direction' }),
+    for (const id of ['o-dir', 'o-probe-dir']) $(id).replaceChildren(el('option', { value: '', text: 'Pick a direction' }),
       ...COMPASS.map((n, i) => el('option', { value: String(i * Math.PI / 4 - Math.PI / 2), text: up(n) })));
     fill();
     showStatus();
@@ -390,11 +409,18 @@
     $('w-owner').hidden = $('o-rail').hidden = $('o-rail-hr').hidden = false;
     $('profile').hidden = false;
     $('w-owner-sync').textContent = stats.lastActive ? `Last synced ${rel(stats.lastActive)}.` : 'Nothing synced yet.';
-    own = owner(system);
+    own = owner(system, stats);
   }
 
+  // Past the map, the Universe: this galaxy's sun and the galaxies its owner's probes found, each a link to its page.
+  const universe = {
+    me: () => ({ x: profile.x, y: profile.y }),
+    name: own ? 'You' : `@${profile.handle}`,
+    names: async (at) => (await Hub.api('GET', `/api/systems/named?at=${at.map((c) => `${c.x},${c.y}`).join(';')}`)).galaxies ?? [],
+    visit: (h) => { location.href = `/@${encodeURIComponent(h)}`; },
+  };
   AgentWorld.enter(system ?? bareSystem(profile, stats), { readOnly: true, api: async () => ({ ok: false }), toast: () => {},
-    card: { first: 'profile' }, onPlace: own?.onPlace });
+    card: { first: 'profile' }, onPlace: own?.onPlace, universe });
 })();
 </script>
 </body>
