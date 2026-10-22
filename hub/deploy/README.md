@@ -30,6 +30,18 @@ Every later release: `./update.sh`.
 The DNS record for the hub can be proxied through Cloudflare (orange cloud) or not (grey cloud). Either way Caddy gets
 its own certificate from Let's Encrypt (the HTTP challenge passes through Cloudflare).
 
+As deployed, the record is proxied and the zone is on the Pro plan with Super Bot Fight Mode on. One WAF custom rule,
+"Universe API", lets the Macs through while the pages keep the bot check:
+
+```
+(http.host eq "universe.cashegg.com" and starts_with(http.request.uri.path, "/api/"))
+```
+
+Action Skip, with Super Bot Fight Mode (and rate limiting) ticked and "All remaining custom rules" left unticked (the
+form refuses the two together). Everything a Mac calls is under `/api/`; the sign-in and the device approval are
+browser pages and stay protected. On the free plan the same product is Bot Fight Mode, which no rule can skip: there it
+must be off for the zone.
+
 Proxied, two things matter. Caddy must know the visitor's address: `caddy-cloudflare.sh` lists Cloudflare's ranges as
 trusted proxies, takes the address from Cloudflare's own `CF-Connecting-IP` header (never from an `X-Forwarded-For`
 the visitor could have sent along, and only on connections that really come from Cloudflare), and hands the hub that
