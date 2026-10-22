@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
-import { workerOf, markStarted, rolledBack, prune, checkForUpdate, releaseOf, writeRelease, recordCheck, lastCheck } from '../update.mjs';
+import { workerOf, markStarted, rolledBack, prune, checkForUpdate, releaseOf, writeRelease, recordCheck, lastCheck, safeLine } from '../update.mjs';
 import { rawPublicKey, signRelease } from '../release-keys.mjs';
 
 const A = '1'.repeat(40), B = '2'.repeat(40);
@@ -98,6 +98,7 @@ test('a new sha is downloaded, verified, switched and the process asked to exit'
   assert.equal(fs.existsSync(path.join(w.dir, 'switch.new')), false, 'switch is written beside and renamed over');
   assert.deepEqual(r.exits, [0]);
   assert.deepEqual(leftovers(w.dir), []);
+  assert.deepEqual([lastCheck(w.dir).outcome, lastCheck(w.dir).sha], ['switched', B], 'recorded before the exit, since the exit ends the process');
 });
 
 test('a release is downloaded only once GitHub says it is on main', async () => {
@@ -256,4 +257,18 @@ test('recordCheck and lastCheck keep the last outcome and its sentence', () => {
   assert.equal(lastCheck(w.dir).outcome, 'current');
   fs.writeFileSync(path.join(w.dir, 'last-check'), '{');
   assert.equal(lastCheck(w.dir), null);
+});
+
+test('the hub\'s error is shown only when it is a sentence, and safeLine makes text fit for a terminal', async () => {
+  const w = worker();
+  for (const error of [{ x: 1 }, '', 0, null]) {
+    const r = await check(w, hub(json({ ok: false, error }, 503)));
+    assert.deepEqual([r.outcome, r.error], ['error', 'The hub answered 503.'], JSON.stringify(error));
+  }
+  const r = await check(w, hub(json({ ok: false, error: 'a\u001b[31mb\nc' }, 503)));
+  assert.equal(r.error, 'a\u001b[31mb\nc', 'the record keeps what the hub said');
+  assert.equal(safeLine(r.error), 'a[31mbc');
+  assert.equal(safeLine('x'.repeat(300)).length, 200);
+  assert.equal(safeLine(undefined), '');
+  assert.equal(safeLine('a\x7fb\x00c'), 'abc');
 });

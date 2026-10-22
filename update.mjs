@@ -67,7 +67,8 @@ export function prune(worker) {
   }
 }
 
-/** The release this worker last proved, from `release` (`<sha> <n>`), or null when it is missing or not that. */
+/** The release this worker last switched to or confirmed, from `release` (`<sha> <n>`), or null when it is missing or not that.
+ * The launcher may still roll that release back; the number is a floor for what is installed next, not proof it runs. */
 export function releaseOf(dir) {
   const [sha, n, ...more] = (read(path.join(dir, 'release')) ?? '').trim().split(/\s+/);
   return SHA_RE.test(sha ?? '') && /^[0-9]+$/.test(n ?? '') && !more.length && validN(Number(n)) ? { sha, n: Number(n) } : null;
@@ -77,6 +78,11 @@ export function releaseOf(dir) {
 export function writeRelease(dir, sha, n) {
   fs.writeFileSync(path.join(dir, 'release.new'), `${sha} ${n}\n`);
   fs.renameSync(path.join(dir, 'release.new'), path.join(dir, 'release'));
+}
+
+/** Text from the hub made fit for a terminal line: control characters (escapes, newlines) removed, at most 200 characters. */
+export function safeLine(text) {
+  return String(text ?? '').replace(/[\x00-\x1f\x7f]/g, '').slice(0, 200);
 }
 
 /** Keeps the outcome of the last check (`last-check`, JSON), so `status` and the panel can say what happened. */
@@ -122,7 +128,11 @@ export async function checkForUpdate({ worker, hubUrl, fetch = globalThis.fetch,
   try {
     const res = await fetch(`${hubUrl}/api/release`, { signal: AbortSignal.timeout(RELEASE_TIMEOUT_MS) });
     release = await res.json().catch(() => null);
-    if (!res.ok || !release?.ok) return { outcome: 'error', error: release?.error ?? `The hub answered ${res.status}.` };
+    if (!res.ok || !release?.ok) {
+      // The hub's own sentence is kept only when it is a sentence; anything else is not shown as if it were one.
+      const said = release?.error;
+      return { outcome: 'error', error: typeof said === 'string' && said ? said : `The hub answered ${res.status}.` };
+    }
   } catch (err) { return { outcome: 'error', error: errorOf(err) }; }
   const { sha, n, sigs } = release;
   if (!SHA_RE.test(sha ?? '')) return { outcome: 'error', error: 'The hub named no release.' };
@@ -167,6 +177,8 @@ export async function checkForUpdate({ worker, hubUrl, fetch = globalThis.fetch,
     made.push(swNew, sw);
     fs.writeFileSync(swNew, `${sha} ${worker.sha} 0\n`);
     fs.renameSync(swNew, sw);
+    // The floor: a signature over an old release is valid forever, so the number is what stops a thief with a key from
+    // pointing a worker back at it.
     writeRelease(dir, sha, n);
     // A new link renamed over the old one replaces the link itself in one step; `current` is never missing or half made.
     remove(link);
@@ -181,6 +193,8 @@ export async function checkForUpdate({ worker, hubUrl, fetch = globalThis.fetch,
   remove(tmp);
   prune(worker);
   log(`worker: switching to ${sha}`);
+  // The process is about to end, so the caller never sees this result: the check is recorded here.
+  try { recordCheck(dir, { outcome: 'switched', sha }, now); } catch {}
   exit(0);
   return { outcome: 'switched', sha };
 }

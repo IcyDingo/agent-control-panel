@@ -35,6 +35,8 @@ test('a wrong key, sha, n, signature, or an empty list is refused and never thro
   assert.equal(verifyRelease(12, SHA, [sig.slice(0, 40)], [a.pub]), false, 'truncated');
   assert.equal(verifyRelease(12, SHA, [sig.replace(/./g, '+')], [a.pub]), false, 'not base64url');
   assert.equal(verifyRelease(12, SHA, [], [a.pub]), false, 'no signatures');
+  assert.equal(verifyRelease(12, SHA, Array(16).fill(sig), [a.pub]), true, 'sixteen signatures');
+  assert.equal(verifyRelease(12, SHA, Array(17).fill(sig), [a.pub]), false, 'more than sixteen');
   assert.equal(verifyRelease(12, SHA, [sig], []), false, 'no keys');
   assert.equal(verifyRelease(12, SHA, sig, [a.pub]), false, 'sigs must be an array');
   assert.equal(verifyRelease(12, SHA, [sig], ['not a key']), false, 'a malformed key is skipped');

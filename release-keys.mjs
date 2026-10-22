@@ -39,10 +39,12 @@ export function publicKeyObject(raw) {
   return crypto.createPublicKey({ key: Buffer.concat([PREFIX, Buffer.from(raw, 'base64')]), format: 'der', type: 'spki' });
 }
 
-// True when any of the signatures is the owner's signature of this release under any of the keys.
+// True when any of the signatures (at most 16 are looked at; more is false) is the owner's signature of this release under
+// any of the keys.
+const MAX_SIGS = 16;
 export function verifyRelease(n, sha, sigs, keys = RELEASE_KEYS) {
   if (!validN(n) || typeof sha !== 'string' || !SHA_RE.test(sha)) return false;
-  if (!Array.isArray(sigs) || sigs.length === 0 || !Array.isArray(keys) || keys.length === 0) return false;
+  if (!Array.isArray(sigs) || sigs.length === 0 || sigs.length > MAX_SIGS || !Array.isArray(keys) || keys.length === 0) return false;
   const message = Buffer.from(releaseMessage(n, sha));
   for (const raw of keys) {
     let key;
