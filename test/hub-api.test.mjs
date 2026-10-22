@@ -8,7 +8,9 @@ import http from 'node:http';
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
 import { createWorld, publicProjection, PROJECTION_VERSION } from '../world.mjs';
 import { createHub } from '../hub/server.mjs';
+import { generateKeyPairSync } from 'node:crypto';
 import { loadConfig } from '../hub/config.mjs';
+import { rawPublicKey, signRelease } from '../release-keys.mjs';
 import { placeOf } from '../hub/coords.mjs';
 import { RATES } from '../hub/limits.mjs';
 
@@ -39,13 +41,15 @@ const STATUS = () => ({
 
 const ORIGIN = 'http://127.0.0.1';
 const SHA = 'c0ffee'.padEnd(40, '0');
+// The owner's signature on release 12, made with a key pair that exists only for this run.
+const N = 12, KEYS = generateKeyPairSync('ed25519'), PUB = rawPublicKey(KEYS.publicKey), SIG = signRelease(N, SHA, KEYS.privateKey);
 let clock = Date.UTC(2026, 9, 22, 12, 0);
 const now = () => clock;
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'hub-api-'));
-let hub, port, off, offPort;
+let hub, port, off, offPort, unsigned, unsignedPort;
 
 before(async () => {
-  hub = createHub(loadConfig({ HUB_DATA: tmp(), HUB_DEV_LOGIN: '1', HUB_PUBLIC_URL: ORIGIN, HUB_RELEASE: SHA }), { now, rates: LOOSE });
+  hub = createHub(loadConfig({ HUB_DATA: tmp(), HUB_DEV_LOGIN: '1', HUB_PUBLIC_URL: ORIGIN, HUB_RELEASE: SHA, HUB_RELEASE_N: String(N), HUB_RELEASE_SIG: SIG }, { keys: [PUB] }), { now, rates: LOOSE });
   ({ port } = await hub.listen(0, '127.0.0.1'));
   // A second hub: no dev login, GitHub configured, and a fake `fetch` standing in for github.com.
   off = createHub(loadConfig({ HUB_DATA: tmp(), HUB_PUBLIC_URL: ORIGIN, HUB_GITHUB_CLIENT_ID: 'cid', HUB_GITHUB_CLIENT_SECRET: 'sec' }), {
@@ -56,8 +60,11 @@ before(async () => {
     },
   });
   ({ port: offPort } = await off.listen(0, '127.0.0.1'));
+  // A third hub: told which commit to run but given no signature for it.
+  unsigned = createHub(loadConfig({ HUB_DATA: tmp(), HUB_PUBLIC_URL: ORIGIN, HUB_RELEASE: SHA }, { keys: [PUB] }), { now, rates: LOOSE });
+  ({ port: unsignedPort } = await unsigned.listen(0, '127.0.0.1'));
 });
-after(async () => { await hub.close(); await off.close(); });
+after(async () => { await hub.close(); await off.close(); await unsigned.close(); });
 
 /** One request. `host` is 127.0.0.1 unless a test says otherwise; returns the status, parsed JSON, raw text and headers. */
 async function call(method, p, { body, cookie, cookieRaw, token, origin, host = '127.0.0.1', on = port, raw, xff } = {}) {
@@ -104,12 +111,14 @@ test('healthz answers; a wrong or missing Host is refused before anything else',
   }
 });
 
-test('the hub names the release it runs; one that was not told answers 503', async () => {
+test('the hub names the release it runs with its number and signatures; one not told answers 503, one badly signed another 503', async () => {
   const r = await call('GET', '/api/release');
-  assert.deepEqual([r.status, r.json], [200, { ok: true, sha: SHA, url: `https://codeload.github.com/IcyDingo/agent-control-panel/tar.gz/${SHA}` }]);
+  assert.deepEqual([r.status, r.json], [200, { ok: true, sha: SHA, n: 12, sigs: [SIG], url: `https://codeload.github.com/IcyDingo/agent-control-panel/tar.gz/${SHA}` }]);
   assert.equal(r.headers.get('cache-control'), 'public, max-age=30');
   const none = await call('GET', '/api/release', { on: offPort });
   assert.deepEqual([none.status, none.json], [503, { ok: false, error: 'This hub does not name a release yet.' }]);
+  const bad = await call('GET', '/api/release', { on: unsignedPort });
+  assert.deepEqual([bad.status, bad.json], [503, { ok: false, error: "This hub's release is not signed by a known key." }]);
 });
 
 test('dev sign-in makes alice with her permanent spot and a session cookie; profile writes need the Origin', async () => {
