@@ -15,6 +15,7 @@
     <span class="grow"></span>
     <a class="btn" id="signin" href="/login/github" hidden>Sign in with GitHub</a>
     <a class="btn" id="profile" href="/me" hidden>Your profile</a>
+    <a class="btn primary" id="mine" href="/me" hidden>Your galaxy</a>
   </header>
 
   <main class="hero g24">
@@ -37,11 +38,6 @@
     </div>
   </main>
 
-  <!-- Your galaxy, featured: as the hub has it when you are signed in; the invitation when you are not. -->
-  <section class="feature g24" aria-label="Your galaxy">
-    <div class="fcard" id="gcard" aria-live="polite"></div>
-  </section>
-
   <section class="steps g24" aria-label="How it works">
     <div class="step"><span class="glyph" data-lit="1" aria-hidden="true"></span><b>Install once</b><p>The panel runs in the background on your Mac and counts your agents' work.</p></div>
     <div class="step"><span class="glyph" data-lit="3" aria-hidden="true"></span><b>Sign in</b><p>Approve your Mac with a code. Your galaxy gets a permanent spot in the Universe.</p></div>
@@ -63,7 +59,7 @@
 <script>
 (() => {
   const $ = (id) => document.getElementById(id);
-  const { el, avatar, hashOf, pick, mosaic, plural } = Hub;
+  const { el, hashOf, pick, mosaic } = Hub;
 
   $('find').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -88,39 +84,11 @@
     for (let i = 0; i < 9; i++) g.append(el('i', { class: i < Number(g.dataset.lit) ? 'on' : null }));
   }
 
-  /** The feature strip: who, a line, a sentence, a button on the left; the mosaic of days on the right. */
-  function strip({ who, line, sentence, button, worked }) {
-    $('gcard').replaceChildren(
-      el('div', { class: 'info' },
-        el('div', { class: 'who' }, avatar(who, 44), el('div', {}, el('b', { text: who.name || (who.handle === '?' ? 'Your galaxy' : `@${who.handle}`) }), el('span', { text: line }))),
-        el('p', { text: sentence }),
-        button),
-      Hub.daysMosaic(worked));
-  }
-
-  /** Signed out: the strip invites. */
-  function invite() {
-    strip({ who: { handle: '?' }, line: 'Nothing here yet', worked: [],
-      sentence: 'Sign in with GitHub, approve your Mac with a code, and your galaxy gets a permanent spot in the Universe.',
-      button: el('a', { class: 'btn primary', href: '/login/github', text: 'Sign in with GitHub' }) });
-  }
-
-  /** Signed in: the strip is your galaxy as the hub has it. */
-  async function yours(account) {
-    const r = await Hub.api('GET', `/api/systems/@${encodeURIComponent(account.handle)}`);
-    const stats = r.ok ? r.stats : null, system = r.ok ? r.system : null;
-    strip({ who: account, worked: system?.worked,
-      line: stats ? `Level ${stats.level} · ${stats.stage} · ${account.x}, ${account.y}` : `${account.x}, ${account.y}`,
-      sentence: system
-        ? `Active ${plural(stats.daysWorked, 'day', 'days')} · ${plural(stats.colonies, 'colony', 'colonies')} · ${plural(stats.builds, 'build', 'builds')}`
-        : 'Nothing synced yet. Sign in from your Mac and it appears here within a minute.',
-      button: el('a', { class: 'btn primary', href: '/@' + encodeURIComponent(account.handle), text: 'Open your galaxy' }) });
-  }
-
   Hub.me().then((r) => {
-    if (!r) { $('signin').hidden = false; invite(); return; }
+    if (!r) { $('signin').hidden = false; return; }
     $('profile').hidden = false;
-    yours(r.account);
+    $('mine').href = '/@' + encodeURIComponent(r.account.handle);
+    $('mine').hidden = false;
   });
 })();
 </script>
