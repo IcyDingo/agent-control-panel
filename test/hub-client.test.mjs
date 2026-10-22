@@ -525,3 +525,33 @@ test('a 401 for a token the file no longer holds ends the stream without signing
   await s.hub.stream('/api/me/events', () => {}, { signal: new AbortController().signal });
   assert.equal(s.hub.status().loggedIn, true);
 });
+
+test('refreshAccount keeps a handle, name, picture or place changed on the hub, and writes nothing when none did', async () => {
+  let account = { ...ACCOUNT, bio: 'not kept', visibility: 'public' };
+  const s = setup(() => json({ ok: true, account }));
+  signedIn(s);
+  assert.equal(await s.hub.refreshAccount(), false, 'the same account');
+  assert.equal(s.fetch.calls[0].url, 'http://hub.test/api/me');
+  assert.equal(s.fetch.calls[0].headers.authorization, 'Bearer hub_secret');
+  account = { ...account, handle: 'ada-l', avatar: 'https://avatars.githubusercontent.com/u/1' };
+  assert.equal(await s.hub.refreshAccount(), true);
+  assert.deepEqual(s.read().account, { id: 'a1', handle: 'ada-l', x: 3, y: -4, name: 'Ada', avatar: 'https://avatars.githubusercontent.com/u/1' });
+  assert.equal(s.read().token, 'hub_secret');
+  assert.equal(s.hub.status().account.handle, 'ada-l');
+});
+
+test('refreshAccount never throws and changes nothing when signed out, refused, unreachable, or signed in again meanwhile', async () => {
+  const out = setup();
+  assert.equal(await out.hub.refreshAccount(), false);
+  assert.equal(out.fetch.calls.length, 0, 'signed out: nothing is asked');
+  for (const answer of [() => json({ ok: false }, 500), () => { throw new Error('offline'); }, () => json({ ok: true, account: null }), () => new Response('nonsense')]) {
+    const s = setup(answer);
+    signedIn(s);
+    assert.equal(await s.hub.refreshAccount(), false);
+    assert.equal(s.read().account.handle, 'ada');
+  }
+  const s = setup(async () => { signedIn(s, 'hub_other'); s.bump(); return json({ ok: true, account: { ...ACCOUNT, handle: 'stale' } }); });
+  signedIn(s);
+  assert.equal(await s.hub.refreshAccount(), false);
+  assert.equal(s.read().account.handle, 'ada');
+});

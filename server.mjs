@@ -1431,7 +1431,12 @@ async function runOrder(order) {
   const r = order.kind === 'build' ? await buildInWorld(order) : buyInWorld(order);
   return { ok: r.ok, error: r.error, caption: r.caption };
 }
-const hubOrders = createHubOrders({ hub, execute: runOrder, onDone: () => { hubSync.schedule({ urgent: true }); broadcast(); } });
+// Each time the stream (re)connects, the account is asked for again: a handle changed on the site moves "Your page".
+const hubOrders = createHubOrders({
+  hub, execute: runOrder,
+  onDone: () => { hubSync.schedule({ urgent: true }); broadcast(); },
+  onOpen: () => hub.refreshAccount().then((changed) => { if (changed) broadcast(); }),
+});
 /** The hub as the page sees it (never the token). */
 function hubInfo() {
   const { url, loggedIn, account, pending } = hub.status();

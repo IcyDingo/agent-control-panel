@@ -225,6 +225,30 @@ export function createHub({
   }
 
   /**
+   * Ask the hub who this sign-in is now and keep what changed (handle, name, picture, place), so a handle changed on the
+   * site reaches the panel's "Your page" link. True when the file was rewritten. Never throws.
+   */
+  async function refreshAccount() {
+    try {
+      load();
+      if (!loggedIn()) return false;
+      const token = st.token;
+      const r = await request('GET', '/api/me');
+      const a = r.body?.account;
+      if (!r.ok || !a || typeof a !== 'object' || typeof a.id !== 'string' || typeof a.handle !== 'string') return false;
+      load();
+      if (!loggedIn() || st.token !== token) return false;   // signed out or in again meanwhile: that answer is stale
+      const next = { id: a.id, handle: a.handle, x: a.x, y: a.y, name: a.name ?? null, avatar: a.avatar ?? null };
+      const was = st.account ?? {};
+      if (Object.keys(next).every((k) => was[k] === next[k])) return false;
+      st.account = next;
+      return save();
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Hold the hub's event stream open and call `onEvent(event, data)` for each event. When it drops, wait 2 s, 4 s, ... up
    * to a minute and connect again; a 401 means the token is dead, so stop. `onOpen()` is called (not waited for) each time a connection
    * is made, before its events are read. One call belongs to one sign-in: it ends as soon as the Mac is signed out or holds
@@ -270,5 +294,5 @@ export function createHub({
     }
   }
 
-  return { status, request, startDeviceLogin, pollDeviceLogin, cancelDeviceLogin, logout, saveSync, lastSync, stream };
+  return { status, request, startDeviceLogin, pollDeviceLogin, cancelDeviceLogin, logout, saveSync, lastSync, refreshAccount, stream };
 }

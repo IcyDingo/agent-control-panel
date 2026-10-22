@@ -11,7 +11,7 @@ const settle = async () => { for (let i = 0; i < 20; i++) await new Promise((r) 
 const order = (id, extra = {}) => ({ id, kind: 'build', description: `build ${id}`, status: 'pending', createdAt: 1, ...extra });
 
 /** A hub whose pending list is `pending`, whose stream hands `streamed` to the listener and then waits to be aborted. */
-function setup({ pending = [], streamed = [], execute, onDone, answers = [], doneAnswers = [], claimAnswers = [], endAtOnce = false, request } = {}) {
+function setup({ pending = [], streamed = [], execute, onDone, onOpen, answers = [], doneAnswers = [], claimAnswers = [], endAtOnce = false, request } = {}) {
   const calls = [], done = [], extras = { fire: null, streams: 0, who: { loggedIn: true, account: { id: 'a1' } } };
   const timeouts = [];
   const hub = {
@@ -40,6 +40,7 @@ function setup({ pending = [], streamed = [], execute, onDone, answers = [], don
     hub,
     execute: execute ?? (async (o) => { ran.push(o.id); return { ok: true, caption: `did ${o.id}` }; }),
     onDone: onDone ?? ((o, r) => { dones.push([o.id, r]); }),
+    onOpen,
     timers: { setTimeout: (fn, ms) => { timeouts.push({ fn, ms }); return timeouts.length; }, clearTimeout: () => {} },
     log: () => {},
   });
@@ -380,4 +381,19 @@ test('drain asks the hub for its pending orders while the stream is up, so an or
   t.orders.drain();
   await settle();
   assert.equal(t.calls.filter((c) => c.method === 'GET').length, asked, 'nothing is asked after stop');
+});
+
+test('onOpen is told of every (re)connect, and one that throws or rejects breaks nothing', async () => {
+  let opened = 0;
+  const t = setup({ onOpen: () => { opened++; if (opened === 1) throw new Error('sync'); return Promise.reject(new Error('async')); } });
+  t.orders.start();
+  await settle();
+  t.extras.open();
+  t.extras.open();
+  await settle();
+  assert.equal(opened, 2);
+  t.extras.fire(order('a'));
+  await settle();
+  assert.deepEqual(t.ran, ['a']);
+  t.orders.stop();
 });

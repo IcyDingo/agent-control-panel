@@ -19,7 +19,8 @@ function report(result) {
   return r;
 }
 
-export function createHubOrders({ hub, execute, onDone, timers = { setTimeout, clearTimeout }, log = console.error }) {
+/** `onOpen()` is told each time the stream (re)connects, besides the drain this does then; its trouble is logged, never thrown. */
+export function createHubOrders({ hub, execute, onDone, onOpen, timers = { setTimeout, clearTimeout }, log = console.error }) {
   let controller = null;     // exists while started
   let listening = false;     // the stream promise is pending
   let current = null;        // the order being run
@@ -110,7 +111,13 @@ export function createHubOrders({ hub, execute, onDone, timers = { setTimeout, c
       if (event !== 'order' || ended) return;
       enqueue(() => run(data));
       enqueue(drain);
-    }, { signal, onOpen: () => { enqueue(drain); } })
+    }, {
+      signal,
+      onOpen: () => {
+        enqueue(drain);
+        try { Promise.resolve(onOpen?.()).catch((e) => log('hub orders: onOpen failed:', e?.message ?? String(e))); } catch (e) { log('hub orders: onOpen failed:', e?.message ?? String(e)); }
+      },
+    })
       .catch((e) => log('hub orders: the stream failed:', e?.message ?? String(e)))
       .finally(() => { ended = true; if (controller?.signal === signal) listening = false; });
   }
