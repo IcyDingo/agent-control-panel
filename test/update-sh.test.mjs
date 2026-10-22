@@ -49,7 +49,7 @@ test('signed mode verifies before anything else, checks out the sha and writes t
   const r = d.run([d.second, '2', SIG]);
   assert.equal(r.status, 0, r.stderr);
   const c = d.calls();
-  assert.match(c[0], new RegExp(`^docker run --rm -v .*release-keys\\.mjs:/k\\.mjs:ro node:22-alpine node /k\\.mjs verify ${d.second} 2 ${SIG}$`));
+  assert.match(c[0], new RegExp(`^docker run --rm --network none -v .*release-keys\\.mjs:/k\\.mjs:ro node:22-alpine node /k\\.mjs verify ${d.second} 2 ${SIG}$`));
   assert.equal(d.head(), d.second);
   assert.equal(d.env(), `HUB_RELEASE=${d.second}\nHUB_RELEASE_N=2\nHUB_RELEASE_SIG=${SIG}\n`);
   assert.ok(c.some((x) => x.includes('/api/release')), 'the release route is checked after the restart');
@@ -81,6 +81,31 @@ test('the bootstrap deploy, before release-keys.mjs exists, skips the verify ste
   assert.equal(r.status, 1);
   assert.equal(d.calls().filter((c) => c.startsWith('docker run')).length, 0, 'no verify without the file');
   assert.match(r.stderr, /The hub refuses this release|healthz/);
+});
+
+test('an unreadable HUB_RELEASE_N is refused instead of lifting the floor', () => {
+  for (const bad of ['2 ', 'two', '12345678901']) {
+    const d = deploy();
+    fs.writeFileSync(path.join(d.root, 'release.env'), `HUB_RELEASE=${d.first}\nHUB_RELEASE_N=${bad}\nHUB_RELEASE_SIG=${SIG}\n`);
+    const r = d.run([d.second, '3', SIG]);
+    assert.equal(r.status, 1, JSON.stringify(bad));
+    assert.match(r.stderr, /release\.env has an unreadable HUB_RELEASE_N; fix it by hand before deploying\./);
+    assert.equal(d.head(), d.first, 'nothing checked out');
+    assert.equal(d.calls().length, 0, 'no docker or curl call');
+  }
+  const d = deploy();
+  fs.writeFileSync(path.join(d.root, 'release.env'), `HUB_RELEASE=${d.first}\nHUB_RELEASE_N=\n`);
+  assert.equal(d.run([d.second, '1', SIG]).status, 0, 'an empty value is no floor');
+});
+
+test('once release.env carries a signature, a missing release-keys.mjs is refused, not skipped', () => {
+  const d = deploy({ keysFile: false });
+  fs.writeFileSync(path.join(d.root, 'release.env'), `HUB_RELEASE=${d.first}\nHUB_RELEASE_N=2\nHUB_RELEASE_SIG=${SIG}\n`);
+  const r = d.run([d.second, '3', SIG]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /src\/release-keys\.mjs is missing; the checkout is damaged\./);
+  assert.equal(d.head(), d.first, 'nothing checked out');
+  assert.equal(d.calls().length, 0);
 });
 
 test('the script parses', () => { assert.equal(spawnSync('sh', ['-n', 'hub/deploy/update.sh']).status, 0); });

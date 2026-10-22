@@ -13,6 +13,9 @@
 # is refused, so an old signed line cannot be replayed to downgrade the hub.
 #
 # Every refusal happens before anything is fetched, built or written.
+#
+# Once release.env is written the number counts as used: if the build or the start fails after that, the next
+# attempt must be signed with a higher number, which means a new commit.
 set -e
 cd "$(dirname "$0")"
 
@@ -47,21 +50,30 @@ else
   # Signatures are base64url joined with commas; anything else could not be one, and must not reach release.env.
   case "$sigs" in ''|*[!A-Za-z0-9_,-]*) refuse 'update.sh: sigs is not valid.' ;; esac
 
-  # The number of the release now deployed; a release.env from a plain deploy has none, which means no floor.
+  # The number of the release now deployed. A missing line or an empty value (a release.env from a plain deploy)
+  # means no floor; any other value that is not a plain number is refused, so a hand edit cannot lift the floor.
   m=
   if [ -f release.env ]; then
     m=$(sed -n 's/^HUB_RELEASE_N=//p' release.env | tail -n 1)
   fi
-  case "$m" in ''|*[!0-9]*) m=0 ;; esac
+  if [ -z "$m" ]; then
+    m=0
+  else
+    case "$m" in 0*|*[!0-9]*) refuse 'release.env has an unreadable HUB_RELEASE_N; fix it by hand before deploying.' ;; esac
+    [ "${#m}" -le 10 ] || refuse 'release.env has an unreadable HUB_RELEASE_N; fix it by hand before deploying.'
+  fi
   if [ "$n" -le "$m" ]; then
     refuse "Release $short (number $n) is not newer than the one deployed ($m)."
   fi
 
-  # Verify inside the node image, since the server may have no node. The check is skipped only on the bootstrap
-  # deploy, before src/release-keys.mjs exists; the hub still refuses an unsigned release at /api/release below.
+  # Verify inside the node image (without a network), since the server may have no node. The check is skipped only
+  # on the bootstrap deploy: release.env carries no signature yet and src/release-keys.mjs does not exist yet. Once
+  # a signature is there the file must be too; the hub still refuses an unsigned release at /api/release below.
   if [ -f src/release-keys.mjs ]; then
-    docker run --rm -v "$PWD/src/release-keys.mjs:/k.mjs:ro" node:22-alpine node /k.mjs verify "$sha" "$n" "$sigs" \
+    docker run --rm --network none -v "$PWD/src/release-keys.mjs:/k.mjs:ro" node:22-alpine node /k.mjs verify "$sha" "$n" "$sigs" \
       || refuse "Release $short is not signed by a known key."
+  elif [ -f release.env ] && grep -q '^HUB_RELEASE_SIG=' release.env; then
+    refuse 'src/release-keys.mjs is missing; the checkout is damaged.'
   fi
 
   git -C src fetch -q origin
