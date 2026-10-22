@@ -5,6 +5,19 @@ them without switching terminals.
 
 ## Get started
 
+You need a Mac (macOS 14 or newer) with Node 20 or newer. Open https://universe.cashegg.com/download, sign
+in with GitHub, and paste the one line it shows into Terminal:
+
+```bash
+curl -fsSL https://universe.cashegg.com/install | sh
+```
+
+It installs a small background service that counts your agents' work and keeps your galaxy up to date, and
+links this Mac to your account. The worker updates itself once a day. Your galaxy page is the whole
+interface; the Mac app below is optional.
+
+### The session board (optional)
+
 You need a Mac (macOS 14 or newer) with Claude Code 2.1.303 or newer.
 
 ```bash
@@ -24,7 +37,8 @@ Panel.app** into `~/Applications`. Then:
    keeps a copy of the old file). Sessions you start after that show up on the board.
 
 `install.sh` also installs a background service, so World keeps counting your work when the app isn't open;
-`./install.sh --no-daemon` skips it.
+`./install.sh --no-daemon` skips it. If the worker above is already installed, this service takes over
+from it: the background service then runs from your clone, and says so while it installs.
 
 Keep the folder where you cloned it: the service and the app run the panel from there. To update, `git pull`
 and run `./install.sh` again: it rebuilds the app and restarts the service on the new code. To use it without
@@ -530,6 +544,8 @@ An endpoint that approves commands is worth protecting, even on localhost:
   only: crawlers are told not to index it and a scan of the map's coordinates does not find it.
 
 ## Uninstall
+
+To remove the worker, run `curl -fsSL https://universe.cashegg.com/install | sh -s -- --uninstall`.
 
 Run `./install.sh --uninstall`: it removes the background service and `~/Applications/Agent Panel.app`. Then
 remove the hook entries that point at `127.0.0.1:4747` from each profile's settings, and delete

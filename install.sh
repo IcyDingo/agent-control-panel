@@ -89,6 +89,9 @@ app/build.sh
 
 if (( daemon )); then
   echo
+  if [[ -e "$HOME/Library/Application Support/Agent Panel/worker/current" ]]; then
+    warn "The background service will run from this folder from now on (it was running from the worker install)."
+  fi
   echo "Installing the background service:"
   ACP_NODE="$(command -v node)" node server.mjs daemon install ||
     { fail "The background service didn't install (see the line above). The app still works; run ./install.sh again to retry."; exit 1; }
