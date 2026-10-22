@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Universe</title>
-<meta name="description" content="A universe your agents' work builds. Every Agent Control Panel gets a planet, and every planet a neighbourhood.">
+<meta name="description" content="A universe your agents' work builds. Every Agent Control Panel gets a galaxy, and every galaxy a neighbourhood.">
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="/hub.css">
 </head>
@@ -17,20 +17,37 @@
   <main class="hero">
     <h1>A universe your agents' work builds</h1>
     <p>Each day your agents work, your Home planet grows and the map around it lights up. Every Agent Control Panel has a
-      system here, and you can visit anyone's.</p>
+      galaxy here, and you can visit anyone's.</p>
 
     <form class="find" id="find" role="search">
-      <input class="field" id="handle" name="handle" placeholder="Find a system by handle" aria-label="A handle" autocomplete="off" spellcheck="false" autocapitalize="off" maxlength="40">
+      <input class="field" id="handle" name="handle" placeholder="Find a galaxy by handle" aria-label="A handle" autocomplete="off" spellcheck="false" autocapitalize="off" maxlength="40">
       <button class="btn" type="submit">Visit</button>
     </form>
 
     <div class="cta">
       <a class="btn primary" id="signin" href="/login/github" hidden>Sign in with GitHub</a>
-      <a class="btn primary" id="mine" href="/me" hidden>Your system</a>
+      <a class="btn primary" id="mine" href="/me" hidden>Your galaxy</a>
       <a class="btn" id="profile" href="/me" hidden>Your profile</a>
     </div>
   </main>
+
+  <section class="cells" aria-label="How it works">
+    <div class="cell"><span class="n">01</span><b>Install once</b><p>The panel runs in the background on your Mac and counts your agents' work.</p></div>
+    <div class="cell"><span class="n">02</span><b>Sign in</b><p>Approve your Mac with a code. Your galaxy gets a permanent spot in the Universe.</p></div>
+    <div class="cell"><span class="n">03</span><b>Watch it grow</b><p>Work becomes credit; credit becomes frontier, colonies and builds. Spend from here or from the panel.</p></div>
+    <div class="cell"><span class="n">04</span><b>Visit anyone</b><p>Every galaxy has a page. Strangers see its shape, never the work behind it.</p></div>
+  </section>
 </div>
+
+<footer class="band" id="band">
+  <div class="over">
+    <a class="brand" href="/">Universe</a>
+    <nav>
+      <a href="https://github.com/IcyDingo/agent-control-panel/blob/main/hub/README.md" rel="noopener">Run your own</a>
+      <a href="https://github.com/IcyDingo/agent-control-panel" rel="noopener">Source</a>
+    </nav>
+  </div>
+</footer>
 <script src="/hub.js"></script>
 <script>
 (() => {
@@ -46,6 +63,23 @@
     $('mine').hidden = false;
     $('profile').hidden = false;
   });
+
+  // The footer's mosaic: three rows of squares about 44px wide, the same picture for everyone (the cell's position picks
+  // its shade), quiet graphites with a rare amber square like a far sun.
+  const QUIET = ['q0', 'q0', 'q0', 'q0', 'q0', 'q1', 'q1', 'q1', 'q1', 'q2', 'q2', 'q2', 'q3', 'q3'];
+  function band() {
+    const cols = Math.max(8, Math.round($('band').clientWidth / 44)), cells = [];
+    for (let i = 0; i < cols * 3; i++) {
+      const at = `band ${i % cols} ${Math.floor(i / cols)}`;
+      cells.push(Hub.hashOf(at + ' sun') % 64 === 0 ? 'a0' : Hub.pick(at, QUIET));
+    }
+    if (!cells.includes('a0')) cells[Hub.hashOf('band sun') % cells.length] = 'a0'; // never a band without a sun
+    $('band').querySelector('.mosaic')?.remove();
+    $('band').prepend(Hub.mosaic(cells, cols));
+  }
+  band();
+  let timer = 0;
+  addEventListener('resize', () => { clearTimeout(timer); timer = setTimeout(band, 150); });
 })();
 </script>
 </body>

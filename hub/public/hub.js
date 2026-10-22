@@ -91,5 +91,22 @@
   /** Only an http(s) address is worth a link; null for anything else. */
   const safeUrl = (u) => { try { const p = new URL(u); return p.protocol === 'https:' || p.protocol === 'http:' ? p.href : null; } catch { return null; } };
 
-  window.Hub = { api, me, events, rel, el, avatar, safeUrl };
+  /** A number from a string, always the same for the same string (FNV-1a), for picking a shade that never flickers. */
+  function hashOf(s) {
+    let h = 2166136261;
+    for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+    return h >>> 0;
+  }
+  /** One of `list`, chosen by the string: the same string always picks the same one. */
+  const pick = (s, list) => list[hashOf(s) % list.length];
+
+  /** The brand's mosaic: a grid of flat square cells with no gaps, `cols` across. Each entry is the cell's class
+   *  (hub.css: q0–q3 the quiet graphites, a0–a2 the ambers). */
+  function mosaic(cells, cols) {
+    const grid = el('div', { class: 'mosaic', 'aria-hidden': 'true', style: `--cols:${cols}` });
+    for (const c of cells) grid.append(el('span', { class: c }));
+    return grid;
+  }
+
+  window.Hub = { api, me, events, rel, el, avatar, safeUrl, hashOf, pick, mosaic };
 })();

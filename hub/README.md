@@ -1,6 +1,6 @@
 # The hub
 
-A small hosted service that gives every Agent Control Panel a page of its own: a public system at `/@handle` that draws
+A small hosted service that gives every Agent Control Panel a page of its own: a public galaxy at `/@handle` that draws
 the work its Mac has done as a planet, a profile, and an approval step that connects a Mac to an account. One Node
 process, one SQLite file, no build step and no dependencies. It needs **Node 22.13 or newer** (it uses the built-in
 `node:sqlite`).

@@ -90,7 +90,7 @@ test('login from a terminal shows a code, finishes when it is approved, and stat
   t.after(login.kill);
   const r = await login.done;
   assert.equal(r.code, 0, r.out);
-  assert.match(r.out, /Signed in as @alice\. Your system is at -?\d+, -?\d+\.\n$/);
+  assert.match(r.out, /Signed in as @alice\. Your galaxy is at -?\d+, -?\d+\.\n$/);
   assert.match((await cli(['status'], dir).done).out, /^Signed in as @alice \(http:\/\/127\.0\.0\.1:\d+\)\n/);
   assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'hub.json'), 'utf8')).token.startsWith('hub_'), true);
   const out = await cli(['logout'], dir).done;

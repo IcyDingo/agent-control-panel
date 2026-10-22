@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>System</title>
+<title>Galaxy</title>
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="/hub.css">
 </head>
 <body class="sys">
 <!-- The ids below are the ones public/world.js looks up (copied from the panel's #world skeleton); keep them. In read-only
      mode world.js hides the spend boxes with body.w-readonly and never calls the api, so they stay in the markup. -->
-<div class="space world" id="world" role="main" aria-label="A system">
-  <canvas id="w-canvas" aria-label="This system. Scroll or use Home and Map to zoom, drag to look around."></canvas>
+<div class="space world" id="world" role="main" aria-label="A galaxy">
+  <canvas id="w-canvas" aria-label="This galaxy. Scroll or use Home and Map to zoom, drag to look around."></canvas>
   <div class="sp-top">
     <a class="brand" href="/">Universe</a>
     <span class="sp-sub" id="w-where">Home</span>
@@ -23,7 +23,7 @@
     <section class="w-box sys-card" id="sys-card" aria-live="polite">
       <p id="sys-loading">Loading...</p>
     </section>
-    <!-- The owner's section: shown only when the signed-in account is this system's owner. -->
+    <!-- The owner's section: shown only when the signed-in account is this galaxy's owner. -->
     <section class="w-box" id="w-owner" hidden>
       <h2>Owner</h2>
       <p id="w-owner-text">Your Mac keeps this up to date. <span id="w-owner-sync"></span></p>
@@ -134,7 +134,7 @@
     $('world').querySelector('.w-zoom').hidden = true;
   }
 
-  /** A number from the handle, always the same for the same handle: the seed of a system with nothing synced yet. */
+  /** A number from the handle, always the same for the same handle: the seed of a galaxy with nothing synced yet. */
   function seedOf(s) {
     let h = 2166136261;
     for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
@@ -158,6 +158,23 @@
     return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
   };
 
+  /** The last 100 days as a mosaic, oldest first, today at the bottom right: amber for a day the agents worked, graphite
+   *  for a quiet one. The projection says which days, never how much. */
+  function daysMosaic(worked) {
+    const had = new Set(Array.isArray(worked) ? worked : []), now = new Date(), cells = [];
+    let count = 0;
+    for (let back = 99; back >= 0; back--) {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - back);
+      const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const lit = had.has(k);
+      if (lit) count++;
+      cells.push(Hub.pick(k, lit ? ['a0', 'a0', 'a1', 'a2'] : ['q0', 'q1', 'q1', 'q2', 'q2', 'q3']));
+    }
+    return el('div', { class: 'days' },
+      Hub.mosaic(cells, 20),
+      el('div', { class: 'cap' }, el('span', { text: 'Last 100 days' }), el('span', { text: `${plural(count, 'day', 'days')} with work` })));
+  }
+
   function card({ profile, stats, system }) {
     const link = profile.link ? safeUrl(profile.link) : null;
     const active = system
@@ -173,7 +190,8 @@
         link ? el('a', { href: link, rel: 'noopener noreferrer nofollow ugc', target: '_blank', text: profile.link }) : null,
         el('p', { text: `Level ${stats.level} · ${stats.stage}` }),
         system ? el('p', { text: active }) : el('p', { class: 'none', text: 'Nothing synced yet' }),
-        el('p', { text: `Joined ${joinedText(profile.joined)}` })));
+        el('p', { text: `Joined ${joinedText(profile.joined)}` })),
+      system ? daysMosaic(system.worked) : null);
   }
 
   // ---- the owner's orders: placed here, run by the owner's Mac, announced back over the stream ----
@@ -319,7 +337,7 @@
   }
 
   const [res, mine] = await Promise.all([Hub.api('GET', `/api/systems/@${encodeURIComponent(handle)}`), Hub.me()]);
-  if (!res.ok) return missing(res.status === 404 ? 'No system by that name.' : res.error);
+  if (!res.ok) return missing(res.status === 404 ? 'No galaxy by that name.' : res.error);
 
   const { profile, stats, system } = res;
   if (profile.visibility === 'unlisted') noindex();

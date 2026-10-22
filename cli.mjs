@@ -34,7 +34,7 @@ async function login() {
     const outcome = await hub.pollDeviceLogin();
     if (outcome === 'ok') {
       const a = hub.status().account;
-      console.log(`Signed in as @${a?.handle}. Your system is at ${a?.x}, ${a?.y}.`);
+      console.log(`Signed in as @${a?.handle}. Your galaxy is at ${a?.x}, ${a?.y}.`);
       return 0;
     }
     if (outcome === 'expired') { console.error('That code ran out. Run login again for a new one.'); return 1; }

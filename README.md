@@ -374,7 +374,7 @@ around). No agents in it: their work only arrives as credit. While it is open, i
 you, and takes you back to the board at the first.
 
 Beside Home sits its **sun**, placed by your world's seed: it lights Home's day side and the colonies', and marks your
-system on the map.
+galaxy in the Universe.
 
 Credit is earned per calendar day: `(lines added ÷ 10 + tokens ÷ 10,000) × multiplier`, where lines removed raise the
 multiplier from ×1 up to ×4, so a cleanup day pays best. The side panel shows today's numbers.
@@ -438,8 +438,8 @@ board shows, with hooks off, no tools, MCP servers or slash commands, and no ses
 
 ## Hub
 
-The hub is a small website that gives each panel a page of its own: your system, drawn the way World draws it, which
-anyone with your handle or link can open. Your system has fixed coordinates on the hub, shown on your page; a map of
+The hub is a small website that gives each panel a page of its own: your galaxy, drawn the way World draws it, which
+anyone with your handle or link can open. Your galaxy has fixed coordinates on the hub, shown on your page; a map of
 everyone's suns is the next slice.
 You choose whether to sign in. Until you do, nothing in this section runs and nothing leaves your Mac.
 
@@ -457,10 +457,10 @@ Profile box does what `logout` does. Your sign-in is kept in `hub.json`, beside 
 `~/Library/Application Support/Agent Panel`. If you sign in from a terminal while the background service runs, the
 service picks it up.
 
-**What is shared** is the shape of your system, and only that:
+**What is shared** is the shape of your galaxy, and only that:
 
 - Your planets, the colonies on them with their names, your builds with their captions and pieces, your moments (with
-  their day and kind), Home's level and stage, how many days you have been active, and your sun.
+  their day and kind), Home's level and stage, how many days you have been active, which of the last 100 days had work in them, and your sun.
 - A small profile you write on the hub: your name, a bio, a link. Your GitHub handle and picture come with it.
 
 **What never leaves your Mac**: tokens, lines, credit, your repositories and their paths, build prompts, and any time
