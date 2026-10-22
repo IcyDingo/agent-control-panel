@@ -44,7 +44,11 @@ Panel.app** into `~/Applications`. Then:
 from it: the background service then runs from your clone, and says so while it installs.
 
 Keep the folder where you cloned it: the service and the app run the panel from there. To update, `git pull`
-and run `./install.sh` again: it rebuilds the app and restarts the service on the new code. To use it without
+and run `./install.sh` again: it rebuilds the app and restarts the service on the new code. Signed in to the hub,
+the board also says when the hub runs a newer release than your clone (it asks a minute after start, then every 6
+hours) and offers **Update**: it pulls `main` (fast-forward only), rebuilds the app where it is, and the panel
+restarts on the new code. It won't touch a clone on another branch or with uncommitted edits, and says so; then
+update it yourself as above. To use it without
 the app, see [Run it](#run-it). To take it out again, see [Uninstall](#uninstall).
 
 The panel's own work (sessions, decisions, World) stays on your Mac whether or not you sign in: its server

@@ -25,7 +25,7 @@ import { createHub } from './hub.mjs';
 import { createHubSync } from './hub-sync.mjs';
 import { createHubOrders } from './hub-orders.mjs';
 import { workerOf, markStarted, rolledBack, checkForUpdate } from './update.mjs';
-import { checkClone, updateClone } from './clone-update.mjs';
+import { checkClone, updateClone, appFor } from './clone-update.mjs';
 
 // `node server.mjs <command>` runs the CLI (cli.mjs) and never starts the server.
 if (process.argv.length > 2) { const { main } = await import('./cli.mjs'); process.exit(await main(process.argv.slice(2))); }
@@ -1773,27 +1773,13 @@ async function checkAppUpdate() {
   const next = r.outcome === 'available' ? { sha: r.sha, blocked: r.blocked, state: 'ready' } : null;
   if (JSON.stringify(next) !== JSON.stringify(appUpdate)) { appUpdate = next; broadcast(); }
 }
-/** The Agent Panel.app running for this panel (its Info.plist names this folder and port), or null. It starts a server
- *  when its own goes away, whichever process started this one, so the update can exit; and its bundle is where the
- *  rebuilt app goes. */
-async function runningApp() {
-  const ps = await run('ps', ['-axo', 'comm=']), exe = '/Contents/MacOS/AgentPanel';
-  if (ps.err) return null;
-  const real = (p) => { try { return fs.realpathSync.native(p); } catch { return p; } }, here = real(REPO);
-  for (const line of new Set(ps.stdout.split('\n').map((l) => l.trim()).filter((l) => l.endsWith('.app' + exe)))) {
-    const app = line.slice(0, -exe.length), plist = path.join(app, 'Contents', 'Info.plist');
-    const [port, repo] = await Promise.all(['ACPPort', 'ACPRepo'].map((k) => run('plutil', ['-extract', k, 'raw', plist])));
-    if (!port.err && !repo.err && port.stdout.trim() === String(PORT) && real(repo.stdout.trim()) === here) return app;
-  }
-  return null;
-}
 /** The board's Update: pull main, rebuild the app, and restart on the new code. */
 async function updateApp() {
   if (WORKER) return { ok: false, error: 'This install updates itself.' };
   if (appUpdate?.state === 'updating' || appUpdate?.state === 'restarting') return { ok: false, error: 'The panel is updating already.' };
   appUpdate = { ...(appUpdate ?? {}), state: 'updating', error: null };
   broadcast();
-  const app = await runningApp();
+  const app = await appFor({ repo: REPO, port: PORT, run });
   const r = await updateClone({ repo: REPO, run, appPath: app });
   if (!r.ok) { appUpdate = { ...appUpdate, state: 'ready', error: r.error }; broadcast(); return r; }
   if (!r.built && r.buildError) console.error('update: the app did not rebuild:', r.buildError);

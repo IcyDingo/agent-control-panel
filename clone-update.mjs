@@ -44,6 +44,21 @@ export async function checkClone({ repo, hubUrl, fetch = globalThis.fetch, run }
   return { outcome: 'available', sha, head: at, blocked: await blockedWhy(repo, run) };
 }
 
+/** The Agent Panel.app running for the panel in `repo` on `port` (build.sh bakes both into its Info.plist), or null.
+ *  Whichever process started the server, that app starts a new one when the server goes away; and its bundle is where a
+ *  rebuilt app belongs. */
+export async function appFor({ repo, port, run }) {
+  const ps = await run('ps', ['-axo', 'comm=']), exe = '/Contents/MacOS/AgentPanel';
+  if (ps.err) return null;
+  const real = (p) => { try { return fs.realpathSync.native(p); } catch { return p; } }, here = real(repo);
+  for (const line of new Set(ps.stdout.split('\n').map((l) => l.trim()).filter((l) => l.endsWith('.app' + exe)))) {
+    const app = line.slice(0, -exe.length), plist = path.join(app, 'Contents', 'Info.plist');
+    const [p, r] = await Promise.all(['ACPPort', 'ACPRepo'].map((k) => run('plutil', ['-extract', k, 'raw', plist])));
+    if (!p.err && !r.err && p.stdout.trim() === String(port) && real(r.stdout.trim()) === here) return app;
+  }
+  return null;
+}
+
 /** Pulls main (fast-forward only) and rebuilds the app with app/build.sh when the clone has one, at `appPath` when the
  *  running app's place is known (build.sh's default is ~/Applications). The new code is in place once the pull worked,
  *  so a build that fails still answers ok, with `built: false` and why. */

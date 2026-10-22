@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
-import { checkClone, updateClone } from '../clone-update.mjs';
+import { checkClone, updateClone, appFor } from '../clone-update.mjs';
 
 const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'clone-update-')));
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
@@ -120,4 +120,20 @@ test('updating refuses a blocked clone and one that cannot fast-forward, and cha
   assert.equal(r.ok, false);
   assert.match(r.error, /^git pull could not fast-forward/);
   assert.equal(head(), mine);
+});
+
+test('the running app for a panel is the one whose Info.plist names its folder and port', async () => {
+  const repo = tmp(), other = tmp();
+  const apps = {
+    '/A/Agent Panel.app': { ACPPort: '4747', ACPRepo: other }, // another clone's app
+    '/B/Agent Panel.app': { ACPPort: '4799', ACPRepo: repo }, // this folder, another port
+    '/C/Agent Panel.app': { ACPPort: '4747', ACPRepo: repo }, // this one
+  };
+  const fake = async (cmd, args) => {
+    if (cmd === 'ps') return { err: null, stdout: ['/sbin/launchd', ...Object.keys(apps).map((a) => `${a}/Contents/MacOS/AgentPanel`)].join('\n') + '\n', stderr: '' };
+    const [, key, , plist] = args, app = plist.slice(0, -'/Contents/Info.plist'.length);
+    return apps[app] ? { err: null, stdout: apps[app][key] + '\n', stderr: '' } : { err: new Error('no'), stdout: '', stderr: '' };
+  };
+  assert.equal(await appFor({ repo, port: 4747, run: fake }), '/C/Agent Panel.app');
+  assert.equal(await appFor({ repo, port: 4800, run: fake }), null, 'no app for that port');
 });
