@@ -525,7 +525,7 @@
     if ($('w-rail')) {
       personMark = [...($('w-rail-avatar')?.childNodes ?? [])].map((n) => n.cloneNode(true));
       for (const b of $('w-rail').querySelectorAll('[data-card]')) b.onclick = () => openCard(card === b.dataset.card ? null : b.dataset.card);
-      for (const b of $('w-side').querySelectorAll('.w-card-x')) b.onclick = () => openCard(null);
+      for (const b of $('w-side').querySelectorAll('.w-card-x')) b.onclick = () => { const was = railButton(card); openCard(null); was?.focus(); };
     }
     cv.addEventListener('wheel', (e) => { e.preventDefault(); zoomTo(zTo + e.deltaY * 0.0015); }, { passive: false });
     cv.addEventListener('pointerdown', (e) => {
@@ -584,8 +584,15 @@
     if (opts.card?.key) try { last = localStorage.getItem(opts.card.key); } catch { /* none remembered */ }
     return last && railButton(last) ? last : opts.card?.first ?? null;
   }
-  /** A dot on a rail button: `has` something waiting for you, `busy` while it runs. */
-  const mark = (name, cls, on) => railButton(name)?.classList.toggle(cls, Boolean(on));
+  /** A dot on a rail button, `has` something waiting for you or `busy` while it runs, and the same in its name and tooltip. */
+  function mark(name, cls, on, note) {
+    const b = railButton(name);
+    if (!b) return;
+    b.dataset.label ??= b.getAttribute('aria-label');
+    b.classList.toggle(cls, Boolean(on));
+    const label = on ? `${b.dataset.label}: ${note}` : b.dataset.label;
+    b.setAttribute('aria-label', label); b.title = label;
+  }
 
   const COMPASS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
   /** Map space has y pointing down, so north is -π/2. */
@@ -657,7 +664,7 @@
   function showBuild() {
     if (opts.readOnly) return;
     showPlaces();
-    mark('build', 'busy', buildingOn);
+    mark('build', 'busy', buildingOn, `building on ${placeName(buildingOn)}`);
     const box = $('w-build-box'), p = placeOf(here), yours = here === 'home' || (p && colonyOf(p));
     box.hidden = !yours;
     if ($('w-build-none')) $('w-build-none').hidden = Boolean(yours);
@@ -691,7 +698,7 @@
     const list = planets().filter((p) => !p.colony), box = $('w-rocket-box');
     box.hidden = !list.length;
     if ($('w-rocket-none')) $('w-rocket-none').hidden = list.length > 0;
-    mark('rocket', 'has', list.length);
+    mark('rocket', 'has', list.length, list.length === 1 ? 'a bare planet is waiting' : `${list.length} bare planets are waiting`);
     if (!list.length) return;
     const sel = $('w-rocket-to'), sig = list.map((p) => p.id).join();
     if (sig !== rocketSig) { // rebuilt only when the planets change, so an open list stays open
@@ -910,8 +917,8 @@
       err.hidden = true;
       if ($('w-pf-avatar')._sig !== sig) { $('w-pf-avatar')._sig = sig; $('w-pf-avatar').replaceChildren(avatarOf(a)); }
       if ($('w-rail-avatar') && $('w-rail-avatar')._sig !== sig) { $('w-rail-avatar')._sig = sig; $('w-rail-avatar').replaceChildren(avatarOf(a)); }
-      $('w-pf-handle').textContent = `@${a.handle}`;
-      $('w-pf-xy').textContent = `${a.x}, ${a.y}`.replaceAll('-', '−');
+      $('w-pf-handle').textContent = a.name || `@${a.handle}`;
+      $('w-pf-xy').textContent = `${a.name ? `@${a.handle} · ` : ''}${a.x}, ${a.y}`.replaceAll('-', '−');
       const page = $('w-pf-page'), edit = $('w-pf-edit');
       page.hidden = edit.hidden = !web(base);
       page.href = `${base}/@${encodeURIComponent(a.handle)}`; edit.href = `${base}/me`;
@@ -936,6 +943,7 @@
         err.textContent = "The sign-in didn't complete. Try again."; err.hidden = false;
       }
     }
+    mark('profile', 'busy', h.loggedIn && h.orders?.current, 'running an order from the site');
     if (!was) { orderBase = h.orders?.current ? { n: before?.builds?.length ?? 0, spent: before?.spent ?? 0 } : null; return; } // the first sight raises nothing
     if (h.loggedIn && !was.loggedIn) toast(`Signed in as @${h.account?.handle}`);
     const e = h.sync?.lastError ?? null, wasE = was.sync?.lastError ?? null;
@@ -1010,6 +1018,7 @@
       paint();
       show(summary);
       showHub(hub, before);
+      opts.onPlace?.(here); // the place may have changed underneath: a bare planet the map is on can be a colony now
     },
     exit() { cancelAnimationFrame(raf); raf = 0; drag = null; flight = null; if (aiming) setAim(false); document.body.classList.remove('w-readonly'); },
     /** Fly to a place: 'home' or a planet's id (the galaxy page's build chips use it). */

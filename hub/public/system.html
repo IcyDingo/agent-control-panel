@@ -201,6 +201,7 @@
     const n = system?.moments?.length ?? 0;
     $('w-rail-n').hidden = !n;
     $('w-rail-n').textContent = n > 99 ? '99+' : String(n);
+    $('w-rail-n').parentElement.setAttribute('aria-label', n ? `Moments, ${n}` : 'Moments');
   }
 
   // ---- the owner's orders: placed here, run by the owner's Mac, announced back over the stream ----
@@ -296,7 +297,9 @@
       orderAt = on ? createdAt ?? orderAt : null;
       if (on) { say.hidden = false; say.className = ''; say.textContent = 'On its way to your Mac…'; }
       watch(on);
-      $('o-rail').classList.toggle('busy', on); // the rail's dot: an order on its way
+      $('o-rail').classList.toggle('busy', on); // the rail's dot, its name and tooltip: an order on its way
+      const label = on ? 'Your orders: one is on its way to your Mac' : 'Your orders (only you see this)';
+      $('o-rail').setAttribute('aria-label', label); $('o-rail').title = label;
       macNote();
       sync();
     }
