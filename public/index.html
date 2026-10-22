@@ -215,8 +215,8 @@ button, input, textarea, select { font: inherit; color: inherit; }
   overflow: hidden; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: -28px 0 48px -36px var(--shade);
 }
 .drawer.enter { animation: slide .18s ease-out; }
-/* Beside the rail it fills the rest of the width; Space view floats it over the sky instead. */
-.stage > .drawer { position: relative; inset: auto; flex: 1; width: auto; min-width: 0; margin: 8px; box-shadow: none; }
+/* Beside the rail it sits flat, filling the rest of the width; Space view floats it over the sky as a card instead. */
+.stage > .drawer { position: relative; inset: auto; flex: 1; width: auto; min-width: 0; margin: 0; border: 0; border-radius: 0; box-shadow: none; }
 .stage .d-grip { display: none; }
 .ws-empty { flex: 1; min-width: 0; margin: 8px; display: grid; place-content: center; justify-items: center; gap: 12px; padding: 24px; border: 1px dashed var(--line); border-radius: 12px; color: var(--fg-faint); text-align: center; }
 .ws-empty p { margin: 0; }
@@ -703,7 +703,7 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
   .col-body { overflow: visible; }
   .r-grip, .ws-empty { display: none; }
   .drawer { width: 100%; border-left: 0; }
-  .stage > .drawer { position: absolute; inset: 8px; margin: 0; width: auto; }
+  .stage > .drawer { position: absolute; inset: 0; margin: 0; width: auto; }
 }
 @media (max-width: 520px) { .pair { grid-template-columns: 1fr; } }
 @media (hover: none) { .qstop { opacity: 1; } .tile-wrap.can-act .tside { visibility: hidden; } }
