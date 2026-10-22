@@ -460,20 +460,57 @@
   }
   /** A galaxy as the Universe shows it: a glowing core in its sun's colour and two arms of stars winding out, turning
    *  slowly. Its spot picks the tilt and the scatter, so a galaxy looks the same to everyone who has found it. */
+  const spotSeed = (at) => ((at.x * 73856093) ^ (at.y * 19349663)) >>> 0;
   function drawGalaxy(px, py, r, t, look, at) {
-    const c = SUN[look] ?? SUN.gold, rnd = rng(((at.x * 73856093) ^ (at.y * 19349663)) >>> 0);
+    const c = SUN[look] ?? SUN.gold, rnd = rng(spotSeed(at));
     const tilt = 0.45 + 0.4 * rnd(), turn = rnd() * Math.PI, spin = calm.matches ? 0 : t / 90000;
     x.save(); x.translate(px, py); x.rotate(turn); x.scale(1, tilt);
     const g = x.createRadialGradient(0, 0, 0, 0, 0, r * 1.3);
-    g.addColorStop(0, rgba(c, 0.55)); g.addColorStop(0.3, rgba(c, 0.16)); g.addColorStop(1, rgba(c, 0));
+    g.addColorStop(0, rgba(c, 0.75)); g.addColorStop(0.3, rgba(c, 0.22)); g.addColorStop(1, rgba(c, 0));
     x.fillStyle = g; x.beginPath(); x.arc(0, 0, r * 1.3, 0, 7); x.fill();
     for (let arm = 0; arm < 2; arm++) for (let i = 0; i < 90; i++) {
       const f = i / 90, a = spin + arm * Math.PI + f * 3.6 + (rnd() - 0.5) * 0.5, d = r * (0.1 + 0.9 * f) * (0.9 + 0.2 * rnd());
       x.fillStyle = f < 0.35 ? rgba(c, 0.85 - f) : `rgba(220,230,255,${0.75 - 0.6 * f})`;
-      x.fillRect(Math.cos(a) * d, Math.sin(a) * d, 1.3, 1.3 / tilt);
+      const dot = r > 20 ? 1.7 : 1.3;
+      x.fillRect(Math.cos(a) * d, Math.sin(a) * d, dot, dot / tilt);
     }
-    x.fillStyle = c; x.beginPath(); x.arc(0, 0, Math.max(1.6, r * 0.09), 0, 7); x.fill();
+    x.fillStyle = c; x.beginPath(); x.arc(0, 0, Math.max(1.6, r * 0.1), 0, 7); x.fill();
     x.restore();
+  }
+  /** What fills the Universe's dark, for looks only: nebula clouds, a band of dust and faint far-off galaxies that are
+   *  nobody's (too small to click, never named). Your spot picks them, and they drift behind as you pan. */
+  const NEBULA = ['#6b4fd8', '#2f8fb0', '#c0507a', '#3e6fd6', '#7a3fa0'];
+  function drawScenery(a, t, me) {
+    const r = rng(spotSeed(me) ^ 0x5eed), span = 1.6, wrap = (v, n) => ((v % n) + n) % n;
+    const at = (depth) => [wrap(r() * W * span + pan.x * depth, W * span) - W * (span - 1) / 2,
+      wrap(r() * H * span + pan.y * depth, H * span) - H * (span - 1) / 2];
+    for (let i = 0; i < 9; i++) { // clouds: wide, soft, two blobs each so they aren't round
+      const c = NEBULA[Math.floor(r() * NEBULA.length)], [nx, ny] = at(0.15), size = Math.max(W, H) * (0.18 + 0.22 * r());
+      for (let j = 0; j < 2; j++) {
+        const ox = nx + (r() - 0.5) * size, oy = ny + (r() - 0.5) * size * 0.6, g = x.createRadialGradient(ox, oy, 0, ox, oy, size);
+        g.addColorStop(0, rgba(c, 0.11 + 0.08 * r())); g.addColorStop(0.5, rgba(c, 0.04)); g.addColorStop(1, rgba(c, 0));
+        x.fillStyle = g; x.fillRect(ox - size, oy - size, size * 2, size * 2);
+      }
+    }
+    // a band of dust and denser stars across the sky, like looking along a galaxy's disc
+    const ang = r() * Math.PI, ca = Math.cos(ang), sa = Math.sin(ang), mx = W / 2 + pan.x * 0.25, my = H / 2 + pan.y * 0.25;
+    const len = Math.hypot(W, H);
+    x.save(); x.translate(mx, my); x.rotate(ang);
+    const band = x.createLinearGradient(0, -H * 0.18, 0, H * 0.18);
+    band.addColorStop(0, 'rgba(150,170,230,0)'); band.addColorStop(0.5, 'rgba(150,170,230,0.1)'); band.addColorStop(1, 'rgba(150,170,230,0)');
+    x.fillStyle = band; x.fillRect(-len, -H * 0.18, len * 2, H * 0.36);
+    x.restore();
+    for (let i = 0; i < 700; i++) {
+      const s = (r() - 0.5) * len * 1.6, off = (r() + r() + r() - 1.5) * H * 0.09;
+      const px = wrap(mx + ca * s - sa * off, W), py = wrap(my + sa * s + ca * off, H);
+      x.fillStyle = `rgba(215,225,255,${0.1 + 0.3 * r()})`; x.fillRect(px, py, 1, 1);
+    }
+    for (let i = 0; i < 28; i++) { // far-off galaxies: faint, small, behind everything
+      const [gx, gy] = at(0.35), look = ['white', 'blue', 'gold', 'orange'][Math.floor(r() * 4)], size = 4 + 6 * r(), dim = 0.2 + 0.25 * r();
+      x.globalAlpha = a * dim;
+      drawGalaxy(gx, gy, size, t, look, { x: Math.floor(r() * 1e6), y: i });
+    }
+    x.globalAlpha = a;
   }
   function drawUniverse(a, t) {
     const u = uView(), to = (gx, gy) => [u.cx + (gx - u.me.x) * u.k, u.cy + (gy - u.me.y) * u.k];
@@ -486,6 +523,7 @@
       const depth = 0.1 + 0.6 * r(), sx = ((r() * W + pan.x * depth) % W + W) % W, sy = ((r() * H + pan.y * depth) % H + H) % H;
       x.fillStyle = `rgba(220,230,255,${0.08 + 0.4 * depth})`; x.fillRect(sx, sy, depth > 0.55 ? 1.6 : 1, depth > 0.55 ? 1.6 : 1);
     }
+    drawScenery(a, t, u.me);
     for (const q of myProbes()) if (!q.to) { // on its way: along where it was aimed, never toward its target
       const d = q.progress * PROBE_SHOW, [px, py] = to(u.me.x + Math.cos(q.ang) * d, u.me.y + Math.sin(q.ang) * d);
       x.strokeStyle = 'rgba(227,171,62,.35)'; x.lineWidth = 1; x.setLineDash([2, 6]);
@@ -494,11 +532,11 @@
     }
     for (const g of found) {
       const [px, py] = to(g.x, g.y);
-      drawGalaxy(px, py, 24, t, g.look, g);
-      if (hover === `@${g.handle}` || found.length < 10) label(`@${g.handle}`, px, py + 32, hover === `@${g.handle}` ? '#e3e7ed' : '#8c96a4', 12);
+      drawGalaxy(px, py, 30, t, g.look, g);
+      if (hover === `@${g.handle}` || found.length < 10) label(`@${g.handle}`, px, py + 36, hover === `@${g.handle}` ? '#e3e7ed' : '#8c96a4', 12);
     }
-    drawGalaxy(u.cx, u.cy, 34, t, sun()?.look, u.me);
-    label(`${opts.universe.name ?? 'You'} · ${u.me.x}, ${u.me.y}`.replaceAll('-', '−'), u.cx, u.cy + 42, '#e3e7ed', 12);
+    drawGalaxy(u.cx, u.cy, 44, t, sun()?.look, u.me);
+    label(`${opts.universe.name ?? 'You'} · ${u.me.x}, ${u.me.y}`.replaceAll('-', '−'), u.cx, u.cy + 50, '#e3e7ed', 12);
     if (aiming === 'probe' && probeAng != null) drawArrow(u.cx, u.cy, probeAng, Math.min(W, H) * 0.22, 0.95);
     x.globalAlpha = 1;
   }
@@ -629,7 +667,7 @@
   /** What is under a point on the canvas: a planet, Home, or a moment. */
   function hit(px, py) {
     if (view?.uA > 0.5) { // the Universe: the galaxies you found
-      const u = uView(), g = found.find((q) => Math.hypot(u.cx + (q.x - u.me.x) * u.k - px, u.cy + (q.y - u.me.y) * u.k - py) < 26);
+      const u = uView(), g = found.find((q) => Math.hypot(u.cx + (q.x - u.me.x) * u.k - px, u.cy + (q.y - u.me.y) * u.k - py) < 32);
       return g ? { galaxy: g } : null;
     }
     if (!view || z < 0.35) return null;
