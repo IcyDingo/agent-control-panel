@@ -120,8 +120,9 @@ tool run it for you:
 node tools/release.mjs sign --deploy root@<host>[:/srv/agent-hub]
 ```
 
-The first signed release is a little different; `deploy/README.md` has the steps. The number of a release counts as used
-once `update.sh` has written it, so if the build fails after that, fix it in a new commit and `sign` again.
+The first signed release is a little different; `deploy/README.md` has the steps. A deploy that failed (a build error,
+a hub slow to start) can be run again with the same line: `update.sh` records a release only once its build has
+succeeded, and deploys the release on record again when given its own line.
 
 To rotate the key, make a second one with `node tools/release.mjs keygen`. It is written to `signing-key-2.pem`, and
 `sign` now signs with both. `sign` opens every key file with the one passphrase it asks for, so the new key must be made

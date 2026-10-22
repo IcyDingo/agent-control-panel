@@ -73,14 +73,18 @@ node tools/release.mjs sign  ──ssh──▶  update.sh <sha> <n> <sigs>     
   `{ ok, sha, n, sigs, url }`. The Dockerfile copies `release-keys.mjs`.
 - **Deploy:** `update.sh <sha> <n> <sigs>`: first verifies the three against the keys of the code it currently runs
   (`node src/release-keys.mjs verify <sha> <n> <sigs>`; skipped only while that file does not exist, the bootstrap
-  deploy) and refuses an `n` not above the one in `release.env`; only then fetches, checks out that commit
-  (`git checkout --detach <sha>`), writes the three lines, builds, restarts, checks `/healthz` **and** `/api/release`
-  (a 503 fails the script with the hub's sentence). With no arguments it keeps today's behaviour (pull main,
-  `HUB_RELEASE` only) **until the first signed release has been deployed**; after that `release.env` carries a
-  signature and a plain `update.sh` refuses with
-  `This hub serves signed releases: run  node tools/release.mjs sign  on your Mac and use the line it prints.`
-  **(call: a plain deploy would otherwise take new installs down too, since the install script reads
-  `/api/release`)**.
+  deploy) and refuses an `n` not above the one in `release.env`, except the release already on record (the same `n`
+  and the same sha: a re-deploy after a failed start, still verified); only then fetches, checks out that commit
+  (`git checkout --detach <sha>`), builds, puts the three lines in `release.env` (written beside before the build and
+  moved into place only once it succeeds, so a failed build uses up nothing), restarts, checks `/healthz` **and**
+  `/api/release` (a 503 fails the script with the hub's sentence). With no arguments it keeps today's behaviour (pull
+  main, `HUB_RELEASE` only) **until the first signed release has been deployed**; after that `release.env` carries a
+  signature and a plain `update.sh` deploys nothing new: it rebuilds and restarts the release on record, without a
+  fetch, a checkout or a write (refusing when `src` is not at that release, as after a signed build that failed), runs
+  the same two checks and prints
+  `Restarted release <7> (number <m>); to deploy a new one, run  node tools/release.mjs sign  on your Mac.`
+  **(call: a plain pull would otherwise take new installs down too, since the install script reads `/api/release`;
+  the restart is how a change to `.env` is applied)**.
 - **Owner's command:** `node tools/release.mjs sign [sha]` (default: the local HEAD, which must be on `origin/main`;
   it refuses a dirty tree or a sha not on `origin/main`, and refuses a key file that is not mode 0600) computes `n`,
   asks for the passphrase, signs with every key in `~/.config/agent-panel/`, shows the commits since the release the
@@ -129,7 +133,7 @@ about it:
   exactly the sha it was given, after verifying `<sha> <n> <sigs>` against the keys of the code it currently runs and
   refusing a lower `n` **before** fetching or building anything **(call; the verification is skipped only while
   `src/release-keys.mjs` does not exist yet, the bootstrap deploy)**. After the first signed release, plain
-  `update.sh` is refused. So a stolen GitHub account can push to `main`, but cannot put that code on the server or on
+  `update.sh` only restarts the release on record. So a stolen GitHub account can push to `main`, but cannot put that code on the server or on
   any worker: both need the key on the owner's Mac and its passphrase.
 - **The private key never touches the server**, the repo, `.env`, a log or a shell history: `sign` reads the key
   file itself, decrypts it in memory with the passphrase, and prints only the signatures.
@@ -163,7 +167,7 @@ Everyone who runs the one line hands a daily download-and-run to this project. W
 | Who verifies | Both: the hub at start (serves 503 if bad) and the worker before download **(call)** |
 | Multiple keys | A list in `release-keys.mjs`; a release carries one signature per current key; any pair that verifies is enough **(call)** |
 | Release command | `node tools/release.mjs sign` prints the ssh line; `--deploy` runs it **(call)** |
-| Unsigned deploy | Allowed until the first signed release; refused after, with a sentence, because new installs read `/api/release` too **(call)** |
+| Unsigned deploy | Allowed until the first signed release; after it a plain `update.sh` only rebuilds and restarts the signed release on record, because new installs read `/api/release` too **(call)** |
 | Rotation gate | Time (30 days of double signing), not version tracking **(call)** |
 
 ## Tests
@@ -187,8 +191,9 @@ Everyone who runs the one line hands a daily download-and-run to this project. W
   release whose compare with the running one answers anything but `ahead`, a 404 or no answer is an error with no
   download (the third sentence), and a switch asks main's compare first, then the descent.
 - `sh -n hub/deploy/update.sh`; `update.sh` run in a temp folder with a fake `docker`/`curl`/`node` on PATH: no
-  arguments and a signed `release.env` → refused with the sentence; a bad signature or a lower `n` → refused before
-  any fetch; a good one → checks out the sha and writes the three lines.
+  arguments and a signed `release.env` → a restart with no fetch, checkout or write, and the sentence; a bad signature
+  or a lower `n` → refused before any fetch; a good one → checks out the sha and writes the three lines; the same sha
+  at the same `n` → deployed again; a failed build → `release.env` as it was.
 - The deploy README's release steps followed once by hand.
 
 ## Rollout

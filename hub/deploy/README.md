@@ -8,7 +8,7 @@ sits in `/srv/agent-hub` there; nothing in them is secret.
   src/                  git clone of this repository (main)
   compose.yml           builds hub/Dockerfile from src and runs it on 127.0.0.1:4848, database in the hub-data volume
   .env                  the settings, from env.example (the GitHub id and secret live only here, mode 600)
-  update.sh             deploy the release `sign` names (verified first, never lower); plain, pull main until then
+  update.sh             deploy the release `sign` names (verified first, never lower); plain, pull main until then, restart after
   caddy-cloudflare.sh   rewrites the site's Caddy block: Cloudflare's ranges as trusted proxies, the real visitor in X-Forwarded-For
   firewall-cloudflare.sh, cloudflare-only.{service,timer}
                         the firewall: only Cloudflare reaches the web ports (see below)
@@ -21,14 +21,15 @@ mkdir -p /srv/agent-hub && cd /srv/agent-hub
 git clone --depth 1 https://github.com/IcyDingo/agent-control-panel src
 cp src/hub/deploy/{compose.yml,update.sh,caddy-cloudflare.sh} . && cp src/hub/deploy/env.example .env
 chmod +x update.sh caddy-cloudflare.sh && chmod 600 .env   # then fill .env in
-./update.sh                                                 # pulls, writes release.env, builds and starts the hub
+./update.sh                                                 # pulls, builds, writes release.env and starts the hub
 ./caddy-cloudflare.sh                                       # adds the universe.cashegg.com block to /etc/caddy/Caddyfile and reloads
 ```
 
 A release is the signed one that `tools/release.mjs sign` names, and `update.sh` checks the signature before it fetches,
 builds or writes anything. `hub/README.md` says how the key is made and a release is signed. `update.sh` writes
 `release.env` with the commit, its number and the signatures; the hub serves them at `/api/release`, and that is the
-version every worker installs and updates to. Until the first signed release, a plain `./update.sh` still pulls `main`.
+version every worker installs and updates to. Until the first signed release, a plain `./update.sh` still pulls `main`;
+after it, a plain `./update.sh` restarts the release on record (below).
 
 The first signed deploy. An existing deploy still has the `update.sh` it was set up with, which knows nothing of
 signatures, so copy the new one from the repository first. Before that, the maintainer's public key must be in `release-keys.mjs` on
@@ -56,17 +57,21 @@ node tools/release.mjs sign                        # prints  ssh root@<host> /sr
 node tools/release.mjs sign --deploy root@<host>   # signs and runs that line
 ```
 
-Once `release.env` holds a signature, a plain `./update.sh` is refused, so nothing unsigned can replace the release:
+Once `release.env` holds a signature, a plain `./update.sh` deploys nothing new, so nothing unsigned can replace the
+release: it rebuilds and restarts the release on record, without a fetch, a checkout or a write. That is how a change
+to `.env` is applied. (When `src` is not at that release, as after a signed deploy whose build failed, it refuses and
+says so; run a signed line then.) It ends with:
 
 ```
-This hub serves signed releases: run  node tools/release.mjs sign  on your Mac and use the line it prints.
+Restarted release 1a2b3c4 (number 412); to deploy a new one, run  node tools/release.mjs sign  on your Mac.
 ```
 
 `update.sh` refuses, before it fetches, builds or writes anything, a release no known key signed (`Release 1a2b3c4 is
 not signed by a known key.`) and a number that is not above the one in `release.env`, so an old signed line cannot be
-replayed to go back. The number
-counts as used as soon as it is written to `release.env`: if the build or the start fails after that, make a new commit
-and `sign` again.
+replayed to go back. The release already on record is the exception: its own line (the same number and commit) is
+verified and deployed again, so a deploy whose start failed is simply run again. `release.env` is written only once
+the build has succeeded, so a failed build leaves the release on record as it was, and the same line can be run again
+once the cause is fixed.
 
 Then edit the "Universe API" rule as the Cloudflare section below says, so `/install` skips the bot check too, and
 check both from outside the server:
