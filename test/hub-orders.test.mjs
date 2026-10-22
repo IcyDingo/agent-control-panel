@@ -359,3 +359,25 @@ test('two Macs signed in to one account: each order is run by exactly one of the
   assert.equal(queue.list(accountId)[0].status, 'done');
   for (const m of macs) m.orders.stop();
 });
+
+test('drain asks the hub for its pending orders while the stream is up, so an order no event announced still runs', async () => {
+  const pending = [];
+  const t = setup({ pending });
+  t.orders.drain();   // not started: nothing to ask
+  await settle();
+  assert.equal(t.calls.length, 0);
+  t.orders.start();
+  await settle();
+  pending.push(order('quiet'));   // placed, but the event never arrived
+  t.orders.drain();
+  await settle();
+  assert.deepEqual(t.ran, ['quiet']);
+  t.orders.drain();
+  await settle();
+  assert.deepEqual(t.ran, ['quiet'], 'and it is not run twice');
+  t.orders.stop();
+  const asked = t.calls.filter((c) => c.method === 'GET').length;
+  t.orders.drain();
+  await settle();
+  assert.equal(t.calls.filter((c) => c.method === 'GET').length, asked, 'nothing is asked after stop');
+});

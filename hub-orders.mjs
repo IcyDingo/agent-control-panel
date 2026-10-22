@@ -124,7 +124,13 @@ export function createHubOrders({ hub, execute, onDone, timers = { setTimeout, c
     retry = null;
   }
 
+  /** Ask the hub for its pending orders now, while the stream is held; a stream that went quiet (a Mac that slept
+   *  through a drop) can miss an order, and the panel calls this every minute so none waits longer than that. */
+  function poll() {
+    if (controller && listening) enqueue(drain);
+  }
+
   const state = () => ({ running: controller !== null, listening, current });
 
-  return { start, stop, state };
+  return { start, stop, drain: poll, state };
 }

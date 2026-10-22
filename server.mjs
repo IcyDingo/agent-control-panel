@@ -1711,8 +1711,12 @@ server.listen(PORT, '127.0.0.1', () => {
   setInterval(() => { prune(); broadcast(); }, 10_000);
   setInterval(() => scanWorld(worldScans++ % 5 === 0), WORLD_MS);
   // The order stream ends by itself when the hub says 401, and a `login` from a terminal never tells this process, so
-  // look every minute: start() does nothing while the stream is up and opens a new one when it has ended.
-  const startOrders = () => { if (hub.status().loggedIn) hubOrders.start(); };
+  // look every minute: a stream that has ended is opened again, and one that is up still asks the hub for its pending
+  // orders, in case the stream missed one (a Mac that slept through a drop can hold a stream that hears nothing).
+  const startOrders = () => {
+    if (!hub.status().loggedIn) return;
+    if (hubOrders.state().listening) hubOrders.drain(); else hubOrders.start();
+  };
   startOrders();
   if (hub.status().pending) startLoginLoop();   // a sign-in begun before a restart still finishes
   setInterval(startOrders, WORLD_MS);
