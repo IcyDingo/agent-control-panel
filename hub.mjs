@@ -9,8 +9,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
-/** Where the hub is, until the owner hosts one: a placeholder on this machine. `ACP_HUB` overrides it. */
-export const DEFAULT_HUB = 'http://127.0.0.1:4848';
+/** Where the Universe is. `ACP_HUB` overrides it (a hub on this machine for development: http://127.0.0.1:4848). */
+export const DEFAULT_HUB = 'https://universe.cashegg.com';
 
 const UNREACHABLE = 'Hub unreachable.';
 const FIRST_WAIT = 2000, LAST_WAIT = 60_000;
