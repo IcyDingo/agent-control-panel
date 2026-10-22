@@ -1439,7 +1439,9 @@ function hubInfo() {
 }
 
 // A sign-in started from the page is finished here: poll at the hub's pace (it may grow it, so it is read every round)
-// until the hub says yes, no or never. One loop at a time; a cancel (or the code running out) ends it.
+// until the hub says yes, no or never. One loop at a time; a cancel (or the code running out) ends it. A poll that
+// fails (the hub is restarting, the network blinked) is tried again while the code is still live, and a panel that
+// restarts mid-sign-in picks the code up again from hub.json at start.
 let loginTimer = null, loginRun = 0, loginActive = false;
 function stopLoginLoop() { clearTimeout(loginTimer); loginRun++; loginActive = false; }
 function startLoginLoop() {
@@ -1452,7 +1454,7 @@ function startLoginLoop() {
     loginTimer = setTimeout(async () => {
       const outcome = await hub.pollDeviceLogin();
       if (run !== loginRun) return;
-      if (outcome === 'pending') return round();
+      if (outcome === 'pending' || (outcome === 'error' && hub.status().pending)) return round();
       loginActive = false;
       if (outcome === 'ok') { hubOrders.start(); hubSync.schedule({ urgent: true }); }
       broadcast();
@@ -1712,6 +1714,7 @@ server.listen(PORT, '127.0.0.1', () => {
   // look every minute: start() does nothing while the stream is up and opens a new one when it has ended.
   const startOrders = () => { if (hub.status().loggedIn) hubOrders.start(); };
   startOrders();
+  if (hub.status().pending) startLoginLoop();   // a sign-in begun before a restart still finishes
   setInterval(startOrders, WORLD_MS);
   // A World that can't be saved (an unwritable prefs folder) must not take the panel down: under launchd it would crash-loop.
   if (DAEMON && !world.started()) {

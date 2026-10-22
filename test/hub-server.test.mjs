@@ -3,7 +3,7 @@
 // pushed to the hub, an order placed on the hub's site comes back as the Mac's own answer, and the page has a world-only view.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import net from 'node:net';
+import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import net from 'node:net'; import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { createHub } from '../hub/server.mjs';
 import { loadConfig } from '../hub/config.mjs';
@@ -122,4 +122,48 @@ test('signing in from the page of a panel finishes by itself, and signing out en
   assert.equal((await api('/api/hub/logout')).ok, true);
   assert.equal((await api('/api/hub/status')).hub.loggedIn, false);
   assert.equal(fs.existsSync(path.join(dir, 'hub.json')), false);
+});
+
+/** A hub.json holding a sign-in under way for a fresh code from the hub, polled every second; returns the code. */
+async function pendingFile(dir, url) {
+  const code = await fetch(hubUrl + '/api/device/code', { method: 'POST' }).then((r) => r.json());
+  const pending = { userCode: code.user_code, verificationUri: code.verification_uri_complete, expiresAt: Date.now() + 600_000, interval: 1, deviceCode: code.device_code };
+  fs.writeFileSync(path.join(dir, 'hub.json'), JSON.stringify({ v: 1, url, device: 'restarted-mac', pending }), { mode: 0o600 });
+  return code;
+}
+const tokenIn = (dir) => { try { return JSON.parse(fs.readFileSync(path.join(dir, 'hub.json'), 'utf8')).token ?? null; } catch { return null; } };
+const spawnPanel = async (t, dir, hub) => {
+  const child = spawn(process.execPath, [SERVER], { env: { ...process.env, ACP_PORT: String(await freePort()), ACP_PREFS: path.join(dir, 'prefs.json'), ACP_DAEMON: '1', ACP_HUB: hub }, stdio: 'ignore' });
+  t.after(() => child.kill());
+};
+
+test('a panel restarted while a sign-in was under way finishes it, with no new code asked for', async (t) => {
+  const dir = tmp();
+  const code = await pendingFile(dir, hubUrl);
+  assert.equal((await hubCall('POST', '/api/device/approve', { user_code: code.user_code, label: 'Restarted' })).status, 200);
+  await spawnPanel(t, dir, hubUrl);
+  const token = await until(() => tokenIn(dir));
+  assert.match(token ?? '', /^hub_/, 'the panel never finished the sign-in');
+});
+
+test('a sign-in poll that fails is tried again while the code is live', async (t) => {
+  const dir = tmp();
+  const polls = [], asked = [];
+  // In front of the hub: the first poll for the token fails as a restarting hub would; everything else goes through.
+  const front = http.createServer((req, res) => {
+    asked.push(`${req.method} ${req.url}`);
+    if (req.url === '/api/device/token' && polls.push(Date.now()) === 1) { res.writeHead(503).end(); return; }
+    req.headers.host = '127.0.0.1';
+    hub.server.emit('request', req, res);
+  });
+  await new Promise((r) => front.listen(0, '127.0.0.1', r));
+  t.after(() => new Promise((r) => { front.closeAllConnections(); front.close(r); }));
+  const frontUrl = `http://127.0.0.1:${front.address().port}`;
+  const code = await pendingFile(dir, frontUrl);
+  assert.equal((await hubCall('POST', '/api/device/approve', { user_code: code.user_code, label: 'Flaky' })).status, 200);
+  await spawnPanel(t, dir, frontUrl);
+  const token = await until(() => tokenIn(dir));
+  assert.match(token ?? '', /^hub_/, `the panel stopped after the failed poll (${polls.length} polls)`);
+  assert.ok(polls.length >= 2);
+  assert.equal(asked.includes('POST /api/device/code'), false, 'no new code was asked for');
 });
