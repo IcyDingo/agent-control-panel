@@ -13,8 +13,10 @@ curl -fsSL https://universe.cashegg.com/install | sh
 ```
 
 It installs a small background service that counts your agents' work and keeps your galaxy up to date, and
-links this Mac to your account. The worker updates itself once a day. Your galaxy page is the whole
-interface; the Mac app below is optional.
+links this Mac to your account. Your galaxy page is the whole interface; the Mac app below is optional.
+
+Updates are daily, and a version that cannot start is rolled back; to turn them off:
+`printf '{ "auto": false }\n' > "$HOME/Library/Application Support/Agent Panel/worker/update.json"`
 
 ### The session board (optional)
 
@@ -458,9 +460,10 @@ board shows, with hooks off, no tools, MCP servers or slash commands, and no ses
 The hub is a small website that gives each panel a page of its own: your galaxy, drawn the way World draws it, which
 anyone with your handle or link can open. Your galaxy has fixed coordinates on the hub, shown on your page; a map of
 everyone's suns is the next slice.
-You choose whether to sign in. The Mac sends nothing to the hub until it is signed in, whether by the one line run
-from the Download page while signed in, by `node server.mjs login`, or from the panel's Profile box; the panel's own
-work stays local either way.
+You choose whether to sign in. The Mac sends nothing to the hub until it is signed in (by the one line run from the
+Download page while signed in, by `node server.mjs login`, or from the panel's Profile box), except the worker's
+daily release check: a plain GET with no token, followed by a download from GitHub. The panel's own work stays local
+either way.
 
 **Sign in** from the **Profile** box in World's side panel (**Sign in with GitHub**), or from a terminal:
 
@@ -544,6 +547,8 @@ An endpoint that approves commands is worth protecting, even on localhost:
   World, copied key by key (a field added later stays private until it is listed) and checked again on the hub before
   it is stored. The hub stores tokens and session ids hashed; the one exception is a token you have just approved,
   which the hub holds in clear only until your Mac collects it or the code runs out (15 minutes).
+- The worker only ever installs a commit the hub names that is on the repository's `main`, downloaded from GitHub
+  over https.
 - The hub rate-limits every sign-in, upload and order, per visitor address or per account, and answers `429` with a
   `retry-after` when a limit is reached (`hub/README.md` has the table). A galaxy set to unlisted is reached by its link
   only: crawlers are told not to index it and a scan of the map's coordinates does not find it.

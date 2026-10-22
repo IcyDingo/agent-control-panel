@@ -57,7 +57,7 @@ calls and then that many per minute:
 | Starting or finishing a GitHub sign-in, the dev sign-in | address | 10 a minute |
 | A Mac asking for a device code | address | 5 a minute |
 | A Mac polling for its token | address | 30 a minute (a code also paces itself with `slow_down`) |
-| Approving or denying a code | account | 10 a minute |
+| Approving or denying a code, making a link | account | 10 a minute |
 | Editing the profile | account | 10 a minute |
 | A Mac pushing its galaxy | account | 12 a minute |
 | A Mac pushing its status | account | 30 a minute |

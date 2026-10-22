@@ -21,11 +21,28 @@ mkdir -p /srv/agent-hub && cd /srv/agent-hub
 git clone --depth 1 https://github.com/IcyDingo/agent-control-panel src
 cp src/hub/deploy/{compose.yml,update.sh,caddy-cloudflare.sh} . && cp src/hub/deploy/env.example .env
 chmod +x update.sh caddy-cloudflare.sh && chmod 600 .env   # then fill .env in
-docker compose up -d --build
+./update.sh                                                 # pulls, writes release.env, builds and starts the hub
 ./caddy-cloudflare.sh                                       # adds the universe.cashegg.com block to /etc/caddy/Caddyfile and reloads
 ```
 
 Every later release: `./update.sh`. It also writes `release.env` with the commit it deployed, which the hub serves at `/api/release`: that is the version every worker installs and updates to.
+
+Upgrading an existing deploy: `compose.yml` and `update.sh` were copied into `/srv/agent-hub` once, at the first
+deploy, so one from before the one-line install runs the old `update.sh`, which writes no `release.env`; `/api/release`
+then answers 503 and the line stops at "The hub did not name a release". Copy both again from the pulled clone and run
+it:
+
+```sh
+git -C src pull -q --ff-only && cp src/hub/deploy/{compose.yml,update.sh} . && ./update.sh
+```
+
+Then edit the "Universe API" rule as the Cloudflare section below says, so `/install` skips the bot check too, and
+check both from outside the server:
+
+```sh
+curl -fsSL https://universe.cashegg.com/api/release            # {"ok":true,"sha":"…","url":"…"}
+curl -fsSL https://universe.cashegg.com/install | head -1      # #!/bin/sh
+```
 
 ## Cloudflare
 
