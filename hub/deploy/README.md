@@ -25,7 +25,7 @@ docker compose up -d --build
 ./caddy-cloudflare.sh                                       # adds the universe.cashegg.com block to /etc/caddy/Caddyfile and reloads
 ```
 
-Every later release: `./update.sh`.
+Every later release: `./update.sh`. It also writes `release.env` with the commit it deployed, which the hub serves at `/api/release`: that is the version every worker installs and updates to.
 
 ## Cloudflare
 

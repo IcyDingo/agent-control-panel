@@ -26,5 +26,8 @@ export function loadConfig(env = process.env) {
     // Behind Caddy every connection comes from 127.0.0.1; `1` says to take the visitor's address from the last entry of
     // X-Forwarded-For instead (the one the proxy appended). Off, the header is ignored, or anyone could pick their bucket.
     trustProxy: env.HUB_TRUST_PROXY === '1',
+    // The commit this hub was deployed from, written by deploy/update.sh. Workers install and update to exactly it.
+    // Anything but a full lower-case sha, as git prints it, counts as none.
+    release: /^[0-9a-f]{40}$/.test(env.HUB_RELEASE ?? '') ? env.HUB_RELEASE : null,
   };
 }

@@ -12,6 +12,9 @@ services:
       - "127.0.0.1:4848:4848"
     volumes:
       - hub-data:/data
-    env_file: .env
+    env_file:
+      - .env
+      - path: release.env
+        required: false
 volumes:
   hub-data:

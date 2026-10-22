@@ -38,13 +38,14 @@ const STATUS = () => ({
 });
 
 const ORIGIN = 'http://127.0.0.1';
+const SHA = 'c0ffee'.padEnd(40, '0');
 let clock = Date.UTC(2026, 9, 22, 12, 0);
 const now = () => clock;
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'hub-api-'));
 let hub, port, off, offPort;
 
 before(async () => {
-  hub = createHub(loadConfig({ HUB_DATA: tmp(), HUB_DEV_LOGIN: '1', HUB_PUBLIC_URL: ORIGIN }), { now, rates: LOOSE });
+  hub = createHub(loadConfig({ HUB_DATA: tmp(), HUB_DEV_LOGIN: '1', HUB_PUBLIC_URL: ORIGIN, HUB_RELEASE: SHA }), { now, rates: LOOSE });
   ({ port } = await hub.listen(0, '127.0.0.1'));
   // A second hub: no dev login, GitHub configured, and a fake `fetch` standing in for github.com.
   off = createHub(loadConfig({ HUB_DATA: tmp(), HUB_PUBLIC_URL: ORIGIN, HUB_GITHUB_CLIENT_ID: 'cid', HUB_GITHUB_CLIENT_SECRET: 'sec' }), {
@@ -101,6 +102,14 @@ test('healthz answers; a wrong or missing Host is refused before anything else',
     const r = await call('GET', '/healthz', { host });
     assert.deepEqual([r.status, r.json], [421, { ok: false, error: 'Wrong host.' }], host);
   }
+});
+
+test('the hub names the release it runs; one that was not told answers 503', async () => {
+  const r = await call('GET', '/api/release');
+  assert.deepEqual([r.status, r.json], [200, { ok: true, sha: SHA, url: `https://codeload.github.com/IcyDingo/agent-control-panel/tar.gz/${SHA}` }]);
+  assert.equal(r.headers.get('cache-control'), 'public, max-age=30');
+  const none = await call('GET', '/api/release', { on: offPort });
+  assert.deepEqual([none.status, none.json], [503, { ok: false, error: 'This hub does not name a release yet.' }]);
 });
 
 test('dev sign-in makes alice with her permanent spot and a session cookie; profile writes need the Origin', async () => {
