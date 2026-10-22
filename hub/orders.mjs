@@ -6,6 +6,8 @@ import crypto from 'node:crypto';
 import { colonyName } from '../world.mjs';
 
 export const ORDER_TTL_MS = 86_400_000;
+// A claimed order that has not landed an hour later belongs to a Mac that went away (a build is capped at 120 s).
+export const RUNNING_TTL_MS = 60 * 60 * 1000;
 const PLANET = /^p\d{1,4}$/;
 const fail = (status, error) => ({ ok: false, status, error });
 
@@ -30,9 +32,11 @@ const text300 = (v) => (typeof v === 'string' ? v.slice(0, 300) : undefined);
 export function createOrders(db, { now = Date.now, random = crypto.randomUUID } = {}) {
   const toOrder = (r) => ({ id: r.id, kind: r.kind, ...JSON.parse(r.body), status: r.status, createdAt: r.created_at });
 
-  /** Orders older than the TTL stop waiting, and so does one claimed by a Mac that never said how it went; returns how many. */
+  /** Orders older than the TTL stop waiting, and so does one claimed an hour ago by a Mac that never said how it went, so
+   *  the account can order again; returns how many. */
   function expire(t = now()) {
-    return Number(db.prepare("UPDATE orders SET status = 'expired' WHERE status IN ('pending', 'running') AND created_at + ? <= ?").run(ORDER_TTL_MS, t).changes);
+    return Number(db.prepare(`UPDATE orders SET status = 'expired' WHERE (status IN ('pending', 'running') AND created_at + ? <= ?)
+      OR (status = 'running' AND claimed_at + ? <= ?)`).run(ORDER_TTL_MS, t, RUNNING_TTL_MS, t).changes);
   }
 
   function place(accountId, body) {

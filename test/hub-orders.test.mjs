@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { createHubOrders } from '../hub-orders.mjs';
 import { openDb } from '../hub/db.mjs';
 import { createAccounts } from '../hub/accounts.mjs';
-import { createOrders } from '../hub/orders.mjs';
+import { createOrders, RUNNING_TTL_MS } from '../hub/orders.mjs';
 
 const settle = async () => { for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r)); };
 const order = (id, extra = {}) => ({ id, kind: 'build', description: `build ${id}`, status: 'pending', createdAt: 1, ...extra });
@@ -396,4 +396,24 @@ test('onOpen is told of every (re)connect, and one that throws or rejects breaks
   await settle();
   assert.deepEqual(t.ran, ['a']);
   t.orders.stop();
+});
+
+test('an order claimed by a Mac that went away is released an hour after the claim, not before', () => {
+  const db = openDb(':memory:');
+  let clock = Date.UTC(2026, 9, 22, 12, 0);
+  const accountId = createAccounts(db, { now: () => clock }).signIn({ provider: 'dev', subject: 'alice', login: 'alice' }).account.id;
+  const queue = createOrders(db, { now: () => clock });
+  assert.equal(RUNNING_TTL_MS, 3_600_000);
+  const { order } = queue.place(accountId, { kind: 'frontier', ang: 0 });
+  assert.equal(queue.claim(accountId, order.id, 'mac-one').ok, true);
+  const claimedAt = clock;
+  clock = claimedAt + 59 * 60_000;
+  assert.deepEqual(queue.pending(accountId), []);
+  assert.equal(queue.list(accountId)[0].status, 'running');
+  assert.equal(queue.place(accountId, { kind: 'frontier', ang: 1 }).status, 409, 'still out after 59 minutes');
+  clock = claimedAt + 61 * 60_000;
+  assert.deepEqual(queue.pending(accountId), []);
+  assert.equal(queue.list(accountId)[0].status, 'expired');
+  assert.equal(queue.done(accountId, order.id, { ok: true }).status, 404, 'a late report finds nothing, as after the day-long expiry');
+  assert.equal(queue.place(accountId, { kind: 'frontier', ang: 1 }).ok, true);
 });
