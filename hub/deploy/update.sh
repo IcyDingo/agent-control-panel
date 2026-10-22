@@ -1,12 +1,84 @@
 #!/bin/sh
-# Update the hub to the latest main: pull, rebuild, restart. Run from /srv/agent-hub (also after editing .env).
+# Update the hub: fetch the code, rebuild, restart. Run from /srv/agent-hub (also after editing .env).
+#
+# Plain mode, `update.sh`: pull the latest main and serve it. This works only until the first signed release.
+#
+# Signed mode, `update.sh <sha> <n> <sigs>`: the line `node tools/release.mjs sign` prints on the owner's Mac.
+# The script first checks that a known key signed "<n> <sha>", then checks out exactly that commit, writes the
+# release, the number and the signatures to release.env, and restarts. The hub serves the release only when
+# those three still verify. Once release.env holds a signature, a plain deploy is refused, so nothing unsigned
+# can replace a signed release.
+#
+# The hub never goes back to a lower number: a signed deploy whose number is not above the one in release.env
+# is refused, so an old signed line cannot be replayed to downgrade the hub.
+#
+# Every refusal happens before anything is fetched, built or written.
 set -e
 cd "$(dirname "$0")"
-git -C src pull -q --ff-only
-# The hub serves this commit at /api/release; it is the version every worker installs and updates to.
-printf 'HUB_RELEASE=%s\n' "$(git -C src rev-parse HEAD)" > release.env
+
+refuse() { printf '%s\n' "$1" >&2; exit 1; }
+
+if [ "$#" -ne 0 ] && [ "$#" -ne 3 ]; then
+  echo 'usage: update.sh [<sha> <n> <sigs>]' >&2
+  exit 2
+fi
+
+if [ "$#" -eq 0 ]; then
+  if [ -f release.env ] && grep -q '^HUB_RELEASE_SIG=' release.env; then
+    refuse 'This hub serves signed releases: run  node tools/release.mjs sign  on your Mac and use the line it prints.'
+  fi
+  # A signed deploy leaves src on a detached commit, so go back to main first.
+  git -C src checkout -q main
+  git -C src pull -q --ff-only
+  # The hub serves this commit at /api/release; it is the version every worker installs and updates to.
+  printf 'HUB_RELEASE=%s\n' "$(git -C src rev-parse HEAD)" > release.env.new
+  mv -f release.env.new release.env
+  n=
+else
+  sha=$1
+  n=$2
+  sigs=$3
+  short=$(printf '%s' "$sha" | cut -c1-7)
+
+  case "$sha" in *[!0-9a-f]*) refuse 'update.sh: sha is not valid.' ;; esac
+  [ "${#sha}" -eq 40 ] || refuse 'update.sh: sha is not valid.'
+  case "$n" in ''|0*|*[!0-9]*) refuse 'update.sh: n is not valid.' ;; esac
+  [ "${#n}" -le 10 ] || refuse 'update.sh: n is not valid.'
+  # Signatures are base64url joined with commas; anything else could not be one, and must not reach release.env.
+  case "$sigs" in ''|*[!A-Za-z0-9_,-]*) refuse 'update.sh: sigs is not valid.' ;; esac
+
+  # The number of the release now deployed; a release.env from a plain deploy has none, which means no floor.
+  m=
+  if [ -f release.env ]; then
+    m=$(sed -n 's/^HUB_RELEASE_N=//p' release.env | tail -n 1)
+  fi
+  case "$m" in ''|*[!0-9]*) m=0 ;; esac
+  if [ "$n" -le "$m" ]; then
+    refuse "Release $short (number $n) is not newer than the one deployed ($m)."
+  fi
+
+  # Verify inside the node image, since the server may have no node. The check is skipped only on the bootstrap
+  # deploy, before src/release-keys.mjs exists; the hub still refuses an unsigned release at /api/release below.
+  if [ -f src/release-keys.mjs ]; then
+    docker run --rm -v "$PWD/src/release-keys.mjs:/k.mjs:ro" node:22-alpine node /k.mjs verify "$sha" "$n" "$sigs" \
+      || refuse "Release $short is not signed by a known key."
+  fi
+
+  git -C src fetch -q origin
+  git -C src checkout -q --detach "$sha"
+  printf 'HUB_RELEASE=%s\nHUB_RELEASE_N=%s\nHUB_RELEASE_SIG=%s\n' "$sha" "$n" "$sigs" > release.env.new
+  mv -f release.env.new release.env
+fi
+
 docker compose build -q
 docker compose up -d
 sleep 2
 # The hub answers only to its own hostname; this asks it the way Caddy does.
-curl -sf -H 'Host: universe.cashegg.com' http://127.0.0.1:4848/healthz && echo
+curl -sf -H 'Host: universe.cashegg.com' http://127.0.0.1:4848/healthz || refuse 'The hub did not answer /healthz after the restart.'
+echo
+# A plain deploy carries no signature, so the hub has no release to show; only a signed one is asked for it.
+if [ -n "$n" ]; then
+  curl -sf -H 'Host: universe.cashegg.com' http://127.0.0.1:4848/api/release >/dev/null \
+    || refuse "The hub refuses this release; check release.env and the hub's log."
+  echo "Deployed release $short (number $n)."
+fi
