@@ -23,6 +23,9 @@ Panel.app** into `~/Applications`. Then:
 3. Click **Connect this profile**. It adds the panel's hooks to that profile's `settings.json` (and
    keeps a copy of the old file). Sessions you start after that show up on the board.
 
+`install.sh` also installs a background service, so World keeps counting your work when the app isn't open;
+`./install.sh --no-daemon` skips it.
+
 Keep the folder where you cloned it: the app runs the panel from there. To update, `git pull`, run
 `./install.sh` again, then quit the app (⌘Q) and open it again. To use it without the app, see
 [Run it](#run-it). To take it out again, see [Uninstall](#uninstall).
@@ -108,13 +111,18 @@ Node 20+, and `python3` (it comes with macOS's command-line tools) for the helpe
 session's screen: switching its mode, answering a question it no longer holds, running a `/command`. Nothing to
 install. `ACP_PORT` changes the port; if you change it, change the hook URLs too.
 
+Installed with `./install.sh`, the panel also runs as a launchd service (`local.agent-panel`, or
+`local.agent-panel.<port>` on another port): `launchctl print gui/$UID/local.agent-panel` shows it,
+`launchctl kickstart -k gui/$UID/local.agent-panel` restarts it, and its log is
+`~/Library/Logs/Agent Panel/daemon-<port>.log`. `node server.mjs daemon install|remove|status` manages it.
+
 ## The Mac app
 
 `app/build.sh` builds **Agent Panel.app** in `~/Applications`: the panel in a window of its own, with
 its own icon. Open it like any app, or keep it in the Dock.
 
-- Opening it uses a panel server that is already running, or starts one (its log is
-  `~/Library/Logs/Agent Panel/server-4747.log`). Quitting stops a server the app started and leaves
+- Opening it uses the background service's server, or any panel server already running, or starts one of its own
+  (its log is `~/Library/Logs/Agent Panel/server-4747.log`). Quitting stops a server the app started and leaves
   one it didn't alone.
 - If the server it was using goes away, it starts its own after a few seconds. One it started that
   stops after running a while is started again.
@@ -358,7 +366,7 @@ Every minute the panel checks each running session, in every profile, and the pr
 
 ## World
 
-World starts the first time you open it, as a bare rock called Home in the dark, and terraforms on the days you work
+World starts when the service is installed, or, without the service, the first time you open it, as a bare rock called Home in the dark, and terraforms on the days you work
 from then on, with lit space widening around Home when you zoom out (scroll, or **Home** and **Map**; drag to look
 around). No agents in it: their work only arrives as credit. While it is open, its top bar says how many sessions need
 you, and takes you back to the board at the first.
@@ -450,6 +458,6 @@ An endpoint that approves commands is worth protecting, even on localhost:
 
 ## Uninstall
 
-Remove the hook entries that point at `127.0.0.1:4747` from each profile's settings. Delete
-`~/Applications/Agent Panel.app`, `~/Library/Application Support/Agent Panel` and
-`~/Library/Logs/Agent Panel`.
+Run `./install.sh --uninstall`: it removes the background service and `~/Applications/Agent Panel.app`. Then
+remove the hook entries that point at `127.0.0.1:4747` from each profile's settings, and delete
+`~/Library/Application Support/Agent Panel` and `~/Library/Logs/Agent Panel`.
