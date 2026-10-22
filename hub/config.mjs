@@ -20,5 +20,8 @@ export function loadConfig(env = process.env) {
     host: url.host, // what a browser sends as Host
     github,
     devLogin,
+    // Behind Caddy every connection comes from 127.0.0.1; `1` says to take the visitor's address from the last entry of
+    // X-Forwarded-For instead (the one the proxy appended). Off, the header is ignored, or anyone could pick their bucket.
+    trustProxy: env.HUB_TRUST_PROXY === '1',
   };
 }

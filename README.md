@@ -461,7 +461,9 @@ service picks it up.
 
 - Your planets, the colonies on them with their names, your builds with their captions and pieces, your moments (with
   their day and kind), Home's level and stage, how many days you have been active, which of the last 100 days had work in them, and your sun.
-- A small profile you write on the hub: your name, a bio, a link. Your GitHub handle and picture come with it.
+- A small profile you write on the hub: your name, a bio, a link. Your GitHub handle and picture come with it. On the
+  same page you can set your galaxy to **unlisted**: it still opens for anyone with the link, but search engines are
+  told to leave it out and it cannot be found by its coordinates.
 
 **What never leaves your Mac**: tokens, lines, credit, your repositories and their paths, build prompts, and any time
 finer than a day.
@@ -523,6 +525,9 @@ An endpoint that approves commands is worth protecting, even on localhost:
   it is listed) and checked again on the hub before it is stored. The hub stores tokens and session ids hashed; the one
   exception is a token you have just approved, which the hub holds in clear only until your Mac collects it or the code
   runs out (15 minutes).
+- The hub rate-limits every sign-in, upload and order, per visitor address or per account, and answers `429` with a
+  `retry-after` when a limit is reached (`hub/README.md` has the table). A galaxy set to unlisted is reached by its link
+  only: crawlers are told not to index it and a scan of the map's coordinates does not find it.
 
 ## Uninstall
 

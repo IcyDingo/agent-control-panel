@@ -10,6 +10,11 @@ import { createWorld, publicProjection, PROJECTION_VERSION } from '../world.mjs'
 import { createHub } from '../hub/server.mjs';
 import { loadConfig } from '../hub/config.mjs';
 import { placeOf } from '../hub/coords.mjs';
+import { RATES } from '../hub/limits.mjs';
+
+// The shared hubs run with limits too loose to trip: these tests sign alice in dozens of times on a frozen clock. The
+// documented rates are exercised on hubs of their own, below.
+const LOOSE = Object.fromEntries(Object.keys(RATES).map((k) => [k, [100_000, 60_000]]));
 
 const DAY = 86_400_000, T0 = Date.UTC(2026, 9, 12, 9, 0), at = (d) => T0 + d * DAY, key = (ms) => new Date(ms).toISOString().slice(0, 10);
 // The same fixture as test/hub-systems.test.mjs (each test file carries its own).
@@ -39,11 +44,11 @@ const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'hub-api-'));
 let hub, port, off, offPort;
 
 before(async () => {
-  hub = createHub(loadConfig({ HUB_DATA: tmp(), HUB_DEV_LOGIN: '1', HUB_PUBLIC_URL: ORIGIN }), { now });
+  hub = createHub(loadConfig({ HUB_DATA: tmp(), HUB_DEV_LOGIN: '1', HUB_PUBLIC_URL: ORIGIN }), { now, rates: LOOSE });
   ({ port } = await hub.listen(0, '127.0.0.1'));
   // A second hub: no dev login, GitHub configured, and a fake `fetch` standing in for github.com.
   off = createHub(loadConfig({ HUB_DATA: tmp(), HUB_PUBLIC_URL: ORIGIN, HUB_GITHUB_CLIENT_ID: 'cid', HUB_GITHUB_CLIENT_SECRET: 'sec' }), {
-    now,
+    now, rates: LOOSE,
     fetch: async (url) => {
       const body = String(url).includes('access_token') ? { access_token: 'gho_x' } : { id: 4242, login: 'octo', avatar_url: 'https://avatars.githubusercontent.com/u/4242' };
       return { ok: true, json: async () => body };
@@ -54,8 +59,9 @@ before(async () => {
 after(async () => { await hub.close(); await off.close(); });
 
 /** One request. `host` is 127.0.0.1 unless a test says otherwise; returns the status, parsed JSON, raw text and headers. */
-async function call(method, p, { body, cookie, cookieRaw, token, origin, host = '127.0.0.1', on = port, raw } = {}) {
+async function call(method, p, { body, cookie, cookieRaw, token, origin, host = '127.0.0.1', on = port, raw, xff } = {}) {
   const headers = { host };
+  if (xff) headers['x-forwarded-for'] = xff;
   if (cookie) headers.cookie = `hub_s=${cookie}`;
   if (cookieRaw) headers.cookie = cookieRaw;
   if (token) headers.authorization = `Bearer ${token}`;
@@ -433,4 +439,72 @@ test('bodies must be JSON objects; unknown paths and missing pages are 404; the 
   const other = await fetch(`http://127.0.0.1:${port}/world.js`, { headers: { 'if-none-match': '"something-else"' } });
   assert.equal(other.status, 200, 'a changed file is');
   assert.equal(page.headers.get('cache-control'), 'no-cache', 'pages too');
+});
+
+/** A hub with the documented limits, on its own port, for one test; closed by the test. */
+async function strictHub(env = {}) {
+  const h = createHub(loadConfig({ HUB_DATA: tmp(), HUB_DEV_LOGIN: '1', HUB_PUBLIC_URL: ORIGIN, ...env }), { now });
+  const { port: on } = await h.listen(0, '127.0.0.1');
+  return { on, close: () => h.close() };
+}
+
+test('limits: the sixth device code in a minute is refused with a wait, as JSON; a minute later it is minted again', async () => {
+  const { on, close } = await strictHub();
+  try {
+    for (let i = 0; i < 5; i++) assert.equal((await call('POST', '/api/device/code', { on })).status, 200, `code ${i + 1}`);
+    const no = await call('POST', '/api/device/code', { on });
+    assert.equal(no.status, 429);
+    assert.match(no.headers.get('retry-after'), /^\d+$/);
+    assert.ok(Number(no.headers.get('retry-after')) >= 1);
+    assert.deepEqual(no.json, { ok: false, error: `Too many requests; try again in ${no.headers.get('retry-after')} seconds.` });
+    clock += 60_000;
+    assert.equal((await call('POST', '/api/device/code', { on })).status, 200);
+  } finally { await close(); }
+});
+
+test('limits: behind a trusted proxy the last forwarded address is the visitor; without trust the header is ignored', async () => {
+  const trusted = await strictHub({ HUB_TRUST_PROXY: '1' });
+  try {
+    const signin = (xff) => call('POST', '/auth/dev', { on: trusted.on, body: { login: 'alice' }, origin: ORIGIN, xff });
+    for (let i = 0; i < 10; i++) assert.equal((await signin('1.1.1.1')).status, 200, `sign-in ${i + 1}`);
+    assert.equal((await signin('1.1.1.1')).status, 429, 'that address has had its ten');
+    assert.equal((await signin('2.2.2.2')).status, 200, 'another address has not');
+    assert.equal((await signin('9.9.9.9, 1.1.1.1')).status, 429, 'the last entry is the proxy\'s own, the rest is what the visitor claims');
+    assert.equal((await signin('')).status, 200, 'an empty header falls back to the socket');
+  } finally { await trusted.close(); }
+  const plain = await strictHub();
+  try {
+    const signin = (xff) => call('POST', '/auth/dev', { on: plain.on, body: { login: 'alice' }, origin: ORIGIN, xff });
+    for (let i = 0; i < 10; i++) assert.equal((await signin(`10.0.0.${i}`)).status, 200);
+    assert.equal((await signin('10.0.0.99')).status, 429, 'every one of them came from 127.0.0.1');
+  } finally { await plain.close(); }
+});
+
+test('limits: a refused write changes nothing, and the limit is per account, not per address', async () => {
+  const { on, close } = await strictHub();
+  try {
+    const cookie = cookieOf(await call('POST', '/auth/dev', { on, body: { login: 'alice' }, origin: ORIGIN }));
+    const other = cookieOf(await call('POST', '/auth/dev', { on, body: { login: 'bob' }, origin: ORIGIN }));
+    for (let i = 0; i < 10; i++) assert.equal((await call('PATCH', '/api/me/profile', { on, cookie, origin: ORIGIN, body: { bio: `b${i}` } })).status, 200);
+    const late = await call('PATCH', '/api/me/profile', { on, cookie, origin: ORIGIN, body: { bio: 'late' } });
+    assert.equal(late.status, 429);
+    assert.equal((await call('GET', '/api/me', { on, cookie })).json.account.bio, 'b9', 'the eleventh edit did not land');
+    assert.equal((await call('PATCH', '/api/me/profile', { on, cookie: other, origin: ORIGIN, body: { bio: 'mine' } })).status, 200, 'bob, from the same address, is not limited by alice');
+  } finally { await close(); }
+});
+
+test('an unlisted galaxy is reached by its link only: noindex on its page and API answer, and not found by coordinates', async () => {
+  const cookie = await login('bob');
+  const me = (await call('GET', '/api/me', { cookie })).json.account;
+  assert.equal((await call('PATCH', '/api/me/profile', { cookie, origin: ORIGIN, body: { visibility: 'unlisted' } })).status, 200);
+  const api = await call('GET', '/api/systems/@bob');
+  assert.deepEqual([api.status, api.headers.get('x-robots-tag')], [200, 'noindex']);
+  const page = await call('GET', '/@bob');
+  assert.deepEqual([page.status, page.headers.get('x-robots-tag')], [200, 'noindex']);
+  assert.equal((await call('GET', `/api/systems/at?x=${me.x}&y=${me.y}`)).status, 404, 'a scan of the map does not find it');
+  assert.equal((await call('PATCH', '/api/me/profile', { cookie, origin: ORIGIN, body: { visibility: 'public' } })).status, 200);
+  assert.equal((await call('GET', '/@bob')).headers.get('x-robots-tag'), null, 'public again: nothing added');
+  assert.equal((await call('GET', '/api/systems/@bob')).headers.get('x-robots-tag'), null);
+  assert.equal((await call('GET', `/api/systems/at?x=${me.x}&y=${me.y}`)).json.profile.handle, 'bob');
+  assert.equal((await call('GET', '/@nobody-here')).headers.get('x-robots-tag'), null, 'an unknown handle is the plain shell');
 });

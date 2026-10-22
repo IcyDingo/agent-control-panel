@@ -35,6 +35,7 @@ All of them are environment variables, read once at start-up.
 | `HUB_GITHUB_CLIENT_ID` | none | The GitHub OAuth App's client id. |
 | `HUB_GITHUB_CLIENT_SECRET` | none | Its client secret. Sign-in with GitHub needs both. |
 | `HUB_DEV_LOGIN` | off | `1` allows the dev sign-in. Never on a public hub. |
+| `HUB_TRUST_PROXY` | off | `1` says the hub sits behind a proxy and takes each visitor's address from the last entry of `X-Forwarded-For` (the one the proxy appended). Off, the header is ignored. Only behind a proxy you run. |
 
 ## Sign in with GitHub
 
@@ -42,10 +43,31 @@ All of them are environment variables, read once at start-up.
 2. Homepage URL: your `HUB_PUBLIC_URL`. Authorization callback URL: `<HUB_PUBLIC_URL>/auth/github/callback`.
 3. Generate a client secret, then start the hub with `HUB_GITHUB_CLIENT_ID` and `HUB_GITHUB_CLIENT_SECRET` set.
 
-## Before it faces the internet
+## Limits
 
-The hub has no rate limits yet (they come in slice 8), so it is not ready for the open internet until they land; the
-steps below are for a hub you reach yourself.
+Every call that signs in, costs something or changes something is rate-limited, in memory, per visitor address or per
+account. Past the limit the answer is `429 {"ok":false,"error":"Too many requests; try again in N seconds."}` with a
+`retry-after: N` header, and nothing was read or changed. The rates (`hub/limits.mjs`), each a burst of that many
+calls and then that many per minute:
+
+| What | Per | Rate |
+|---|---|---|
+| Starting or finishing a GitHub sign-in, the dev sign-in | address | 10 a minute |
+| A Mac asking for a device code | address | 5 a minute |
+| A Mac polling for its token | address | 30 a minute (a code also paces itself with `slow_down`) |
+| Approving or denying a code | account | 10 a minute |
+| Editing the profile | account | 10 a minute |
+| A Mac pushing its galaxy | account | 12 a minute |
+| A Mac pushing its status | account | 30 a minute |
+| Placing an order | account | 10 a minute |
+| Claiming or finishing an order | account | 30 a minute |
+
+Behind a proxy every connection comes from the proxy's address, so set `HUB_TRUST_PROXY=1` there or every visitor
+shares one bucket.
+
+An **unlisted** galaxy (a choice on the profile page) is reached by its link and nothing else: its page and its API
+answer carry `X-Robots-Tag: noindex`, and it cannot be found by its coordinates. `robots.txt` allows `/` and `/@…`
+and keeps crawlers out of `/api/`, `/me` and `/device`.
 
 ## Behind Caddy
 
@@ -57,7 +79,7 @@ hub.example.com {
 }
 ```
 
-Set `HUB_PUBLIC_URL=https://hub.example.com`.
+Set `HUB_PUBLIC_URL=https://hub.example.com` and `HUB_TRUST_PROXY=1`.
 
 ## Docker
 
@@ -65,10 +87,29 @@ Build from the repository root, because the image needs `world.mjs` and `public/
 
 ```sh
 docker build -f hub/Dockerfile -t agent-hub .
-docker run -d -p 4848:4848 -v hub-data:/data -e HUB_PUBLIC_URL=https://hub.example.com agent-hub
+docker run -d -p 127.0.0.1:4848:4848 -v hub-data:/data \
+  -e HUB_PUBLIC_URL=https://hub.example.com -e HUB_TRUST_PROXY=1 \
+  -e HUB_GITHUB_CLIENT_ID=… -e HUB_GITHUB_CLIENT_SECRET=… agent-hub
 ```
 
-The database lives in the `/data` volume.
+The database lives in the `/data` volume. Binding to `127.0.0.1` keeps the plain-http port off the internet; only
+Caddy reaches it. The same as a compose file, which also brings it back after a reboot:
+
+```yaml
+services:
+  hub:
+    image: agent-hub
+    restart: unless-stopped
+    ports: ["127.0.0.1:4848:4848"]
+    volumes: ["hub-data:/data"]
+    environment:
+      HUB_PUBLIC_URL: https://hub.example.com
+      HUB_TRUST_PROXY: "1"
+      HUB_GITHUB_CLIENT_ID: …
+      HUB_GITHUB_CLIENT_SECRET: …
+volumes:
+  hub-data:
+```
 
 ## Backup
 

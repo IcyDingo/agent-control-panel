@@ -10,7 +10,9 @@ test('config reads the environment with the documented defaults', () => {
   assert.deepEqual([c.port, c.dataDir, c.publicUrl, c.origin, c.host, c.github, c.devLogin], [4848, './data', 'http://127.0.0.1:4848', 'http://127.0.0.1:4848', '127.0.0.1:4848', null, false]);
   const d = loadConfig({ HUB_PORT: '9000', HUB_PUBLIC_URL: 'https://hub.example.com/', HUB_GITHUB_CLIENT_ID: 'id', HUB_GITHUB_CLIENT_SECRET: 's' });
   assert.deepEqual([d.port, d.publicUrl, d.origin, d.host, d.github], [9000, 'https://hub.example.com', 'https://hub.example.com', 'hub.example.com', { clientId: 'id', clientSecret: 's' }]);
-  assert.equal('trustProxy' in c, false, 'nothing reads X-Forwarded-For yet, so there is no setting for it');
+  assert.equal(c.trustProxy, false, 'X-Forwarded-For is ignored unless the hub is told it sits behind a proxy');
+  assert.equal(loadConfig({ HUB_TRUST_PROXY: '1' }).trustProxy, true);
+  assert.equal(loadConfig({ HUB_TRUST_PROXY: 'yes' }).trustProxy, false, 'only the documented value');
   assert.throws(() => loadConfig({ HUB_PUBLIC_URL: 'https://hub.example.com', HUB_DEV_LOGIN: '1' }), /refused on an https/);
 });
 
