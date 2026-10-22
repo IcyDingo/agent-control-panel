@@ -27,7 +27,7 @@ function setup() {
     who[login] = a.id;
   }
   const hide = (login) => db.prepare("UPDATE accounts SET visibility = 'unlisted' WHERE id = ?").run(who[login]);
-  return { universe: createUniverse(db), who, hide };
+  return { universe: createUniverse(db), who, hide, db };
 }
 const EAST = 0, NORTH = -Math.PI / 2, WEST = Math.PI;
 const handleOf = (r) => (r.ok ? r.target.handle : r.none ? 'none' : r.error);
@@ -68,4 +68,19 @@ test('the names of found galaxies: listed ones with a system, with their sun', (
   assert.deepEqual(named.map((g) => [g.x, g.y, g.handle]), [[100, 0, 'bob']]);
   assert.deepEqual(Object.keys(named[0]), ['x', 'y', 'handle', 'name', 'avatar', 'look']);
   assert.equal(named[0].look, snapshot().sun.look);
+});
+
+test('a probe reads no snapshot, and naming reads only the galaxies asked for', () => {
+  // Every listed galaxy's snapshot is up to 512 KB: a probe or a name lookup must not pull them all into memory.
+  const { who, db } = setup();
+  let rows = [];
+  const keep = (r) => { rows.push(...(Array.isArray(r) ? r : r ? [r] : [])); return r; };
+  const spy = { prepare: (sql) => { const st = db.prepare(sql); return { get: (...a) => keep(st.get(...a)), all: (...a) => keep(st.all(...a)) }; } };
+  const universe = createUniverse(spy);
+  assert.equal(handleOf(universe.target(who.alice, EAST, [])), 'bob');
+  assert.ok(rows.every((r) => !('snapshot' in r)), 'no snapshot is read to aim a probe');
+  rows = [];
+  assert.deepEqual(universe.named([{ x: 100, y: 0 }]).map((g) => g.handle), ['bob']);
+  assert.ok(rows.every((r) => !('snapshot' in r)), 'only the sun is read');
+  assert.ok(rows.length <= 1, `one row for one spot, not ${rows.length}`);
 });

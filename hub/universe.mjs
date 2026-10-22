@@ -7,8 +7,11 @@ export const CONE = Math.PI / 6;
 const normAng = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
 export function createUniverse(db) {
-  const listed = () => db.prepare(`SELECT a.id, a.x, a.y, a.handle, a.name, a.avatar, s.snapshot FROM accounts a
-    JOIN systems s ON s.account_id = a.id WHERE a.visibility = 'public'`).all();
+  // Snapshots are up to 512 KB each: aiming reads only spots, and naming reads only the spots asked for and their sun.
+  const listed = () => db.prepare(`SELECT a.id, a.x, a.y, a.handle FROM accounts a
+    WHERE a.visibility = 'public' AND EXISTS (SELECT 1 FROM systems s WHERE s.account_id = a.id)`).all();
+  const at = (c) => db.prepare(`SELECT a.x, a.y, a.handle, a.name, a.avatar, json_extract(s.snapshot, '$.sun.look') AS look
+    FROM accounts a JOIN systems s ON s.account_id = a.id WHERE a.visibility = 'public' AND a.x = ? AND a.y = ?`).get(c.x, c.y);
 
   /** Where a probe from `accountId`'s spot toward `ang` (map space, y down) goes: the nearest galaxy within CONE of it,
    *  else the nearest anywhere; never the sender, never one in `skip` ([{ x, y }]). `{ ok: false, none: true }` when
@@ -26,9 +29,8 @@ export function createUniverse(db) {
 
   /** The galaxies at these spots that may be named, in the order asked: handle, name, avatar and the look of their sun. */
   function named(spots) {
-    const by = new Map(listed().map((g) => [`${g.x},${g.y}`, g]));
-    return spots.map((c) => by.get(`${c.x},${c.y}`)).filter(Boolean).map((g) => ({
-      x: g.x, y: g.y, handle: g.handle, name: g.name ?? null, avatar: g.avatar ?? null, look: JSON.parse(g.snapshot).sun.look,
+    return spots.map(at).filter(Boolean).map((g) => ({
+      x: g.x, y: g.y, handle: g.handle, name: g.name ?? null, avatar: g.avatar ?? null, look: g.look,
     }));
   }
 
