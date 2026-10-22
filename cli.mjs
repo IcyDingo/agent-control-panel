@@ -9,6 +9,7 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { LABEL, plistPath, logPath, install, remove, status } from './daemon.mjs';
 import { createHub } from './hub.mjs';
+import { workerOf } from './update.mjs';
 
 const USAGE = 'usage: node server.mjs daemon install [--program <path>]|remove|status | login [--link <code>] | logout | status';
 
@@ -76,6 +77,8 @@ export async function main(argv) {
     return r.ok ? 0 : 1;
   }
   if (cmd === 'status' && argv.length === 1) {
+    const w = workerOf(path.dirname(fileURLToPath(import.meta.url)));
+    if (w) console.log(`Worker ${w.sha.slice(0, 7)}`);
     console.log(hubLine());
     return main(['daemon', 'status']);
   }

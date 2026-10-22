@@ -24,12 +24,17 @@ import { prefsPath } from './cli.mjs';
 import { createHub } from './hub.mjs';
 import { createHubSync } from './hub-sync.mjs';
 import { createHubOrders } from './hub-orders.mjs';
+import { workerOf, markStarted, rolledBack, checkForUpdate } from './update.mjs';
 
 // `node server.mjs <command>` runs the CLI (cli.mjs) and never starts the server.
 if (process.argv.length > 2) { const { main } = await import('./cli.mjs'); process.exit(await main(process.argv.slice(2))); }
 
 const PORT = Number(process.env.ACP_PORT ?? 4747);
 const DAEMON = process.env.ACP_DAEMON === '1';
+// Run from an installed worker (`worker/<sha>/`), this is that version; from a clone of the repo it is null.
+const WORKER = workerOf(path.dirname(fileURLToPath(import.meta.url)));
+// The first update check waits ten minutes, so a login or a restart is not slowed by a download; then once a day.
+const UPDATE_FIRST_MS = 600_000, UPDATE_MS = 86_400_000;
 const RETRY_MS = Number(process.env.ACP_RETRY_MS ?? 5000);
 const ROSTER_MS = 3000;
 // A background service must not cost battery while nobody looks: under ACP_DAEMON with no page connected, the roster
@@ -1549,6 +1554,7 @@ function snapshot() {
   const now = Date.now();
   return {
     now, armed, rosterError, port: PORT, profile: profileInfo, world: worldSummary(), hub: hubInfo(), oldVersions,
+    version: WORKER?.sha ?? null, rolledBack: WORKER ? rolledBack(WORKER.dir) : null,
     sessions: [...sessions.values()].map(({ spawns, hereCwd, rosterCwd, ranCwd, editTops, ...s }) => {
       const here = ranCwd ?? hereCwd ?? s.cwd, git = placeOut(gitPlace(here));
       return {
@@ -1741,5 +1747,11 @@ server.listen(PORT, '127.0.0.1', () => {
   // A World that can't be saved (an unwritable prefs folder) must not take the panel down: under launchd it would crash-loop.
   if (DAEMON && !world.started()) {
     try { openWorld(); } catch (err) { console.error('world could not start:', err?.message ?? err); }
+  }
+  if (DAEMON && WORKER) { // only a worker install updates itself; a service from a clone is the app's and never does
+    markStarted(WORKER);
+    const check = () => checkForUpdate({ worker: WORKER, hubUrl: hub.status().url, run }).then((r) => { if (r.outcome === 'error') console.error('update check:', r.error); });
+    setTimeout(check, UPDATE_FIRST_MS);
+    setInterval(check, UPDATE_MS);
   }
 });

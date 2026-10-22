@@ -1,0 +1,117 @@
+// The worker updates itself. An installed worker runs from `worker/<sha>/`, with `worker/current` pointing at it and
+// launchd starting a fixed launcher (`worker/run.sh`) that runs `current/server.mjs`. Once a day the running version asks
+// the hub which release is out; a new one is unpacked beside it, `current` is pointed at it, and the process exits so
+// launchd starts the launcher again. The launcher reads `switch` (`<to> <from> <tries>`) and goes back to `<from>` after
+// three failed starts, writing `rolled-back`; a version that starts proves itself by writing `started`.
+// Nothing here throws: an update that cannot be done leaves the running version as it was.
+
+import fs from 'node:fs';
+import path from 'node:path';
+
+export const SHA_RE = /^[0-9a-f]{40}$/;
+
+const RELEASE_TIMEOUT_MS = 8000;
+// A release is the whole repository; a slow line may need a while, but a download that never ends must not hang forever.
+const DOWNLOAD_TIMEOUT_MS = 300_000;
+
+const read = (file) => { try { return fs.readFileSync(file, 'utf8'); } catch { return null; } };
+const remove = (p) => { try { fs.rmSync(p, { recursive: true, force: true }); } catch {} };
+
+/** `{ dir, sha }` when `scriptDir` really is `<dir>/<sha>` inside a folder named `worker`; a clone of the repo is null. */
+export function workerOf(scriptDir) {
+  let real;
+  try { real = fs.realpathSync(scriptDir); } catch { return null; }
+  const sha = path.basename(real), dir = path.dirname(real);
+  return SHA_RE.test(sha) && path.basename(dir) === 'worker' ? { dir, sha } : null;
+}
+
+/** Tells the launcher this version started, so a switch to it counts as done. */
+export function markStarted(worker) {
+  fs.writeFileSync(path.join(worker.dir, 'started'), worker.sha + '\n');
+}
+
+/** Updates are on unless `update.json` says `{ "auto": false }`; a missing or unreadable file leaves them on. */
+export function autoUpdate(dir) {
+  try {
+    const prefs = JSON.parse(read(path.join(dir, 'update.json')));
+    return !(prefs && typeof prefs === 'object' && prefs.auto === false);
+  } catch { return true; }
+}
+
+/** The release the launcher gave up on, from `rolled-back` (`<sha> <iso time>`), or null. */
+export function rolledBack(dir) {
+  const [sha, at] = (read(path.join(dir, 'rolled-back')) ?? '').trim().split(/\s+/);
+  return SHA_RE.test(sha ?? '') && at ? { sha, at } : null;
+}
+
+/** Removes old versions and half-done downloads. It keeps the running version, the one `current` points at, and every
+ * version `switch` or `rolled-back` names, since the launcher may still go back to one of them. */
+export function prune(worker) {
+  const keep = new Set([worker.sha]);
+  try { keep.add(path.basename(fs.readlinkSync(path.join(worker.dir, 'current')))); } catch {}
+  for (const sha of (read(path.join(worker.dir, 'switch')) ?? '').trim().split(/\s+/)) if (SHA_RE.test(sha)) keep.add(sha);
+  const back = rolledBack(worker.dir);
+  if (back) keep.add(back.sha);
+  let entries = [];
+  try { entries = fs.readdirSync(worker.dir); } catch { return; }
+  for (const name of entries) {
+    if ((SHA_RE.test(name) && !keep.has(name)) || name.endsWith('.tmp') || name.endsWith('.tgz')) remove(path.join(worker.dir, name));
+  }
+}
+
+const errorOf = (err) => String(err?.message ?? err);
+
+/** Asks the hub for its release and switches to it when it is not the running one. The outcome says what happened:
+ * `off` (updates are turned off), `current` (already running it), `switched` (exit has been called), or `error`. */
+export async function checkForUpdate({ worker, hubUrl, fetch = globalThis.fetch, run, now = Date.now, exit = (c) => process.exit(c), log = console.log }) {
+  const { dir } = worker;
+  if (!autoUpdate(dir)) return { outcome: 'off' };
+
+  let release;
+  try {
+    const res = await fetch(`${hubUrl}/api/release`, { signal: AbortSignal.timeout(RELEASE_TIMEOUT_MS) });
+    release = await res.json().catch(() => null);
+    if (!res.ok || !release?.ok) return { outcome: 'error', error: release?.error ?? `The hub answered ${res.status}.` };
+  } catch (err) { return { outcome: 'error', error: errorOf(err) }; }
+  const { sha, url } = release;
+  if (!SHA_RE.test(sha ?? '')) return { outcome: 'error', error: 'The hub named no release.' };
+  if (sha === worker.sha) { prune(worker); return { outcome: 'current' }; }
+
+  const tgz = path.join(dir, `${sha}.tgz`), tmp = path.join(dir, `${sha}.tmp`), dest = path.join(dir, sha);
+  const top = `agent-control-panel-${sha}`;
+  const sw = path.join(dir, 'switch'), link = path.join(dir, 'current.new');
+  const made = []; // the paths this check writes, which a failure takes away again
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
+    if (!res.ok) throw new Error(`The release archive answered ${res.status}.`);
+    made.push(tgz);
+    fs.writeFileSync(tgz, Buffer.from(await res.arrayBuffer()));
+    remove(tmp);
+    made.push(tmp);
+    fs.mkdirSync(tmp);
+    const r = await run('tar', ['-xzf', tgz, '-C', tmp]);
+    if (r.err) throw new Error(`The release archive could not be unpacked: ${(r.stderr || errorOf(r.err)).trim()}`);
+    // The archive must be the release it claims to be: one folder, named for that commit.
+    const got = fs.readdirSync(tmp);
+    if (got.length !== 1 || got[0] !== top) throw new Error(`The release archive does not hold ${top}.`);
+    remove(dest);
+    made.push(dest);
+    fs.renameSync(path.join(tmp, top), dest);
+    made.push(sw);
+    fs.writeFileSync(sw, `${sha} ${worker.sha} 0\n`);
+    // A new link renamed over the old one replaces the link itself in one step; `current` is never missing or half made.
+    remove(link);
+    made.push(link);
+    fs.symlinkSync(dest, link);
+    fs.renameSync(link, path.join(dir, 'current'));
+  } catch (err) {
+    for (const p of made) remove(p);
+    return { outcome: 'error', error: errorOf(err) };
+  }
+  remove(tgz);
+  remove(tmp);
+  prune(worker);
+  log(`worker: switching to ${sha}`);
+  exit(0);
+  return { outcome: 'switched', sha };
+}
