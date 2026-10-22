@@ -25,7 +25,9 @@ async function login() {
   const r = await hub.startDeviceLogin();
   if (!r.ok) { console.error(r.error); return 1; }
   console.log(`Open ${r.verificationUri} and enter ${r.userCode}`);
-  execFile('open', [r.verificationUri], () => {});   // a browser is a courtesy; without one the line above is enough
+  // A browser is a courtesy; without one the line above is enough. Only a web address is handed to `open`, which would
+  // as gladly start an app or open a file for anything else the hub sent.
+  if (/^https?:\/\//.test(String(r.verificationUri))) execFile('open', [r.verificationUri], () => {});
   for (;;) {
     const p = hub.status().pending;
     await wait((p?.interval ?? 5) * 1000);
