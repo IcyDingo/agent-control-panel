@@ -27,8 +27,34 @@
     <section class="w-box" id="w-owner" hidden>
       <h2>Owner</h2>
       <p id="w-owner-text">Your Mac keeps this up to date. <span id="w-owner-sync"></span></p>
-      <!-- Task 12 puts the owner's controls (the orders: build, rocket, frontier) in #w-owner-controls. -->
-      <div id="w-owner-controls"></div>
+      <p id="o-balance" hidden></p>
+      <p id="o-prices" hidden></p>
+      <p class="warn" id="o-mac" hidden>Your Mac hasn't picked this up yet. The service runs it as soon as the Mac is awake.</p>
+      <!-- The orders: your Mac runs them like the panel's own buttons. One at a time. -->
+      <div id="w-owner-controls">
+        <div class="own-ctl">
+          <b>Push the frontier</b>
+          <select class="field" id="o-dir" aria-label="Direction to push"></select>
+          <div class="w-act"><span id="o-push-price"></span><button class="btn small go" type="button" id="o-push" disabled>Push</button></div>
+          <p id="o-push-why" hidden></p>
+        </div>
+        <div class="own-ctl" id="o-rocket-ctl" hidden>
+          <b>Send a rocket</b>
+          <select class="field" id="o-planet" aria-label="Planet to send it to"></select>
+          <input class="field" id="o-name" maxlength="24" placeholder="Name the colony" aria-label="The colony's name" autocomplete="off" spellcheck="false">
+          <div class="w-act"><span id="o-rocket-price"></span><button class="btn small go" type="button" id="o-rocket" disabled>Send a rocket</button></div>
+          <p id="o-rocket-why" hidden></p>
+        </div>
+        <div class="own-ctl">
+          <b>Build</b>
+          <select class="field" id="o-on" aria-label="Where to build"></select>
+          <textarea class="field" id="o-desc" maxlength="300" rows="2" placeholder="A ring city along the equator, lit at night" aria-label="What to build"></textarea>
+          <div class="w-act"><span id="o-build-price"></span><button class="btn small go" type="button" id="o-build" disabled>Build it</button></div>
+          <p id="o-build-why" hidden></p>
+        </div>
+        <p id="o-say" aria-live="polite" hidden></p>
+        <p class="err" id="o-err" role="alert" hidden></p>
+      </div>
     </section>
     <section class="w-box" id="w-moment" aria-live="polite" hidden>
       <h2 id="w-m-name"></h2>
@@ -150,6 +176,116 @@
         el('p', { text: `Joined ${joinedText(profile.joined)}` })));
   }
 
+  // ---- the owner's orders: placed here, run by the owner's Mac, announced back over the stream ----
+  const fmt = (n) => Math.round(n).toLocaleString('en-US');
+  const COMPASS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
+  const up = (t) => t[0].toUpperCase() + t.slice(1);
+  /** The panel's compass: map space has y pointing down, so north is -pi/2. */
+  const compass = (x, y) => COMPASS[Math.round((((Math.atan2(y, x) + Math.PI / 2) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI) / (Math.PI / 4)) % 8];
+
+  function owner(first) {
+    let sys = first, status = null, busy = false;
+    const say = $('o-say'), err = $('o-err');
+    const price = (kind) => status?.prices?.[kind] ?? null;
+    const kinds = [
+      { kind: 'frontier', btn: $('o-push'), why: $('o-push-why'), tag: $('o-push-price'), ready: () => $('o-dir').value !== '' },
+      { kind: 'rocket', btn: $('o-rocket'), why: $('o-rocket-why'), tag: $('o-rocket-price'), ready: () => Boolean($('o-planet').value && $('o-name').value.trim()) },
+      { kind: 'build', btn: $('o-build'), why: $('o-build-why'), tag: $('o-build-price'), ready: () => Boolean($('o-desc').value.trim()) },
+    ];
+
+    /** The lists that come from the system: the bare planets to send a rocket to, and the places to build on. */
+    function fill() {
+      const planets = sys?.planets ?? [], bare = planets.filter((p) => !p.colony), seen = {};
+      const keepPlanet = $('o-planet').value, keepOn = $('o-on').value;
+      $('o-rocket-ctl').hidden = !bare.length;
+      $('o-planet').replaceChildren(...bare.map((p) => {
+        const dir = compass(p.x, p.y), n = (seen[dir] = (seen[dir] ?? 0) + 1);
+        return el('option', { value: p.id, text: `Bare planet, ${dir}${n > 1 ? ` ${n}` : ''}` });
+      }));
+      if (bare.some((p) => p.id === keepPlanet)) $('o-planet').value = keepPlanet;
+      $('o-on').replaceChildren(el('option', { value: 'home', text: 'Home' }),
+        ...planets.filter((p) => p.colony).map((p) => el('option', { value: p.id, text: p.colony.name })));
+      if ([...$('o-on').options].some((o) => o.value === keepOn)) $('o-on').value = keepOn;
+    }
+    /** Which buttons can be pressed: nothing while an order is out, and not what the balance can't pay for. */
+    function sync() {
+      for (const k of kinds) {
+        const p = price(k.kind), short = status !== null && p !== null && status.balance < p;
+        k.tag.textContent = p === null ? '' : `${fmt(p)} credit`;
+        k.why.hidden = !short;
+        k.why.textContent = short ? `You have ${fmt(Math.max(0, status.balance))}. Work earns more.` : '';
+        k.btn.disabled = busy || short || !k.ready();
+      }
+      for (const id of ['o-dir', 'o-planet', 'o-name', 'o-on', 'o-desc']) $(id).disabled = busy;
+    }
+    function showStatus() {
+      const on = status !== null;
+      $('o-balance').hidden = $('o-prices').hidden = !on;
+      if (on) {
+        $('o-balance').textContent = `Balance ${fmt(status.balance)} credit`;
+        $('o-prices').textContent = `Push ${fmt(status.prices.frontier)} · Rocket ${fmt(status.prices.rocket)} · Build ${fmt(status.prices.build)}`;
+      }
+      $('o-mac').hidden = Boolean(status?.mac?.online);
+      sync();
+    }
+    async function loadStatus() {
+      const r = await Hub.api('GET', '/api/me/status');
+      status = r.ok && r.status ? r.status : null;
+      showStatus();
+    }
+    function wait(on) {
+      busy = on;
+      if (on) { say.hidden = false; say.className = ''; say.textContent = 'On its way to your Mac…'; }
+      sync();
+    }
+    async function place(body) {
+      err.hidden = true; say.hidden = true;
+      wait(true);
+      const r = await Hub.api('POST', '/api/me/orders', body);
+      if (r.ok) return;
+      wait(false);
+      err.textContent = r.error; err.hidden = false;
+      if (r.status === 409) pendingNow(); // an order is out already: say so, and wait for it
+    }
+    async function pendingNow() {
+      const r = await Hub.api('GET', '/api/me/orders?status=pending');
+      if (r.ok && r.orders.length) wait(true);
+    }
+    /** An order was placed (maybe from another tab) or has come back. */
+    function onEvent(type, d) {
+      if (type === 'order') { err.hidden = true; wait(true); return; }
+      busy = false;
+      err.hidden = true;
+      say.hidden = false;
+      say.className = d.ok ? '' : 'err';
+      say.textContent = d.ok ? `Done: ${d.caption || 'your Mac ran it.'}` : (d.error || 'Your Mac could not run that order.');
+      if (d.ok) { $('o-desc').value = ''; $('o-name').value = ''; }
+      sync();
+      // The Mac sends its new picture and status shortly after an order (not before this answer): look again twice.
+      for (const ms of [3000, 9000]) setTimeout(catchUp, ms);
+    }
+    async function catchUp() {
+      loadStatus();
+      const r = await Hub.api('GET', `/api/systems/@${encodeURIComponent(handle)}`);
+      if (!r.ok || !r.system) return;
+      sys = r.system;
+      fill(); sync();
+      AgentWorld.update(r.system);
+    }
+
+    kinds[0].btn.onclick = () => place({ kind: 'frontier', ang: Number($('o-dir').value) });
+    kinds[1].btn.onclick = () => place({ kind: 'rocket', planet: $('o-planet').value, name: $('o-name').value.trim() });
+    kinds[2].btn.onclick = () => place({ kind: 'build', on: $('o-on').value, description: $('o-desc').value.trim() });
+    for (const id of ['o-dir', 'o-planet', 'o-name', 'o-desc']) $(id).addEventListener('input', sync);
+    $('o-dir').replaceChildren(el('option', { value: '', text: 'Pick a direction' }),
+      ...COMPASS.map((n, i) => el('option', { value: String(i * Math.PI / 4 - Math.PI / 2), text: up(n) })));
+    fill();
+    showStatus();
+    loadStatus();
+    pendingNow();
+    Hub.events(onEvent);
+  }
+
   const [res, mine] = await Promise.all([Hub.api('GET', `/api/systems/@${encodeURIComponent(handle)}`), Hub.me()]);
   if (!res.ok) return missing(res.status === 404 ? 'No system by that name.' : res.error);
 
@@ -162,6 +298,7 @@
   if (mine && mine.account.handle.toLowerCase() === profile.handle.toLowerCase()) {
     $('w-owner').hidden = false;
     $('w-owner-sync').textContent = stats.lastActive ? `Last synced ${rel(stats.lastActive)}.` : 'Nothing synced yet.';
+    owner(system);
   }
 
   AgentWorld.enter(system ?? bareSystem(profile, stats), { readOnly: true, api: async () => ({ ok: false }), toast: () => {} });

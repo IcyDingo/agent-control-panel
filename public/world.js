@@ -498,6 +498,7 @@
   const composing = (e) => e.isComposing || e.keyCode === 229;
   function wire() {
     cv = $('w-canvas'); x = cv.getContext('2d');
+    if ($('w-profile')) wireProfile(); // the panel's; the hub's page has no such box
     cv.addEventListener('wheel', (e) => { e.preventDefault(); zoomTo(zTo + e.deltaY * 0.0015); }, { passive: false });
     cv.addEventListener('pointerdown', (e) => {
       drag = { x: e.clientX - pan.x, y: e.clientY - pan.y, at: [e.clientX, e.clientY], moved: false };
@@ -752,9 +753,122 @@
     if (picked && !(w.moments ?? []).some((m) => m.id === picked)) pick(null);
   }
 
+  // ---------- Profile: the hub account, or the way to sign in to one. The page passes the hub's state with each summary;
+  // the sign-in itself is the server's (it polls the hub), so this only starts it, shows the code, and follows the snapshots.
+  let hubNow = null, orderBase = null, loginCancelled = false;
+  const ago = (t) => {
+    const s = Math.max(0, (Date.now() - t) / 1000);
+    return s < 60 ? 'just now' : s < 3600 ? `${Math.floor(s / 60)} min ago` : s < 172_800 ? `${Math.floor(s / 3600)} h ago` : `${Math.floor(s / 86_400)} days ago`;
+  };
+  const AVATARS = 'https://avatars.githubusercontent.com/';
+  const web = (u) => (/^https?:\/\//.test(String(u)) ? String(u) : null);
+  function avatarOf(a) {
+    const label = a.name || a.handle || '?', words = label.trim().split(/\s+/), cls = 'avatar';
+    if (typeof a.avatar === 'string' && a.avatar.startsWith(AVATARS)) {
+      const img = document.createElement('img');
+      img.className = cls; img.src = a.avatar; img.alt = ''; img.referrerPolicy = 'no-referrer';
+      return img;
+    }
+    const s = document.createElement('span');
+    s.className = cls; s.setAttribute('aria-hidden', 'true');
+    s.textContent = (words.length > 1 ? words[0][0] + words[1][0] : label.replace(/[^\p{L}\p{N}]/gu, '').slice(0, 2) || '?').toUpperCase();
+    return s;
+  }
+  /** What an order from the site is doing, in the words the panel's own buttons use. */
+  function orderText(o) {
+    if (o.kind === 'build') return `build on ${placeName(o.on)}`;
+    if (o.kind === 'frontier') return 'push the frontier';
+    const p = placeOf(o.planet);
+    return p ? `rocket to the bare planet, ${compass(Math.atan2(p.y, p.x))}` : 'send a rocket';
+  }
+  /** Fill the Profile box from the hub's state (`before` is the summary it replaces, for telling whether an order did anything). */
+  function showHub(h, before = world) {
+    if (!$('w-profile') || opts.readOnly || !h) return;
+    const was = hubNow, toast = (t, bad) => opts.toast?.(t, bad);
+    hubNow = h;
+    $('w-pf-in').hidden = !h.loggedIn;
+    $('w-pf-out').hidden = h.loggedIn;
+    const err = $('w-pf-err');
+    if (h.loggedIn && h.account) {
+      const a = h.account, base = String(h.url ?? '').replace(/\/+$/, ''), sig = `${a.avatar}|${a.name}|${a.handle}`;
+      err.hidden = true;
+      if ($('w-pf-avatar')._sig !== sig) { $('w-pf-avatar')._sig = sig; $('w-pf-avatar').replaceChildren(avatarOf(a)); }
+      $('w-pf-handle').textContent = `@${a.handle}`;
+      $('w-pf-xy').textContent = `${a.x}, ${a.y}`.replaceAll('-', '−');
+      const page = $('w-pf-page'), edit = $('w-pf-edit');
+      page.hidden = edit.hidden = !web(base);
+      page.href = `${base}/@${encodeURIComponent(a.handle)}`; edit.href = `${base}/me`;
+      const s = h.sync ?? {};
+      $('w-pf-sync').textContent = s.lastError ? s.lastError + (s.lastOk ? ` Last synced ${ago(s.lastOk)}.` : '')
+        : s.lastOk ? `Synced ${ago(s.lastOk)}` : 'Not synced yet';
+      const cur = h.orders?.current ?? null;
+      $('w-pf-order').hidden = !cur;
+      if (cur) $('w-pf-order').textContent = `Running an order from the site: ${orderText(cur)}…`;
+    } else {
+      const p = h.pending, live = Boolean(p);
+      $('w-pf-start').hidden = live; $('w-pf-wait').hidden = !live;
+      if (live) {
+        err.hidden = true; loginCancelled = false;
+        $('w-pf-code').textContent = p.userCode;
+        const link = $('w-pf-link'), href = web(p.verificationUri);
+        link.textContent = href ? href.replace(/^https?:\/\//, '').replace(/\?.*$/, '') : '';
+        if (href) link.href = href; else link.removeAttribute('href');
+      } else if (was?.pending && !was.loggedIn && !loginCancelled) {
+        err.textContent = "The sign-in didn't complete. Try again."; err.hidden = false;
+      }
+    }
+    if (!was) { orderBase = h.orders?.current ? { n: before?.builds?.length ?? 0, spent: before?.spent ?? 0 } : null; return; } // the first sight raises nothing
+    if (h.loggedIn && !was.loggedIn) toast(`Signed in as @${h.account?.handle}`);
+    const e = h.sync?.lastError ?? null, wasE = was.sync?.lastError ?? null;
+    if (h.loggedIn && was.loggedIn && e && e !== wasE) toast(e, true);
+    else if (h.loggedIn && was.loggedIn && !e && wasE) toast('Hub in sync again');
+    // An order from the site lands when it stops being the current one; the summary says whether it did anything.
+    const cur = h.loggedIn ? h.orders?.current : null;
+    if (cur && !orderBase) orderBase = { n: before?.builds?.length ?? 0, spent: before?.spent ?? 0 };
+    if (!cur && orderBase) {
+      const b = orderBase;
+      orderBase = null;
+      if (was.orders?.current && h.loggedIn) {
+        const builds = world?.builds ?? [];
+        if (builds.length > b.n) toast(`Built from the site: ${builds.at(-1).caption}`);
+        else if ((world?.spent ?? 0) !== b.spent) toast("The site's order landed");
+      }
+    }
+  }
+  function wireProfile() {
+    const call = (id, path, then) => {
+      const b = $(id);
+      b.onclick = async () => {
+        b.disabled = true;
+        const r = await opts.api(path, {});
+        b.disabled = false;
+        then(r);
+      };
+    };
+    const say = (r) => { $('w-pf-err').textContent = r.error || 'That did not go through.'; $('w-pf-err').hidden = false; };
+    call('w-pf-login', '/api/hub/login/start', (r) => {
+      $('w-pf-err').hidden = true;
+      if (!r.ok) return say(r);
+      loginCancelled = false;
+      if (hubNow) showHub({ ...hubNow, loggedIn: false, pending: { userCode: r.userCode, verificationUri: r.verificationUri } });
+    });
+    $('w-pf-cancel').onclick = async () => {
+      loginCancelled = true;
+      const r = await opts.api('/api/hub/login/cancel', {});
+      if (r.ok === false) return say(r);
+      if (hubNow) showHub({ ...hubNow, pending: null });
+    };
+    call('w-pf-logout', '/api/hub/logout', (r) => {
+      if (!r.ok) return opts.toast?.(r.error || 'Could not sign out.', true);
+      opts.toast?.('Signed out');
+      if (hubNow) showHub({ ...hubNow, loggedIn: false, account: null, pending: null });
+    });
+  }
+
   window.AgentWorld = {
     enter(summary, options = {}) {
       opts = options;
+      hubNow = null; orderBase = null; loginCancelled = false;
       document.body.classList.toggle('w-readonly', Boolean(opts.readOnly)); // a system shown read-only: nothing to spend
       if (!cv) wire();
       world = summary;
@@ -762,17 +876,20 @@
       paint();
       here = 'home'; flight = null; focus = { x: 0, y: 0 }; focusTo = { x: 0, y: 0 };
       show(summary);
+      showHub(opts.hub);
       fit();
       zoomTo(0); z = 0; pan = { x: 0, y: 0 };
       t0 = performance.now();
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(frame);
     },
-    update(summary) {
-      if (!raf || !summary?.started) return;
+    update(summary, hub) {
+      if (!raf || !summary || summary.started === false) return; // a system's public projection has no `started`
+      const before = world;
       world = summary;
       paint();
       show(summary);
+      showHub(hub, before);
     },
     exit() { cancelAnimationFrame(raf); raf = 0; drag = null; flight = null; if (aiming) setAim(false); document.body.classList.remove('w-readonly'); },
     /** Where a point on the map (map px, Home at 0,0) is on the canvas now. */
