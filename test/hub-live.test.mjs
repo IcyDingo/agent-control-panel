@@ -112,6 +112,25 @@ test('a stream whose socket is gone is dropped when a write throws', () => {
   assert.equal(timers.intervals.size, 1);
 });
 
+test('over the cap the oldest browser stream goes before any Mac\'s, and a Mac\'s only when no browser is left', () => {
+  const { live } = setup();
+  const macs = [fakeRes(), fakeRes(), fakeRes()], tabs = [fakeRes(), fakeRes()];
+  live.subscribe('a1', macs[0], { tokenId: 't0' });
+  live.subscribe('a1', tabs[0], { sessionId: 's0' });
+  live.subscribe('a1', macs[1], { tokenId: 't1' });
+  live.subscribe('a1', tabs[1], { sessionId: 's1' });
+  live.subscribe('a1', macs[2], { tokenId: 't2' });
+  const more = [fakeRes(), fakeRes(), fakeRes()];
+  live.subscribe('a1', more[0], { tokenId: 't3' });
+  assert.deepEqual([tabs[0].ended, tabs[1].ended, macs[0].ended], [true, false, false]);
+  live.subscribe('a1', more[1], { tokenId: 't4' });
+  assert.deepEqual([tabs[1].ended, macs[0].ended], [true, false]);
+  live.subscribe('a1', more[2], { tokenId: 't5' });
+  assert.equal(macs[0].ended, true, 'no browser left: the oldest Mac goes');
+  assert.equal(macs[1].ended, false);
+  assert.equal(live.count('a1'), 5);
+});
+
 test('closing by token or by session ends only the streams that credential opened, and no later emit reaches them', () => {
   const { live, timers } = setup();
   const mac = fakeRes(), otherMac = fakeRes(), tab = fakeRes(), otherTab = fakeRes();

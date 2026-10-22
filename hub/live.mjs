@@ -37,7 +37,9 @@ export function createLive({ timers = { setInterval, clearInterval } } = {}) {
     const list = streams.get(accountId) ?? [];
     list.push(entry);
     streams.set(accountId, list);
-    if (list.length > MAX_STREAMS) close(list[0]);
+    // Over the cap, a browser tab gives way before a Mac: a tab only loses live updates (it looks again on reconnect),
+    // a Mac would stop hearing orders. The oldest goes first in each kind.
+    if (list.length > MAX_STREAMS) close(list.find((e) => e.tokenId === null) ?? list[0]);
 
     res.on('close', unsubscribe);
     return unsubscribe;
