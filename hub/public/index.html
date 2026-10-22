@@ -64,7 +64,7 @@
 <script>
 (() => {
   const $ = (id) => document.getElementById(id);
-  const { el, avatar, hashOf, pick, mosaic } = Hub;
+  const { el, hashOf, pick, mosaic } = Hub;
 
   // The orbits: each planet goes round Home on its own ellipse (data-orbit = "rx ry seconds phase", rx and ry in percent
   // of the sky's width and height), passing behind Home on the far half. Still when the system asks for less motion.
@@ -91,11 +91,8 @@
   still.addEventListener('change', () => place(0));
   addEventListener('resize', () => place(still.matches ? 0 : (performance.now() - start) / 1000));
 
-  /** You, standing on Home: your picture when signed in, a visitor's blank face when not. */
-  function pilot(who) {
-    $('pilot').replaceChildren(avatar(who, 22), el('i', { class: 'body' }));
-  }
-  pilot({ handle: '?' });
+  // The mascot stands on Home and waves.
+  $('pilot').replaceChildren(Hub.mascot(40));
 
   $('find').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -125,7 +122,6 @@
     $('profile').hidden = false;
     $('mine').href = '/@' + encodeURIComponent(r.account.handle);
     $('mine').hidden = false;
-    pilot(r.account);
   });
 })();
 </script>

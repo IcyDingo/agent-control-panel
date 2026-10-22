@@ -179,6 +179,29 @@
       x.fillStyle = m; x.beginPath(); x.arc(mx, my, R * 0.09, 0, 7); x.fill();
     }
   }
+  /** The mascot: a small astronaut standing on Home's north pole and waving, the same figure the hub's landing shows
+   *  (hub/public/hub.js MASCOT, 40 by 48 units). About half of Home's radius tall, and not drawn when Home is small. */
+  function drawMascot(cx, cy, R) {
+    if (R < 28) return;
+    const u = clamp(R * 0.012, 0.45, 1.4), FG = '#e3e7ed', DIM = '#8c96a4', AMBER = '#e3ab3e';
+    const rr = (px, py, w, h, r, fill) => {
+      x.fillStyle = fill; x.beginPath();
+      if (x.roundRect) x.roundRect(px, py, w, h, r); else x.rect(px, py, w, h);
+      x.fill();
+    };
+    x.save(); x.translate(cx - 20 * u, cy - R - 46.5 * u); x.scale(u, u);
+    rr(7, 24, 7, 13, 2.5, DIM); // backpack
+    x.save(); x.translate(29, 28); x.rotate(-35 * Math.PI / 180); x.translate(-29, -28); rr(27, 17, 4.5, 11, 2.25, FG); x.restore(); // the waving arm
+    rr(13.5, 36, 5.5, 10, 2.5, FG); rr(21, 36, 5.5, 10, 2.5, FG); // legs
+    rr(13, 43, 6.5, 3.5, 1.5, DIM); rr(20.5, 43, 6.5, 3.5, 1.5, DIM); // boots
+    rr(12, 23, 16, 15, 5, FG); // body
+    rr(9, 25, 4.5, 11, 2.25, FG); // the other arm
+    x.fillStyle = FG; x.beginPath(); x.arc(20, 13, 11, 0, 7); x.fill(); // helmet
+    x.fillStyle = '#0d0f12'; x.beginPath(); x.arc(21, 13.5, 7, 0, 7); x.fill(); // visor
+    x.fillStyle = AMBER; x.globalAlpha = 0.95; x.beginPath(); x.ellipse(18.5, 10.5, 2.6, 1.6, 0, 0, 7); x.fill(); x.globalAlpha = 1; // its glint
+    rr(19.4, 0.5, 1.2, 3, 0, DIM); x.fillStyle = AMBER; x.beginPath(); x.arc(20, 1.2, 1.4, 0, 7); x.fill(); // antenna
+    x.restore();
+  }
   const idSeed = (id) => [...id].reduce((h, ch) => h * 31 + ch.charCodeAt(0), made.seed) | 0;
   /** A planet the frontier found: a bare world in its own colours, with craters. A colony on it adds a warm air and
    *  domes lit from inside. */
@@ -430,6 +453,7 @@
       drawHome(hx, hy, hr, t, here === 'home' ? detail : 0, lookOf(hp));
       drawBuilt(hx, hy, hr, hp, t, 'ground', spin, true);
       drawBuilt(hx, hy, hr, hp, t, 'front', spin, true);
+      drawMascot(hx, hy, hr);
     }
     if (z > 0.5) label('Home', hx, hy - hr - 10, '#e3e7ed', 13);
     for (const p of planets()) {

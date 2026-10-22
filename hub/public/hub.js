@@ -126,5 +126,28 @@
       el('div', { class: 'cap' }, el('span', { text: 'Last 100 days' }), el('span', { text: `${plural(count, 'day', 'days')} with work` })));
   }
 
-  window.Hub = { api, me, events, rel, el, avatar, safeUrl, hashOf, pick, mosaic, daysMosaic, plural };
+  /** The mascot: a small astronaut in the page's own colours, waving, with an amber glint on the visor and an amber
+   *  light on the antenna. Static markup of our own, so innerHTML is safe here. `px` is the width; the height follows. */
+  const MASCOT = `<svg viewBox="0 0 40 48" xmlns="http://www.w3.org/2000/svg">
+    <rect x="7" y="24" width="7" height="13" rx="2.5" fill="var(--fg-dim)"/>
+    <rect x="27" y="17" width="4.5" height="11" rx="2.25" fill="var(--fg)" transform="rotate(-35 29 28)"/>
+    <rect x="13.5" y="36" width="5.5" height="10" rx="2.5" fill="var(--fg)"/>
+    <rect x="21" y="36" width="5.5" height="10" rx="2.5" fill="var(--fg)"/>
+    <rect x="13" y="43" width="6.5" height="3.5" rx="1.5" fill="var(--fg-dim)"/>
+    <rect x="20.5" y="43" width="6.5" height="3.5" rx="1.5" fill="var(--fg-dim)"/>
+    <rect x="12" y="23" width="16" height="15" rx="5" fill="var(--fg)"/>
+    <rect x="9" y="25" width="4.5" height="11" rx="2.25" fill="var(--fg)"/>
+    <circle cx="20" cy="13" r="11" fill="var(--fg)"/>
+    <circle cx="21" cy="13.5" r="7" fill="var(--bg)"/>
+    <ellipse cx="18.5" cy="10.5" rx="2.6" ry="1.6" fill="var(--amber)" opacity=".95"/>
+    <rect x="19.4" y="0.5" width="1.2" height="3" fill="var(--fg-dim)"/>
+    <circle cx="20" cy="1.2" r="1.4" fill="var(--amber)"/>
+  </svg>`;
+  function mascot(px = 40) {
+    const box = el('span', { class: 'mascot', 'aria-hidden': 'true', style: `width:${px}px` });
+    box.innerHTML = MASCOT;
+    return box;
+  }
+
+  window.Hub = { api, me, events, rel, el, avatar, safeUrl, hashOf, pick, mosaic, daysMosaic, plural, mascot };
 })();

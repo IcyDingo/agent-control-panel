@@ -74,10 +74,10 @@ select.field { padding-right: 6px; }
   background: radial-gradient(circle at 62% 60%, rgba(0, 0, 0, .35) 0 5%, transparent 6%), radial-gradient(circle at 40% 70%, rgba(0, 0, 0, .3) 0 3.5%, transparent 4.5%), radial-gradient(circle at 70% 30%, rgba(0, 0, 0, .25) 0 4%, transparent 5%),
     radial-gradient(circle at 32% 30%, #9a978f, #55534e 55%, #2b2a27);
   box-shadow: inset -0.3em -0.3em 0.9em rgba(0, 0, 0, .5), 0 0 0 1px rgba(255, 255, 255, .05); font-size: 1vw; }
-/* You, standing on Home: a head (your picture) on a small body, feet on the top of the planet. */
-.block .pilot { position: absolute; left: 50%; top: 0; transform: translate(-50%, -88%); display: grid; justify-items: center; gap: 1px; }
-.block .pilot .avatar { border-color: var(--fg); box-shadow: 0 0 0 2px var(--bg); }
-.block .pilot .body { display: block; width: 11px; height: 12px; border-radius: 4px 4px 2px 2px; background: var(--fg); }
+/* The mascot, standing on the top of Home. */
+.mascot { display: block; }
+.mascot svg { display: block; width: 100%; height: auto; }
+.block .pilot { position: absolute; left: 50%; top: 0; transform: translate(-46%, -90%); }
 .block .planet { left: 0; top: 0; box-shadow: inset -0.25em -0.25em 0.6em rgba(0, 0, 0, .55), 0 0 0 1px rgba(255, 255, 255, .04); font-size: 1vw; will-change: transform; }
 .block .planet.rust { width: 8%; background: radial-gradient(circle at 32% 30%, #d9a27f, #8a4f33 58%, #2a1712); }
 .block .planet.ice { width: 5.5%; background: radial-gradient(circle at 32% 30%, #dbe8f2, #7f9fb8 58%, #1d2a36); }
