@@ -110,7 +110,9 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now } =
   const staticFile = (file, cache) => async ({ res }) => {
     let data;
     try { data = await fs.promises.readFile(file); } catch { return fail(res, 404, 'Not found.'); }
-    send(res, 200, data, { type: TYPES[path.extname(file)] ?? 'application/octet-stream', cache });
+    // A page is never shown inside another site's frame (its buttons place orders and approve Macs).
+    const headers = path.extname(file) === '.html' ? { 'x-frame-options': 'DENY' } : undefined;
+    send(res, 200, data, { type: TYPES[path.extname(file)] ?? 'application/octet-stream', cache, headers });
   };
 
   route('GET', '/healthz', 'pub', ({ res }) => send(res, 200, { ok: true, v: 1 }));

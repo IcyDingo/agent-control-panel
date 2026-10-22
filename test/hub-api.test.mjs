@@ -412,6 +412,10 @@ test('bodies must be JSON objects; unknown paths and missing pages are 404; the 
   assert.equal((await call('GET', '/nowhere')).status, 404);
   assert.equal((await call('GET', '/..%2F..%2Fpackage.json')).status, 404, 'only fixed names are served');
   assert.equal((await call('GET', '/api/systems/@a%zz')).status, 404, 'a bad escape is not a crash');
+  const page = await call('GET', '/');
+  assert.deepEqual([page.status, page.headers.get('x-frame-options')], [200, 'DENY'], 'a page is never framed');
+  assert.equal((await call('GET', '/@alice')).headers.get('x-frame-options'), 'DENY');
+  assert.equal((await call('GET', '/healthz')).headers.get('x-frame-options'), null, 'JSON answers are as they were');
   const js = await call('GET', '/world.js');
   assert.equal(js.status, 200);
   assert.match(js.headers.get('content-type'), /javascript/);
