@@ -53,6 +53,7 @@ export function createHubOrders({ hub, execute, onDone, onOpen, timers = { setTi
     }
     if (claim.status === 401) { seen.delete(order.id); return; }   // signed out: a later sign-in may still claim it
     if (!claim.ok || claim.body?.ok !== true) return;   // 409: another Mac has it; 404: it is gone
+    if (!signedIn() || controller?.signal.aborted) return;   // signed out while the claim was in flight: the hub releases it in an hour
     current = order;
     let result;
     try {

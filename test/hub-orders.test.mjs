@@ -417,3 +417,22 @@ test('an order claimed by a Mac that went away is released an hour after the cla
   assert.equal(queue.done(accountId, order.id, { ok: true }).status, 404, 'a late report finds nothing, as after the day-long expiry');
   assert.equal(queue.place(accountId, { kind: 'frontier', ang: 1 }).ok, true);
 });
+
+test('a sign-out while the claim is in flight means the order is not run, even though the hub granted it', async () => {
+  let t;
+  const request = async (method, path, { body } = {}) => {
+    t.calls.push({ method, path, body });
+    if (method === 'GET') return { ok: true, status: 200, body: { ok: true, orders: [order('a')] } };
+    if (path.endsWith('/claim')) { t.extras.who = { loggedIn: false, account: null }; return { ok: true, status: 200, body: { ok: true } }; }
+    t.done.push({ id: path.split('/')[4], ...body });
+    return { ok: true, status: 200, body: { ok: true } };
+  };
+  t = setup({ request });
+  t.orders.start();
+  await settle();
+  assert.equal(t.calls.filter((c) => c.path.endsWith('/claim')).length, 1);
+  assert.deepEqual(t.ran, []);
+  assert.deepEqual(t.done, []);
+  assert.equal(t.orders.state().current, null);
+  t.orders.stop();
+});
