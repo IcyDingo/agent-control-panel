@@ -64,7 +64,7 @@ select.field { padding-right: 6px; }
 .hero .text { grid-column: 1 / 12; display: grid; gap: 22px; justify-items: start; padding-right: 24px; }
 .hero h1 { margin: 0; font-size: clamp(32px, 4.2vw, 50px); line-height: 1.04; font-weight: 600; letter-spacing: -0.03em; text-wrap: balance; }
 .hero .lede { margin: 0; color: var(--fg-dim); font-size: 16.5px; line-height: 1.5; max-width: 44ch; }
-.hero .block { grid-column: 13 / 25; position: relative; }
+.hero .block { grid-column: 13 / 25; position: relative; aspect-ratio: 12 / 7; }
 /* A sun and a few planets on the block's squares, in the panel's own looks (world.js LOOK), lit from the sun at the top left. */
 .block .sun, .block .planet { position: absolute; aspect-ratio: 1; border-radius: 50%; pointer-events: none; }
 .block .sun { left: 5%; top: 7%; width: 10%; background: radial-gradient(circle at 42% 40%, #fffdf5, #ffe9b8 55%, #f0c070); box-shadow: 0 0 28px 8px rgba(227, 171, 62, .28), 0 0 70px 20px rgba(227, 171, 62, .08); }
@@ -118,7 +118,8 @@ select.field { padding-right: 6px; }
   .step + .step { padding-left: 0; }
   .step:last-child { border-bottom: 0; }
   .gcard { position: static; transform: none; margin: 0; border-radius: 0; }
-  .hero .block .mosaic, .hero .block .sun, .hero .block .planet { display: none; } /* the card alone; the squares come back on the galaxy page */
+  .hero .block { aspect-ratio: auto; }
+  .hero .block .sun, .hero .block .planet { display: none; } /* the card alone */
 }
 
 .card { padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); display: grid; gap: 12px; }

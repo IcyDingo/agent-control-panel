@@ -27,7 +27,7 @@
         <button class="btn" type="submit">Visit</button>
       </form>
     </div>
-    <!-- The block: a mosaic with a sun, a few planets and your galaxy's card on it. Signed out, the card is the invitation. -->
+    <!-- The block: a sun, a few planets and your galaxy's card on the night sky. Signed out, the card is the invitation. -->
     <div class="block" id="block">
       <span class="sun" aria-hidden="true"></span>
       <span class="planet rust" aria-hidden="true"></span>
@@ -79,7 +79,6 @@
     if (!cells.includes('a0')) cells[hashOf(name + ' sun') % cells.length] = 'a0';
     return mosaic(cells, cols);
   }
-  $('block').prepend(quiet('block', 12, 7, 90));
   $('foot').prepend(quiet('foot', 24, 1, 24));
   for (const g of document.querySelectorAll('.glyph')) {
     for (let i = 0; i < 9; i++) g.append(el('i', { class: i < Number(g.dataset.lit) ? 'on' : null }));
