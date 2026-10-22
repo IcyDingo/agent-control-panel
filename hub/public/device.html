@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Connect a device · Universe</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/hub.css">
+</head>
+<body>
+<div class="page narrow">
+  <header class="bar">
+    <a class="brand" href="/">Universe</a>
+  </header>
+
+  <main>
+    <p class="dim" id="loading">Loading...</p>
+
+    <section class="card" id="signed-out" hidden>
+      <h2>Connect a device</h2>
+      <p class="dim">Sign in first, then you can approve the code your Mac is showing.</p>
+      <div class="actions"><a class="btn primary" id="signin" href="/login/github">Sign in with GitHub</a></div>
+    </section>
+
+    <form class="card stack" id="form" autocomplete="off" hidden>
+      <h2>Connect a device</h2>
+      <p class="dim" id="who"></p>
+      <label class="lf"><span>The code on your Mac</span>
+        <input class="field code-in" id="code" maxlength="12" spellcheck="false" autocapitalize="characters" placeholder="XXXX-XXXX" required></label>
+      <div class="actions">
+        <button class="btn go" type="submit" id="approve">Approve</button>
+        <button class="btn" type="button" id="deny">Deny</button>
+      </div>
+      <p class="err" id="err" role="alert" hidden></p>
+    </form>
+
+    <section class="card" id="done" hidden>
+      <h2 id="done-title"></h2>
+      <p class="dim" id="done-text"></p>
+      <div class="actions"><a class="btn" href="/me">Your profile</a></div>
+    </section>
+  </main>
+</div>
+<script src="/hub.js"></script>
+<script>
+(async () => {
+  const $ = (id) => document.getElementById(id);
+  const code = (new URLSearchParams(location.search).get('code') ?? '').trim().slice(0, 12);
+
+  const data = await Hub.me();
+  $('loading').hidden = true;
+  if (!data) {
+    $('signin').href = '/login/github?return_to=' + encodeURIComponent('/device' + (code ? `?code=${encodeURIComponent(code)}` : ''));
+    $('signed-out').hidden = false;
+    return;
+  }
+  $('who').textContent = `Signed in as @${data.account.handle}. Only approve a code you can see on your own Mac.`;
+  $('code').value = code;
+  $('form').hidden = false;
+
+  const finish = (title, text) => {
+    $('form').hidden = true;
+    $('done-title').textContent = title;
+    $('done-text').textContent = text;
+    $('done').hidden = false;
+  };
+  const decide = async (kind) => {
+    $('err').hidden = true;
+    const user_code = $('code').value.trim();
+    if (!user_code) { $('err').textContent = 'Type the code your Mac shows.'; $('err').hidden = false; return; }
+    $('approve').disabled = $('deny').disabled = true;
+    const r = await Hub.api('POST', `/api/device/${kind}`, kind === 'approve' ? { user_code, label: 'Agent Panel on a Mac' } : { user_code });
+    $('approve').disabled = $('deny').disabled = false;
+    if (!r.ok) { $('err').textContent = r.error; $('err').hidden = false; return; }
+    if (kind === 'approve') finish('Approved', 'Your Mac is connected. You can close this tab and go back to it.');
+    else finish('Denied', 'That code will not work. Nothing was connected.');
+  };
+  $('form').addEventListener('submit', (e) => { e.preventDefault(); decide('approve'); });
+  $('deny').addEventListener('click', () => decide('deny'));
+})();
+</script>
+</body>
+</html>

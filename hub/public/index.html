@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Universe</title>
+<meta name="description" content="A universe your agents' work builds. Every Agent Control Panel gets a planet, and every planet a neighbourhood.">
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/hub.css">
+</head>
+<body class="stars-bg">
+<div class="page">
+  <header class="bar">
+    <a class="brand" href="/">Universe</a>
+  </header>
+
+  <main class="hero">
+    <h1>A universe your agents' work builds</h1>
+    <p>Each day your agents work, your Home planet grows and the map around it lights up. Every Agent Control Panel has a
+      system here, and you can visit anyone's.</p>
+
+    <form class="find" id="find" role="search">
+      <input class="field" id="handle" name="handle" placeholder="Find a system by handle" aria-label="A handle" autocomplete="off" spellcheck="false" autocapitalize="off" maxlength="40">
+      <button class="btn" type="submit">Visit</button>
+    </form>
+
+    <div class="cta">
+      <a class="btn primary" id="signin" href="/login/github" hidden>Sign in with GitHub</a>
+      <a class="btn primary" id="mine" href="/me" hidden>Your system</a>
+      <a class="btn" id="profile" href="/me" hidden>Your profile</a>
+    </div>
+  </main>
+</div>
+<script src="/hub.js"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  $('find').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const h = $('handle').value.trim().replace(/^@/, '');
+    if (h) location.href = '/@' + encodeURIComponent(h);
+  });
+  Hub.me().then((r) => {
+    if (!r) { $('signin').hidden = false; return; }
+    $('mine').href = '/@' + encodeURIComponent(r.account.handle);
+    $('mine').hidden = false;
+    $('profile').hidden = false;
+  });
+})();
+</script>
+</body>
+</html>

@@ -23,9 +23,12 @@ Panel.app** into `~/Applications`. Then:
 3. Click **Connect this profile**. It adds the panel's hooks to that profile's `settings.json` (and
    keeps a copy of the old file). Sessions you start after that show up on the board.
 
-Keep the folder where you cloned it: the app runs the panel from there. To update, `git pull`, run
-`./install.sh` again, then quit the app (⌘Q) and open it again. To use it without the app, see
-[Run it](#run-it). To take it out again, see [Uninstall](#uninstall).
+`install.sh` also installs a background service, so World keeps counting your work when the app isn't open;
+`./install.sh --no-daemon` skips it.
+
+Keep the folder where you cloned it: the service and the app run the panel from there. To update, `git pull`
+and run `./install.sh` again: it rebuilds the app and restarts the service on the new code. To use it without
+the app, see [Run it](#run-it). To take it out again, see [Uninstall](#uninstall).
 
 The panel stays on your Mac: its server listens on 127.0.0.1 only, and the page fetches nothing but
 its typeface (from Google Fonts).
@@ -108,13 +111,18 @@ Node 20+, and `python3` (it comes with macOS's command-line tools) for the helpe
 session's screen: switching its mode, answering a question it no longer holds, running a `/command`. Nothing to
 install. `ACP_PORT` changes the port; if you change it, change the hook URLs too.
 
+Installed with `./install.sh`, the panel also runs as a launchd service (`local.agent-panel`, or
+`local.agent-panel.<port>` on another port): `launchctl print gui/$UID/local.agent-panel` shows it,
+`launchctl kickstart -k gui/$UID/local.agent-panel` restarts it, and its log is
+`~/Library/Logs/Agent Panel/daemon-<port>.log`. `node server.mjs daemon install|remove|status` manages it.
+
 ## The Mac app
 
 `app/build.sh` builds **Agent Panel.app** in `~/Applications`: the panel in a window of its own, with
 its own icon. Open it like any app, or keep it in the Dock.
 
-- Opening it uses a panel server that is already running, or starts one (its log is
-  `~/Library/Logs/Agent Panel/server-4747.log`). Quitting stops a server the app started and leaves
+- Opening it uses the background service's server, or any panel server already running, or starts one of its own
+  (its log is `~/Library/Logs/Agent Panel/server-4747.log`). Quitting stops a server the app started and leaves
   one it didn't alone.
 - If the server it was using goes away, it starts its own after a few seconds. One it started that
   stops after running a while is started again.
@@ -360,10 +368,13 @@ Every minute the panel checks each running session, in every profile, and the pr
 
 ## World
 
-World starts the first time you open it, as a bare rock called Home in the dark, and terraforms on the days you work
+World starts when the service is installed, or, without the service, the first time you open it, as a bare rock called Home in the dark, and terraforms on the days you work
 from then on, with lit space widening around Home when you zoom out (scroll, or **Home** and **Map**; drag to look
 around). No agents in it: their work only arrives as credit. While it is open, its top bar says how many sessions need
 you, and takes you back to the board at the first.
+
+Beside Home sits its **sun**, placed by your world's seed: it lights Home's day side and the colonies', and marks your
+system on the map.
 
 Credit is earned per calendar day: `(lines added ÷ 10 + tokens ÷ 10,000) × multiplier`, where lines removed raise the
 multiplier from ×1 up to ×4, so a cleanup day pays best. The side panel shows today's numbers.
@@ -425,6 +436,62 @@ board shows, with hooks off, no tools, MCP servers or slash commands, and no ses
 `~/Library/Application Support/Agent Panel/world/build`, and the board leaves it out
 ([design](docs/superpowers/specs/2026-10-21-world-design.md)).
 
+## Hub
+
+The hub is a small website that gives each panel a page of its own: your system, drawn the way World draws it, which
+anyone with your handle or link can open. Your system has fixed coordinates on the hub, shown on your page; a map of
+everyone's suns is the next slice.
+You choose whether to sign in. Until you do, nothing in this section runs and nothing leaves your Mac.
+
+**Sign in** from the **Profile** box in World's side panel (**Sign in with GitHub**), or from a terminal:
+
+```
+node server.mjs login      # prints a code and a link, and opens the link
+node server.mjs status     # signed in as whom, and whether the background service runs
+node server.mjs logout     # revokes this Mac's token on the hub and forgets it
+```
+
+Either way you get a code like `BKQT-7W3N` and a link. Open the link, sign in to the hub with GitHub if it asks, and
+approve the code; the panel notices and says who you are. The code runs out after 15 minutes. **Sign out** in the
+Profile box does what `logout` does. Your sign-in is kept in `hub.json`, beside `prefs.json` in
+`~/Library/Application Support/Agent Panel`. If you sign in from a terminal while the background service runs, the
+service picks it up.
+
+**What is shared** is the shape of your system, and only that:
+
+- Your planets, the colonies on them with their names, your builds with their captions and pieces, your moments (with
+  their day and kind), Home's level and stage, how many days you have been active, and your sun.
+- A small profile you write on the hub: your name, a bio, a link. Your GitHub handle and picture come with it.
+
+**What never leaves your Mac**: tokens, lines, credit, your repositories and their paths, build prompts, and any time
+finer than a day.
+
+Your Mac also tells the hub its own state so your page can show it to you and nobody else: your balance, the prices,
+today's numbers, whether a build is running, and the Mac's name. That is shown only to you, signed in.
+
+The panel sends about ten seconds after something changes, a second after a purchase or an order, and once every
+30 minutes otherwise, so your page knows the Mac is still there. A hub that is down never slows the panel: it tries again later.
+
+**Your page** is `<hub>/@handle`. `<hub>/me` is where you edit your profile: handle, name, bio, link, and whether you are
+listed. Unlisted asks search engines not to index your page; a link still opens it.
+
+**Spending from your page.** Signed in on the hub, you can push the frontier, send a rocket and build from your page,
+and your Mac does it. An order from the site goes through the same code as the panel's buttons, so the same prices
+and rules apply, and the page shows what happened, or the Mac's own sentence when it said no ("It costs 4,000 credit,
+and you have 3,200."). One order at a time. With two Macs signed in to one account, an order is run by whichever
+signed-in Mac claims it first, and an order whose Mac went away while running it is released after an hour. If the
+Mac is asleep or offline, the order waits and runs when it wakes (the background service does this with no panel
+open); an order not picked up within 24 hours expires.
+
+**Only want World?** Open `http://127.0.0.1:4747/world`: the page opens straight into World, without the board. A
+bookmark can point there.
+
+**Which hub.** The panel talks to the address in `DEFAULT_HUB` in `hub.mjs`. For now that is a placeholder
+(`http://127.0.0.1:4848`, a hub on this machine) until one is hosted, and the address of the owner's hub goes there once
+it exists. To use another, set `ACP_HUB` in the environment of whatever runs the panel or `node server.mjs login`. A
+sign-in belongs to the hub that issued it: pointed at a different hub, the panel shows you as signed out, and your old
+sign-in is still in `hub.json` for when you point back. To run a hub of your own, see [`hub/README.md`](hub/README.md).
+
 ## Security
 
 An endpoint that approves commands is worth protecting, even on localhost:
@@ -449,9 +516,19 @@ An endpoint that approves commands is worth protecting, even on localhost:
   process is still `claude`, and never the session the panel server itself runs in.
 - `claude` is started without the `CLAUDE*` variables of the session that started the server
   (except `CLAUDE_CONFIG_DIR`), so a launched session doesn't take itself for a child of it.
+- The hub token is kept in `hub.json` beside `prefs.json` (mode 0600) and is sent only as a bearer to the hub you signed
+  in to. The page in your browser never talks to the hub: the local server does, for the page, behind the same token
+  and Origin checks as everything else. There is no CORS on either side.
+- What leaves your Mac is an allow-list projection of World, copied key by key (a field added later stays private until
+  it is listed) and checked again on the hub before it is stored. The hub stores tokens and session ids hashed; the one
+  exception is a token you have just approved, which the hub holds in clear only until your Mac collects it or the code
+  runs out (15 minutes).
 
 ## Uninstall
 
-Remove the hook entries that point at `127.0.0.1:4747` from each profile's settings. Delete
-`~/Applications/Agent Panel.app`, `~/Library/Application Support/Agent Panel` and
-`~/Library/Logs/Agent Panel`.
+Run `./install.sh --uninstall`: it removes the background service and `~/Applications/Agent Panel.app`. Then
+remove the hook entries that point at `127.0.0.1:4747` from each profile's settings, and delete
+`~/Library/Application Support/Agent Panel` and `~/Library/Logs/Agent Panel`.
+
+If you signed in to the hub, run `node server.mjs logout` before uninstalling: it revokes the hub token. `hub.json` sits in
+the Application Support folder named above.
