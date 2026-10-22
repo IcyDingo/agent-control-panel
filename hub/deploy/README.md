@@ -46,15 +46,23 @@ A `compose.yml` from before the one-line install needs the same copy, so that it
 git -C src show origin/main:hub/deploy/compose.yml > compose.yml
 ```
 
-Then, on the Mac, run `git pull` on `main` and `node tools/release.mjs sign`. It prints the ssh line; run it, exactly as
-printed. Until this deploy, workers running the old code still accept an unsigned release; after it they take the signed one
-within a day and verify from then on. A worker already on the new code refuses an unsigned release outright.
+Then, on the Mac, set `ACP_RELEASE_HOST` to the server first, with one line in your shell profile (`~/.zshrc`), and
+open a new terminal:
+
+```sh
+export ACP_RELEASE_HOST=root@<server ip>
+```
+
+Without it the tool prints `ssh <host> …`, which the shell would read as a redirection. Then run `git pull` on `main`
+and `node tools/release.mjs sign`. It prints the ssh line; run it, exactly as printed. Until this deploy, workers
+running the old code still accept an unsigned release; after it they take the signed one within a day and verify from
+then on. A worker already on the new code refuses an unsigned release outright.
 
 Every later release is done on the Mac alone, either by copying the ssh line or by letting the tool run it:
 
 ```sh
-node tools/release.mjs sign                        # prints  ssh root@<host> /srv/agent-hub/update.sh <sha> <n> <sigs>
-node tools/release.mjs sign --deploy root@<host>   # signs and runs that line
+node tools/release.mjs sign                             # prints  ssh root@<server ip> /srv/agent-hub/update.sh <sha> <n> <sigs>
+node tools/release.mjs sign --deploy root@<server ip>   # signs and runs that line
 ```
 
 Once `release.env` holds a signature, a plain `./update.sh` deploys nothing new, so nothing unsigned can replace the

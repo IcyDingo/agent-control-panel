@@ -111,13 +111,16 @@ node tools/release.mjs sign
 ```
 
 `sign` refuses a commit that is not on `origin/main` and a working tree with changes. It asks for the passphrase once and
-opens every key file in the folder with it. It prints `HUB_RELEASE=`, `HUB_RELEASE_N=` and `HUB_RELEASE_SIG=` and, last,
-the ssh line that deploys the release. Set `ACP_HUB=https://universe.cashegg.com` and it also lists the commits since the
-release the hub serves now. Set `ACP_RELEASE_HOST=root@<host>` and the ssh line names your server; copy it, or let the
-tool run it for you:
+opens every key file in the folder with it. It then checks its signatures against `RELEASE_KEYS` as it is in the commit
+being signed, the list the hub checks them against once it runs that commit, and refuses when that list holds none of
+your keys. It prints `HUB_RELEASE=`, `HUB_RELEASE_N=` and `HUB_RELEASE_SIG=` and, last, the ssh line that deploys the
+release. Set `ACP_HUB=https://universe.cashegg.com` and it also lists the commits since the release the hub serves now.
+Set `ACP_RELEASE_HOST=root@<server ip>` (one `export` line in your shell profile) and the ssh line names your server;
+without it the line starts `ssh <host>`, which is not meant to be run as it is. Copy the line, or let the tool run it
+for you:
 
 ```sh
-node tools/release.mjs sign --deploy root@<host>[:/srv/agent-hub]
+node tools/release.mjs sign --deploy root@<server ip>[:/srv/agent-hub]
 ```
 
 The first signed release is a little different; `deploy/README.md` has the steps. A deploy that failed (a build error,
@@ -126,16 +129,29 @@ succeeded, and deploys the release on record again when given its own line.
 
 To rotate the key, make a second one with `node tools/release.mjs keygen`. It is written to `signing-key-2.pem`, and
 `sign` now signs with both. `sign` opens every key file with the one passphrase it asks for, so the new key must be made
-with the same passphrase as the current one. Add the new public key to `RELEASE_KEYS`, commit, and release. From then on
-every release carries two signatures, so a worker on either side of that commit follows. Wait 30 days: a worker checks
-daily, and one that has been asleep longer has to be re-installed. Then delete the old key file and remove its line from
-`RELEASE_KEYS` in a release that the new key alone signs.
+with the same passphrase as the current one; `keygen` refuses one that does not open the key files already there. Add
+the new public key to `RELEASE_KEYS`, commit, and release. From then on every release carries two signatures, so a
+worker on either side of that commit follows. Wait 30 days: a worker checks daily, and one that has been asleep longer
+has to be re-installed. Then delete the old key file and remove its line from `RELEASE_KEYS` in a release that the new
+key alone signs.
 
-If a key is stolen (the file and its passphrase), do the same at once and without the wait: remove it from
-`RELEASE_KEYS` in a release signed by the key or keys that remain. Until a worker has that release, the thief can sign
-any number, but the worker installs only a commit that is on `main` and descends from the release it runs, so they would also need the GitHub account, and
-`main` is protected so that even the account can change it only through a pull request made in the open. Keep that
-protection on; the design counts on it.
+If a key is stolen (the file and its passphrase), act at once, in three steps. They work with a single key too, since
+the one release among them passes every check on the way:
+
+1. Make a new key with `node tools/release.mjs keygen`, with the same passphrase as the stolen one. Leave the stolen
+   key file in the folder, so `sign` signs with both: the thief already has that key, so signing with it adds no risk.
+2. Make one release whose commit sets `RELEASE_KEYS` to the new key only, and sign and deploy it as usual. It passes
+   every check: workers check it against the list they run now, which holds the stolen key, and its signature is
+   there; `update.sh` checks it against the keys in the code the server runs now, the same list; and the hub, once it
+   runs the new commit, checks it against the new list, and the new key's signature is there too. A worker that has
+   this release no longer accepts anything the stolen key signs.
+3. After 30 days, delete the stolen key file. Until then every release carries both signatures, so a worker that was
+   asleep when step 2 went out still follows it; one asleep longer has to be re-installed.
+
+Until a worker has the release of step 2, the thief can sign any number, but the worker installs only a commit that is
+on `main` and descends from the release it runs, so they would also need the GitHub account, and `main` is protected so
+that even the account can change it only through a pull request made in the open. Keep that protection on; the design
+counts on it.
 
 A worker that refuses a release says so, and keeps running the release it has. On that Mac, the `status` command
 prints the last check, for example `Last update check <time>: Release 1a2b3c4 is not signed by a known key.`,

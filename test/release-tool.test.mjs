@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
-import { verifyRelease, signRelease } from '../release-keys.mjs';
+import { verifyRelease, signRelease, rawPublicKey as rawPublicKeyOf } from '../release-keys.mjs';
 import { keyDir, keyFiles, keygen, loadKey, sign, printed, main } from '../tools/release.mjs';
 
 const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'release-')));
@@ -33,7 +33,7 @@ test('keygen writes an encrypted 0600 PEM under the next free name and prints a 
   assert.equal(fs.statSync(a.file).mode & 0o777, 0o600);
   assert.equal(fs.statSync(dir).mode & 0o777, 0o700);
   assert.match(fs.readFileSync(a.file, 'utf8'), /ENCRYPTED PRIVATE KEY/);
-  const b = keygen({ dir, passphrase: 'pw2' });
+  const b = keygen({ dir, passphrase: 'pw' });
   assert.equal(b.file, path.join(dir, 'signing-key-2.pem'), 'a second key gets a new file');
   assert.deepEqual(keyFiles(dir), [a.file, b.file]);
   const sha = 'c'.repeat(40);
@@ -105,7 +105,7 @@ test('the command line: keygen with the passphrase from the environment, then si
   assert.equal(printedOut.includes(PW), false, 'the passphrase is not printed');
   const noTty = await run('node', [tool, 'sign'], { env: { ...env, ACP_SIGNING_PASSPHRASE: '' }, cwd });
   assert.equal(noTty.err?.code, 1);
-  assert.match(noTty.stderr, /No terminal to ask the passphrase on/);
+  assert.equal(noTty.stderr.trim(), 'No terminal to ask the passphrase on; run it in a terminal.');
 });
 
 test('keyDir is ACP_SIGNING_KEY when set, else a folder under the home directory', () => {
@@ -200,6 +200,46 @@ test('keygen refuses two different passphrases and writes nothing; the same twic
   assert.equal(await run(['same', 'same']), 0);
   assert.equal(keyFiles(t.dir).length, 1);
   assert.match(t.out[0], /^Public key: /);
+});
+
+test('keygen refuses a passphrase that does not open the key files already there, and writes nothing', () => {
+  const dir = path.join(tmp(), 'keys');
+  const a = keygen({ dir, passphrase: 'pw' });
+  assert.throws(() => keygen({ dir, passphrase: 'other' }),
+    { message: 'The passphrase must open the existing key files too, so one passphrase signs with every key.' });
+  assert.deepEqual(keyFiles(dir), [a.file], 'no second file');
+  const b = keygen({ dir, passphrase: 'pw' });
+  assert.equal(b.file, path.join(dir, 'signing-key-2.pem'), 'the passphrase that opens them makes the key');
+  assert.throws(() => keygen({ dir, passphrase: 'other' }), /must open the existing key files too/);
+  assert.equal(keyFiles(dir).length, 2);
+});
+
+/** A repo like repo(), whose second commit (pushed) holds release-keys.mjs listing `keys`. */
+function repoWithKeys(keys) {
+  const r = repo();
+  const source = fs.readFileSync(path.resolve('release-keys.mjs'), 'utf8');
+  const listed = source.replace(/export const RELEASE_KEYS = \[[^\]]*\];/, `export const RELEASE_KEYS = ${JSON.stringify(keys)};`);
+  assert.ok(listed.includes(`export const RELEASE_KEYS = ${JSON.stringify(keys)};`), 'the fixture wrote the key list');
+  git(r.cwd, 'checkout', '-q', r.second);
+  fs.writeFileSync(path.join(r.cwd, 'release-keys.mjs'), listed);
+  git(r.cwd, 'add', 'release-keys.mjs'); git(r.cwd, 'commit', '-q', '-m', 'keys');
+  const sha = git(r.cwd, 'rev-parse', 'HEAD');
+  git(r.cwd, 'push', '-q', 'origin', 'HEAD:main', '--force');
+  return { ...r, sha };
+}
+
+test('sign checks its signatures against the RELEASE_KEYS of the commit it signs', async () => {
+  const dir = path.join(tmp(), 'keys');
+  const mine = keygen({ dir, passphrase: 'pw' });
+  const listed = repoWithKeys([mine.publicKey]);
+  const ok = await sign({ sha: listed.sha, dir, passphrase: 'pw', cwd: listed.cwd, run });
+  assert.equal(verifyRelease(ok.n, listed.sha, ok.sigs, [mine.publicKey]), true);
+  const other = rawPublicKeyOf(crypto.generateKeyPairSync('ed25519').publicKey);
+  const unlisted = repoWithKeys([other]);
+  await assert.rejects(sign({ sha: unlisted.sha, dir, passphrase: 'pw', cwd: unlisted.cwd, run }),
+    { message: `The commit ${unlisted.sha.slice(0, 7)} does not list this key in RELEASE_KEYS; add the public key and commit first.` });
+  const empty = repoWithKeys([]);
+  await assert.rejects(sign({ sha: empty.sha, dir, passphrase: 'pw', cwd: empty.cwd, run }), /does not list this key in RELEASE_KEYS/);
 });
 
 test('sign refuses an upper-case or short sha, and exits 1 without running ssh when it refuses', async () => {

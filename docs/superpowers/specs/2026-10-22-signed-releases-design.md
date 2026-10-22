@@ -51,8 +51,11 @@ node tools/release.mjs sign  ──ssh──▶  update.sh <sha> <n> <sigs>     
   names another path. The tool keeps every key it has made; `sign` uses all of them (below).
 - **The key file is encrypted** with a passphrase (PKCS8, aes-256-cbc, as `node:crypto` exports it). `keygen` asks
   for the passphrase twice without echo; `sign` asks once. A copied file alone signs nothing. A forgotten passphrase
-  is a lost key: re-install the workers, never weaken the check. `ACP_SIGNING_PASSPHRASE` feeds it for tests only
-  **(owner: lock it down as far as it goes)**.
+  is a lost key: re-install the workers, never weaken the check. `ACP_SIGNING_PASSPHRASE` feeds it for tests only;
+  without a terminal the tool says `No terminal to ask the passphrase on; run it in a terminal.` and never suggests the
+  variable **(owner: lock it down as far as it goes)**. When key files already exist, `keygen` opens each with the
+  new passphrase first and refuses with
+  `The passphrase must open the existing key files too, so one passphrase signs with every key.` if one does not.
 - **What is signed:** the UTF-8 bytes of `<n> <sha>`, where `n` is the release number: the number of commits
   reachable from the sha (`git rev-list --count <sha>`). On a protected `main` with no force pushes, every later
   commit on `main` has a larger `n`, so `n` orders releases, and the signature binds it to the sha so nobody without
@@ -87,11 +90,15 @@ node tools/release.mjs sign  ──ssh──▶  update.sh <sha> <n> <sigs>     
   the restart is how a change to `.env` is applied)**.
 - **Owner's command:** `node tools/release.mjs sign [sha]` (default: the local HEAD, which must be on `origin/main`;
   it refuses a dirty tree or a sha not on `origin/main`, and refuses a key file that is not mode 0600) computes `n`,
-  asks for the passphrase, signs with every key in `~/.config/agent-panel/`, shows the commits since the release the
-  hub serves now (`GET /api/release` of `ACP_HUB`, when reachable) and prints `HUB_RELEASE=…`, `HUB_RELEASE_N=…`,
-  `HUB_RELEASE_SIG=…` and the ready ssh line: `ssh root@<host> /srv/agent-hub/update.sh <sha> <n> <sigs>`. With
-  `--deploy root@host:/srv/agent-hub` it runs that line itself **(call)**. The host comes from `ACP_RELEASE_HOST` or
-  the flag; nothing about the server is in the repo beyond the deploy README.
+  asks for the passphrase, signs with every key in `~/.config/agent-panel/`, checks the signatures against the
+  `RELEASE_KEYS` of the commit being signed (`git show <sha>:release-keys.mjs`, imported from a temp folder; skipped
+  when the commit has no such file) and refuses with
+  `The commit <7> does not list this key in RELEASE_KEYS; add the public key and commit first.` when they fail,
+  shows the commits since the release the hub serves now (`GET /api/release` of `ACP_HUB`, when reachable) and
+  prints `HUB_RELEASE=…`, `HUB_RELEASE_N=…`, `HUB_RELEASE_SIG=…` and the ready ssh line:
+  `ssh root@<host> /srv/agent-hub/update.sh <sha> <n> <sigs>`. With `--deploy root@host:/srv/agent-hub` it runs
+  that line itself **(call)**. The host comes from `ACP_RELEASE_HOST` or the flag; nothing about the server is in
+  the repo beyond the deploy README.
 - **Worker (`update.mjs`):** after the `held` check and before the compare: `verifyRelease(n, sha, sigs)` or
   `{ outcome: 'error', error: 'Release <7> is not signed by a known key.' }`; then `n` must not be below the number in
   the worker's `release` file (`<sha> <n>`, written at every switch; absent after a fresh install, so the first daily
@@ -110,11 +117,15 @@ node tools/release.mjs sign  ──ssh──▶  update.sh <sha> <n> <sigs>     
   follows. After 30 days (a worker checks daily; one asleep longer re-installs), delete the old key file and remove it
   from `RELEASE_KEYS` in a release signed by the new key alone **(call: no version tracking on the hub this round;
   the hub records nothing about which version a worker runs)**. Written in `hub/README.md` under "Releases".
-- **A stolen key** (file **and** passphrase) is handled the same way, faster: remove it from `RELEASE_KEYS` in a
-  release signed by the remaining key(s). Until a worker has that release, the number the thief signs counts for
-  nothing on its own: the worker installs only a commit that is on `main` **and** descends from the release it runs
-  (the descent check), so they also need the GitHub account; with it, main's protection still demands a pull request
-  they would have to open in the open.
+- **A stolen key** (file **and** passphrase) is handled in three steps, each verified at every hop, so it works with
+  a single key: (1) `keygen` a new key with the same passphrase; (2) one release whose commit sets `RELEASE_KEYS` to
+  the new key only, signed with both key files (the stolen one stays in the folder: the thief already has it, signing
+  with it adds no risk); (3) delete the stolen key file after 30 days. Step 2 passes every check: workers check it
+  against the stolen key they still trust, `update.sh` against the keys in the code the server runs, and the hub
+  against the new list. Until a worker has that release, the number the thief signs counts for nothing on its own:
+  the worker installs only a commit that is on `main` **and** descends from the release it runs (the descent check),
+  so they also need the GitHub account; with it, main's protection still demands a pull request they would have to
+  open in the open.
 - **Install script:** it trusts the hub it was served by (stated in the easy-install design). Besides the `switch`
   file it already removed, it now clears the worker's `release` and `last-check` records, so a fresh install starts
   without a floor and the first daily check sets it.
@@ -133,8 +144,8 @@ about it:
   exactly the sha it was given, after verifying `<sha> <n> <sigs>` against the keys of the code it currently runs and
   refusing a lower `n` **before** fetching or building anything **(call; the verification is skipped only while
   `src/release-keys.mjs` does not exist yet, the bootstrap deploy)**. After the first signed release, plain
-  `update.sh` only restarts the release on record. So a stolen GitHub account can push to `main`, but cannot put that code on the server or on
-  any worker: both need the key on the owner's Mac and its passphrase.
+  `update.sh` only restarts the release on record. So a stolen GitHub account can push to `main`, but cannot put
+  that code on the server or on any worker: both need the key on the owner's Mac and its passphrase.
 - **The private key never touches the server**, the repo, `.env`, a log or a shell history: `sign` reads the key
   file itself, decrypts it in memory with the passphrase, and prints only the signatures.
 - **Workers can do nothing to the server** beyond today's authenticated API calls; a release carries no instruction

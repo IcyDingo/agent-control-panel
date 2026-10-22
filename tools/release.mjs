@@ -38,8 +38,17 @@ function nextKeyFile(dir) {
   return path.join(dir, last === 0 ? 'signing-key.pem' : `signing-key-${last + 1}.pem`);
 }
 
+// `sign` asks for one passphrase and opens every key file with it, so a new key is made only with the passphrase that
+// opens the ones already there.
 export function keygen({ dir, passphrase }) {
   if (!passphrase) throw new Error('A passphrase is required.');
+  for (const file of keyFiles(dir)) {
+    try {
+      crypto.createPrivateKey({ key: fs.readFileSync(file), passphrase });
+    } catch {
+      throw new Error('The passphrase must open the existing key files too, so one passphrase signs with every key.');
+    }
+  }
   const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
   const pem = privateKey.export({ type: 'pkcs8', format: 'pem', cipher: 'aes-256-cbc', passphrase });
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -57,6 +66,26 @@ export function loadKey(file, passphrase) {
   }
 }
 
+// True when the signatures verify under the RELEASE_KEYS of `release-keys.mjs` as it is in the commit being signed, the
+// keys the hub checks them against once it runs that commit; null when the commit has no such file yet. The file is
+// copied out of git into a folder of its own under the system's temp folder and imported from there.
+async function signedForCommit({ sha, n, sigs, git }) {
+  const listed = await git('ls-tree', '--name-only', sha, '--', 'release-keys.mjs');
+  if (listed.err) throw new Error(`git ls-tree failed: ${listed.stderr.trim()}`);
+  if (listed.stdout.trim() === '') return null;
+  const shown = await git('show', `${sha}:release-keys.mjs`);
+  if (shown.err) throw new Error(`git show failed: ${shown.stderr.trim()}`);
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'release-keys-'));
+  try {
+    const file = path.join(folder, 'release-keys.mjs');
+    fs.writeFileSync(file, shown.stdout);
+    const { verifyRelease } = await import(pathToFileURL(file).href);
+    return typeof verifyRelease === 'function' && verifyRelease(n, sha, sigs) === true;
+  } finally {
+    fs.rmSync(folder, { recursive: true, force: true });
+  }
+}
+
 // `run` is (cmd, args, opts) → Promise<{ err, stdout, stderr }>; every git call runs in `cwd`.
 export async function sign({ sha, dir, passphrase, cwd = process.cwd(), run }) {
   if (typeof sha !== 'string' || !SHA_RE.test(sha)) throw new Error('Give the full 40-character commit hash, in lower case.');
@@ -70,7 +99,12 @@ export async function sign({ sha, dir, passphrase, cwd = process.cwd(), run }) {
   const count = await git('rev-list', '--count', sha);
   if (count.err) throw new Error(`git rev-list failed: ${count.stderr.trim()}`);
   const n = Number(count.stdout);
-  return { sha, n, sigs: files.map((file) => signRelease(n, sha, loadKey(file, passphrase))) };
+  const sigs = files.map((file) => signRelease(n, sha, loadKey(file, passphrase)));
+  // A release the commit's own key list does not accept would be refused by the hub after the deploy; say so now.
+  if ((await signedForCommit({ sha, n, sigs, git })) === false) {
+    throw new Error(`The commit ${sha.slice(0, 7)} does not list this key in RELEASE_KEYS; add the public key and commit first.`);
+  }
+  return { sha, n, sigs };
 }
 
 export function printed({ sha, n, sigs, host, dir = DEFAULT_DIR }) {
@@ -78,10 +112,11 @@ export function printed({ sha, n, sigs, host, dir = DEFAULT_DIR }) {
   return [`HUB_RELEASE=${sha}`, `HUB_RELEASE_N=${n}`, `HUB_RELEASE_SIG=${joined}`, `ssh ${host ?? '<host>'} ${dir}/update.sh ${sha} ${n} ${joined}`];
 }
 
-// The passphrase from ACP_SIGNING_PASSPHRASE, else typed on the terminal with nothing echoed.
+// The passphrase typed on the terminal with nothing echoed. ACP_SIGNING_PASSPHRASE feeds it for the tests only: a
+// passphrase on a command line ends up in the shell's history.
 function askPassphrase(prompt, env) {
   if (env.ACP_SIGNING_PASSPHRASE) return Promise.resolve(env.ACP_SIGNING_PASSPHRASE);
-  if (!process.stdin.isTTY) return Promise.reject(new Error('No terminal to ask the passphrase on; set ACP_SIGNING_PASSPHRASE.'));
+  if (!process.stdin.isTTY) return Promise.reject(new Error('No terminal to ask the passphrase on; run it in a terminal.'));
   return new Promise((resolve, reject) => {
     const rl = readline.createInterface({ input: process.stdin, output: process.stderr, terminal: true });
     // Ctrl-C or Ctrl-D closes readline without an answer; a close after an answer settles nothing new.
