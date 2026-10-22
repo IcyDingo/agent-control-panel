@@ -179,27 +179,25 @@
       x.fillStyle = m; x.beginPath(); x.arc(mx, my, R * 0.09, 0, 7); x.fill();
     }
   }
-  /** The mascot: a small astronaut standing on Home's north pole and waving, the same figure the hub's landing shows
-   *  (hub/public/hub.js MASCOT, 40 by 48 units). About half of Home's radius tall, and not drawn when Home is small. */
+  /** The mascot: a small stone creature in the spirit of Rocky from Project Hail Mary, standing on Home's north pole
+   *  with one leg raised in greeting; the same figure the hub's landing shows (hub/public/hub.js MASCOT, 40 by 48
+   *  units). About half of Home's radius tall, and not drawn when Home is small. */
   function drawMascot(cx, cy, R) {
     if (R < 28) return;
-    const u = clamp(R * 0.012, 0.45, 1.4), FG = '#e3e7ed', DIM = '#8c96a4', AMBER = '#e3ab3e';
-    const rr = (px, py, w, h, r, fill) => {
-      x.fillStyle = fill; x.beginPath();
-      if (x.roundRect) x.roundRect(px, py, w, h, r); else x.rect(px, py, w, h);
-      x.fill();
-    };
+    const u = clamp(R * 0.012, 0.45, 1.4), LEG = '#5a5248', BODY = '#8f8678', TOP = '#aaa092', SPOT = '#6f675b', AMBER = '#e3ab3e';
+    const poly = (pts, width) => { x.lineWidth = width; x.beginPath(); x.moveTo(pts[0], pts[1]); for (let i = 2; i < pts.length; i += 2) x.lineTo(pts[i], pts[i + 1]); x.stroke(); };
+    const hand = (hx, hy, fingers) => { for (const [dx, dy] of fingers) { x.lineWidth = 1.5; x.beginPath(); x.moveTo(hx, hy); x.lineTo(hx + dx, hy + dy); x.stroke(); } };
     x.save(); x.translate(cx - 20 * u, cy - R - 46.5 * u); x.scale(u, u);
-    rr(7, 24, 7, 13, 2.5, DIM); // backpack
-    x.save(); x.translate(29, 28); x.rotate(-35 * Math.PI / 180); x.translate(-29, -28); rr(27, 17, 4.5, 11, 2.25, FG); x.restore(); // the waving arm
-    rr(13.5, 36, 5.5, 10, 2.5, FG); rr(21, 36, 5.5, 10, 2.5, FG); // legs
-    rr(13, 43, 6.5, 3.5, 1.5, DIM); rr(20.5, 43, 6.5, 3.5, 1.5, DIM); // boots
-    rr(12, 23, 16, 15, 5, FG); // body
-    rr(9, 25, 4.5, 11, 2.25, FG); // the other arm
-    x.fillStyle = FG; x.beginPath(); x.arc(20, 13, 11, 0, 7); x.fill(); // helmet
-    x.fillStyle = '#0d0f12'; x.beginPath(); x.arc(21, 13.5, 7, 0, 7); x.fill(); // visor
-    x.fillStyle = AMBER; x.globalAlpha = 0.95; x.beginPath(); x.ellipse(18.5, 10.5, 2.6, 1.6, 0, 0, 7); x.fill(); x.globalAlpha = 1; // its glint
-    rr(19.4, 0.5, 1.2, 3, 0, DIM); x.fillStyle = AMBER; x.beginPath(); x.arc(20, 1.2, 1.4, 0, 7); x.fill(); // antenna
+    x.strokeStyle = LEG; x.lineCap = 'round'; x.lineJoin = 'round';
+    poly([11, 29, 6, 38, 5, 46], 2.8); poly([15, 31, 12, 39, 11, 46], 2.8); poly([20, 32, 20, 40, 20, 46], 2.8); poly([25, 31, 28, 39, 29, 46], 2.8); // four legs down
+    poly([29, 28, 35, 20, 37, 11], 2.8); // one raised
+    const down = [[-2.4, 1.4], [0, 2.5], [2.4, 1.4]];
+    hand(5, 46, down); hand(11, 46, down); hand(20, 46, down); hand(29, 46, down); hand(37, 11, [[-2, -2.3], [0.5, -3], [2.6, -1.5]]);
+    x.fillStyle = BODY; x.beginPath(); x.ellipse(20, 25, 11.5, 9, 0, 0, 7); x.fill(); // the body, a rock
+    x.fillStyle = TOP; x.beginPath(); x.moveTo(9.5, 23.5); x.quadraticCurveTo(20, 11.5, 30.5, 23.5); x.quadraticCurveTo(20, 21, 9.5, 23.5); x.fill(); // lit on top
+    x.fillStyle = SPOT;
+    x.beginPath(); x.ellipse(15, 27, 2.2, 1.4, 0, 0, 7); x.fill(); x.beginPath(); x.ellipse(24.5, 29, 1.8, 1.2, 0, 0, 7); x.fill(); x.beginPath(); x.ellipse(21, 23, 1.4, 1, 0, 0, 7); x.fill();
+    x.fillStyle = AMBER; x.beginPath(); x.arc(37.5, 4.5, 1.5, 0, 7); x.fill(); // a chime of greeting
     x.restore();
   }
   const idSeed = (id) => [...id].reduce((h, ch) => h * 31 + ch.charCodeAt(0), made.seed) | 0;

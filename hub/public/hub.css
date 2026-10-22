@@ -70,10 +70,18 @@ select.field { padding-right: 6px; }
 .block .sun, .block .planet, .block .home { position: absolute; aspect-ratio: 1; border-radius: 50%; pointer-events: none; }
 .block .sun { left: 4%; top: 6%; width: 10%; background: radial-gradient(circle at 42% 40%, #fffdf5, #ffe9b8 55%, #f0c070); box-shadow: 0 0 28px 8px rgba(227, 171, 62, .28), 0 0 80px 24px rgba(227, 171, 62, .08); }
 .block .ring { position: absolute; left: 50%; top: 53%; width: calc(var(--rx) * 2%); height: calc(var(--ry) * 2%); transform: translate(-50%, -50%); border: 1px solid var(--orbit); border-radius: 50%; pointer-events: none; }
+/* Home, earthy: an ocean, green continents, white clouds, a thin blue air, the sun's light from the top left and night on
+   the far side. The colours are World's own (ocean #24507f, land #4f7a52). */
 .block .home { left: 50%; top: 53%; width: 21%; margin: -10.5% 0 0 -10.5%; z-index: 2;
-  background: radial-gradient(circle at 62% 60%, rgba(0, 0, 0, .35) 0 5%, transparent 6%), radial-gradient(circle at 40% 70%, rgba(0, 0, 0, .3) 0 3.5%, transparent 4.5%), radial-gradient(circle at 70% 30%, rgba(0, 0, 0, .25) 0 4%, transparent 5%),
-    radial-gradient(circle at 32% 30%, #9a978f, #55534e 55%, #2b2a27);
-  box-shadow: inset -0.3em -0.3em 0.9em rgba(0, 0, 0, .5), 0 0 0 1px rgba(255, 255, 255, .05); font-size: 1vw; }
+  background:
+    radial-gradient(ellipse 34% 11% at 30% 24%, rgba(240, 244, 250, .55), transparent 70%),
+    radial-gradient(ellipse 40% 9% at 66% 58%, rgba(240, 244, 250, .5), transparent 70%),
+    radial-gradient(ellipse 26% 8% at 48% 80%, rgba(240, 244, 250, .45), transparent 70%),
+    radial-gradient(ellipse 22% 30% at 36% 44%, #4f7a52 0 60%, transparent 62%),
+    radial-gradient(ellipse 16% 18% at 68% 32%, #4f7a52 0 60%, transparent 62%),
+    radial-gradient(ellipse 18% 14% at 62% 72%, #4f7a52 0 60%, transparent 62%),
+    radial-gradient(circle at 32% 30%, #3f7bb5, #24507f 55%, #122a48);
+  box-shadow: inset -0.35em -0.35em 1em rgba(2, 4, 10, .75), 0 0 0 0.12em rgba(110, 160, 240, .35), 0 0 1.2em 0.2em rgba(110, 160, 240, .18); font-size: 1vw; }
 /* The mascot, standing on the top of Home. */
 .mascot { display: block; }
 .mascot svg { display: block; width: 100%; height: auto; }

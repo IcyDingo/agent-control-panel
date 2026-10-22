@@ -126,22 +126,22 @@
       el('div', { class: 'cap' }, el('span', { text: 'Last 100 days' }), el('span', { text: `${plural(count, 'day', 'days')} with work` })));
   }
 
-  /** The mascot: a small astronaut in the page's own colours, waving, with an amber glint on the visor and an amber
-   *  light on the antenna. Static markup of our own, so innerHTML is safe here. `px` is the width; the height follows. */
+  /** The mascot: a small stone creature in the spirit of Rocky from Project Hail Mary. A rock of a body, no face, five
+   *  jointed legs ending in three-fingered hands, one leg raised in greeting with an amber chime above it. Static
+   *  markup of our own, so innerHTML is safe here. `px` is the width; the height follows (40 by 48 units). */
   const MASCOT = `<svg viewBox="0 0 40 48" xmlns="http://www.w3.org/2000/svg">
-    <rect x="7" y="24" width="7" height="13" rx="2.5" fill="var(--fg-dim)"/>
-    <rect x="27" y="17" width="4.5" height="11" rx="2.25" fill="var(--fg)" transform="rotate(-35 29 28)"/>
-    <rect x="13.5" y="36" width="5.5" height="10" rx="2.5" fill="var(--fg)"/>
-    <rect x="21" y="36" width="5.5" height="10" rx="2.5" fill="var(--fg)"/>
-    <rect x="13" y="43" width="6.5" height="3.5" rx="1.5" fill="var(--fg-dim)"/>
-    <rect x="20.5" y="43" width="6.5" height="3.5" rx="1.5" fill="var(--fg-dim)"/>
-    <rect x="12" y="23" width="16" height="15" rx="5" fill="var(--fg)"/>
-    <rect x="9" y="25" width="4.5" height="11" rx="2.25" fill="var(--fg)"/>
-    <circle cx="20" cy="13" r="11" fill="var(--fg)"/>
-    <circle cx="21" cy="13.5" r="7" fill="var(--bg)"/>
-    <ellipse cx="18.5" cy="10.5" rx="2.6" ry="1.6" fill="var(--amber)" opacity=".95"/>
-    <rect x="19.4" y="0.5" width="1.2" height="3" fill="var(--fg-dim)"/>
-    <circle cx="20" cy="1.2" r="1.4" fill="var(--amber)"/>
+    <g stroke="#5a5248" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" fill="none">
+      <path d="M11 29 L6 38 L5 46"/><path d="M15 31 L12 39 L11 46"/><path d="M20 32 L20 40 L20 46"/><path d="M25 31 L28 39 L29 46"/><path d="M29 28 L35 20 L37 11"/>
+    </g>
+    <g stroke="#5a5248" stroke-width="1.5" stroke-linecap="round" fill="none">
+      <path d="M5 46 l-2.4 1.4 M5 46 l0 2.5 M5 46 l2.4 1.4"/><path d="M11 46 l-2.4 1.4 M11 46 l0 2.5 M11 46 l2.4 1.4"/>
+      <path d="M20 46 l-2.4 1.4 M20 46 l0 2.5 M20 46 l2.4 1.4"/><path d="M29 46 l-2.4 1.4 M29 46 l0 2.5 M29 46 l2.4 1.4"/>
+      <path d="M37 11 l-2 -2.3 M37 11 l0.5 -3 M37 11 l2.6 -1.5"/>
+    </g>
+    <ellipse cx="20" cy="25" rx="11.5" ry="9" fill="#8f8678"/>
+    <path d="M9.5 23.5 Q20 11.5 30.5 23.5 Q20 21 9.5 23.5Z" fill="#aaa092"/>
+    <ellipse cx="15" cy="27" rx="2.2" ry="1.4" fill="#6f675b"/><ellipse cx="24.5" cy="29" rx="1.8" ry="1.2" fill="#6f675b"/><ellipse cx="21" cy="23" rx="1.4" ry="1" fill="#6f675b"/>
+    <circle cx="37.5" cy="4.5" r="1.5" fill="var(--amber)"/>
   </svg>`;
   function mascot(px = 40) {
     const box = el('span', { class: 'mascot', 'aria-hidden': 'true', style: `width:${px}px` });
