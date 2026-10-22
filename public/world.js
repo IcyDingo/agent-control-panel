@@ -428,7 +428,9 @@
 
   // ---------- the Universe: your sun among the galaxies your probes found, drawn in hub units (the spiral's), not map px
   const PROBE_SHOW = 240; // how far out a probe on its way is drawn (hub units), at the fraction of the way it has come
-  let found = [], foundSig = null, foundSeen = null, probeReady = null; // the found galaxies, named; whether a probe would find anyone
+  let found = [], foundSig = null, probeReady = null; // the found galaxies, named; whether a probe would find anyone
+  let flying = new Set(), landed = []; // probes seen on their way here; the spots of those that arrived since, not yet toasted
+  let foundRetry = 0; // after a lookup the hub didn't answer, when to ask again
   /** This account's spot in the Universe: the page's owner, or the account signed in here; null signed out. */
   const meSpot = () => opts.universe?.me?.() ?? (hubNow?.loggedIn && hubNow.account ? { x: hubNow.account.x, y: hubNow.account.y } : null);
   const universeOn = () => Boolean(opts.universe && meSpot());
@@ -436,21 +438,29 @@
   function myProbes() {
     const me = meSpot();
     return (world?.probes ?? []).filter((q) => !q.by || (me && q.by.x === me.x && q.by.y === me.y))
-      .map((q) => ({ ang: q.ang, progress: q.progress, to: q.progress >= 1 ? q.to : null }));
+      .map((q) => ({ id: q.id, ang: q.ang, progress: q.progress, to: q.progress >= 1 ? q.to : null }));
   }
   /** Ask for the found galaxies' names and suns when the spots change; unlisted ones come back missing and are not drawn. */
   function loadFound() {
     const at = universeOn() ? myProbes().filter((q) => q.to).map((q) => q.to) : [], sig = at.map((c) => `${c.x},${c.y}`).join(';');
-    if (sig === foundSig) return;
+    // A probe this session saw on its way that has now arrived gets a toast once its galaxy is named; finds from before
+    // (a reopened World, signing in again) don't.
+    if (universeOn()) for (const q of myProbes()) {
+      if (!q.to) flying.add(q.id);
+      else if (flying.delete(q.id)) landed.push(q.to);
+    }
+    if (sig === foundSig || (foundSig === null && Date.now() < foundRetry)) return;
     foundSig = sig;
-    if (!at.length) { found = []; foundSeen ??= new Set(); return; }
+    if (!at.length) { found = []; return; }
     opts.universe.names(at).then((list) => {
       if (foundSig !== sig) return;
-      found = Array.isArray(list) ? list : [];
-      if (foundSeen && !opts.readOnly) for (const g of found) if (!foundSeen.has(g.handle)) opts.toast?.(`Your probe found @${g.handle}'s galaxy.`);
-      foundSeen = new Set(found.map((g) => g.handle));
+      if (!Array.isArray(list)) { foundSig = null; foundRetry = Date.now() + 30_000; return; } // no answer: keep what was drawn, ask again in 30 s
+      found = list;
+      const named = landed.filter((c) => found.some((g) => g.x === c.x && g.y === c.y));
+      landed = landed.filter((c) => !named.includes(c));
+      if (!opts.readOnly) for (const c of named) opts.toast?.(`Your probe found @${found.find((g) => g.x === c.x && g.y === c.y).handle}'s galaxy.`);
       showProbe();
-    }).catch(() => {});
+    }).catch(() => { if (foundSig === sig) { foundSig = null; foundRetry = Date.now() + 30_000; } });
   }
   /** The Universe's transform: your sun at the middle, zoomed to fit what you found (300 hub units across at least). */
   function uView() {
@@ -1253,7 +1263,7 @@
       here = 'home'; flight = null; focus = { x: 0, y: 0 }; focusTo = { x: 0, y: 0 };
       show(summary);
       showHub(opts.hub);
-      found = []; foundSig = null; foundSeen = null; probeReady = null; probeAng = null;
+      found = []; foundSig = null; foundRetry = 0; flying = new Set(); landed = []; probeReady = null; probeAng = null;
       showProbe(); // the Universe and the Probe card follow the account the hub says is signed in
       if (opts.card) openCard(firstCard());
       fit();

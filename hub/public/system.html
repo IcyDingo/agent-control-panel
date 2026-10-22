@@ -416,7 +416,10 @@
   const universe = {
     me: () => ({ x: profile.x, y: profile.y }),
     name: own ? 'You' : `@${profile.handle}`,
-    names: async (at) => (await Hub.api('GET', `/api/systems/named?at=${at.map((c) => `${c.x},${c.y}`).join(';')}`)).galaxies ?? [],
+    names: async (at) => {
+      const r = await Hub.api('GET', `/api/systems/named?at=${at.map((c) => `${c.x},${c.y}`).join(';')}`);
+      return r.ok ? r.galaxies : null; // null: no answer, ask again
+    },
     visit: (h) => { location.href = `/@${encodeURIComponent(h)}`; },
   };
   AgentWorld.enter(system ?? bareSystem(profile, stats), { readOnly: true, api: async () => ({ ok: false }), toast: () => {},

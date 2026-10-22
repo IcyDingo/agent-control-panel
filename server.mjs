@@ -1425,7 +1425,8 @@ async function foundGalaxies(body) {
   const at = Array.isArray(body?.at) ? body.at.filter((c) => Number.isInteger(c?.x) && Number.isInteger(c?.y)).slice(0, 64) : [];
   if (!at.length || !hub.status().loggedIn) return { ok: true, galaxies: [] };
   const r = await hub.request('GET', `/api/systems/named?at=${at.map((c) => `${c.x},${c.y}`).join(';')}`);
-  return { ok: true, galaxies: r.ok && Array.isArray(r.body.galaxies) ? r.body.galaxies : [] };
+  // No answer is not "no one": the page keeps what it drew and asks again.
+  return r.ok && Array.isArray(r.body?.galaxies) ? { ok: true, galaxies: r.body.galaxies } : { ok: false, error: 'The hub could not be reached.' };
 }
 // The Claude calls behind Build it. `claude agents` lists one while it runs, so the roster and the hooks skip these.
 const quietIds = new Set();

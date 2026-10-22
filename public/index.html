@@ -2619,7 +2619,7 @@ async function enterWorld() {
   document.body.classList.add('in-space');
   AgentWorld.enter(r.world, { api, toast, hub: snap?.hub, card: { key: 'acp.world.card', first: 'build' }, universe: {
     // The galaxies your probes found are named by the hub, through this Mac; a click opens their page there.
-    names: async (at) => (await api('/api/world/found', { at })).galaxies ?? [],
+    names: async (at) => { const r = await api('/api/world/found', { at }); return r.ok ? r.galaxies : null; }, // null: ask again
     visit: (handle) => snap?.hub?.url && window.open(`${snap.hub.url}/@${encodeURIComponent(handle)}`, '_blank', 'noopener'),
   } });
   worldNeeds();
