@@ -60,14 +60,17 @@ test('a valid system is stored, canonicalised, and read back with what was deriv
   assert.equal(systems.get('nobody'), null);
 });
 
-test('the same system again is unchanged; an older seq is stale and names the stored one', () => {
+test('the same system again is unchanged but says the Mac is there; an older seq is stale and names the stored one', () => {
   fresh();
   const p = projection();
   systems.put(account.id, upload(p, 5));
-  clock += 1000;
+  const before = { ...db.prepare('SELECT hash, snapshot FROM systems WHERE account_id = ?').get(account.id) };
+  clock = T + 3 * DAY;
   const again = systems.put(account.id, upload(p, 6));
   assert.deepEqual([again.ok, again.unchanged, again.seq], [true, true, 6]);
-  assert.equal(systems.get(account.id).receivedAt, T, 'an unchanged upload writes nothing');
+  assert.equal(systems.get(account.id).receivedAt, T + 3 * DAY, 'the heartbeat moves received_at');
+  assert.equal(systems.publicView(account, systems.get(account.id)).stats.lastActive, '2026-10-25');
+  assert.deepEqual({ ...db.prepare('SELECT hash, snapshot FROM systems WHERE account_id = ?').get(account.id) }, before, 'and nothing else');
   const stale = systems.put(account.id, upload(p, 4));
   assert.deepEqual(stale, { ok: false, status: 409, error: 'stale', seq: 6 }, 'an unchanged upload still moves the stored seq forward');
 });

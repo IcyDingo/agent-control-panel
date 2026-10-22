@@ -34,7 +34,8 @@ function cleanStatus(s) {
 export function createSystems(db, { now = Date.now } = {}) {
   const row = (sql, ...args) => db.prepare(sql).get(...args);
 
-  /** Store an upload: `{ pv, seq, device, snapshot }`. An older `seq` is stale (409); the same content is `unchanged`. */
+  /** Store an upload: `{ pv, seq, device, snapshot }`. An older `seq` is stale (409); the same content is `unchanged`, and
+   *  still counts as the Mac being there (the half-hour heartbeat), so it moves `received_at` and the page's last active. */
   function put(accountId, { pv, seq, device, snapshot } = {}) {
     const clean = pv === PROJECTION_VERSION ? validProjection(snapshot) : null;
     if (!clean || !num(seq)) return fail(422, SYSTEM_REFUSED);
@@ -44,7 +45,7 @@ export function createSystems(db, { now = Date.now } = {}) {
 
     const json = JSON.stringify(clean), hash = crypto.createHash('sha256').update(json).digest('hex');
     if (stored && stored.hash === hash) {
-      if (seq > stored.seq) db.prepare('UPDATE systems SET seq = ? WHERE account_id = ?').run(seq, accountId);
+      db.prepare('UPDATE systems SET seq = MAX(seq, ?), received_at = ? WHERE account_id = ?').run(seq, now(), accountId);
       return { ok: true, seq: Math.max(seq, stored.seq), hash, unchanged: true };
     }
 
