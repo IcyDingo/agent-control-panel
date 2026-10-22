@@ -5,12 +5,21 @@
 set -u
 DIR="$(cd "$(dirname "$0")" && pwd)"
 NODE="__NODE__"
+# The `switch` format (`<to> <from> <tries>`) is frozen, because this launcher is never updated: every later worker
+# must write what this one reads. A switch it cannot read (a field missing, a version not there, a count that is not
+# a number) is dropped and current runs, so a damaged file cannot stop the worker for good.
 if [ -f "$DIR/switch" ]; then
+  to= from= tries=
   read -r to from tries < "$DIR/switch"
-  if [ "$(cat "$DIR/started" 2>/dev/null)" = "$to" ]; then
+  tries="${tries:-0}"
+  valid=1
+  for x in "$to" "$from"; do [ -n "$x" ] && [ -f "$DIR/$x/server.mjs" ] || valid=0; done
+  case "$tries" in *[!0-9]*) valid=0 ;; esac
+  if [ "$valid" = 0 ] || [ "$(cat "$DIR/started" 2>/dev/null)" = "$to" ]; then
     rm -f "$DIR/switch"
   else
-    tries=$((tries + 1))
+    # expr, not $(( )): a count like 08 would be read as octal there, and fail.
+    tries=$(expr "$tries" + 1)
     if [ "$tries" -ge 3 ]; then
       ln -sfn "$DIR/$from" "$DIR/current"
       printf '%s %s\n' "$to" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$DIR/rolled-back"

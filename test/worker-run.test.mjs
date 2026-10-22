@@ -79,6 +79,38 @@ test('an earlier try only counts up', async (t) => {
   assert.equal(fs.realpathSync(path.join(w.dir, 'current')), fs.realpathSync(path.join(w.dir, B)));
 });
 
+test('a switch whose count is not a number is removed, and current runs', async (t) => {
+  const w = fixture(t);
+  fs.unlinkSync(path.join(w.dir, 'current'));
+  fs.symlinkSync(path.join(w.dir, B), path.join(w.dir, 'current'));
+  fs.writeFileSync(path.join(w.dir, 'switch'), `${B} ${A} x1\n`);
+  const r = await w.go();
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(fs.existsSync(path.join(w.dir, 'switch')), false);
+  assert.equal(fs.existsSync(path.join(w.dir, 'rolled-back')), false);
+  assert.equal(fs.realpathSync(path.join(w.dir, 'current')), fs.realpathSync(path.join(w.dir, B)));
+  assert.ok(fs.readFileSync(w.log, 'utf8').trim().endsWith('/current/server.mjs'));
+});
+
+test('a switch with one field is removed, current is left as it is, and current runs', async (t) => {
+  const w = fixture(t);
+  fs.writeFileSync(path.join(w.dir, 'switch'), `${B}\n`);
+  const r = await w.go();
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(fs.existsSync(path.join(w.dir, 'switch')), false);
+  assert.equal(fs.realpathSync(path.join(w.dir, 'current')), fs.realpathSync(path.join(w.dir, A)));
+  assert.ok(fs.readFileSync(w.log, 'utf8').trim().endsWith('/current/server.mjs'));
+});
+
+test('a switch that names a version that is not there is removed, and current runs', async (t) => {
+  const w = fixture(t);
+  fs.writeFileSync(path.join(w.dir, 'switch'), `${B} ${'3'.repeat(40)} 2\n`);
+  const r = await w.go();
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(fs.existsSync(path.join(w.dir, 'switch')), false);
+  assert.equal(fs.realpathSync(path.join(w.dir, 'current')), fs.realpathSync(path.join(w.dir, A)));
+});
+
 test('a missing current is a sentence and a non-zero exit, not an exec of nothing', async (t) => {
   const w = fixture(t);
   fs.unlinkSync(path.join(w.dir, 'current'));

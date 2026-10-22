@@ -33,8 +33,9 @@ const PORT = Number(process.env.ACP_PORT ?? 4747);
 const DAEMON = process.env.ACP_DAEMON === '1';
 // Run from an installed worker (`worker/<sha>/`), this is that version; from a clone of the repo it is null.
 const WORKER = workerOf(path.dirname(fileURLToPath(import.meta.url)));
-// The first update check waits ten minutes, so a login or a restart is not slowed by a download; then once a day.
-const UPDATE_FIRST_MS = 600_000, UPDATE_MS = 86_400_000;
+// The first update check waits ten minutes, so a login or a restart is not slowed by a download; then once a day,
+// looked at every hour.
+const UPDATE_FIRST_MS = 600_000, UPDATE_MS = 86_400_000, UPDATE_TICK_MS = 3_600_000;
 const RETRY_MS = Number(process.env.ACP_RETRY_MS ?? 5000);
 const ROSTER_MS = 3000;
 // A background service must not cost battery while nobody looks: under ACP_DAEMON with no page connected, the roster
@@ -1750,8 +1751,14 @@ server.listen(PORT, '127.0.0.1', () => {
   }
   if (DAEMON && WORKER) { // only a worker install updates itself; a service from a clone is the app's and never does
     try { markStarted(WORKER); } catch (err) { console.error('worker: could not record the start:', err?.message ?? err); }
-    const check = () => checkForUpdate({ worker: WORKER, hubUrl: hub.status().url, run }).then((r) => { if (r.outcome === 'error') console.error('update check:', r.error); });
+    // A timer's clock stops while the Mac sleeps, so a day-long interval on a laptop could go many days without a check.
+    // An hourly tick that checks once a day of wall time has passed keeps it daily.
+    let lastCheck = Date.now();
+    const check = () => {
+      lastCheck = Date.now();
+      checkForUpdate({ worker: WORKER, hubUrl: hub.status().url, run }).then((r) => { if (r.outcome === 'error') console.error('update check:', r.error); });
+    };
     setTimeout(check, UPDATE_FIRST_MS);
-    setInterval(check, UPDATE_MS);
+    setInterval(() => { if (Date.now() - lastCheck >= UPDATE_MS) check(); }, UPDATE_TICK_MS);
   }
 });

@@ -11,6 +11,8 @@ import { workerOf, markStarted, rolledBack, prune, checkForUpdate } from '../upd
 const A = '1'.repeat(40), B = '2'.repeat(40);
 // The only place a release is fetched from, whatever the hub's answer says.
 const ARCHIVE = `https://codeload.github.com/IcyDingo/agent-control-panel/tar.gz/${B}`;
+// Where the worker asks GitHub whether B is on main.
+const COMPARE = `https://api.github.com/repos/IcyDingo/agent-control-panel/compare/main...${B}`;
 const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'update-')));
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
 const run = (cmd, args, opts = {}) => new Promise((resolve) =>
@@ -35,13 +37,15 @@ function archive(top) {
   return fs.readFileSync(file);
 }
 
-/** A fake network: the hub's `/api/release` answers `release` (a Response, or a function that throws), GitHub's archive
- * address for B the bytes, and any other address (the hub's own `url` among them) a 404. Every call is recorded. */
-function hub(release, bytes = null) {
+/** A fake network: the hub's `/api/release` answers `release` (a Response, or a function that throws), GitHub's compare
+ * for B `compare` (by default B is behind main, so on it), GitHub's archive address for B the bytes, and any other address
+ * (the hub's own `url` among them) a 404. Every call is recorded. */
+function hub(release, bytes = null, compare = () => json({ status: 'behind' })) {
   const calls = [];
   const fn = async (url, init = {}) => {
-    calls.push({ url: String(url), redirect: init.redirect });
+    calls.push({ url: String(url), redirect: init.redirect, ...(init.headers ? { accept: init.headers.accept } : {}) });
     if (String(url) === 'http://hub.test/api/release') return typeof release === 'function' ? release() : release;
+    if (String(url) === COMPARE) return compare();
     if (String(url) === ARCHIVE) return new Response(bytes);
     return json({ ok: false, error: 'Not found.' }, 404);
   };
@@ -86,8 +90,44 @@ test('a new sha is downloaded, verified, switched and the process asked to exit'
   assert.equal(fs.existsSync(path.join(w.dir, B, 'server.mjs')), true);
   assert.equal(fs.existsSync(path.join(w.dir, A, 'server.mjs')), true); // the launcher rolls back to it if B fails to start
   assert.equal(fs.readFileSync(path.join(w.dir, 'switch'), 'utf8'), `${B} ${A} 0\n`);
+  assert.equal(fs.existsSync(path.join(w.dir, 'switch.new')), false, 'switch is written beside and renamed over');
   assert.deepEqual(r.exits, [0]);
   assert.deepEqual(leftovers(w.dir), []);
+});
+
+test('a release is downloaded only once GitHub says it is on main', async () => {
+  for (const status of ['identical', 'behind']) {
+    const w = worker();
+    const fetch = hub(names(B), archive(`agent-control-panel-${B}`), () => json({ status }));
+    const r = await check(w, fetch);
+    assert.equal(r.outcome, 'switched', status);
+    assert.deepEqual(fetch.calls.map((c) => c.url), ['http://hub.test/api/release', COMPARE, ARCHIVE]);
+    assert.deepEqual(fetch.calls[1], { url: COMPARE, redirect: 'error', accept: 'application/vnd.github+json' });
+  }
+});
+
+test('a release that is not on main, as a fork\'s commit would be, is an error and nothing is downloaded', async () => {
+  for (const status of ['ahead', 'diverged']) {
+    const w = worker();
+    const fetch = hub(names(B), archive(`agent-control-panel-${B}`), () => json({ status }));
+    const r = await check(w, fetch);
+    assert.deepEqual([r.outcome, r.error], ['error', 'Release 2222222 is not on main.'], status);
+    assert.equal(fetch.calls.some((c) => c.url === ARCHIVE), false);
+    assert.equal(fs.readlinkSync(path.join(w.dir, 'current')), path.join(w.dir, A));
+    assert.equal(fs.existsSync(path.join(w.dir, B)), false);
+    assert.deepEqual(r.exits, []);
+  }
+});
+
+test('when GitHub does not answer the compare, nothing is downloaded', async () => {
+  for (const compare of [() => json({ message: 'Server Error' }, 500), () => { throw new TypeError('fetch failed'); }]) {
+    const w = worker();
+    const fetch = hub(names(B), archive(`agent-control-panel-${B}`), compare);
+    const r = await check(w, fetch);
+    assert.deepEqual([r.outcome, r.error], ['error', 'GitHub did not answer.']);
+    assert.equal(fetch.calls.some((c) => c.url === ARCHIVE), false);
+    assert.equal(fs.existsSync(path.join(w.dir, 'switch')), false);
+  }
 });
 
 test("the release is fetched from GitHub's archive for that commit, never from the address the hub gives", async () => {
