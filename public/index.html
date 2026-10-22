@@ -802,6 +802,7 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
 </header>
 <p class="banner" id="roster-err" hidden></p>
 <div class="banner old" id="old-ver" role="status" hidden></div>
+<div class="banner connect" id="app-update" role="status" hidden></div>
 <div class="banner connect" id="prof-banner" hidden>
   <span>The <b id="pb-name"></b> profile doesn't report to this panel yet. Its sessions are listed, but their requests, tools and subagents don't show as they happen.</span>
   <button class="btn small" type="button" id="pb-connect">Connect this profile</button>
@@ -1502,6 +1503,21 @@ function renderOld(list) {
       el('span', { text: `${o.shown ? '' : `${o.profile.label} profile, `}Claude Code ${o.version}.` }), ...restartHow(o)))),
   ]);
 }
+/** A newer release on the hub, for a panel run from a clone: Update pulls main, rebuilds the app and restarts on it. */
+function renderUpdate(u) {
+  const b = $('app-update');
+  b.hidden = !u;
+  patch(b, JSON.stringify(u), () => !u ? null
+    : u.state === 'restarting' ? [el('span', { text: 'Updated. The panel is restarting on the new version…' })]
+    : u.state === 'done' ? [el('span', { text: 'Updated. Quit the panel and start it again to run the new version.' })]
+    : [
+      el('span', {}, el('b', { text: 'A new version of the panel is out' }), ` (${u.sha.slice(0, 7)}).`),
+      u.blocked ? el('span', { text: `${u.blocked} Update it yourself: git pull, then ./install.sh.` })
+        : el('button', { class: 'btn small', type: 'button', disabled: u.state === 'updating', onclick: () => api('/api/update', {}) },
+          u.state === 'updating' ? 'Updating…' : 'Update'),
+      u.error ? el('span', { class: 'mono', text: u.error }) : null,
+    ]);
+}
 /** The workspace with nothing open: you closed it. It offers the top of Needs you, the one that has waited longest. */
 function renderEmpty(waiting) {
   const e = $('empty'), next = waiting[0], n = waiting.length;
@@ -1944,6 +1960,7 @@ function render() {
   renderEmpty(g.waiting);
   renderWorldBtn(snap.world);
   renderOld(snap.oldVersions ?? []);
+  renderUpdate(snap.appUpdate ?? null);
   if (spaceOn) renderSpace(g);
   document.title = snap.pending.length ? `(${snap.pending.length}) Agent panel` : 'Agent panel';
   // A two-click control keeps the keyboard focus through a redraw.

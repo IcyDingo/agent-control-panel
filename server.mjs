@@ -25,6 +25,7 @@ import { createHub } from './hub.mjs';
 import { createHubSync } from './hub-sync.mjs';
 import { createHubOrders } from './hub-orders.mjs';
 import { workerOf, markStarted, rolledBack, checkForUpdate } from './update.mjs';
+import { checkClone, updateClone } from './clone-update.mjs';
 
 // `node server.mjs <command>` runs the CLI (cli.mjs) and never starts the server.
 if (process.argv.length > 2) { const { main } = await import('./cli.mjs'); process.exit(await main(process.argv.slice(2))); }
@@ -36,6 +37,9 @@ const WORKER = workerOf(path.dirname(fileURLToPath(import.meta.url)));
 // The first update check waits ten minutes, so a login or a restart is not slowed by a download; then once a day,
 // looked at every hour.
 const UPDATE_FIRST_MS = 600_000, UPDATE_MS = 86_400_000, UPDATE_TICK_MS = 3_600_000;
+// Run from a clone, the panel only says when the hub has a newer release: a minute after start, then every 6 hours.
+const APP_UPDATE_FIRST_MS = 60_000, APP_UPDATE_MS = 6 * 3_600_000;
+const REPO = path.dirname(fileURLToPath(import.meta.url));
 const RETRY_MS = Number(process.env.ACP_RETRY_MS ?? 5000);
 const ROSTER_MS = 3000;
 // A background service must not cost battery while nobody looks: under ACP_DAEMON with no page connected, the roster
@@ -1592,7 +1596,7 @@ function snapshot() {
   const now = Date.now();
   return {
     now, armed, rosterError, port: PORT, profile: profileInfo, world: worldSummary(), hub: hubInfo(), oldVersions,
-    version: WORKER?.sha ?? null, rolledBack: WORKER ? rolledBack(WORKER.dir) : null,
+    version: WORKER?.sha ?? null, rolledBack: WORKER ? rolledBack(WORKER.dir) : null, appUpdate,
     sessions: [...sessions.values()].map(({ spawns, hereCwd, rosterCwd, ranCwd, editTops, ...s }) => {
       const here = ranCwd ?? hereCwd ?? s.cwd, git = placeOut(gitPlace(here));
       return {
@@ -1728,7 +1732,8 @@ async function handle(req, res) {
                       '/api/world/found': foundGalaxies, '/api/history': history,
                       '/api/trust-terminal': openTrustTerminal,
                       '/api/hub/status': () => ({ ok: true, hub: hubInfo() }), '/api/hub/login/start': hubLoginStart,
-                      '/api/hub/login/cancel': hubLoginCancel, '/api/hub/logout': hubLogout, '/api/hub/sync': hubSyncNow };
+                      '/api/hub/login/cancel': hubLoginCancel, '/api/hub/logout': hubLogout, '/api/hub/sync': hubSyncNow,
+                      '/api/update': updateApp };
     if (Object.hasOwn(ACTIONS, url.pathname)) {
       let r;
       try { r = await ACTIONS[url.pathname](body); } catch (err) { r = { ok: false, error: String(err?.message ?? err).slice(0, 300) }; }
@@ -1753,6 +1758,51 @@ server.on('error', (err) => {
   if (++portTries === 1 || portTries % 60 === 0) console.log(`port ${PORT} is taken; trying again every ${RETRY_MS / 1000} s`);
   setTimeout(() => server.listen(PORT, '127.0.0.1'), RETRY_MS);
 });
+
+// ---------------------------------------------------------------- a clone's updates
+
+// A newer release than this clone runs, as the board shows it: `ready` (with `blocked`: null, or why a click can't take
+// it), `updating`, `restarting`, or `done` (updated, but nothing here restarts it). Null when there is none.
+let appUpdate = null;
+/** Ask the hub which release it runs. Only for a clone (a worker updates itself) and only signed in: signed out, the
+ *  panel sends nothing to the hub. */
+async function checkAppUpdate() {
+  if (WORKER || !hub.status().loggedIn || appUpdate?.state === 'updating' || appUpdate?.state === 'restarting') return;
+  const r = await checkClone({ repo: REPO, hubUrl: hub.status().url, run });
+  if (r.outcome === 'error') return console.error('update check:', r.error);
+  const next = r.outcome === 'available' ? { sha: r.sha, blocked: r.blocked, state: 'ready' } : null;
+  if (JSON.stringify(next) !== JSON.stringify(appUpdate)) { appUpdate = next; broadcast(); }
+}
+/** The Agent Panel.app running for this panel (its Info.plist names this folder and port), or null. It starts a server
+ *  when its own goes away, whichever process started this one, so the update can exit; and its bundle is where the
+ *  rebuilt app goes. */
+async function runningApp() {
+  const ps = await run('ps', ['-axo', 'comm=']), exe = '/Contents/MacOS/AgentPanel';
+  if (ps.err) return null;
+  const real = (p) => { try { return fs.realpathSync.native(p); } catch { return p; } }, here = real(REPO);
+  for (const line of new Set(ps.stdout.split('\n').map((l) => l.trim()).filter((l) => l.endsWith('.app' + exe)))) {
+    const app = line.slice(0, -exe.length), plist = path.join(app, 'Contents', 'Info.plist');
+    const [port, repo] = await Promise.all(['ACPPort', 'ACPRepo'].map((k) => run('plutil', ['-extract', k, 'raw', plist])));
+    if (!port.err && !repo.err && port.stdout.trim() === String(PORT) && real(repo.stdout.trim()) === here) return app;
+  }
+  return null;
+}
+/** The board's Update: pull main, rebuild the app, and restart on the new code. */
+async function updateApp() {
+  if (WORKER) return { ok: false, error: 'This install updates itself.' };
+  if (appUpdate?.state === 'updating' || appUpdate?.state === 'restarting') return { ok: false, error: 'The panel is updating already.' };
+  appUpdate = { ...(appUpdate ?? {}), state: 'updating', error: null };
+  broadcast();
+  const app = await runningApp();
+  const r = await updateClone({ repo: REPO, run, appPath: app });
+  if (!r.ok) { appUpdate = { ...appUpdate, state: 'ready', error: r.error }; broadcast(); return r; }
+  if (!r.built && r.buildError) console.error('update: the app did not rebuild:', r.buildError);
+  const restart = DAEMON || app !== null; // launchd restarts the service; the app starts a server when its own is gone
+  appUpdate = { sha: r.sha, state: restart ? 'restarting' : 'done', built: r.built, buildError: r.buildError ?? null };
+  broadcast();
+  if (restart) setTimeout(() => process.exit(0), 1500); // after this answer and the board's last snapshot
+  return { ok: true, sha: r.sha, built: r.built, restart };
+}
 
 let rosterTimer = null, rosterFast = null;
 /** Reads the roster every ROSTER_MS when `fast`, every IDLE_ROSTER_MS when not. Returns whether the pace changed. */
@@ -1786,6 +1836,10 @@ server.listen(PORT, '127.0.0.1', () => {
   // A World that can't be saved (an unwritable prefs folder) must not take the panel down: under launchd it would crash-loop.
   if (DAEMON && !world.started()) {
     try { openWorld(); } catch (err) { console.error('world could not start:', err?.message ?? err); }
+  }
+  if (!WORKER) { // a clone: say when the hub runs a newer release; its owner updates it with a click
+    setTimeout(checkAppUpdate, APP_UPDATE_FIRST_MS);
+    setInterval(checkAppUpdate, APP_UPDATE_MS);
   }
   if (DAEMON && WORKER) { // only a worker install updates itself; a service from a clone is the app's and never does
     try { markStarted(WORKER); } catch (err) { console.error('worker: could not record the start:', err?.message ?? err); }
