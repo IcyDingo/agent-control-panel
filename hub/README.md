@@ -100,7 +100,7 @@ export const RELEASE_KEYS = [
 Back the key file up, for example in a password manager, and keep its passphrase apart from it. The folder is outside
 `~/Library/Application Support/Agent Panel`, so the uninstall steps do not delete it. A lost key or a forgotten
 passphrase means nobody can sign a release: every worker has to be re-installed with the one line. The check is never
-weakened to get around it.
+weakened to get around it. A key file restored from a backup must get its mode back (`chmod 600`), or `sign` refuses it.
 
 To release, check out `main` with nothing uncommitted, pull, and sign:
 
@@ -131,7 +131,8 @@ daily, and one that has been asleep longer has to be re-installed. Then delete t
 If a key is stolen (the file and its passphrase), do the same at once and without the wait: remove it from
 `RELEASE_KEYS` in a release signed by the key or keys that remain. Until a worker has that release, the thief can sign
 only a commit that is on `main` and newer than what the worker runs, so they would also need the GitHub account, and
-`main` takes changes only through a pull request.
+`main` is protected so that even the account can change it only through a pull request made in the open. Keep that
+protection on; the design counts on it.
 
 A worker that refuses a release says so, and keeps running the release it has. On that Mac, the `status` command
 prints the last check, for example `Last update check <time>: Release 1a2b3c4 is not signed by a known key.` or

@@ -8,7 +8,7 @@ sits in `/srv/agent-hub` there; nothing in them is secret.
   src/                  git clone of this repository (main)
   compose.yml           builds hub/Dockerfile from src and runs it on 127.0.0.1:4848, database in the hub-data volume
   .env                  the settings, from env.example (the GitHub id and secret live only here, mode 600)
-  update.sh             deploy the signed release tools/release.mjs sign names (verifies first, never a lower number); plain, it pulls main until the first signed release
+  update.sh             deploy the release `sign` names (verified first, never lower); plain, pull main until then
   caddy-cloudflare.sh   rewrites the site's Caddy block: Cloudflare's ranges as trusted proxies, the real visitor in X-Forwarded-For
   firewall-cloudflare.sh, cloudflare-only.{service,timer}
                         the firewall: only Cloudflare reaches the web ports (see below)
@@ -30,8 +30,8 @@ builds or writes anything. `hub/README.md` says how the key is made and a releas
 `release.env` with the commit, its number and the signatures; the hub serves them at `/api/release`, and that is the
 version every worker installs and updates to. Until the first signed release, a plain `./update.sh` still pulls `main`.
 
-The first signed deploy. The server still has the `update.sh` it was set up with, which knows nothing of signatures, so
-copy the new one from the repository first. Before that, the maintainer's public key must be in `release-keys.mjs` on
+The first signed deploy. An existing deploy still has the `update.sh` it was set up with, which knows nothing of
+signatures, so copy the new one from the repository first. Before that, the maintainer's public key must be in `release-keys.mjs` on
 `main` (a pull request, merged), because a hub with no key to check against serves no release. On the server:
 
 ```sh
@@ -39,14 +39,17 @@ cd /srv/agent-hub
 git -C src fetch -q origin main && git -C src show origin/main:hub/deploy/update.sh > update.sh && chmod +x update.sh
 ```
 
-A `compose.yml` from before the one-line install needs the same copy, with `compose.yml` in place of `update.sh` in that
-command, so that it reads `release.env`.
+A `compose.yml` from before the one-line install needs the same copy, so that it reads `release.env`:
+
+```sh
+git -C src show origin/main:hub/deploy/compose.yml > compose.yml
+```
 
 Then, on the Mac, run `git pull` on `main` and `node tools/release.mjs sign`. It prints the ssh line; run it, exactly as
-printed. Until this deploy, workers still accept an unsigned release. After it, every worker checks the signature within
-a day and installs nothing the key did not sign.
+printed. Until this deploy, workers running the old code still accept an unsigned release; after it they take the signed one
+within a day and verify from then on. A worker already on the new code refuses an unsigned release outright.
 
-Every later release is the same two steps on the Mac, nothing to copy on the server:
+Every later release is done on the Mac alone, either by copying the ssh line or by letting the tool run it:
 
 ```sh
 node tools/release.mjs sign                        # prints  ssh root@<host> /srv/agent-hub/update.sh <sha> <n> <sigs>
@@ -76,9 +79,19 @@ curl -fsSL https://universe.cashegg.com/install | head -1      # #!/bin/sh
 ## A deploy-only key (optional)
 
 `--deploy` runs ssh as you, so it uses the key that can do anything on the server. To let it do one thing only, make a
-second ssh key on the Mac (`ssh-keygen -t ed25519 -f ~/.ssh/acp-deploy`), give it a name in `~/.ssh/config` with
-`IdentityFile ~/.ssh/acp-deploy` and `IdentitiesOnly yes`, and deploy with `--deploy <that name>`. On the server, save
-this as `/srv/agent-hub/deploy-only.sh` and `chmod +x` it:
+second ssh key on the Mac (`ssh-keygen -t ed25519 -f ~/.ssh/acp-deploy`), give it a name in `~/.ssh/config`:
+
+```
+Host acp-deploy
+  HostName <server ip>
+  User root
+  IdentityFile ~/.ssh/acp-deploy
+  IdentitiesOnly yes
+```
+
+and deploy with `--deploy acp-deploy`. Set this up after the first signed deploy, not before: until then there is no
+`src/release-keys.mjs` on the server and `update.sh` skips the verification. On the server, save this as
+`/srv/agent-hub/deploy-only.sh` and `chmod +x` it:
 
 ```sh
 #!/bin/sh
