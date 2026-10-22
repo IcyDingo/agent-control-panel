@@ -17,6 +17,19 @@ const USER_CODE_ALPHABET = 'BCDFGHJKLMNPQRSTVWXZ23456789'; // no vowels (no acci
 const sha256 = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 const b64url = (buf) => buf.toString('base64url');
 
+/** A post-sign-in destination that can never leave the hub: a path on this origin, or null. Browsers drop tabs and newlines
+ *  and read a backslash as a slash, so `/\evil.example` and `/<tab>/evil.example` would otherwise be off-site; anything with a
+ *  backslash or control character is refused, and the rest must still resolve to the same origin. */
+function localPath(p) {
+  if (typeof p !== 'string' || !p.startsWith('/') || p.startsWith('//') || /[\\\x00-\x1f\x7f]/.test(p)) return null;
+  try {
+    const u = new URL(p, 'http://local.invalid');
+    return u.origin === 'http://local.invalid' ? u.pathname + u.search + u.hash : null;
+  } catch {
+    return null;
+  }
+}
+
 /** What the user typed, folded to the stored `XXXX-XXXX` shape (case and the dash don't matter); null if it can't be one. */
 function normalizeUserCode(input) {
   const s = String(input ?? '').toUpperCase().replace(/[\s-]/g, '');
@@ -89,8 +102,25 @@ export function createAuth(db, { now = Date.now, randomBytes = crypto.randomByte
     return `${out.slice(0, 4)}-${out.slice(4)}`;
   }
 
+  /** A code that ran out: it is expired for good, and if it was approved but never collected, the token minted for it is
+   *  revoked and the parked plain text dropped, so no live token is left that nobody holds. */
+  function expireDevice(r) {
+    db.exec('BEGIN');
+    try {
+      if (r.token_plain) run('UPDATE client_tokens SET revoked_at = ? WHERE hash = ? AND revoked_at IS NULL', now(), sha256(r.token_plain));
+      run("UPDATE device_codes SET status = 'expired', token_plain = NULL WHERE hash = ?", r.hash);
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
+    }
+  }
+
   function startDevice() {
     const deviceCode = secret(), t = now();
+    // Sweep: expire what ran out unnoticed (an approval nobody came back for), and forget rows long past their end.
+    for (const r of db.prepare("SELECT hash, token_plain FROM device_codes WHERE status != 'expired' AND status != 'used' AND expires_at <= ?").all(t)) expireDevice(r);
+    run('DELETE FROM device_codes WHERE expires_at <= ?', t - DAY);
     for (;;) {
       const code = userCode();
       if (one('SELECT 1 FROM device_codes WHERE user_code = ?', code)) continue;
@@ -138,7 +168,7 @@ export function createAuth(db, { now = Date.now, randomBytes = crypto.randomByte
 
     if (r.status === 'used' || r.status === 'expired') return { status: 'expired' };
     if (t >= r.expires_at) {
-      run("UPDATE device_codes SET status = 'expired', token_plain = NULL WHERE hash = ?", hash);
+      expireDevice(r);
       return { status: 'expired' };
     }
 
@@ -160,8 +190,7 @@ export function createAuth(db, { now = Date.now, randomBytes = crypto.randomByte
   function newState(returnTo) {
     const state = secret(), t = now();
     run('DELETE FROM oauth_states WHERE expires_at <= ?', t); // keep the table small
-    const local = typeof returnTo === 'string' && returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : null;
-    run('INSERT INTO oauth_states (state, return_to, expires_at) VALUES (?, ?, ?)', state, local, t + STATE_TTL_MS);
+    run('INSERT INTO oauth_states (state, return_to, expires_at) VALUES (?, ?, ?)', state, localPath(returnTo), t + STATE_TTL_MS);
     return state;
   }
 

@@ -125,11 +125,47 @@ test('the device flow: pending → approved → collected once; expired; denied;
   assert.equal(auth.approveDevice(g.user_code, 'acct-1', 'again').ok, false, 'approved only once');
 });
 
+test('an approved code nobody collects is revoked when it runs out, by a late poll or by the next start', () => {
+  fresh();
+  const parked = () => db.prepare('SELECT token_plain AS p FROM device_codes WHERE user_code = ?');
+  const a = auth.startDevice();
+  assert.equal(auth.approveDevice(a.user_code, 'acct-1', 'Mac').ok, true);
+  const token = parked().get(a.user_code).p;
+  assert.ok(token.startsWith('hub_'), 'the token waits in the row');
+  assert.equal(auth.tokenAccountId(token), 'acct-1');
+  assert.equal(auth.listTokens('acct-1').length, 1);
+
+  clock.add(900_000);
+  assert.equal(auth.pollDevice(a.device_code).status, 'expired');
+  assert.equal(parked().get(a.user_code).p, null, 'the parked token is gone');
+  assert.equal(auth.tokenAccountId(token), null, 'and the token no longer verifies');
+  assert.deepEqual(auth.listTokens('acct-1'), [], 'listTokens leaves out revoked tokens');
+
+  // Nobody polls at all: the next start sweeps it.
+  const b = auth.startDevice();
+  assert.equal(auth.approveDevice(b.user_code, 'acct-1', 'Mac').ok, true);
+  const second = parked().get(b.user_code).p;
+  clock.add(900_000);
+  auth.startDevice();
+  assert.equal(parked().get(b.user_code).p, null);
+  assert.equal(auth.tokenAccountId(second), null);
+  assert.equal(db.prepare('SELECT status FROM device_codes WHERE user_code = ?').get(b.user_code).status, 'expired');
+
+  // Rows a day past their end are forgotten.
+  clock.add(24 * 3600 * 1000);
+  auth.startDevice();
+  assert.deepEqual(db.prepare('SELECT user_code FROM device_codes WHERE user_code IN (?, ?)').all(a.user_code, b.user_code), []);
+});
+
 test('an oauth state is single-use, short-lived, and only keeps a local return path', () => {
   fresh();
   assert.deepEqual(auth.takeState(auth.newState('/@alice')), { returnTo: '/@alice' });
   assert.deepEqual(auth.takeState(auth.newState('https://evil.example')), { returnTo: null });
   assert.deepEqual(auth.takeState(auth.newState('//evil.example')), { returnTo: null });
+  for (const sneaky of ['/\\evil.example', '/\t/evil.example', '/\n/evil.example', '/\\/evil.example', '/ok\r\nSet-Cookie: x=1']) {
+    assert.deepEqual(auth.takeState(auth.newState(sneaky)), { returnTo: null }, JSON.stringify(sneaky));
+  }
+  assert.deepEqual(auth.takeState(auth.newState('/@alice?tab=map#top')), { returnTo: '/@alice?tab=map#top' });
   assert.deepEqual(auth.takeState(auth.newState(undefined)), { returnTo: null });
   const s = auth.newState('/x'); assert.ok(auth.takeState(s)); assert.equal(auth.takeState(s), null);
   const t = auth.newState('/x'); clock.add(600_001); assert.equal(auth.takeState(t), null);
