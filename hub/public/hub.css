@@ -187,11 +187,50 @@ select.field { padding-right: 6px; }
 }
 .space { position: fixed; inset: 0; z-index: 40; overflow: hidden; background: radial-gradient(ellipse at 50% 52%, var(--void-glow), var(--void) 72%); color: var(--fg); }
 body.sys { overflow: hidden; background: var(--void); }
+/* The side: a rail of icon buttons on the right, and the one open card to its left (world.js openCard). Copied from the
+   panel's public/index.html. */
 .w-side {
-  position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); top: calc(var(--sp-top, 52px) + 14px); z-index: 2; width: 320px;
-  display: grid; gap: 12px; align-content: start;
-  max-height: calc(100% - var(--sp-top, 52px) - 28px); overflow-y: auto; overscroll-behavior: contain;
+  position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); top: calc(var(--sp-top, 52px) + 14px); z-index: 2;
+  display: flex; flex-direction: row-reverse; align-items: flex-start; gap: 10px;
 }
+.w-rail { flex: none; width: 56px; padding: 6px; display: grid; gap: 4px; justify-items: center; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--panel) 92%, transparent); backdrop-filter: blur(8px); }
+.w-rail button { position: relative; width: 44px; height: 44px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 10px; background: none; color: var(--fg-dim); cursor: pointer; }
+.w-rail button:hover { background: var(--hover); color: var(--fg); }
+.w-rail button.on { background: var(--amber-dim); color: var(--amber); }
+.w-rail svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.w-rail hr { width: 28px; margin: 2px 0; border: 0; border-top: 1px solid var(--line); }
+.w-rail-av { display: grid; place-items: center; width: 28px; height: 28px; }
+.w-rail-av .avatar { border-radius: 50%; border: 1px solid var(--line-strong); object-fit: cover; }
+.w-rail button.on .avatar { border-color: var(--amber); }
+.w-rail-n { position: absolute; top: 3px; right: 3px; min-width: 15px; height: 15px; padding: 0 3px; box-sizing: border-box; border-radius: 8px; background: var(--line-strong); color: var(--fg); font: 500 10px/15px var(--mono); text-align: center; }
+/* A dot on a button: amber when something waits for you there, blue while it runs. */
+.w-rail button.has::after, .w-rail button.busy::after { content: ""; position: absolute; top: 7px; right: 7px; width: 7px; height: 7px; border-radius: 50%; background: var(--amber); }
+.w-rail button.busy::after { background: var(--run); animation: w-pulse 1.2s ease-in-out infinite; }
+@keyframes w-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .w-rail button.busy::after { animation: none; } }
+.w-card { width: 320px; box-sizing: border-box; max-height: calc(100vh - var(--sp-top, 52px) - 28px); overflow-y: auto; overscroll-behavior: contain; gap: 12px; padding: 16px; border-color: var(--line-strong); background: color-mix(in srgb, var(--panel) 95%, transparent); box-shadow: 0 18px 40px -20px var(--shade); }
+.w-card > header { display: flex; align-items: center; gap: 8px; }
+.w-card > header h2 { flex: 1; font-size: 14px; }
+.w-card-x { width: 24px; padding: 0; justify-content: center; }
+.w-card-x::before { content: "\00d7"; font-size: 17px; line-height: 1; }
+.w-part { display: grid; gap: 8px; }
+.w-card > .w-part:not([hidden]) + .w-part { padding-top: 12px; border-top: 1px solid var(--line); }
+.w-moment { padding: 10px 12px; border: 1px solid var(--amber-line); border-radius: 8px; }
+.w-moment h3 { margin: 0; font-size: 13px; font-weight: 600; }
+.w-box p.w-note { color: var(--fg-faint); font-size: 11.5px; padding-top: 10px; border-top: 1px solid var(--line); }
+/* Build's places: Home and each colony, a chip each with the planet's colour. Picking one flies the map there. */
+.w-places { display: flex; flex-wrap: wrap; gap: 6px; }
+.w-place { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px 0 6px; border: 1px solid var(--line-strong); border-radius: 14px; background: none; color: var(--fg-dim); font: 500 12px var(--sans); cursor: pointer; }
+.w-place:hover { color: var(--fg); background: var(--hover); }
+.w-place.on { border-color: var(--amber); background: var(--amber-dim); color: var(--fg); }
+.w-place:disabled { opacity: .5; cursor: default; }
+.w-place i { width: 14px; height: 14px; border-radius: 50%; box-shadow: inset -3px -3px 5px rgba(0, 0, 0, .35); }
+/* The owner's orders: Build, Rocket and Push as tabs. */
+.w-tabs { display: flex; gap: 4px; padding: 3px; border: 1px solid var(--line); border-radius: 8px; }
+.w-tabs button { flex: 1; height: 26px; border: 0; border-radius: 6px; background: none; color: var(--fg-dim); font: 500 12px var(--sans); cursor: pointer; }
+.w-tabs button:hover { color: var(--fg); }
+.w-tabs button[aria-selected="true"] { background: var(--hover); color: var(--fg); }
+.w-card h2 #o-balance { font: 500 12px var(--mono); color: var(--amber); }
 .w-box { display: grid; gap: 8px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--panel) 90%, transparent); backdrop-filter: blur(8px); }
 .w-box h2 { margin: 0; font-size: 13.5px; font-weight: 600; }
 .w-box dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; margin: 0; font-size: 12.5px; }
@@ -230,7 +269,7 @@ body.sys { overflow: hidden; background: var(--void); }
 body.w-readonly #w-build-box, body.w-readonly #w-rocket-box, body.w-readonly #w-push-box, body.w-readonly #w-today-box, body.w-readonly #w-total-box { display: none; }
 
 /* ---------- the system page's own boxes ---------- */
-.sys-card { grid-template-columns: auto 1fr; align-items: center; column-gap: 12px; row-gap: 8px; }
+.sys-card { display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 12px; row-gap: 8px; }
 .sys-card .who { min-width: 0; display: grid; gap: 1px; }
 .sys-card .who b { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; letter-spacing: -0.01em; }
 .sys-card .who span { color: var(--fg-dim); font: 12px var(--mono); overflow-wrap: anywhere; }
@@ -240,11 +279,11 @@ body.w-readonly #w-build-box, body.w-readonly #w-rocket-box, body.w-readonly #w-
 .sys-card .more a { color: var(--amber); font-size: 12.5px; text-decoration-color: var(--amber-line); }
 .sys-card .more .none { color: var(--fg-faint); }
 /* The card's mosaic of days: one square a day, the latest at the bottom right, amber when the agents worked. Bleeds to the card's edges. */
-.sys-card .days { grid-column: 1 / -1; margin: 4px -14px -14px; border-top: 1px solid var(--line); border-radius: 0 0 11px 11px; overflow: hidden; }
-.sys-card .days .cap { display: flex; justify-content: space-between; gap: 8px; padding: 6px 14px 9px; color: var(--fg-faint); font-size: 11.5px; }
-#w-owner { border-color: var(--amber-line); }
+.sys-card .days { grid-column: 1 / -1; margin-top: 4px; }
+.sys-card .days .mosaic { border-radius: 6px; overflow: hidden; }
+.sys-card .days .cap { display: flex; justify-content: space-between; gap: 8px; padding-top: 6px; color: var(--fg-faint); font-size: 11.5px; }
 #w-owner-controls { display: grid; gap: 12px; }
-.own-ctl { display: grid; gap: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
+.own-ctl { display: grid; gap: 8px; }
 .own-ctl b { font-size: 12.5px; font-weight: 600; }
 .own-ctl > .field { height: 26px; font-size: 12.5px; }
 .own-ctl > textarea.field { height: auto; min-height: 0; }
@@ -257,5 +296,8 @@ body.w-readonly #w-build-box, body.w-readonly #w-rocket-box, body.w-readonly #w-
   .world .sp-top { position: sticky; top: 0; order: -1; } /* first on screen though it follows the canvas in the markup */
   .world canvas { position: relative; inset: auto; flex: none; height: 62vh; }
   .w-zoom { top: calc(var(--sp-top, 52px) + 62vh - 40px); bottom: auto; max-width: calc(100% - 32px); }
-  .w-side { position: static; width: auto; max-height: none; overflow: visible; margin: 12px 16px 28px; }
+  .w-side { position: static; flex-direction: column; align-items: stretch; margin: 12px 16px 28px; }
+  .w-rail { width: auto; display: flex; justify-content: space-around; }
+  .w-rail hr { display: none; }
+  .w-card { width: auto; max-height: none; overflow: visible; }
 }
