@@ -462,10 +462,57 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 /* The top bar keeps World's credit to spend in view. */
 .wb { margin-left: 2px; padding-left: 9px; border-left: 1px solid var(--line-strong); font: 12px var(--mono); color: var(--fg-dim); }
 .wb b { font-weight: 500; color: var(--amber); }
+/* The side: a rail of icon buttons on the right, and the one open card to its left (world.js openCard). */
 .w-side {
-  position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); top: calc(var(--sp-top, 52px) + 14px); z-index: 2; width: 288px;
-  display: grid; gap: 12px; align-content: start;
+  position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); top: calc(var(--sp-top, 52px) + 14px); z-index: 2;
+  display: flex; flex-direction: row-reverse; align-items: flex-start; gap: 10px;
 }
+.w-rail { flex: none; width: 56px; padding: 6px; display: grid; gap: 4px; justify-items: center; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--panel) 92%, transparent); backdrop-filter: blur(8px); }
+.w-rail button { position: relative; width: 44px; height: 44px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 10px; background: none; color: var(--fg-dim); cursor: pointer; }
+.w-rail button:hover { background: var(--hover); color: var(--fg); }
+.w-rail button.on { background: var(--amber-dim); color: var(--amber); }
+.w-rail svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.w-rail hr { width: 28px; margin: 2px 0; border: 0; border-top: 1px solid var(--line); }
+.w-rail-av { display: grid; place-items: center; width: 28px; height: 28px; }
+.w-rail-av .avatar { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--line-strong); background: var(--raise); color: var(--fg-dim); display: inline-flex; align-items: center; justify-content: center; font: 600 11px var(--sans); object-fit: cover; }
+.w-rail button.on .avatar { border-color: var(--amber); }
+/* A dot on a button: amber when something waits for you there, blue while it runs. */
+.w-rail button.has::after, .w-rail button.busy::after { content: ""; position: absolute; top: 7px; right: 7px; width: 7px; height: 7px; border-radius: 50%; background: var(--amber); }
+.w-rail button.busy::after { background: var(--run); animation: w-pulse 1.2s ease-in-out infinite; }
+@keyframes w-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .w-rail button.busy::after { animation: none; } }
+.w-card { width: 320px; box-sizing: border-box; max-height: calc(100vh - var(--sp-top, 52px) - 28px); overflow-y: auto; overscroll-behavior: contain; gap: 12px; padding: 16px; border-color: var(--line-strong); background: color-mix(in srgb, var(--panel) 95%, transparent); box-shadow: 0 18px 40px -20px var(--shade); }
+.w-card > header { display: flex; align-items: center; gap: 8px; }
+.w-card > header h2 { flex: 1; font-size: 14px; }
+.w-card-x { width: 24px; padding: 0; justify-content: center; }
+.w-card-x::before { content: "\00d7"; font-size: 17px; line-height: 1; }
+.w-part { display: grid; gap: 8px; }
+.w-card > .w-part:not([hidden]) + .w-part { padding-top: 12px; border-top: 1px solid var(--line); }
+.w-moment { padding: 10px 12px; border: 1px solid var(--amber-line); border-radius: 8px; }
+.w-moment h3 { margin: 0; font-size: 13px; font-weight: 600; }
+.w-act span.w-sync { font-family: var(--sans); color: var(--fg-dim); }
+/* Build's places: Home and each colony, a chip each with the planet's colour. Picking one flies the map there. */
+.w-places { display: flex; flex-wrap: wrap; gap: 6px; }
+.w-place { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px 0 6px; border: 1px solid var(--line-strong); border-radius: 14px; background: none; color: var(--fg-dim); font: 500 12px var(--sans); cursor: pointer; }
+.w-place:hover { color: var(--fg); background: var(--hover); }
+.w-place.on { border-color: var(--amber); background: var(--amber-dim); color: var(--fg); }
+.w-place i { width: 14px; height: 14px; border-radius: 50%; box-shadow: inset -3px -3px 5px rgba(0, 0, 0, .35); }
+/* Profile's days: the galaxy page's mosaic (hub.css), one square a day, amber when the agents worked. */
+.w-days .mosaic { display: grid; grid-template-columns: repeat(var(--cols, 20), 1fr); border-radius: 6px; overflow: hidden; }
+.w-days .mosaic span { display: block; aspect-ratio: 1; }
+.w-days .q1 { background: var(--raise); } .w-days .q2 { background: var(--hover); } .w-days .q3 { background: var(--line); } .w-days .q4 { background: var(--line-strong); }
+.w-days .a0 { background: var(--amber); } .w-days .a1 { background: #d4a03a; } .w-days .a2 { background: #b98c30; }
+.w-days .cap { display: flex; justify-content: space-between; gap: 8px; padding-top: 6px; color: var(--fg-faint); font-size: 11.5px; }
+/* Home's level, top left: the XP toward the next level, the stage it leads to, and today's XP. */
+.w-hud { position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); top: calc(var(--sp-top, 52px) + 14px); z-index: 2; width: 268px; box-sizing: border-box; padding: 12px 14px; display: grid; gap: 7px; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--panel) 88%, transparent); backdrop-filter: blur(8px); }
+.w-hud-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.w-hud-top b { font-size: 13px; font-weight: 600; }
+.w-hud-top b span { color: var(--amber); font: 500 12px var(--mono); }
+.w-hud-top > span { color: var(--fg-dim); font: 11.5px var(--mono); white-space: nowrap; }
+.w-hud .w-bar { height: 5px; }
+.w-hud .w-bar.today { height: 3px; }
+.w-hud-row { display: flex; justify-content: space-between; gap: 10px; margin: 0; font-size: 11.5px; color: var(--fg-dim); }
+.w-hud-row span:last-child { color: var(--amber); white-space: nowrap; }
 .w-box { display: grid; gap: 8px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--panel) 90%, transparent); backdrop-filter: blur(8px); }
 .w-box h2 { margin: 0; font-size: 13.5px; font-weight: 600; }
 .w-box dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; margin: 0; font-size: 12.5px; }
@@ -484,7 +531,6 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .w-zoom > span { display: contents; } /* the colonies, between Home and Map */
 .w-zoom .btn.on { border-color: var(--amber); color: var(--amber); }
 /* Spending and moments: a row of controls, a price beside its button, and the moments as a list of stars. */
-.w-side { max-height: calc(100% - var(--sp-top, 52px) - 28px); overflow-y: auto; overscroll-behavior: contain; }
 .w-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .w-row .field { flex: 1 1 110px; height: 24px; font-size: 12px; }
 .w-act { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -492,8 +538,8 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .w-box .btn.on { border-color: var(--amber); color: var(--amber); }
 .w-box .btn:disabled { opacity: .5; cursor: default; }
 .w-box .err { margin: 0; }
-.w-box > input.field { flex: none; height: 26px; font-size: 12.5px; }
-.w-box > textarea.field { flex: none; font-size: 12.5px; }
+.w-box > input.field, .w-part > input.field { flex: none; height: 26px; font-size: 12.5px; }
+.w-box > textarea.field, .w-part > textarea.field { flex: none; font-size: 12.5px; }
 .w-built { padding-top: 2px; border-top: 1px solid var(--line); }
 .w-built li { color: var(--fg-dim); font-size: 12px; }
 .w-built li::before { content: "▪ "; color: var(--amber); }
@@ -516,7 +562,15 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .w-links { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; }
 /* A system shown read-only (world.js enter with readOnly): nothing to spend, and none of the owner's own numbers. */
 body.w-readonly #w-profile, body.w-readonly #w-build-box, body.w-readonly #w-rocket-box, body.w-readonly #w-push-box, body.w-readonly #w-today-box, body.w-readonly #w-total-box { display: none; }
-@media (max-width: 760px) { .w-side { position: static; width: auto; max-height: none; margin: calc(var(--sp-top, 52px) + 10px) 16px 0; } .w-zoom { max-width: calc(100% - 32px); } }
+/* Narrow: Home's level, then the rail as a row, then the open card at full width, all over the top of the map. */
+@media (max-width: 760px) {
+  .w-hud { position: static; width: auto; margin: calc(var(--sp-top, 52px) + 10px) 16px 0; }
+  .w-side { position: static; flex-direction: column; align-items: stretch; margin: 10px 16px 0; }
+  .w-rail { width: auto; display: flex; justify-content: space-around; }
+  .w-rail hr { display: none; }
+  .w-card { width: auto; max-height: calc(100vh - 260px); }
+  .w-zoom { max-width: calc(100% - 32px); }
+}
 
 /* ---------- space view: the same sessions as an orrery. You sit at the centre; the closer a session orbits, the sooner it needs you. ---------- */
 body.in-space { overflow: hidden; }
@@ -843,79 +897,116 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
     <span class="w-credit"><b id="w-credit">0</b> credit</span>
     <button class="btn small" type="button" id="w-exit" title="Esc">Back to board</button>
   </div>
+  <!-- Home's level, in a box of its own at the top left. -->
+  <div class="w-hud" id="w-hud">
+    <div class="w-hud-top"><b>Home · <span id="w-level"></span></b><span id="w-xp"></span></div>
+    <div class="w-bar"><i id="w-bar"></i></div>
+    <p class="w-hud-row"><span id="w-next"></span><span id="w-xp-today"></span></p>
+    <div class="w-bar today"><i id="w-bar-today"></i></div>
+    <b id="w-stage" hidden></b>
+  </div>
+  <!-- The side: a rail of buttons on the right, each opening one card beside it (world.js openCard). One card at a time,
+       or none and the map clear. The boxes inside keep the ids world.js fills. -->
   <aside class="w-side" id="w-side">
-    <section class="w-box" id="w-profile">
-      <h2>Profile</h2>
-      <div class="w-pf" id="w-pf-out" hidden>
-        <p>Sign in with GitHub to put your galaxy in the Universe, visit others, and send rockets to friends. Only the shape of your world is shared, never your repositories, lines or credit.</p>
-        <div class="w-act" id="w-pf-start"><span></span><button class="btn small go" type="button" id="w-pf-login">Sign in with GitHub</button></div>
-        <div class="w-pf" id="w-pf-wait" hidden>
-          <p>Enter <b class="w-code" id="w-pf-code"></b> at <a id="w-pf-link" target="_blank" rel="noopener"></a></p>
-          <div class="w-act"><span class="w-wait">Waiting…</span><button class="btn small" type="button" id="w-pf-cancel">Cancel</button></div>
+    <nav class="w-rail" id="w-rail" aria-label="World tools">
+      <button type="button" data-card="profile" aria-pressed="false" aria-label="Profile" title="Profile"><span class="w-rail-av" id="w-rail-avatar"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c1-4 4-6 7-6s6 2 7 6"/></svg></span></button>
+      <hr>
+      <button type="button" data-card="build" aria-pressed="false" aria-label="Build" title="Build"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg></button>
+      <button type="button" data-card="rocket" aria-pressed="false" aria-label="Send a rocket" title="Send a rocket"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 15c-1 1-2 5-2 5s4-1 5-2"/><path d="M9 15l-3-3c1-4 5-9 12-9 0 7-5 11-9 12z"/><circle cx="15" cy="9" r="1.5"/></svg></button>
+      <button type="button" data-card="push" aria-pressed="false" aria-label="Push the frontier" title="Push the frontier"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></svg></button>
+      <hr>
+      <button type="button" data-card="moments" aria-pressed="false" aria-label="Moments" title="Moments"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6-4.5-4.2 6.1-.7z"/></svg></button>
+      <button type="button" data-card="today" aria-pressed="false" aria-label="Today's work" title="Today's work"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V11M11 20V5M17 20v-7M3 20h18"/></svg></button>
+    </nav>
+
+    <section class="w-box w-card" data-card="profile" aria-label="Profile" hidden>
+      <header><h2>Profile</h2><button class="btn small quiet w-card-x" type="button" aria-label="Close" title="Close"></button></header>
+      <div class="w-part" id="w-profile">
+        <div class="w-pf" id="w-pf-out" hidden>
+          <p>Sign in with GitHub to put your galaxy in the Universe, visit others, and send rockets to friends. Only the shape of your world is shared, never your repositories, lines or credit.</p>
+          <div class="w-act" id="w-pf-start"><span></span><button class="btn small go" type="button" id="w-pf-login">Sign in with GitHub</button></div>
+          <div class="w-pf" id="w-pf-wait" hidden>
+            <p>Enter <b class="w-code" id="w-pf-code"></b> at <a id="w-pf-link" target="_blank" rel="noopener"></a></p>
+            <div class="w-act"><span class="w-wait">Waiting…</span><button class="btn small" type="button" id="w-pf-cancel">Cancel</button></div>
+          </div>
+          <p class="err" id="w-pf-err" role="alert" hidden></p>
         </div>
-        <p class="err" id="w-pf-err" role="alert" hidden></p>
+        <div class="w-pf" id="w-pf-in" hidden>
+          <div class="w-who"><span id="w-pf-avatar"></span><div><b id="w-pf-handle"></b><span id="w-pf-xy"></span></div></div>
+          <div class="w-links"><a id="w-pf-page" target="_blank" rel="noopener">Your page</a><a id="w-pf-edit" target="_blank" rel="noopener">Edit profile</a></div>
+          <p id="w-pf-order" hidden></p>
+          <div class="w-act"><span class="w-sync" id="w-pf-sync"></span><button class="btn small" type="button" id="w-pf-logout">Sign out</button></div>
+        </div>
       </div>
-      <div class="w-pf" id="w-pf-in" hidden>
-        <div class="w-who"><span id="w-pf-avatar"></span><div><b id="w-pf-handle"></b><span id="w-pf-xy"></span></div></div>
-        <div class="w-links"><a id="w-pf-page" target="_blank" rel="noopener">Your page</a><a id="w-pf-edit" target="_blank" rel="noopener">Edit profile</a></div>
-        <p id="w-pf-sync"></p>
-        <p id="w-pf-order" hidden></p>
-        <div class="w-act"><span></span><button class="btn small" type="button" id="w-pf-logout">Sign out</button></div>
+      <div class="w-part">
+        <p id="w-pf-stats"></p>
+        <div class="w-days" id="w-pf-days"></div>
       </div>
     </section>
-    <section class="w-box" id="w-moment" aria-live="polite" hidden>
-      <h2 id="w-m-name"></h2>
-      <p id="w-m-when"></p>
-      <dl id="w-m-info"></dl>
-      <div class="w-act"><span></span><button class="btn small" type="button" id="w-m-close">Close</button></div>
+
+    <section class="w-box w-card" data-card="build" aria-label="Build" hidden>
+      <header><h2 id="w-build-title">Build</h2><button class="btn small quiet w-card-x" type="button" aria-label="Close" title="Close"></button></header>
+      <div class="w-places" id="w-build-on" role="group" aria-label="Where to build"></div>
+      <div class="w-part" id="w-build-box">
+        <p>Describe something to build here, on the ground or in orbit. Claude picks what to draw.</p>
+        <textarea class="field" id="w-build-text" maxlength="300" rows="2" placeholder="A ring city along the equator, lit at night" aria-label="What to build"></textarea>
+        <div class="w-act"><span id="w-build-price"></span><button class="btn small go" type="button" id="w-build" disabled>Build it</button></div>
+        <p id="w-build-why" hidden></p>
+        <p class="err" id="w-build-err" role="alert" hidden></p>
+        <ul class="w-list w-built" id="w-built" aria-label="Built here" hidden></ul>
+      </div>
+      <p id="w-build-none" hidden>Pick Home or one of your colonies to build there.</p>
     </section>
-    <section class="w-box">
-      <h2>Home <span id="w-level"></span></h2>
-      <p class="w-stage"><b id="w-stage"></b> <span id="w-xp"></span></p>
-      <div class="w-bar"><i id="w-bar"></i></div>
-      <p id="w-next"></p>
-      <p id="w-xp-today" title="A full day's work, 300 credit, is about an hour of one agent working. Past it, each doubling of the work gives 50 XP more."></p>
-      <div class="w-bar today"><i id="w-bar-today"></i></div>
+
+    <section class="w-box w-card" data-card="rocket" aria-label="Send a rocket" hidden>
+      <header><h2>Send a rocket</h2><button class="btn small quiet w-card-x" type="button" aria-label="Close" title="Close"></button></header>
+      <div class="w-part" id="w-rocket-box" hidden>
+        <p id="w-rocket-text"></p>
+        <div class="w-row"><select class="field" id="w-rocket-to" aria-label="Planet to send it to"></select><button class="btn small" type="button" id="w-rocket-show">Show</button></div>
+        <input class="field" id="w-rocket-name" maxlength="24" placeholder="Name the colony" aria-label="The colony's name" autocomplete="off" spellcheck="false">
+        <div class="w-act"><span id="w-rocket-price"></span><button class="btn small go" type="button" id="w-rocket" disabled>Send a rocket</button></div>
+        <p id="w-rocket-why" hidden></p>
+        <p class="err" id="w-rocket-err" role="alert" hidden></p>
+      </div>
+      <p id="w-rocket-none">The frontier hasn't found a bare planet yet. Push the frontier to find one, then a rocket lands a colony there.</p>
     </section>
-    <section class="w-box" id="w-build-box">
-      <h2 id="w-build-title">Build on Home</h2>
-      <p>Describe something to build here, on the ground or in orbit. Claude picks what to draw.</p>
-      <textarea class="field" id="w-build-text" maxlength="300" rows="2" placeholder="A ring city along the equator, lit at night" aria-label="What to build"></textarea>
-      <div class="w-act"><span id="w-build-price"></span><button class="btn small go" type="button" id="w-build" disabled>Build it</button></div>
-      <p id="w-build-why" hidden></p>
-      <p class="err" id="w-build-err" role="alert" hidden></p>
-      <ul class="w-list w-built" id="w-built" aria-label="Built here" hidden></ul>
+
+    <section class="w-box w-card" data-card="push" aria-label="Push the frontier" hidden>
+      <header><h2>Push the frontier</h2><button class="btn small quiet w-card-x" type="button" aria-label="Close" title="Close"></button></header>
+      <div class="w-part" id="w-push-box">
+        <p>Pick a direction from Home. The dark lights up that way as you keep working, and it can find a planet.</p>
+        <div class="w-row"><select class="field" id="w-dir" aria-label="Direction to push"></select><button class="btn small" type="button" id="w-aim">Aim on the map</button></div>
+        <div class="w-act"><span id="w-push-price"></span><button class="btn small go" type="button" id="w-push" disabled>Pick a direction</button></div>
+        <p id="w-push-why" hidden></p>
+        <p class="err" id="w-push-err" role="alert" hidden></p>
+      </div>
     </section>
-    <section class="w-box" id="w-rocket-box" hidden>
-      <h2>Send a rocket</h2>
-      <p id="w-rocket-text"></p>
-      <div class="w-row"><select class="field" id="w-rocket-to" aria-label="Planet to send it to"></select><button class="btn small" type="button" id="w-rocket-show">Show</button></div>
-      <input class="field" id="w-rocket-name" maxlength="24" placeholder="Name the colony" aria-label="The colony's name" autocomplete="off" spellcheck="false">
-      <div class="w-act"><span id="w-rocket-price"></span><button class="btn small go" type="button" id="w-rocket" disabled>Send a rocket</button></div>
-      <p id="w-rocket-why" hidden></p>
-      <p class="err" id="w-rocket-err" role="alert" hidden></p>
+
+    <section class="w-box w-card" data-card="moments" aria-label="Moments" hidden>
+      <header><h2>Moments <span id="w-moments-n"></span></h2><button class="btn small quiet w-card-x" type="button" aria-label="Close" title="Close"></button></header>
+      <div class="w-part w-moment" id="w-moment" aria-live="polite" hidden>
+        <h3 id="w-m-name"></h3>
+        <p id="w-m-when"></p>
+        <dl id="w-m-info"></dl>
+        <div class="w-act"><span></span><button class="btn small" type="button" id="w-m-close">Close</button></div>
+      </div>
+      <div class="w-part" id="w-moments-box" hidden>
+        <ul class="w-list" id="w-moments"></ul>
+      </div>
+      <p id="w-moments-none">No moments yet. A week of work, a big cleanup or a new level puts a star on the map.</p>
     </section>
-    <section class="w-box" id="w-push-box">
-      <h2>Push the frontier</h2>
-      <p>Pick a direction from Home. The dark lights up that way as you keep working, and it can find a planet.</p>
-      <div class="w-row"><select class="field" id="w-dir" aria-label="Direction to push"></select><button class="btn small" type="button" id="w-aim">Aim on the map</button></div>
-      <div class="w-act"><span id="w-push-price"></span><button class="btn small go" type="button" id="w-push" disabled>Pick a direction</button></div>
-      <p id="w-push-why" hidden></p>
-      <p class="err" id="w-push-err" role="alert" hidden></p>
-    </section>
-    <section class="w-box" id="w-moments-box" hidden>
-      <h2>Moments <span id="w-moments-n"></span></h2>
-      <ul class="w-list" id="w-moments"></ul>
-    </section>
-    <section class="w-box" id="w-today-box">
-      <h2>Today's work</h2>
-      <dl id="w-today"></dl>
-      <p class="warn" id="w-noemail" hidden></p>
-    </section>
-    <section class="w-box" id="w-total-box">
-      <p id="w-total"></p>
-      <p>Lines removed multiply the day's credit. Stars on the map are moments: a week of work, a big cleanup, a level
-        Home reached. Click one to see what was done.</p>
+
+    <section class="w-box w-card" data-card="today" aria-label="Today's work" hidden>
+      <header><h2>Today's work</h2><button class="btn small quiet w-card-x" type="button" aria-label="Close" title="Close"></button></header>
+      <div class="w-part" id="w-today-box">
+        <dl id="w-today"></dl>
+        <p class="warn" id="w-noemail" hidden></p>
+      </div>
+      <div class="w-part" id="w-total-box">
+        <p id="w-total"></p>
+        <p>Lines removed multiply the day's credit. Stars on the map are moments: a week of work, a big cleanup, a level
+          Home reached. Click one to see what was done.</p>
+      </div>
     </section>
   </aside>
   <div class="w-zoom"><button class="btn small on" type="button" id="w-home" data-place="home">Home</button><span id="w-colonies"></span><button class="btn small" type="button" id="w-map">Map</button></div>
@@ -2509,7 +2600,7 @@ async function enterWorld() {
   worldOn = true;
   $('world').hidden = false;
   document.body.classList.add('in-space');
-  AgentWorld.enter(r.world, { api, toast, hub: snap?.hub });
+  AgentWorld.enter(r.world, { api, toast, hub: snap?.hub, card: { key: 'acp.world.card', first: 'build' } });
   worldNeeds();
   $('w-exit').focus({ preventScroll: true });
 }
