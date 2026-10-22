@@ -10,6 +10,8 @@ sits in `/srv/agent-hub` there; nothing in them is secret.
   .env                  the settings, from env.example (the GitHub id and secret live only here, mode 600)
   update.sh             pull main, rebuild, restart, ask /healthz
   caddy-cloudflare.sh   rewrites the site's Caddy block: Cloudflare's ranges as trusted proxies, the real visitor in X-Forwarded-For
+  firewall-cloudflare.sh, cloudflare-only.{service,timer}
+                        the firewall: only Cloudflare reaches the web ports (see below)
 ```
 
 First time:
@@ -50,6 +52,26 @@ whatever headers they send. And **Cloudflare must not challenge the hub's visito
 challenge (Bot Fight Mode, "Under Attack", a managed challenge rule) stops every Mac, since the panel talks to the hub
 with plain HTTP calls that cannot solve one. Add a WAF rule that skips challenges for the hub's hostname, or take the
 record off the proxy. The hub has its own rate limits, so it does not need Cloudflare's.
+
+## Firewall
+
+With the record proxied, Cloudflare hides the server's address, and the firewall makes knowing it useless.
+`firewall-cloudflare.sh` writes one nftables table of its own, `cloudflare_only`, and applies it: ports 80 and 443
+accept connections from Cloudflare's ranges and loopback and drop everything else; the containers' host ports (3000,
+3001, anything Docker publishes) are unreachable from outside, both as host ports and as forwarded ones; SSH and the
+rest are untouched. Docker's own tables are left alone, so it keeps working across its restarts. The ranges come from
+cloudflare.com/ips; when they cannot be fetched the last written file is applied again.
+
+```sh
+cp src/hub/deploy/{firewall-cloudflare.sh,cloudflare-only.service,cloudflare-only.timer} .
+chmod +x firewall-cloudflare.sh && ./firewall-cloudflare.sh
+cp cloudflare-only.service cloudflare-only.timer /etc/systemd/system/ && systemctl daemon-reload
+systemctl enable --now cloudflare-only.service cloudflare-only.timer   # at boot after Docker, and a weekly refresh
+```
+
+Check it: from outside, `curl --max-time 8 http://<server ip>/` times out, while the site answers through Cloudflare.
+If a record on this server ever goes grey cloud (DNS only), that site stops answering until the firewall is removed
+(`nft delete table inet cloudflare_only` and disable the unit), because its visitors no longer come from Cloudflare.
 
 ## Backup
 

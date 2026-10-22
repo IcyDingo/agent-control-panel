@@ -1,0 +1,11 @@
+# Refreshes Cloudflare's ranges once a week.
+[Unit]
+Description=Refresh the Cloudflare-only firewall's ranges
+
+[Timer]
+OnCalendar=weekly
+Persistent=true
+Unit=cloudflare-only.service
+
+[Install]
+WantedBy=timers.target
