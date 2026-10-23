@@ -403,7 +403,7 @@ galaxy in the Universe.
 
 Added and removed lines count the same, each of your commits is worth 20 lines on its own, and every active hour is
 worth 60. The curve means more work always pays more, and each doubling of the work adds the same credit, so a big
-day earns somewhat more, not many times more: 100 times the work is about 4 times the credit. There is no daily cap
+day earns somewhat more, not many times more: 100 times the work is about 3 to 4 times the credit. There is no daily cap
 beyond that. Some days:
 
 | A day | Work | Credit |
@@ -458,7 +458,7 @@ same however many of a kind you bought. A pushed region is fully lit after 600 m
 after 500 more.
 
 **Credit already earned is kept.** The first time this version runs, World records the day it switched, which is the
-local day after it first runs. Days before it keep the credit and XP the old formula gave them, for good; days from it
+local day after it first runs (a World started fresh under this version uses the new formula from its first day). Days before it keep the credit and XP the old formula gave them, for good; days from it
 on use the one above, so your balance never drops at the switch (it is the old earnings plus the new, minus everything
 spent). A purchase keeps the price it was bought at, and a push or probe already under way keeps the light or travel credit it
 was bought with (3,000 for one bought before this change), so it finishes as it was promised.
@@ -555,12 +555,13 @@ service picks it up.
   same page you can set your galaxy to **unlisted**: it still opens for anyone with the link, but search engines are
   told to leave it out and it cannot be found by its coordinates.
 
-**What never leaves your Mac**: tokens, lines, credit, XP, active time, prices, your repositories and their paths, build
-prompts, and any time finer than a day. Of how World has grown, only Home's level and each colony's stage go (as numbers;
-the hub names them itself).
+**What never leaves your Mac**: your repositories and their paths, build prompts, and any time finer than a day. Of how
+World has grown, only Home's level and each colony's stage go on your public page (as numbers; the hub names them
+itself). Tokens, lines, credit, XP, active time and prices are never on it.
 
-Your Mac also tells the hub its own state so your page can show it to you and nobody else: your balance, the prices,
-today's numbers, whether a build is running, and the Mac's name. That is shown only to you, signed in.
+Your Mac also tells the hub its own state so your page can show it to you and nobody else: your balance and XP, the
+prices, today's numbers (credit, lines, commits, tokens, active time), whether a build is running, and the Mac's name.
+That is shown only to you, signed in.
 
 The panel sends about ten seconds after something changes, a second after a purchase or an order, and once every
 30 minutes otherwise, so your page knows the Mac is still there. A hub that is down never slows the panel: it tries again later.
