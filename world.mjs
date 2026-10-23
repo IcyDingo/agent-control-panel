@@ -10,7 +10,6 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { readRepos, reposOf } from './world-repos.mjs';
 
 /** A local calendar day, YYYY-MM-DD. */
 export function dayKey(ms) {
@@ -631,9 +630,9 @@ const most = (a, b) => ({ added: Math.max(a.added, b.added), removed: Math.max(a
 const real = (p) => { try { return fs.realpathSync.native(p); } catch { return p; } };
 
 /** The one World on this Mac, kept in `file`, fed by every profile's sessions (`configDirs`: the profile folders, or a
- *  function returning them) and by the repositories added by hand (`reposFile`, see world-repos.mjs). Nothing is written
- *  until open(). `run` is the server's execFile wrapper and `gitPlace` its folder → git checkout lookup. */
-export function createWorld({ file, configDirs, gitPlace, run, now = Date.now, reposFile = path.join(path.dirname(file), 'repos.json') }) {
+ *  function returning them). Nothing is written until open(). `run` is the server's execFile wrapper and `gitPlace` its
+ *  folder → git checkout lookup. */
+export function createWorld({ file, configDirs, gitPlace, run, now = Date.now }) {
   let st = null, memo = null, building = false, probing = false, toolsMissing = false; // toolsMissing is the last scan's finding, never saved
   try {
     const loaded = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -664,10 +663,6 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now, r
     st.newFrom = addDays(dayKey(now()), 1);
     try { save(); } catch {} // kept in memory either way; the next save writes it
   }
-
-  /** The repositories counted now: what sessions found plus what was added by hand, minus what was removed. Read from the
-   *  file each time, so a `world add` from a terminal counts at the next scan. */
-  const counted = () => reposOf(st?.repos ?? [], readRepos(reposFile));
 
   /** Marks a 5-minute slot of a day active (`slot`, 0 to 287). True when it was not yet. */
   function markActive(day, slot) {
@@ -732,7 +727,7 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now, r
     if (toolsMissing) { st.noEmail = []; st.gitFailed = []; return; }
     const noEmail = [], failed = [], sinceAuthor = Math.floor(st.startedAt / 1000);
     const since = Math.max(sinceAuthor, Math.floor(now() / 1000) - WINDOW_DAYS * 86_400); // older days keep their counts
-    for (const { path: repo } of counted()) {
+    for (const repo of st.repos) {
       if (!fs.existsSync(repo)) continue;
       const conf = await run('git', ['-C', repo, 'config', 'user.email'], { timeout: 10_000 });
       const email = conf.stdout.trim();
@@ -762,7 +757,7 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now, r
     if (toolsMissing) return;
     const trees = (st.trees ??= {});
     let touched = false;
-    for (const { path: repo } of counted()) {
+    for (const repo of st.repos) {
       if (!fs.existsSync(repo)) continue;
       for (const tree of await workTreesOf(repo)) { // a repository's linked worktrees are where the hand edits often are
         const print = await treeFingerprint(tree, run);
@@ -842,7 +837,6 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now, r
 
   return {
     started: () => Boolean(st),
-    repos: counted,
     open() {
       if (st) return;
       // A World opened now has nothing old to keep: the new rules count from its first day.

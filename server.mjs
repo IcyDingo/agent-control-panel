@@ -17,7 +17,6 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { execFile, spawn } from 'node:child_process';
 import { createWorld, claudeArgs, readAnswer } from './world.mjs';
-import { addRepos, removeRepo } from './world-repos.mjs';
 import { findRemoved } from './versions.mjs';
 import { readChat } from './history.mjs';
 import { UNTRUSTED, trustKey, isTrusted, trustScript } from './trust.mjs';
@@ -1357,7 +1356,7 @@ async function pickFolder(body) {
   try { if (!fs.statSync(start).isDirectory()) start = os.homedir(); } catch { start = os.homedir(); }
   picking = true;
   const r = await run('osascript', ['-e', 'on run argv', '-e', 'tell me to activate',
-    '-e', `return POSIX path of (choose folder with prompt "${body?.for === 'repos' ? 'Repository, or a folder of repositories, for World to count' : 'Folder for the new agent'}" default location (POSIX file (item 1 of argv)))`,
+    '-e', 'return POSIX path of (choose folder with prompt "Folder for the new agent" default location (POSIX file (item 1 of argv)))',
     '-e', 'end run', start], { timeout: 600_000 });
   picking = false;
   if (r.err) return /-128|cancel/i.test(r.stderr) ? { ok: false, cancelled: true } : { ok: false, error: firstLine(r) };
@@ -1368,9 +1367,8 @@ async function pickFolder(body) {
 
 // One World for this Mac, fed by every profile's sessions, kept beside the prefs (so a second panel with its own
 // ACP_PREFS has its own). It counts tokens every minute and commits every fifth time; a scan never overlaps another.
-const REPOS_FILE = path.join(path.dirname(PREFS), 'world', 'repos.json'); // the repositories added by hand (world-repos.mjs)
 const world = createWorld({ file: path.join(path.dirname(PREFS), 'world', 'world.json'), configDirs: () => listProfiles().map((p) => p.dir),
-  gitPlace, run: (...a) => run(...a), reposFile: REPOS_FILE });
+  gitPlace, run: (...a) => run(...a) });
 const WORLD_MS = 60_000;
 let worldScans = 0, worldScanning = false;
 async function scanWorld(git) {
@@ -1385,22 +1383,6 @@ async function scanWorld(git) {
 /** World's numbers for the page. Nothing in them may take the panel down. */
 function worldSummary() {
   try { return world.summary(); } catch (err) { console.error('world summary failed:', err?.message ?? err); return { started: false }; }
-}
-/** The repositories World counts, for the panel's Repositories part: with no `add` or `remove` just the list; `add` takes
- *  a repository or a folder of them (the panel's folder dialog gives the path), `remove` stops counting one. Paths are
- *  shown with ~ and never leave the Mac: the hub's projection has none. Then World looks again, so the counts follow. */
-function worldRepos(body) {
-  const list = () => world.repos().map((r) => ({ path: tilde(r.path), by: r.by }));
-  if (body?.add === undefined && body?.remove === undefined) return { ok: true, repos: list() };
-  const given = body.add ?? body.remove;
-  if (typeof given !== 'string' || !given.trim()) return { ok: false, error: 'Pick a folder.' };
-  const dir = expand(given.trim());
-  if (body.add !== undefined) {
-    if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return { ok: false, error: `${given.trim()} is not a folder.` };
-    if (!addRepos(REPOS_FILE, dir).added.length) return { ok: false, error: 'There is no git repository in that folder, or in the ones under it (3 levels down).' };
-  } else removeRepo(REPOS_FILE, dir);
-  scanWorld(true); // not waited for: the list is already right, the numbers follow
-  return { ok: true, repos: list() };
 }
 function openWorld() {
   world.open();
@@ -1765,7 +1747,7 @@ async function handle(req, res) {
                       '/api/profiles': profiles, '/api/profile': switchProfile, '/api/profile/connect': connectProfile,
                       '/api/answer-open': answerOpen, '/api/world/open': openWorld, '/api/world/buy': buyInWorld,
                       '/api/world/build': buildInWorld, '/api/world/probe': probeInWorld, '/api/world/probe-ready': probeReady,
-                      '/api/world/found': foundGalaxies, '/api/world/repos': worldRepos, '/api/history': history,
+                      '/api/world/found': foundGalaxies, '/api/history': history,
                       '/api/trust-terminal': openTrustTerminal,
                       '/api/hub/status': () => ({ ok: true, hub: hubInfo() }), '/api/hub/login/start': hubLoginStart,
                       '/api/hub/login/cancel': hubLoginCancel, '/api/hub/logout': hubLogout, '/api/hub/sync': hubSyncNow };
