@@ -89,6 +89,14 @@ curl -fsSL https://universe.cashegg.com/api/release            # {"ok":true,"sha
 curl -fsSL https://universe.cashegg.com/install | head -1      # #!/bin/sh
 ```
 
+## Releases that change the projection
+
+Some releases change what a Mac uploads: the fair-credit release moves the projection to version 3 (Home's level past
+12 and each colony's stage). Deploy such a release to the hub **first**: sign it and run the line, as above. The Macs
+follow by their daily signed update, and until then an old hub refuses a version 3 Mac's uploads. A hub that runs the
+new version still accepts versions 1 and 2, so a Mac that has not updated yet keeps working. Check the release is
+live (`curl -fsSL https://universe.cashegg.com/api/release`) before telling anyone to update.
+
 ## Upgrading to the locked-down container
 
 From the release that locks the container down, the hub runs as the image's `node` user with a read-only filesystem

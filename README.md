@@ -88,7 +88,7 @@ unless you are typing in the open one. With reduced motion there is no flight: t
 appears.
 
 **World**, next to Space view, is a world your agents' work builds (see World, below). Once it has
-started, its button shows the credit you have to spend; hover it for today's commits, lines, tokens and
+started, its button shows the credit you have to spend; hover it for today's lines, commits, active time and
 credit earned.
 
 When a session or subagent asks for something, the request appears in its panel:
@@ -396,14 +396,38 @@ you, and takes you back to the board at the first.
 Beside Home sits its **sun**, placed by your world's seed: it lights Home's day side and the colonies', and marks your
 galaxy in the Universe.
 
-Credit is earned per calendar day: `(lines added ÷ 10 + tokens ÷ 10,000) × multiplier`, where lines removed raise the
-multiplier from ×1 up to ×4, so a cleanup day pays best. The side panel shows today's numbers.
+**Credit** is earned per calendar day, from the work you did that day:
 
-**Home levels up with XP** from the days you work. XP is never spent; credit is what you spend. A full day's work
-(300 credit, about an hour of one agent working) gives 100 XP; past it, each doubling of the work gives 50 more (600
-credit is 150 XP, 1,200 is 200), with no daily limit. So a productive day always moves Home further, while a runaway
-loop can't jump far: a hundred times the work is under 5 days' XP. Thinking and iterating count through their tokens, shipping through commits. A day off pauses it, and XP
-never goes back. The levels:
+    work   = lines changed + 20 × commits + 60 × active hours      (active hours count at most 10 a day)
+    credit = round(65 × log2(1 + work ÷ 50))
+
+Added and removed lines count the same, each of your commits is worth 20 lines on its own, and every active hour is
+worth 60. The curve means more work always pays more, and each doubling of the work adds the same credit, so a big
+day earns somewhat more, not many times more: 100 times the work is about 4 times the credit. There is no daily cap
+beyond that. Some days:
+
+| A day | Work | Credit |
+|---|---|---|
+| 15 minutes of anything | 15 | about 25 |
+| 3 hours and one careful 30-line fix | 230 | about 160 |
+| 4 hours investigating with an agent, nothing committed | 240 | about 165 |
+| A typical full day: 8 active hours, 150 lines, 3 commits | 690 | about 250 |
+| A huge day: 3,000 lines, 10 commits, 8 hours | 3,680 | about 400 |
+
+Whether an agent or you wrote the code does not matter: the same work earns the same. **Tokens earn nothing.** They are
+still counted and shown in the panel's today numbers, and a reply still marks its time active, but they add no credit
+by themselves. Nothing needs to be committed for a day to count: a day spent on work that isn't committed yet still
+earns for its active time.
+
+**Active time** is counted in 5-minute slots of the local day, at most 10 hours (120 slots) a day. A slot counts when an
+agent replied in it, or when the uncommitted files of a repository World counts changed in it. A slot counts once,
+whatever moved in it, and an agent left running (a `/loop`, a scheduled job, a background session) marks its slots like
+any other, so the 10 hours are the limit. **Time spent reading code, in a debugger or reviewing in a browser, with no
+file changing and no agent working, is not counted**: World does not watch your editor, terminal or keyboard.
+
+**Home levels up with XP** from the days you work. XP is never spent; credit is what you spend. A day's XP is a third of
+its credit, rounded: about 85 for a typical full day, about 135 for a huge one. A day off pauses it, and XP never goes
+back. The levels:
 
 | Level | Home | XP |
 |---|---|---|
@@ -411,13 +435,43 @@ never goes back. The levels:
 | 4–6 | continents, green coasts, forests | 300, 500, 800 |
 | 7–9 | settlements with lights at night, cities under an atmosphere, terraformed with a moon | 1,200, 1,600, 2,000 |
 | 10–12 | an orbital ring, a star port on it, twin moons | 2,600, 3,300, 4,000 |
+| 13 and on | one small new feature at Home each, named after it | every 1,000 XP more |
 
-Level 9 takes about a month of normal weekdays. The box at World's top left shows the level, the XP toward the next, and
-today's XP; the board says so when Home reaches a new level.
+Terraformed (level 9) takes about five weeks of typical weekdays, and Twin moons about ten. Past it Home keeps growing
+(about 12 typical working days per level): Satellite, Bright air, Ring of lights, Near star, Aurora, Beacon, Second sun
+glow, Comet trail, Moon base, Shield halo, Sky lanterns and Far lighthouse, then round again with a numeral (Beacon
+II). Home's light on the map grows a little with each of them too. The box at World's top left shows the level, the XP
+toward the next, and today's XP; the board says so when Home reaches a new level.
+
+**Colonies grow by themselves.** A colony has six stages, from Landing site to City: Landing site, Outpost, Domes,
+Green patches, Township, City. It is fed by half the XP Home earns after the colony landed, with nothing to feed by hand:
+Outpost at 100 colony XP, Domes at 300, Green patches at 700, Township at 1,300 and City at 2,000, about 8 to 10 weeks
+of typical work. After City it gains a feature every 1,000 colony XP more (Beacon tower, Orbital mirror, Harbour
+lights, Rail ring, Garden roofs, Space lift, then round again with a numeral). A colony keeps its planet's look
+(rust, ice, sand, violet) with the stages drawn on top, and builds sit on top of the stage. A colony founded earlier
+grows from the XP earned since its own landing, so it can show up already grown. Claude's build prompt describes the
+colony's stage as it does Home's level.
+
+**What it costs.** A build costs 150, pushing the frontier 300, a probe 400 and a rocket 1,200: a build is under a day
+of typical work, a push about a day, a probe a day and a half and a rocket about a working week. Every price is the
+same however many of a kind you bought. A pushed region is fully lit after 600 more credit earned, and a probe arrives
+after 500 more.
+
+**Credit already earned is kept.** The first time this version runs, World records the day it switched, which is the
+local day after it first runs. Days before it keep the credit and XP the old formula gave them, for good; days from it
+on use the one above, so your balance never drops at the switch (it is the old earnings plus the new, minus everything
+spent). A purchase keeps the price it was bought at, and a push or probe already under way keeps the light or travel credit it
+was bought with (3,000 for one bought before this change), so it finishes as it was promised.
+
+World counts the tokens, lines and commits like this:
 
 - **Tokens** come from the transcripts of every Claude Code profile on this Mac, sessions and subagents: what was
   sent and written, once per reply. Cache reads don't count. There is one World, whichever profile the board shows.
-- **Lines** come from your commits in the repositories those sessions worked in or edited files in: commits whose
+- **Which repositories count**: World finds them from your agent sessions. When a session works in a folder, World takes
+  that folder's git repository (a linked worktree counts as its main repository) and counts it from then on. There is
+  no way to add a repository by hand, so someone who never uses an agent has none counted. In a counted repository
+  everything counts, whoever made it: your commits (below), and its uncommitted file changes for active time.
+- **Lines and commits** come from your commits in those repositories: commits whose
   author and committer are the `user.email` git uses there, on any branch or remote. Others' commits, merges, the
   stash, and squashes GitHub makes for you don't count, and neither do lockfiles; a file counts at most 2,000 lines
   each way per commit. A repository where git has no `user.email` counts nothing, and World says so; so does one
@@ -437,27 +491,27 @@ days as a mosaic, a square a day and amber when your agents worked, signed in or
 
 **Push the frontier** to spend credit. Pick where it leaves from, Home or one of your colonies (a chip each; the map
 flies there), then a direction (from the list, or **Aim on the map**) and the dark that way lights up as you keep
-working: a push opens 150 px of map and is fully lit after 3,000 more credit earned, about ten normal days. A push
+working: a push opens 150 px of map and is fully lit after 600 more credit earned, about two or three normal days. A push
 from a colony starts at the colony, so the map grows branches out to where you settled. A push from the same place
 within 20° of an earlier one makes that stretch longer. Dark that the light walls in all round counts as lit, so
 three branches that close a triangle fill it. The first push always finds a planet and each later one finds one half
-the time; it shows once the light reaches it, and a click flies there. A push costs 4,000, every time. Light never
-goes back, even when a day's multiplier moves.
+the time; it shows once the light reaches it, and a click flies there. A push costs 300, every time. Light never
+goes back.
 
 **Moments** mark the map where they happened: each finished week with work (Monday to Sunday), each finished day that
-removed 500 lines or more and more than it added ("Big cleanup"), and each Home level from 3 up. The Moments card lists
+removed 500 lines or more and more than it added ("Big cleanup", though removing no longer pays extra), and each Home level from 3 up. The Moments card lists
 the newest; a click on one, or on its star, opens it there with what was done and flies to it.
 
 **Send a rocket** to a bare planet the frontier found, and name the colony it lands (up to 24 letters, digits,
 spaces, apostrophes or hyphens; not Home, and not another colony's name). The view pulls out, the rocket flies from
 where you are, and the view flies in to the colony; with reduced motion it goes straight there. Colonies have a
-button each beside **Home** and **Map**. A rocket costs 4,000, every time.
+button each beside **Home** and **Map**. A rocket costs 1,200, every time.
 
 **Build** on Home or a colony: pick it in the Build card (a chip each, or its button beside **Home** and **Map**; either
 flies there), describe it (up to 300 characters) and press **Build on** it, or Enter. Claude turns the
 words into pieces World can draw: moons, rings, a ring city, city lights, land and ocean colours, an atmosphere,
 mountains, domes, space stations, a space elevator, aurora and beacons, each with a colour, size, place and count.
-Every build costs 4,000, wherever it goes and however many came before. Credit is taken only when the answer draws:
+Every build costs 150, wherever it goes and however many came before. Credit is taken only when the answer draws:
 if Claude can't be reached, the profile isn't signed in, or the answer doesn't fit, nothing is spent and the Build
 card says why. One build at a time.
 
@@ -501,8 +555,9 @@ service picks it up.
   same page you can set your galaxy to **unlisted**: it still opens for anyone with the link, but search engines are
   told to leave it out and it cannot be found by its coordinates.
 
-**What never leaves your Mac**: tokens, lines, credit, your repositories and their paths, build prompts, and any time
-finer than a day.
+**What never leaves your Mac**: tokens, lines, credit, XP, active time, prices, your repositories and their paths, build
+prompts, and any time finer than a day. Of how World has grown, only Home's level and each colony's stage go (as numbers;
+the hub names them itself).
 
 Your Mac also tells the hub its own state so your page can show it to you and nobody else: your balance, the prices,
 today's numbers, whether a build is running, and the Mac's name. That is shown only to you, signed in.
@@ -513,7 +568,7 @@ The panel sends about ten seconds after something changes, a second after a purc
 **The Universe** is the zoom past **Map**, signed in: your galaxy, drawn as a small spiral, in the dark. You start
 alone and find the others by sending probes from the **Send a probe** card. Pick a direction (from the list, or **Aim
 on the map**) and the hub aims the probe at the nearest galaxy that way you haven't found: the nearest within 60° of
-where you pointed, or if there is none, the nearest anywhere. A probe costs 4,000 and arrives after 3,000 more credit
+where you pointed, or if there is none, the nearest anywhere. A probe costs 400 and arrives after 500 more credit
 earned; on its way it shows as a dot heading out the way you sent it. When it arrives that galaxy appears, with its
 handle, and a click opens its page. A probe always finds someone; if there is no one left to find, the card says so
 and nothing is spent. Unlisted galaxies are never found, and a galaxy that is found isn't told. Signed out, there is
@@ -526,8 +581,8 @@ listed. Unlisted asks search engines not to index your page; a link still opens 
 from your page, and your Mac does it: **Your orders** on the page's rail, which only you see, has Build, Rocket, Push
 and Probe as tabs, and the Build and Push chips fly the map to the place the build goes on or the push leaves from.
 A Mac whose panel predates probes is asked for neither a probe nor a push from a colony: update it first. An order from the site goes through the same code as the panel's buttons, so the same prices
-and rules apply, and the page shows what happened, or the Mac's own sentence when it said no ("It costs 4,000 credit,
-and you have 3,200."). One order at a time. With two Macs signed in to one account, an order is run by whichever
+and rules apply, and the page shows what happened, or the Mac's own sentence when it said no ("It costs 400 credit,
+and you have 320."). One order at a time. With two Macs signed in to one account, an order is run by whichever
 signed-in Mac claims it first, and an order whose Mac went away while running it is released after an hour. If the
 Mac is asleep or offline, the order waits and runs when it wakes (the background service does this with no panel
 open); an order not picked up within 24 hours expires.
