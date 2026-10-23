@@ -1,6 +1,8 @@
-// The command line behind `node server.mjs daemon install|remove|status | login | logout | status | orders [on|off]`: it
-// installs the panel as a launchd agent, removes it, or says whether it is running; it signs this Mac in to the hub and out
-// again; and it says whether the hub's website may place orders on this Mac, or turns that on or off.
+// The command line behind `node server.mjs daemon install|remove|status | login | logout | status | orders [on|off] |
+// world add|remove|list`: it installs the panel as a launchd agent, removes it, or says whether it is running; it signs this
+// Mac in to the hub and out again; it says whether the hub's website may place orders on this Mac, or turns that on or off;
+// and it adds repositories to the ones World counts (for someone coding by hand, with no agent sessions), removes them or
+// lists them.
 // server.mjs hands any argument to `main` and exits with the code it returns.
 
 import fs from 'node:fs';
@@ -12,13 +14,15 @@ import { LABEL, plistPath, logPath, install, remove, status } from './daemon.mjs
 import { createHub } from './hub.mjs';
 import { workerOf, lastCheck, safeLine } from './update.mjs';
 import { describe, setOn } from './web-orders.mjs';
+import { addRepos, removeRepo, readRepos, reposOf, real } from './world-repos.mjs';
 
-const USAGE = 'usage: node server.mjs daemon install [--program <path>]|remove|status | login [--link <code>] | logout | status | orders [on|off]';
+const USAGE = 'usage: node server.mjs daemon install [--program <path>]|remove|status | login [--link <code>] | logout | status | orders [on|off] | world add <folder>|remove <folder>|list';
 
 /** Where this panel keeps its preferences; ACP_PREFS gives a second panel a folder of its own. The hub file lives beside it. */
 export const prefsPath = () => process.env.ACP_PREFS || path.join(os.homedir(), 'Library', 'Application Support', 'Agent Panel', 'prefs.json');
 const openHub = () => createHub({ file: path.join(path.dirname(prefsPath()), 'hub.json') });
 const webOrdersFile = () => path.join(path.dirname(prefsPath()), 'web-orders.json');
+const worldDir = () => path.join(path.dirname(prefsPath()), 'world');
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -77,6 +81,28 @@ function checkLine(last) {
   return what ? safeLine(`Last update check ${last.at}: ${what}`) : null;
 }
 
+/** `world add|remove|list`: the repositories World counts, besides the ones agent sessions worked in. */
+function worldRepos(sub, arg) {
+  const reposFile = path.join(worldDir(), 'repos.json');
+  if (sub === 'list') {
+    let found = [];
+    try { found = JSON.parse(fs.readFileSync(path.join(worldDir(), 'world.json'), 'utf8')).repos.map(real); } catch {}
+    const list = reposOf(found, readRepos(reposFile));
+    console.log(list.length ? list.map((r) => `${r.path} (${r.by === 'hand' ? 'added by hand' : 'found from an agent session'})`).join('\n') : 'No repositories yet.');
+    return 0;
+  }
+  const dir = path.resolve(arg);
+  if (sub === 'remove') {
+    console.log(removeRepo(reposFile, dir) ? `Removed ${real(dir)}` : `${real(dir)} is not on the list.`);
+    return 0;
+  }
+  try { if (!fs.statSync(dir).isDirectory()) throw new Error(); } catch { console.error(`${dir} is not a folder.`); return 1; }
+  const { added } = addRepos(reposFile, dir);
+  if (!added.length) { console.error(`No repository in or under ${real(dir)} (looked 3 levels down).`); return 1; }
+  for (const p of added) console.log(`Added ${p}`);
+  return 0;
+}
+
 /** Runs one command and returns the exit code: 0 done, 1 launchctl or the hub refused, 2 the command is not one of ours. */
 export async function main(argv) {
   const [cmd, sub] = argv;
@@ -91,6 +117,7 @@ export async function main(argv) {
     console.log(describe(webOrdersFile()));
     return 0;
   }
+  if (cmd === 'world' && ((sub === 'list' && argv.length === 2) || (['add', 'remove'].includes(sub) && argv.length === 3))) return worldRepos(sub, argv[2]);
   if (cmd === 'status' && argv.length === 1) {
     const w = workerOf(path.dirname(fileURLToPath(import.meta.url)));
     if (w) console.log(`Worker ${w.sha.slice(0, 7)}`);
