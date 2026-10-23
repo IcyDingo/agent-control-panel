@@ -6,7 +6,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
+import { generateKeyPairSync } from 'node:crypto';
 import { checkClone, updateClone, appFor } from '../clone-update.mjs';
+import { rawPublicKey, signRelease } from '../release-keys.mjs';
+
+const { publicKey, privateKey } = generateKeyPairSync('ed25519');
+const KEYS = [rawPublicKey(publicKey)], N = 5;
 
 const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'clone-update-')));
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
@@ -31,9 +36,10 @@ function repos() {
   };
   return { repo, publish, head: () => git(repo, 'rev-parse', 'HEAD') };
 }
-/** A hub whose /api/release names `sha`. */
-const hub = (sha) => async (url) => (url === 'https://hub.test/api/release' ? json({ ok: true, sha }) : json({ ok: false }, 404));
-const check = (repo, sha) => checkClone({ repo, hubUrl: 'https://hub.test', fetch: hub(sha), run });
+/** A hub whose /api/release names `sha`, signed by the test key unless `sigs` says otherwise. */
+const hub = (sha, sigs = [signRelease(N, sha, privateKey)]) => async (url) =>
+  (url === 'https://hub.test/api/release' ? json({ ok: true, sha, n: N, sigs }) : json({ ok: false }, 404));
+const check = (repo, sha, sigs) => checkClone({ repo, hubUrl: 'https://hub.test', fetch: hub(sha, sigs), run, keys: KEYS });
 
 test('the hub naming the commit the clone runs is current', async () => {
   const { repo, head } = repos();
@@ -69,28 +75,63 @@ test('an update is blocked, with the reason, on a branch other than main or with
 test('a hub that does not answer, or names no commit, is an error', async () => {
   const { repo } = repos();
   const down = async () => { throw new Error('offline'); };
-  assert.equal((await checkClone({ repo, hubUrl: 'https://hub.test', fetch: down, run })).outcome, 'error');
-  assert.deepEqual(await check(repo, 'nope'), { outcome: 'error', error: 'The hub named no release.' });
+  assert.equal((await checkClone({ repo, hubUrl: 'https://hub.test', fetch: down, run, keys: KEYS })).outcome, 'error');
+  assert.deepEqual(await check(repo, 'nope', []), { outcome: 'error', error: 'The hub named no release.' });
+  const said = async () => json({ ok: false, error: 'No release\x1b[31m yet.' }, 503);
+  assert.deepEqual(await checkClone({ repo, hubUrl: 'https://hub.test', fetch: said, run, keys: KEYS }), { outcome: 'error', error: 'No release[31m yet.' });
 });
 
-test('updating fast-forwards the clone to main and rebuilds the app', async () => {
+test('a release no known key signed is never offered', async () => {
+  const { repo, publish } = repos();
+  const sha = publish('two\n'), other = generateKeyPairSync('ed25519').privateKey;
+  const refused = { outcome: 'error', error: `Release ${sha.slice(0, 7)} is not signed by a known key.` };
+  assert.deepEqual(await check(repo, sha, []), refused, 'unsigned');
+  assert.deepEqual(await check(repo, sha, [signRelease(N, sha, other)]), refused, 'signed by a stranger');
+  assert.deepEqual(await check(repo, sha, [signRelease(N + 1, sha, privateKey)]), refused, 'signed under another number');
+  assert.deepEqual(await checkClone({ repo, hubUrl: 'https://hub.test', fetch: hub(sha), run, keys: [] }), refused, 'no keys');
+});
+
+test('updating fast-forwards the clone to the release and rebuilds the app', async () => {
   const { repo, head, publish } = repos();
   const sha = publish('two\n');
   fs.mkdirSync(path.join(repo, 'app'));
   fs.writeFileSync(path.join(repo, 'app', 'build.sh'), '#!/bin/sh\necho built > "$(dirname "$0")/built.txt"\n', { mode: 0o755 });
-  const r = await updateClone({ repo, run });
+  const r = await updateClone({ repo, sha, run });
   assert.deepEqual(r, { ok: true, sha, built: true });
   assert.equal(head(), sha);
   assert.equal(fs.readFileSync(path.join(repo, 'server.mjs'), 'utf8'), 'two\n');
   assert.ok(fs.existsSync(path.join(repo, 'app', 'built.txt')), 'app/build.sh ran');
 });
 
+test('updating stops at the signed release, not at what main gained after it', async () => {
+  const { repo, head, publish } = repos();
+  const sha = publish('two\n');
+  publish('three\n');
+  assert.deepEqual(await updateClone({ repo, sha, run }), { ok: true, sha, built: false });
+  assert.equal(head(), sha);
+  assert.equal(fs.readFileSync(path.join(repo, 'server.mjs'), 'utf8'), 'two\n');
+});
+
+test('updating refuses a release that is not on main in the origin', async () => {
+  const { repo, head, publish } = repos();
+  publish('two\n');
+  const was = head(), side = path.join(path.dirname(repo), 'dev');
+  git(side, 'checkout', '-q', '-b', 'side', 'HEAD~1');
+  fs.writeFileSync(path.join(side, 'server.mjs'), 'side\n');
+  git(side, 'commit', '-q', '-am', 'side'); git(side, 'push', '-q', 'origin', 'side');
+  const sha = git(side, 'rev-parse', 'HEAD');
+  await run('git', ['-C', repo, 'fetch', '-q', 'origin', 'side']);
+  assert.deepEqual(await updateClone({ repo, sha, run }), { ok: false, error: `Release ${sha.slice(0, 7)} is not on main in this folder's origin.` });
+  assert.equal(head(), was);
+  assert.deepEqual(await updateClone({ repo, sha: 'nope', run }), { ok: false, error: 'There is no release to update to.' });
+});
+
 test('the app is rebuilt where the running one lives, not only at the default place', async () => {
   const { repo, publish } = repos();
-  publish('two\n');
+  const sha = publish('two\n');
   fs.mkdirSync(path.join(repo, 'app'));
   fs.writeFileSync(path.join(repo, 'app', 'build.sh'), '#!/bin/sh\necho "$AGENT_PANEL_APP" > "$(dirname "$0")/out.txt"\n', { mode: 0o755 });
-  assert.equal((await updateClone({ repo, run, appPath: '/Users/x/Apps/Agent Panel.app' })).built, true);
+  assert.equal((await updateClone({ repo, sha, run, appPath: '/Users/x/Apps/Agent Panel.app' })).built, true);
   assert.equal(fs.readFileSync(path.join(repo, 'app', 'out.txt'), 'utf8'), '/Users/x/Apps/Agent Panel.app\n');
 });
 
@@ -99,7 +140,7 @@ test('an app that does not build still leaves the new code in place, and says so
   const sha = publish('two\n');
   fs.mkdirSync(path.join(repo, 'app'));
   fs.writeFileSync(path.join(repo, 'app', 'build.sh'), '#!/bin/sh\necho "no swiftc" >&2\nexit 1\n', { mode: 0o755 });
-  const r = await updateClone({ repo, run });
+  const r = await updateClone({ repo, sha, run });
   assert.equal(r.ok, true);
   assert.equal(r.sha, sha);
   assert.equal(r.built, false);
@@ -108,17 +149,17 @@ test('an app that does not build still leaves the new code in place, and says so
 
 test('updating refuses a blocked clone and one that cannot fast-forward, and changes nothing', async () => {
   const { repo, head, publish } = repos();
-  publish('two\n');
+  const sha = publish('two\n');
   const was = head();
   fs.writeFileSync(path.join(repo, 'server.mjs'), 'edited\n');
-  assert.deepEqual(await updateClone({ repo, run }), { ok: false, error: "This folder has changes that aren't committed." });
+  assert.deepEqual(await updateClone({ repo, sha, run }), { ok: false, error: "This folder has changes that aren't committed." });
   assert.equal(head(), was);
   git(repo, 'checkout', '-q', '--', 'server.mjs');
   fs.writeFileSync(path.join(repo, 'local.txt'), 'x\n');
   git(repo, 'add', 'local.txt'); git(repo, 'commit', '-q', '-m', 'local');
-  const mine = head(), r = await updateClone({ repo, run });
+  const mine = head(), r = await updateClone({ repo, sha, run });
   assert.equal(r.ok, false);
-  assert.match(r.error, /^git pull could not fast-forward/);
+  assert.match(r.error, /^git could not fast-forward/);
   assert.equal(head(), mine);
 });
 

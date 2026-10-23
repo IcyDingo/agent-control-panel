@@ -1794,14 +1794,16 @@ async function checkAppUpdate() {
   const next = r.outcome === 'available' ? { sha: r.sha, blocked: r.blocked, state: 'ready' } : null;
   if (JSON.stringify(next) !== JSON.stringify(appUpdate)) { appUpdate = next; broadcast(); }
 }
-/** The board's Update: pull main, rebuild the app, and restart on the new code. */
+/** The board's Update: fast-forward to the signed release the check found, rebuild the app, and restart on the new code. */
 async function updateApp() {
   if (WORKER) return { ok: false, error: 'This install updates itself.' };
   if (appUpdate?.state === 'updating' || appUpdate?.state === 'restarting') return { ok: false, error: 'The panel is updating already.' };
-  appUpdate = { ...(appUpdate ?? {}), state: 'updating', error: null };
+  if (appUpdate?.state !== 'ready') return { ok: false, error: 'There is no new version to update to.' };
+  if (appUpdate.blocked) return { ok: false, error: appUpdate.blocked };
+  appUpdate = { ...appUpdate, state: 'updating', error: null };
   broadcast();
   const app = await appFor({ repo: REPO, port: PORT, run });
-  const r = await updateClone({ repo: REPO, run, appPath: app });
+  const r = await updateClone({ repo: REPO, sha: appUpdate.sha, run, appPath: app });
   if (!r.ok) { appUpdate = { ...appUpdate, state: 'ready', error: r.error }; broadcast(); return r; }
   if (!r.built && r.buildError) console.error('update: the app did not rebuild:', r.buildError);
   const restart = DAEMON || app !== null; // launchd restarts the service; the app starts a server when its own is gone
