@@ -388,11 +388,19 @@ export function buildPrompt({ place, state, built = [], description }) {
     'When it asks for something the catalogue lacks, pick the closest pieces. Answer only with what the schema asks for.',
   ].join('\n');
 }
+/** Every built-in tool that reads, writes, runs or reaches out, denied by name as well: `--tools ''` already offers none,
+ *  and a deny also outranks any allow rule in the user's own settings, should a later Claude Code offer tools again. */
+export const DENIED_TOOLS = ['Bash', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch',
+  'Agent', 'Task', 'Skill'];
 /** The one Claude call behind Build it: haiku, the schema, no hooks (the panel's own would report it), no tools, no
  *  MCP servers or slash commands, nothing saved, and an id of its own so the panel can leave it off the board. */
 export const claudeArgs = (id, prompt) => ['-p', '--model', 'haiku', '--output-format', 'json', '--json-schema', JSON.stringify(BUILD_SCHEMA),
-  '--settings', '{"disableAllHooks": true}', '--no-session-persistence', '--tools', '', '--strict-mcp-config', '--disable-slash-commands',
-  '--session-id', id, '--', prompt];
+  '--settings', '{"disableAllHooks": true}', '--no-session-persistence', '--tools', '', '--disallowedTools', ...DENIED_TOOLS,
+  '--strict-mcp-config', '--disable-slash-commands', '--session-id', id, '--', prompt];
+/** True when the answer shows Claude did more than answer: a structured answer takes two turns (the reply and the
+ *  schema's own step), so a third, a subagent, or a tool it was refused means something was tried. */
+const didMore = (out) => (Number.isInteger(out?.num_turns) && out.num_turns > 2)
+  || (Array.isArray(out?.permission_denials) && out.permission_denials.length > 0) || (out?.subagent_stats?.spawned ?? 0) > 0;
 /** The answer from that call (the server's execFile result), or why there is none, in words for the side panel. */
 export function readAnswer({ err, stdout = '', stderr = '' }) {
   if (err?.code === 'ENOENT') return fail("The panel couldn't find Claude Code to ask.");
@@ -400,6 +408,7 @@ export function readAnswer({ err, stdout = '', stderr = '' }) {
   let out = null;
   try { out = JSON.parse(stdout); } catch {}
   if (out?.is_error) return fail(`Claude couldn't build it: ${String(out.result ?? 'it gave no reason').split('\n')[0].slice(0, 200)}`);
+  if (didMore(out)) return fail('Claude tried to do more than describe the build, so its answer was thrown away.');
   if (out?.structured_output && typeof out.structured_output === 'object') return { ok: true, value: out.structured_output };
   const why = `${stderr}\n${stdout}`.split('\n').map((l) => l.trim()).find(Boolean)?.slice(0, 200);
   return fail(why ? `Claude couldn't build it: ${why}` : "Claude couldn't build it.");

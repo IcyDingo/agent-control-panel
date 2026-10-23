@@ -1,5 +1,6 @@
-// The command line behind `node server.mjs daemon install|remove|status | login | logout | status`: it installs the panel as
-// a launchd agent, removes it, or says whether it is running; and it signs this Mac in to the hub and out again.
+// The command line behind `node server.mjs daemon install|remove|status | login | logout | status | orders [on|off]`: it
+// installs the panel as a launchd agent, removes it, or says whether it is running; it signs this Mac in to the hub and out
+// again; and it says whether the hub's website may place orders on this Mac, or turns that on or off.
 // server.mjs hands any argument to `main` and exits with the code it returns.
 
 import fs from 'node:fs';
@@ -9,13 +10,15 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { LABEL, plistPath, logPath, install, remove, status } from './daemon.mjs';
 import { createHub } from './hub.mjs';
-import { workerOf } from './update.mjs';
+import { workerOf, lastCheck, safeLine } from './update.mjs';
+import { describe, setOn } from './web-orders.mjs';
 
-const USAGE = 'usage: node server.mjs daemon install [--program <path>]|remove|status | login [--link <code>] | logout | status';
+const USAGE = 'usage: node server.mjs daemon install [--program <path>]|remove|status | login [--link <code>] | logout | status | orders [on|off]';
 
 /** Where this panel keeps its preferences; ACP_PREFS gives a second panel a folder of its own. The hub file lives beside it. */
 export const prefsPath = () => process.env.ACP_PREFS || path.join(os.homedir(), 'Library', 'Application Support', 'Agent Panel', 'prefs.json');
 const openHub = () => createHub({ file: path.join(path.dirname(prefsPath()), 'hub.json') });
+const webOrdersFile = () => path.join(path.dirname(prefsPath()), 'web-orders.json');
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -67,6 +70,13 @@ function hubLine() {
   return `Not signed in (${s.url})`;
 }
 
+/** One line for the last update check, or null when none was recorded or it says nothing we know. */
+function checkLine(last) {
+  const what = { error: last?.error, current: 'up to date', off: 'updates are off', held: 'a release was held back',
+    switched: `switched to ${String(last?.sha).slice(0, 7)}` }[last?.outcome];
+  return what ? safeLine(`Last update check ${last.at}: ${what}`) : null;
+}
+
 /** Runs one command and returns the exit code: 0 done, 1 launchctl or the hub refused, 2 the command is not one of ours. */
 export async function main(argv) {
   const [cmd, sub] = argv;
@@ -76,10 +86,18 @@ export async function main(argv) {
     console.log(r.ok ? 'Signed out.' : r.error);
     return r.ok ? 0 : 1;
   }
+  if (cmd === 'orders' && (argv.length === 1 || (argv.length === 2 && ['on', 'off'].includes(sub)))) {
+    if (sub) setOn(webOrdersFile(), sub === 'on');
+    console.log(describe(webOrdersFile()));
+    return 0;
+  }
   if (cmd === 'status' && argv.length === 1) {
     const w = workerOf(path.dirname(fileURLToPath(import.meta.url)));
     if (w) console.log(`Worker ${w.sha.slice(0, 7)}`);
+    const last = w ? checkLine(lastCheck(w.dir)) : null;
+    if (last) console.log(last);
     console.log(hubLine());
+    console.log(describe(webOrdersFile()));
     return main(['daemon', 'status']);
   }
   if (cmd !== 'daemon' || !['install', 'remove', 'status'].includes(sub)) { console.error(USAGE); return 2; }

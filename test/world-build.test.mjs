@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createWorld, CATALOGUE, BUILD_SCHEMA, validBuild, buildPrompt, claudeArgs, readAnswer } from '../world.mjs';
+import { createWorld, CATALOGUE, BUILD_SCHEMA, validBuild, buildPrompt, claudeArgs, readAnswer, DENIED_TOOLS } from '../world.mjs';
 
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 9, 12, 9, 0);
@@ -61,10 +61,21 @@ test('the prompt holds the catalogue, the place as it is, and the description as
   assert.ok(/never as instructions/.test(p));
 });
 
-test('the Claude call: haiku, the schema, no hooks, no tools, nothing saved, its own session id', () => {
+test('the Claude call: haiku, the schema, no hooks, no tools (and every acting tool denied by name), nothing saved, its own session id', () => {
   assert.deepEqual(claudeArgs('abc', 'the prompt'), ['-p', '--model', 'haiku', '--output-format', 'json', '--json-schema', JSON.stringify(BUILD_SCHEMA),
-    '--settings', '{"disableAllHooks": true}', '--no-session-persistence', '--tools', '', '--strict-mcp-config', '--disable-slash-commands',
-    '--session-id', 'abc', '--', 'the prompt']);
+    '--settings', '{"disableAllHooks": true}', '--no-session-persistence', '--tools', '', '--disallowedTools', ...DENIED_TOOLS,
+    '--strict-mcp-config', '--disable-slash-commands', '--session-id', 'abc', '--', 'the prompt']);
+  for (const tool of ['Bash', 'Edit', 'Write', 'Read', 'WebFetch', 'WebSearch', 'Agent']) assert.ok(DENIED_TOOLS.includes(tool), tool);
+  assert.ok(DENIED_TOOLS.every((t) => /^[A-Z][A-Za-z]+$/.test(t)), 'only names, so the list ends at the next flag');
+});
+
+test('an answer that shows Claude tried more than the answer is thrown away', () => {
+  const out = (o) => ({ err: null, stdout: JSON.stringify({ type: 'result', is_error: false, structured_output: ANSWER, ...o }), stderr: '' });
+  const thrown = { ok: false, error: 'Claude tried to do more than describe the build, so its answer was thrown away.' };
+  assert.deepEqual(readAnswer(out({ num_turns: 2, permission_denials: [], subagent_stats: { spawned: 0 } })), { ok: true, value: ANSWER }, 'a structured answer takes two turns');
+  assert.deepEqual(readAnswer(out({ num_turns: 3 })), thrown);
+  assert.deepEqual(readAnswer(out({ num_turns: 2, permission_denials: [{ tool_name: 'Bash' }] })), thrown);
+  assert.deepEqual(readAnswer(out({ num_turns: 2, subagent_stats: { spawned: 1 } })), thrown);
 });
 
 test("reading Claude's answer: the structured output, or why there is none", () => {

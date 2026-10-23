@@ -2,7 +2,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
+import { generateKeyPairSync } from 'node:crypto';
 import { loadConfig } from '../hub/config.mjs';
+import { rawPublicKey, signRelease } from '../release-keys.mjs';
 import { openDb, SCHEMA_VERSION } from '../hub/db.mjs';
 
 test('config reads the environment with the documented defaults', () => {
@@ -14,10 +16,19 @@ test('config reads the environment with the documented defaults', () => {
   assert.equal(loadConfig({ HUB_TRUST_PROXY: '1' }).trustProxy, true);
   assert.equal(loadConfig({ HUB_TRUST_PROXY: 'yes' }).trustProxy, false, 'only the documented value');
   const SHA = 'a'.repeat(40);
-  assert.equal(c.release, null, 'no release until the deploy names one');
-  assert.equal(loadConfig({ HUB_RELEASE: SHA }).release, SHA);
-  assert.equal(loadConfig({ HUB_RELEASE: 'abc1234' }).release, null, 'a short sha is not a release');
-  assert.equal(loadConfig({ HUB_RELEASE: 'A'.repeat(40) }).release, null, 'lower-case hex only, as git prints it');
+  const { publicKey, privateKey } = generateKeyPairSync('ed25519');
+  const pub = rawPublicKey(publicKey), sig = signRelease(12, SHA, privateKey);
+  const good = { HUB_RELEASE: SHA, HUB_RELEASE_N: '12', HUB_RELEASE_SIG: sig };
+  assert.equal(c.release, null); assert.equal(c.releaseError, 'This hub does not name a release yet.');
+  assert.deepEqual(loadConfig(good, { keys: [pub] }).release, { sha: SHA, n: 12, sigs: [sig] });
+  assert.deepEqual(loadConfig({ ...good, HUB_RELEASE_SIG: ` bad , ${sig}, ` }, { keys: [pub] }).release, { sha: SHA, n: 12, sigs: ['bad', sig] }, 'spaces and a trailing comma are tolerated');
+  for (const env of [{ ...good, HUB_RELEASE_SIG: 'bad' }, { ...good, HUB_RELEASE_N: '13' }, { ...good, HUB_RELEASE_N: '' }, { ...good, HUB_RELEASE_N: '0' }, { HUB_RELEASE: SHA }]) {
+    const d = loadConfig(env, { keys: [pub] });
+    assert.equal(d.release, null); assert.equal(d.releaseError, "This hub's release is not signed by a known key.");
+  }
+  assert.equal(loadConfig(good, { keys: [] }).release, null, 'no keys, no release');
+  assert.equal(loadConfig(good).release, null, 'the real RELEASE_KEYS does not hold the test key');
+  for (const bad of ['abc1234', 'A'.repeat(40)]) assert.equal(loadConfig({ ...good, HUB_RELEASE: bad }, { keys: [pub] }).releaseError, 'This hub does not name a release yet.', bad);
   assert.equal(c.bindHost, '0.0.0.0', 'listens everywhere unless told where');
   assert.equal(loadConfig({ HUB_HOST: '127.0.0.1' }).bindHost, '127.0.0.1');
   assert.throws(() => loadConfig({ HUB_PUBLIC_URL: 'https://hub.example.com', HUB_DEV_LOGIN: '1' }), /refused on an https/);

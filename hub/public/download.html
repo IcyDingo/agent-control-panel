@@ -32,7 +32,8 @@
           <button class="btn small" id="copy" type="button">Copy</button>
         </div>
         <p class="note" id="link-note"></p>
-        <p class="more"><a href="/install">Read the script</a> before you run it.</p>
+        <p class="more"><a href="https://github.com/IcyDingo/agent-control-panel/blob/main/hub/public/install.sh" rel="noopener">Read the script</a>
+          before you run it. The line runs it from GitHub, not from this site.</p>
       </div>
     </section>
 
@@ -73,8 +74,10 @@ cd agent-control-panel
   const $ = (id) => document.getElementById(id);
   const { hashOf, pick, mosaic } = Hub;
 
-  // The one line, from this hub's own address. Signed in with a link, the line also carries the link's code.
-  const line = (code) => `curl -fsSL ${location.origin}/install | sh` + (code ? ` -s -- --link ${code}` : '');
+  // The one line runs the script as it is on GitHub's main, so this site is not trusted with it. Signed in with a link,
+  // the line also carries the link's code.
+  const SCRIPT = 'https://raw.githubusercontent.com/IcyDingo/agent-control-panel/main/hub/public/install.sh';
+  const line = (code) => `curl -fsSL ${SCRIPT} | sh` + (code ? ` -s -- --link ${code}` : '');
   const note = $('link-note');
   $('install').textContent = line();
 

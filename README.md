@@ -9,13 +9,14 @@ You need a Mac (macOS 14 or newer) with Node 20 or newer. Open https://universe.
 in with GitHub, and paste the one line it shows into Terminal:
 
 ```bash
-curl -fsSL https://universe.cashegg.com/install | sh
+curl -fsSL https://raw.githubusercontent.com/IcyDingo/agent-control-panel/main/hub/public/install.sh | sh
 ```
 
 It installs a small background service that counts your agents' work and keeps your galaxy up to date, and
-links this Mac to your account. Your galaxy page is the whole interface; the Mac app below is optional.
+links this Mac to your account. The script runs from GitHub, not from the hub, and installs only a release that is on
+`main` and signed by the maintainer's key. Your galaxy page is the whole interface; the Mac app below is optional.
 
-Updates are daily, and a version that cannot start is rolled back; to turn them off:
+Updates are daily, only to a release signed by the project's key on the maintainer's Mac, never to an older one, and a version that cannot start is rolled back; to turn them off:
 `printf '{ "auto": false }\n' > "$HOME/Library/Application Support/Agent Panel/worker/update.json"`
 
 ### The session board (optional)
@@ -483,7 +484,7 @@ either way.
 
 ```
 node server.mjs login      # prints a code and a link, and opens the link
-node server.mjs status     # signed in as whom, and whether the background service runs
+node server.mjs status     # signed in as whom, whether the site may place orders, and whether the background service runs
 node server.mjs logout     # revokes this Mac's token on the hub and forgets it
 ```
 
@@ -535,6 +536,20 @@ signed-in Mac claims it first, and an order whose Mac went away while running it
 Mac is asleep or offline, the order waits and runs when it wakes (the background service does this with no panel
 open); an order not picked up within 24 hours expires.
 
+**Your Mac decides what the site may do.** The hub only queues orders; the Mac runs them, and only within limits kept
+on the Mac, in `web-orders.json` beside `prefs.json`, which nothing from the hub can change. It runs the four kinds above
+and nothing else. A build asks Claude, on this Mac's account, for drawing pieces only: the call has no tools (each one
+that could read, write, run or fetch is also denied by name), no MCP servers, hooks or skills, and an answer that shows
+Claude tried anything more is thrown away. At most 10 builds a day come from the site (set `"buildsPerDay"` in the
+file to change it), and every order the Mac runs or refuses shows a notification, so one you didn't place is seen at
+once. To stop the site placing orders on this Mac at all, or allow it again:
+
+```
+node server.mjs orders off   # orders from the site are refused here, with a sentence the page shows
+node server.mjs orders on
+node server.mjs orders       # on or off, and today's builds
+```
+
 **Only want World?** Open `http://127.0.0.1:4747/world`: the page opens straight into World, without the board. A
 bookmark can point there.
 
@@ -575,8 +590,10 @@ An endpoint that approves commands is worth protecting, even on localhost:
   World, copied key by key (a field added later stays private until it is listed) and checked again on the hub before
   it is stored. The hub stores tokens and session ids hashed; the one exception is a token you have just approved,
   which the hub holds in clear only until your Mac collects it or the code runs out (15 minutes).
-- The worker only ever installs a commit the hub names that is on the repository's `main`, downloaded from GitHub
-  over https.
+- The worker only ever installs a commit the hub names that is signed by a key listed in `release-keys.mjs` (the
+  private half lives on the maintainer's Mac, encrypted), is on the repository's `main` **and descends from the release
+  it runs**, so neither a stolen key nor a stolen server can send it back to older code; downloaded from GitHub over
+  https, verified before the download.
 - The hub rate-limits every sign-in, upload and order, per visitor address or per account, and answers `429` with a
   `retry-after` when a limit is reached (`hub/README.md` has the table). A galaxy set to unlisted is reached by its link
   only: crawlers are told not to index it and a scan of the map's coordinates does not find it.
@@ -589,7 +606,7 @@ Sign out first, so the hub forgets this Mac's token, then remove the worker:
 
 ```bash
 node "$HOME/Library/Application Support/Agent Panel/worker/current/server.mjs" logout
-curl -fsSL https://universe.cashegg.com/install | sh -s -- --uninstall
+curl -fsSL https://raw.githubusercontent.com/IcyDingo/agent-control-panel/main/hub/public/install.sh | sh -s -- --uninstall
 ```
 
 ### The app too

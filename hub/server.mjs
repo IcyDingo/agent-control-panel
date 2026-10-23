@@ -40,6 +40,16 @@ const PAGES = { '/': 'index.html', '/download': 'download.html', '/me': 'me.html
 const SYSTEM_PAGE = 'system.html';
 
 const HEADERS = { 'x-content-type-options': 'nosniff' };
+
+/** A page's Content-Security-Policy: it runs the shared scripts from this origin and its own inline block, named by the
+ *  hash of its text, and nothing else, so markup that slipped into a page cannot run. Styles may be inline (the pages
+ *  set custom properties in style attributes); the favicon is a data: URL; every call goes to this origin. */
+export function pageCsp(html) {
+  const inline = [...String(html).matchAll(/<script>([\s\S]*?)<\/script>/g)]
+    .map((m) => ` 'sha256-${crypto.createHash('sha256').update(m[1]).digest('base64')}'`).join('');
+  return [`default-src 'none'`, `script-src 'self'${inline}`, `style-src 'self' 'unsafe-inline'`, `img-src 'self' data:`,
+    `connect-src 'self'`, `form-action 'self'`, `base-uri 'none'`, `frame-ancestors 'none'`].join('; ');
+}
 const send = (res, code, body, { cache = 'no-store', type = 'application/json', headers } = {}) => {
   res.writeHead(code, { ...HEADERS, 'content-type': type, 'cache-control': cache, ...headers });
   res.end(typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body));
@@ -102,6 +112,7 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now, ra
 
   const publicHostname = new URL(config.publicUrl).hostname;
   const secure = config.publicUrl.startsWith('https:') ? '; Secure' : '';
+  const hsts = secure ? { 'strict-transport-security': 'max-age=31536000' } : {};
   let boundPort = null;
 
   const sessionCookie = (id, maxAge = SESSION_S) => `${COOKIE}=${id}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${maxAge}${secure}`;
@@ -164,8 +175,10 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now, ra
     if (page) data = await withVersions(data);
     const etag = `"${crypto.createHash('sha256').update(data).digest('base64url').slice(0, 22)}"`;
     const cache = !page && q.get('v') !== null && q.get('v') === versionOf(data) ? 'public, max-age=31536000, immutable' : 'no-cache';
-    // A page is never shown inside another site's frame (its buttons place orders and approve Macs).
-    const headers = { etag, ...(page ? { 'x-frame-options': 'DENY' } : {}), ...more(ctx) };
+    // A page is never shown inside another site's frame (its buttons place orders and approve Macs), runs only its own
+    // scripts, and, served over https, tells the browser to use https for this host from then on.
+    const pageHeaders = page ? { 'x-frame-options': 'DENY', 'content-security-policy': pageCsp(data), ...hsts } : {};
+    const headers = { etag, ...pageHeaders, ...more(ctx) };
     if (req.headers['if-none-match'] === etag) return send(res, 304, '', { cache, type: TYPES[path.extname(file)] ?? 'application/octet-stream', headers });
     send(res, 200, data, { type: TYPES[path.extname(file)] ?? 'application/octet-stream', cache, headers });
   };
@@ -177,8 +190,8 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now, ra
 
   route('GET', '/healthz', 'pub', ({ res }) => send(res, 200, { ok: true, v: 1 }));
   route('GET', '/api/release', 'pub', ({ res }) => (config.release
-    ? send(res, 200, { ok: true, sha: config.release, url: `https://codeload.github.com/${RELEASE_REPO}/tar.gz/${config.release}` }, { cache: 'public, max-age=30' })
-    : fail(res, 503, 'This hub does not name a release yet.')));
+    ? send(res, 200, { ok: true, ...config.release, url: `https://codeload.github.com/${RELEASE_REPO}/tar.gz/${config.release.sha}` }, { cache: 'public, max-age=30' })
+    : fail(res, 503, config.releaseError)));
   for (const [url, file] of Object.entries(STATIC)) route('GET', url, 'pub', staticFile(file));
   for (const [url, name] of Object.entries(PAGES)) route('GET', url, 'pub', staticFile(path.join(HERE, 'public', name)));
   route('GET', /^\/@(?<handle>[^/]+)$/, 'pub', staticFile(path.join(HERE, 'public', SYSTEM_PAGE), ({ params }) => (unlisted(accounts.byHandle(params.handle)) ? NOINDEX : {})));

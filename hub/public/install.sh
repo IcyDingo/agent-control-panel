@@ -1,9 +1,10 @@
 #!/bin/sh
-# Installs the Agent Panel worker on a Mac: checks what it needs, downloads the release the hub names into
-# ~/Library/Application Support/Agent Panel/worker, writes the launcher (run.sh) that launchd runs, installs the
+# Installs the Agent Panel worker on a Mac: checks what it needs, downloads the signed release the hub names from GitHub
+# into ~/Library/Application Support/Agent Panel/worker, writes the launcher (run.sh) that launchd runs, installs the
 # background service through it and signs the Mac in to the hub. The worker then updates itself once a day. Run it
-# again to repair an install. The Download page links to this file, so it can be read before it runs:
-#   curl -fsSL https://universe.cashegg.com/install | sh -s -- [flags]
+# again to repair an install. The line runs this file as it is on GitHub's main, so the hub is not trusted with the
+# script itself (the hub serves the same file at /install too). The Download page links to it, to read before it runs:
+#   curl -fsSL https://raw.githubusercontent.com/IcyDingo/agent-control-panel/main/hub/public/install.sh | sh -s -- [flags]
 #   --link <code>   sign in with a code already approved on the website, instead of the usual sign-in
 #   --no-update     install with the daily self-update turned off
 #   --uninstall     remove the service and the worker; your sign-in and your galaxy's record stay
@@ -12,11 +13,13 @@
 set -u
 
 HUB="${ACP_HUB:-https://universe.cashegg.com}"
+REPO=IcyDingo/agent-control-panel
+SCRIPT_URL="https://raw.githubusercontent.com/$REPO/main/hub/public/install.sh"
 SUPPORT="$HOME/Library/Application Support/Agent Panel"
 DIR="$SUPPORT/worker"
 PLIST="$HOME/Library/LaunchAgents/local.agent-panel.plist"
 LOG="$HOME/Library/Logs/Agent Panel/daemon-4747.log"
-USAGE="usage: curl -fsSL $HUB/install | sh -s -- [--link <code>] [--no-update] [--uninstall]"
+USAGE="usage: curl -fsSL $SCRIPT_URL | sh -s -- [--link <code>] [--no-update] [--uninstall]"
 
 missing=0
 paint() { if [ -t 1 ]; then printf '\033[%sm%s\033[0m' "$1" "$2"; else printf '%s' "$2"; fi; }
@@ -87,14 +90,33 @@ main() {
     exit 1
   fi
 
+  # The hub names the release, but GitHub vouches for it: the commit must be on main, it is downloaded from GitHub by
+  # that commit (never from an address the hub gives), and the signature is checked with the keys in that commit
+  # before anything is put in place. A hub that was taken over can name only a signed release from main.
   release="$(curl -fsSL "$HUB/api/release")"
   sha="$(printf '%s\n' "$release" | sed -n 's/.*"sha":"\([0-9a-f]\{40\}\)".*/\1/p')"
-  url="$(printf '%s\n' "$release" | sed -n 's/.*"url":"\([^"]*\)".*/\1/p')"
-  if [ -z "$sha" ] || [ -z "$url" ]; then
+  n="$(printf '%s\n' "$release" | sed -n 's/.*"n":\([1-9][0-9]\{0,9\}\)[,}].*/\1/p')"
+  sigs="$(printf '%s\n' "$release" | sed -n 's/.*"sigs":\[\([^]]*\)\].*/\1/p' | tr -d '"')"
+  if [ -z "$sha" ]; then
     fail "The hub did not name a release (is $HUB reachable?)."
     exit 1
   fi
-  printf '\n%s\n' "Getting the worker (release $(printf '%s' "$sha" | cut -c1-7))…"
+  short="$(printf '%s' "$sha" | cut -c1-7)"
+  case "$n:$sigs" in :*|*:|*[!0-9A-Za-z_,:-]*)
+    fail "The hub's release $short is not signed, so it is not installed."
+    exit 1 ;;
+  esac
+  # GitHub's compare of main with the commit says `identical` or `behind` when main holds it. Without -L: a redirect
+  # (a renamed repository) is not followed. Whitespace is dropped so the top-level status is found however it is laid out.
+  status="$(curl -fsS -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$REPO/compare/main...$sha" 2>/dev/null |
+    tr -d ' \t\r\n' | sed -n 's/.*"status":"\([a-z]*\)","ahead_by".*/\1/p')"
+  case "$status" in
+    identical|behind) ;;
+    '') fail "GitHub could not be asked whether release $short is on main; run the line again in a minute."; exit 1 ;;
+    *) fail "Release $short is not on main, so it is not installed."; exit 1 ;;
+  esac
+  url="https://codeload.github.com/$REPO/tar.gz/$sha"
+  printf '\n%s\n' "Getting the worker (release $short)…"
 
   # Unpacked and its launcher written beside the live files first, so a broken download changes nothing that runs.
   # The node path goes into a sed replacement, where |, & and \ mean something; escaped, any path works.
@@ -109,11 +131,19 @@ main() {
     rm -rf "$tmp" "$DIR/$sha.tgz" "$DIR/run.sh.new"
     exit 1
   fi
+  # The commit is on main, so its own key list is the owner's; the signature must match one of those keys.
+  if ! { [ -f "$tmp/agent-control-panel-$sha/release-keys.mjs" ] &&
+    node "$tmp/agent-control-panel-$sha/release-keys.mjs" verify "$sha" "$n" "$sigs"; }; then
+    fail "Release $short is not signed by a known key, so it is not installed."
+    rm -rf "$tmp" "$DIR/$sha.tgz" "$DIR/run.sh.new"
+    exit 1
+  fi
   rm -rf "$DIR/$sha"; mv "$tmp/agent-control-panel-$sha" "$DIR/$sha"; rm -rf "$tmp" "$DIR/$sha.tgz"
   chmod 755 "$DIR/run.sh.new"
   mv -f "$DIR/run.sh.new" "$DIR/run.sh"
   ln -sfn "$DIR/$sha" "$DIR/current"
-  rm -f "$DIR/switch"
+  # A fresh install starts clean: no switch for the launcher, and no release number or last check from an earlier install.
+  rm -f "$DIR/switch" "$DIR/release" "$DIR/last-check"
   [ "$update" = 1 ] || printf '{ "auto": false }\n' > "$DIR/update.json"
 
   # The app installer's service runs the panel from a clone; installing here points the same service at run.sh.
@@ -141,7 +171,7 @@ main() {
 work. See it at $HUB/@you (the sign-in above printed the address)."
   [ "$update" = 0 ] || printf '%s\n' "The worker checks $HUB for a new release once a day and updates itself; to turn that off:   printf '{ \"auto\": false }\\n' > \"$DIR/update.json\""
   cat <<EOF
-To remove the worker (sign out first with  node "$DIR/current/server.mjs" logout  so the hub forgets this Mac):   curl -fsSL $HUB/install | sh -s -- --uninstall
+To remove the worker (sign out first with  node "$DIR/current/server.mjs" logout  so the hub forgets this Mac):   curl -fsSL $SCRIPT_URL | sh -s -- --uninstall
 Want the session board too? $HUB/download has the app.
 EOF
 }
