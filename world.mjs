@@ -1,9 +1,10 @@
 // World: a universe your agents' work pays for (docs/superpowers/specs/2026-10-21-world-design.md).
 //
-// Credit is earned per local calendar day from the tokens the shown profile's sessions use and the lines in your own
-// commits; lines removed multiply it. Only work after World's first open counts. The days you work also give Home XP,
-// which levels it up from a bare rock: more work always gives more, each doubling a little, so it unfolds over weeks.
-// XP is never spent; credit is what you spend.
+// Credit is earned per local calendar day from the work in it: the lines changed in your own commits, the commits, and
+// the active time (five-minute slots with an agent turn or a commit in them, ten hours at most), on one curve that
+// flattens, so each doubling of work adds the same. Tokens are shown but earn nothing. Only work after World's first
+// open counts. The days you work also give Home XP, a third of the day's credit, which levels it up from a bare rock
+// over weeks. XP is never spent; credit is what you spend.
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -15,22 +16,42 @@ export function dayKey(ms) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-/** Removing pays: 1 with nothing removed, up to 4 when a day only removes. */
+/** The length of an active slot in minutes, and how many a day counts: ten hours. */
+export const SLOT_MIN = 5, MAX_SLOTS = 120;
+
+/** A day's work: lines changed, 20 for each commit, and 60 for each active hour (the slots, ten hours at most). */
+export function dayWork({ added = 0, removed = 0, commits = 0, slots = 0 }) {
+  return added + removed + 20 * commits + 60 * Math.min(slots, MAX_SLOTS) * SLOT_MIN / 60;
+}
+
+/** The credit of a day: 65 for each doubling of its work (past 50), so more always pays and big days flatten. Tokens
+ *  earn nothing. */
+export function dayCredit(x) {
+  return Math.round(65 * Math.log2(1 + dayWork(x ?? {}) / 50));
+}
+
+/** The XP a day gives Home: a third of its credit. */
+export function dayXp(x) {
+  return Math.round(dayCredit(x) / 3);
+}
+
+/** The old formula, for the days before the switch: removing pays, 1 with nothing removed, up to 4 when a day only removes. */
 export function multiplier(added, removed) {
   const all = added + removed;
   return all > 0 ? Math.round((1 + 3 * removed / all) * 10) / 10 : 1;
 }
 
-export function dayCredit({ added = 0, removed = 0, tokens = 0 }) {
+/** The old credit of a day: its lines and tokens, times the multiplier. */
+export function oldDayCredit({ added = 0, removed = 0, tokens = 0 }) {
   return Math.round((added / 10 + tokens / 10_000) * multiplier(added, removed));
 }
 
-/** The credit of a full day's work, worth 100 XP: about an hour of one agent working. */
+/** The credit of a full day under the old rules, worth 100 XP: about an hour of one agent working. */
 export const FULL_DAY = 300;
-/** The XP a day's work gives Home: its share of 100 up to a full day, and past one, 50 more for each doubling of the
- *  work (600 credit is 150, 1,200 is 200). No daily limit; the doubling keeps a runaway loop from jumping far. */
-export function dayXp(x) {
-  const c = dayCredit(x ?? {});
+/** The old XP a day gave Home: its share of 100 up to a full day, and past one, 50 more for each doubling of the
+ *  work (600 credit is 150, 1,200 is 200). */
+export function oldDayXp(x) {
+  const c = oldDayCredit(x ?? {});
   return Math.round(100 * (c <= FULL_DAY ? c / FULL_DAY : 1 + 0.5 * Math.log2(c / FULL_DAY)));
 }
 /** Home's levels by XP: something shows within the first hour, about a month of normal weekdays reaches level 9
@@ -39,8 +60,8 @@ export const LEVELS = [[0, 'Bare rock'], [15, 'Clouds'], [100, 'Oceans'], [300, 
   [1200, 'Settlements'], [1600, 'Cities'], [2000, 'Terraformed'], [2600, 'Orbital ring'], [3300, 'Star port'], [4000, 'Twin moons']];
 /** Home from the work per day (`days`): its XP, today's XP, its level and stage, where that level began, and the next. */
 export function homeLevel(days, today) {
-  const xp = Object.values(days).reduce((s, x) => s + dayXp(x), 0), i = LEVELS.findLastIndex(([at]) => xp >= at), next = LEVELS[i + 1];
-  return { xp, today: dayXp(days[today]), level: i + 1, stage: LEVELS[i][1], at: LEVELS[i][0],
+  const xp = Object.values(days).reduce((s, x) => s + oldDayXp(x), 0), i = LEVELS.findLastIndex(([at]) => xp >= at), next = LEVELS[i + 1];
+  return { xp, today: oldDayXp(days[today]), level: i + 1, stage: LEVELS[i][1], at: LEVELS[i][0],
     next: next ? { level: i + 2, name: next[1], at: next[0] } : null };
 }
 
@@ -129,7 +150,7 @@ export function momentsOf(days, today, purchases, seed) {
   let earned = 0, xp = 0;
   const through = {}; // day → { earned, xp } up to and including it
   for (const d of sorted) {
-    earned += dayCredit(days[d]); xp += dayXp(days[d]);
+    earned += oldDayCredit(days[d]); xp += oldDayXp(days[d]);
     through[d] = { earned, xp };
   }
   const upTo = (day) => through[sorted.filter((d) => d <= day).at(-1)] ?? { earned: 0, xp: 0 };
@@ -152,17 +173,17 @@ export function momentsOf(days, today, purchases, seed) {
     weeks.set(monday, [...(weeks.get(monday) ?? []), d]);
   }
   for (const [monday, list] of weeks) {
-    const sunday = addDays(monday, 6), worked = list.filter((d) => dayCredit(days[d]) > 0);
+    const sunday = addDays(monday, 6), worked = list.filter((d) => oldDayCredit(days[d]) > 0);
     if (sunday >= today || !worked.length) continue;
     const sum = (k) => list.reduce((s, d) => s + days[d][k], 0);
     add({ id: `week ${monday}`, kind: 'week', name: 'A week of work', day: sunday, from: monday,
-      info: { commits: sum('commits'), added: sum('added'), removed: sum('removed'), credit: list.reduce((s, d) => s + dayCredit(days[d]), 0), days: worked.length } });
+      info: { commits: sum('commits'), added: sum('added'), removed: sum('removed'), credit: list.reduce((s, d) => s + oldDayCredit(days[d]), 0), days: worked.length } });
   }
   for (const d of sorted) {
     const x = days[d];
     if (d >= today || x.removed < 500 || x.removed <= x.added) continue;
     add({ id: `cleanup ${d}`, kind: 'cleanup', name: 'Big cleanup', day: d,
-      info: { added: x.added, removed: x.removed, multiplier: multiplier(x.added, x.removed), credit: dayCredit(x) } });
+      info: { added: x.added, removed: x.removed, multiplier: multiplier(x.added, x.removed), credit: oldDayCredit(x) } });
   }
   let before = 0;
   for (const d of sorted) {
@@ -630,7 +651,7 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
     }
     return days;
   }
-  const earnedIn = (days) => Object.values(days).reduce((sum, x) => sum + dayCredit(x), 0);
+  const earnedIn = (days) => Object.values(days).reduce((sum, x) => sum + oldDayCredit(x), 0);
   const fmt = (n) => Math.round(n).toLocaleString('en-US');
 
   function summary() {
@@ -642,9 +663,9 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
     const { lobes, planets } = frontierOf(st.purchases, peak, st.seed), colonies = new Map();
     for (const p of st.purchases) if (p.kind === 'rocket') colonies.set(p.planet, { name: p.name, at: p.at });
     const s = { started: true, startedAt: st.startedAt, seed: st.seed, earned, spent, balance: earned - spent, home, reach: homeReach(home.xp),
-      sun: sunOf(st.seed), daysActive: Object.values(days).filter((x) => dayCredit(x) > 0).length,
-      worked: Object.keys(days).filter((d) => dayCredit(days[d]) > 0).sort(), // the days with work in them, oldest first
-      today: { day: today, commits: t.commits, added: t.added, removed: t.removed, multiplier: multiplier(t.added, t.removed), tokens: t.tokens, credit: dayCredit(t) },
+      sun: sunOf(st.seed), daysActive: Object.values(days).filter((x) => oldDayCredit(x) > 0).length,
+      worked: Object.keys(days).filter((d) => oldDayCredit(days[d]) > 0).sort(), // the days with work in them, oldest first
+      today: { day: today, commits: t.commits, added: t.added, removed: t.removed, multiplier: multiplier(t.added, t.removed), tokens: t.tokens, credit: oldDayCredit(t) },
       prices: { frontier: priceOf('frontier'), rocket: priceOf('rocket'), build: priceOf('build'), probe: priceOf('probe') },
       frontier: lobes.map((l) => ({ from: l.from, ang: l.ang, bought: l.pushes.length * PUSH_LEN, lit: l.lit, tip: l.tip })),
       planets: planets.filter((p) => p.found).map((p) => ({ id: p.id, x: p.x, y: p.y, look: p.look, colony: colonies.get(p.id) ?? null })),

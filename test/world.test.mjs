@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
-import { dayKey, multiplier, dayCredit, dayXp, homeLevel, LEVELS, FULL_DAY, commitKey, countsFile, readTokens, parseLog, createWorld } from '../world.mjs';
+import { dayKey, multiplier, dayWork, dayCredit, dayXp, oldDayCredit, oldDayXp, homeLevel, LEVELS, FULL_DAY, commitKey, countsFile, readTokens, parseLog, createWorld } from '../world.mjs';
 
 const START = Date.UTC(2026, 9, 21, 9, 0);
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'world-'));
@@ -22,25 +22,43 @@ test('multiplier rewards removing', () => {
   assert.equal(multiplier(0, 300), 4);
 });
 
-test('a day of work earns credit', () => {
-  assert.equal(dayCredit({ added: 11000, removed: 0, tokens: 1_500_000 }), 1250);
-  assert.equal(dayCredit({ added: 50, removed: 300, tokens: 0 }), Math.round(5 * 3.6));
+test('old days keep the old formula', () => {
+  assert.equal(oldDayCredit({ added: 11000, removed: 0, tokens: 1_500_000 }), 1250);
+  assert.equal(oldDayCredit({ added: 50, removed: 300, tokens: 0 }), Math.round(5 * 3.6));
+  assert.equal(oldDayCredit({ added: 300, removed: 0, tokens: 1_000_000 }), 130);
+  assert.equal(oldDayXp({ added: 3000, tokens: 0 }), 100); // 300 credit, a full day under the old rules
+});
+
+test("the new day credit follows the spec's table", () => {
+  assert.equal(dayWork({ added: 20, removed: 10, commits: 1, slots: 36 }), 230);
+  assert.equal(dayWork({ slots: 288 }), dayWork({ slots: 120 }));
+  assert.equal(dayWork({}), 0);
+  assert.equal(dayCredit({ slots: 3 }), 25); // 15 minutes
+  assert.equal(dayCredit({ added: 20, removed: 10, commits: 1, slots: 36 }), 162); // 3 hours, one 30-line fix
+  assert.equal(dayCredit({ slots: 48 }), 165); // 4 hours, nothing committed
+  assert.equal(dayCredit({ added: 100, removed: 50, commits: 3, slots: 96 }), 253); // a typical full day
+  assert.equal(dayCredit({ added: 2000, removed: 1000, commits: 10, slots: 96 }), 404);
+  assert.equal(dayCredit({ slots: 288 }), dayCredit({ slots: 120 }), 'past 10 hours, time stops counting');
+  assert.equal(dayCredit({ tokens: 5_000_000 }), 0, 'tokens alone earn nothing');
+  assert.equal(dayCredit({}), 0);
+  assert.equal(dayXp({ added: 100, removed: 50, commits: 3, slots: 96 }), 84);
+  assert.equal(dayXp(undefined), 0);
 });
 
 test('day keys are calendar days', () => assert.equal(dayKey(Date.UTC(2026, 9, 21, 23, 59)), '2026-10-21'));
 
 test('a full day is 100 XP; more work earns more, 50 per doubling, with no daily limit', () => {
   assert.equal(FULL_DAY, 300); // credit: about an hour of one agent working
-  assert.equal(dayXp({ tokens: 3_000_000 }), 100);
-  assert.equal(dayXp({ tokens: 6_000_000 }), 150);
-  assert.equal(dayXp({ tokens: 12_000_000 }), 200);
-  assert.equal(dayXp({ tokens: 24_000_000 }), 250);
-  assert.equal(dayXp({ tokens: 48_000_000 }), 300);
-  assert.equal(dayXp({ tokens: 500_000_000 }), 469); // a runaway loop: a hundred and sixty times the work, not even five days' XP
-  assert.equal(dayXp({ tokens: 1_500_000 }), 50);
-  assert.equal(dayXp({ added: 600 }), 20); // ideas without commits count through tokens, commits through lines
-  assert.equal(dayXp({}), 0); // a day you only looked counts nothing
-  assert.equal(dayXp(undefined), 0);
+  assert.equal(oldDayXp({ tokens: 3_000_000 }), 100);
+  assert.equal(oldDayXp({ tokens: 6_000_000 }), 150);
+  assert.equal(oldDayXp({ tokens: 12_000_000 }), 200);
+  assert.equal(oldDayXp({ tokens: 24_000_000 }), 250);
+  assert.equal(oldDayXp({ tokens: 48_000_000 }), 300);
+  assert.equal(oldDayXp({ tokens: 500_000_000 }), 469); // a runaway loop: a hundred and sixty times the work, not even five days' XP
+  assert.equal(oldDayXp({ tokens: 1_500_000 }), 50);
+  assert.equal(oldDayXp({ added: 600 }), 20); // ideas without commits count through tokens, commits through lines
+  assert.equal(oldDayXp({}), 0); // a day you only looked counts nothing
+  assert.equal(oldDayXp(undefined), 0);
 });
 
 test("Home's level adds up the XP of the days worked", () => {
