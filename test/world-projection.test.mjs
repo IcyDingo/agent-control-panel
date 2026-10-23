@@ -22,6 +22,8 @@ function rich() {
   for (let d = 0; d < 21; d++) { tokens[key(at(d))] = 2_000_000; lines['/Users/someone/my-private-repo'][key(at(d))] = { added: 300, removed: d === 4 ? 2000 : 20, commits: 3 }; }
   return seeded({ tokens, lines, purchases: [PUSH, ROCKET, BUILD, HAIL], now: at(21), extra: { noEmail: ['/Users/someone/other-repo'], gitFailed: ['/Users/someone/slow-repo'] } }).world.summary();
 }
+/** What the validator hands back for a v3 projection: each colony also carries its stage's name, rebuilt from the number. */
+const served = (p) => ({ ...p, planets: p.planets.map((q) => (q.colony ? { ...q, colony: { ...q.colony, stageName: colonyStageName(q.colony.stage) } } : q)) });
 const PRIVATE = ['multiplier', '"active"', 'slot', 'earned', 'spent', 'balance', 'prices', 'today', 'xp', 'noEmail', 'gitFailed', 'description', 'info', 'tokens', 'added', 'removed', 'commits', 'credit', 'startedAt', '"at"', 'hail', 'kim', '/Users', 'my-private-repo', 'SECRET'];
 
 test('the projection has exactly the public keys and nothing private in its text', () => {
@@ -49,7 +51,7 @@ test('a version 1 projection still reads, every lobe from Home and no probes', (
   v1.pv = 1; delete v1.probes;
   for (const l of v1.frontier) delete l.from;
   for (const q of v1.planets) if (q.colony) delete q.colony.stage;
-  assert.deepEqual(validProjection(v1), { ...v2, planets: v2.planets.map((q) => (q.colony ? { ...q, colony: { ...q.colony, stage: 1 } } : q)), probes: [] });
+  assert.deepEqual(validProjection(v1), served({ ...v2, planets: v2.planets.map((q) => (q.colony ? { ...q, colony: { ...q.colony, stage: 1 } } : q)), probes: [] }));
   v1.frontier[0].from = 'home';
   assert.equal(validProjection(v1), null, 'version 1 has no places');
 });
@@ -84,10 +86,10 @@ test('the projection is deterministic and round-trips through the validator unch
   const s = rich(), a = publicProjection(s), b = publicProjection(s);
   assert.equal(JSON.stringify(a), JSON.stringify(b));
   const input = JSON.parse(JSON.stringify(a)), v = validProjection(input);
-  assert.deepEqual(v, a);
+  assert.deepEqual(v, served(a));
   assert.ok(v !== input && v.home !== input.home && v.sun !== input.sun && v.planets !== input.planets && v.builds[0].pieces !== input.builds[0].pieces, 'a fresh object all the way down, never the input');
   input.home.level = 1; input.builds[0].pieces[0].count = 99;
-  assert.deepEqual(v, a, 'changing the input afterwards does not reach the result');
+  assert.deepEqual(v, served(a), 'changing the input afterwards does not reach the result');
 });
 
 test('the projection copies a build piece key by key: a stray field in a stored piece does not leave', () => {
@@ -151,7 +153,7 @@ test('a v3 projection carries Home past 12 and colony stages', () => {
   const p = publicProjection(s);
   assert.deepEqual(p.home, { level: 15, stage: HOME_FEATURES[2] });
   assert.equal(p.planets[0].colony.stage, 8);
-  assert.deepEqual(validProjection(JSON.parse(JSON.stringify(p))), p, 'and it round-trips');
+  assert.deepEqual(validProjection(JSON.parse(JSON.stringify(p))), served(p), 'and it round-trips');
   for (const level of [13, 1000]) {
     const q = JSON.parse(JSON.stringify(p)); q.home = { level, stage: levelName(level) };
     assert.equal(validProjection(q).home.level, level);
@@ -185,4 +187,20 @@ test('v1 and v2 still read, exactly as before', () => {
   assert.equal(validProjection(staged), null, 'and has no colony stages');
   const fresh3 = JSON.parse(JSON.stringify(v3)); delete fresh3.planets[0].colony.stage;
   assert.equal(validProjection(fresh3), null, 'version 3 has them');
+});
+
+test('a colony comes out with its stage name rebuilt, whatever the input said, and the output reads again unchanged', () => {
+  const p = JSON.parse(JSON.stringify(publicProjection(rich())));
+  p.planets[0].colony.stage = 7;
+  const v = validProjection(p);
+  assert.deepEqual(Object.keys(v.planets[0].colony), ['name', 'day', 'stage', 'stageName']);
+  assert.equal(v.planets[0].colony.stageName, COLONY_FEATURES[0]);
+  const lied = JSON.parse(JSON.stringify(p)); lied.planets[0].colony.stageName = 'Metropolis';
+  assert.equal(validProjection(lied).planets[0].colony.stageName, COLONY_FEATURES[0], 'a made-up stageName is ignored and replaced');
+  assert.deepEqual(validProjection(JSON.parse(JSON.stringify(v))), v, 'validating the validated copy gives the same copy');
+  const old = JSON.parse(JSON.stringify(p)); old.pv = 2; delete old.planets[0].colony.stage;
+  assert.deepEqual(validProjection(old).planets[0].colony, { name: 'Vesta', day: '2026-10-13', stage: 1, stageName: 'Landing site' });
+  old.planets[0].colony.stageName = 'City';
+  assert.equal(validProjection(old), null, 'a version 2 colony has no stageName');
+  assert.equal(JSON.stringify(publicProjection(rich())).includes('stageName'), false, 'and the Mac does not send one');
 });

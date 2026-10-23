@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
-import { createWorld, publicProjection, PROJECTION_VERSION, levelName } from '../world.mjs';
+import { createWorld, publicProjection, PROJECTION_VERSION, levelName, colonyStageName } from '../world.mjs';
 import { openDb } from '../hub/db.mjs';
 import { createAccounts } from '../hub/accounts.mjs';
 import { createSystems } from '../hub/systems.mjs';
@@ -21,6 +21,8 @@ function seeded({ tokens = {}, lines = {}, purchases = [], now = at(0) } = {}) {
 const PUSH = { kind: 'frontier', at: at(0), price: 4000, earnedAt: 0, ang: 0 };
 const ROCKET = { kind: 'rocket', at: at(1), price: 8000, earnedAt: 0, planet: 'p0', name: 'Vesta' };
 const BUILD = { kind: 'build', at: at(2), price: 4000, earnedAt: 0, on: 'home', description: 'a ring city', caption: 'A ring city', pieces: [{ kind: 'ring_city', colour: '#ffc56a', size: 'large', place: 'equator', count: 4 }] };
+/** What the validator hands back for a v3 projection: each colony also carries its stage's name, rebuilt from the number. */
+const served = (p) => ({ ...p, planets: p.planets.map((q) => (q.colony ? { ...q, colony: { ...q.colony, stageName: colonyStageName(q.colony.stage) } } : q)) });
 function projection() {
   const tokens = {}, lines = { '/Users/someone/repo': {} };
   for (let d = 0; d < 21; d++) { tokens[key(at(d))] = 2_000_000; lines['/Users/someone/repo'][key(at(d))] = { added: 300, removed: 20, commits: 3 }; }
@@ -50,9 +52,9 @@ test('a valid system is stored, canonicalised, and read back with what was deriv
   const r = systems.put(account.id, upload(p, 5));
   assert.equal(r.ok, true);
   assert.equal(r.seq, 5);
-  assert.equal(r.hash, crypto.createHash('sha256').update(JSON.stringify(p)).digest('hex'));
+  assert.equal(r.hash, crypto.createHash('sha256').update(JSON.stringify(served(p))).digest('hex'));
   const got = systems.get(account.id);
-  assert.deepEqual(got.snapshot, p);
+  assert.deepEqual(got.snapshot, served(p));
   assert.deepEqual(
     [got.level, got.stage, got.daysWorked, got.colonies, got.builds, got.receivedAt],
     [p.home.level, p.home.stage, 21, 1, 1, T],
@@ -109,7 +111,7 @@ test('what is stored is the validated copy, and a device that is not short text 
   const q = { ...p, daysActive: 22 }, shuffled = Object.fromEntries(Object.entries(q).reverse());
   systems.put(account.id, upload(shuffled, 2, { device: 'Studio' }));
   assert.equal(db.prepare('SELECT device FROM systems WHERE account_id = ?').get(account.id).device, 'Studio');
-  assert.equal(db.prepare('SELECT snapshot FROM systems WHERE account_id = ?').get(account.id).snapshot, JSON.stringify(q));
+  assert.equal(db.prepare('SELECT snapshot FROM systems WHERE account_id = ?').get(account.id).snapshot, JSON.stringify(served(q)));
 });
 
 test('the owner status is shape-checked, stored as a copy, and read back', () => {
@@ -141,7 +143,7 @@ test('a version 1 upload is accepted and kept as version 1, read as version 2', 
   assert.equal(systems.put(account.id, upload(v1, 1, { pv: 1 })).ok, true);
   const got = systems.get(account.id);
   assert.equal(got.pv, 1);
-  assert.deepEqual(got.snapshot, { ...v2, planets: v2.planets.map((q) => (q.colony ? { ...q, colony: { ...q.colony, stage: 1 } } : q)), probes: [] });
+  assert.deepEqual(got.snapshot, served({ ...v2, planets: v2.planets.map((q) => (q.colony ? { ...q, colony: { ...q.colony, stage: 1 } } : q)), probes: [] }));
   assert.equal(systems.publicView(accounts.byId(account.id), got).stats.pv, 1);
   assert.equal(systems.put(account.id, upload(v2, 2, { pv: 1 })).status, 422, 'the upload and its snapshot must name the same version');
 });
@@ -168,6 +170,8 @@ test('a Home past 12 is stored with the rebuilt stage name, whatever the upload 
   assert.equal(systems.put(account.id, upload(p, 1)).ok, true);
   const got = systems.get(account.id), name = levelName(17);
   assert.deepEqual([got.level, got.stage, got.snapshot.home.stage, got.snapshot.planets[0].colony.stage], [17, name, name, 9]);
+  assert.equal(got.snapshot.planets[0].colony.stageName, colonyStageName(9), 'a colony stores and serves its stage name too');
+  assert.deepEqual(systems.put(account.id, upload(got.snapshot, 2)).ok, true, 'the stored copy is itself a valid upload');
   assert.equal(systems.publicView(accounts.byId(account.id), got).stats.stage, name);
   assert.equal(JSON.stringify(got).includes('Paradise'), false);
 });
@@ -237,7 +241,7 @@ test('a public view carries the profile and the stats and never the owner status
   assert.deepEqual(Object.keys(view), ['profile', 'stats', 'system']);
   assert.deepEqual(view.profile, { handle: 'alice', name: null, bio: null, link: null, avatar: null, x: account.x, y: account.y, joined: '2026-10-22', visibility: 'public' });
   assert.deepEqual(view.stats, { level: p.home.level, stage: p.home.stage, daysWorked: 21, colonies: 1, builds: 1, lastActive: '2026-10-22', pv: 3 });
-  assert.deepEqual(view.system, p);
+  assert.deepEqual(view.system, served(p));
   const text = JSON.stringify(view);
   for (const word of ['balance', 'prices', 'multiplier', 'Studio', 'email', 'show_friends', 'showFriends', 'createdAt']) assert.equal(text.includes(word), false, `leaks ${word}`);
 });

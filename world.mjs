@@ -328,9 +328,11 @@ export function validProjection(p) {
     ids.add(q.id);
     let colony = null;
     if (q.colony !== null) {
-      const name = shape(q.colony, v3 ? ['name', 'day', 'stage'] : ['name', 'day']) ? colonyName(q.colony.name) : null;
+      // A v3 colony may carry `stageName` (a snapshot the hub kept comes back through here); it is ignored and rebuilt.
+      const name = shape(q.colony, v3 ? ['name', 'day', 'stage'] : ['name', 'day'], v3 ? ['stageName'] : []) ? colonyName(q.colony.name) : null;
       if (name === null || !day(q.colony.day) || (v3 && !int(q.colony.stage, 1, 1000))) return null;
-      colony = { name, day: q.colony.day, stage: v3 ? q.colony.stage : 1 }; // before stages, a colony reads as its first
+      const stage = v3 ? q.colony.stage : 1; // before stages, a colony reads as its first
+      colony = { name, day: q.colony.day, stage, stageName: colonyStageName(stage) };
     }
     planets.push({ id: q.id, x: q.x, y: q.y, look: q.look, colony });
   }
