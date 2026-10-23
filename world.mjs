@@ -566,17 +566,43 @@ export function parseLog(text, email, sinceSec = 0) {
   return out;
 }
 
+/** A hash of a repository's uncommitted files: each path `git status` lists with its size and mtime. Editing, adding,
+ *  removing or renaming a file changes it, and so does a commit or a discard (a clean tree hashes the empty list). Null
+ *  when git is mid-write (`.git/index.lock`), the repository is gone or git fails: nothing can be said then. */
+export async function treeFingerprint(repo, run) {
+  if (!fs.existsSync(repo) || fs.existsSync(path.join(repo, '.git', 'index.lock'))) return null;
+  const r = await run('git', ['--no-optional-locks', '-C', repo, 'status', '--porcelain=v1', '-z', '--untracked-files=normal'], { timeout: 10_000 });
+  if (r.err) return null;
+  const entries = r.stdout.split('\0'), files = [];
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
+    if (e.length < 4) continue;
+    files.push(e.slice(3));
+    if (e[0] === 'R' || e[0] === 'C' || e[1] === 'R' || e[1] === 'C') { // a rename or copy is followed by the path it came from
+      if (entries[i + 1]) files.push(entries[i + 1]);
+      i++;
+    }
+  }
+  const hash = crypto.createHash('sha1');
+  for (const f of files.sort()) {
+    let size = -1, mtime = -1; // gone between status and now
+    try { const s = fs.statSync(path.join(repo, f)); size = s.size; mtime = s.mtimeMs; } catch {}
+    hash.update(`${f}\0${size}\0${mtime}\n`);
+  }
+  return hash.digest('hex');
+}
+
 // ---------------------------------------------------------------- the store
 
 const LOG_FORMAT = '--format=%x1e%H%x1f%at%x1f%ae%x1f%ce%x1f%s';
 const WINDOW_DAYS = 30;
 const blank = () => ({ added: 0, removed: 0, tokens: 0, commits: 0, slots: 0, credit: 0, xp: 0 });
-/** Still 2: `active` and `newFrom` came later and are optional, so a World from before them loads as it is. */
+/** Still 2: `active`, `newFrom` and `trees` came later and are optional, so a World from before them loads as it is. */
 const VERSION = 2;
 const isDay = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
 const valid = (st) => st && st.v === VERSION && Number.isFinite(st.startedAt) && [st.files, st.tokens, st.lines].every((o) => o && typeof o === 'object')
   && [st.repos, st.purchases].every(Array.isArray) && (st.active === undefined || (st.active && typeof st.active === 'object'))
-  && (st.newFrom === undefined || isDay(st.newFrom));
+  && (st.newFrom === undefined || isDay(st.newFrom)) && (st.trees === undefined || (st.trees && typeof st.trees === 'object'));
 /** The most two counts of one repository's day have seen. */
 const most = (a, b) => ({ added: Math.max(a.added, b.added), removed: Math.max(a.removed, b.removed), commits: Math.max(a.commits, b.commits) });
 /** A folder's true path. The Mac's disk ignores case, and git names a repository the way it was asked, so one repository
@@ -704,6 +730,20 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
     st.gitFailed = failed;
   }
 
+  /** Someone coding by hand sends no replies: a change in a counted repository's uncommitted files marks the current
+   *  slot active. The first look at a repository only records, and one git cannot read right now keeps its last look.
+   *  Runs after scanCommits, which has already found out whether git may be called. */
+  async function scanWorkTrees() {
+    if (toolsMissing) return;
+    const trees = (st.trees ??= {});
+    for (const repo of st.repos) {
+      const print = await treeFingerprint(repo, run);
+      if (print === null) continue;
+      if (trees[repo] !== undefined && trees[repo] !== print) markActive(dayKey(now()), slotOf(now()));
+      trees[repo] = print;
+    }
+  }
+
   /** The work per day (tokens, every repository's lines and commits, and the active slots), each day stamped with its
    *  credit and XP by the rules in force on it: the new from the switch day on, the old before it. */
   function daysOf() {
@@ -767,7 +807,7 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
     async scan({ git = true } = {}) {
       if (!st) return;
       const changed = await scanTokens();
-      if (git) await scanCommits();
+      if (git) { await scanCommits(); await scanWorkTrees(); }
       // The most ever earned: the frontier lights by it, so a day that counts for less later never dims it.
       const earned = earnedIn(daysOf()), higher = earned > (st.peak ?? 0);
       if (higher) st.peak = earned;

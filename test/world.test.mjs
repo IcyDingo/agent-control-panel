@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
-import { dayKey, multiplier, dayWork, dayCredit, dayXp, oldDayCredit, oldDayXp, homeLevel, levelOf, homeReach, HOME_FEATURES, COLONY_FEATURES, colonyStage, LEVELS, FULL_DAY, commitKey, countsFile, readTokens, parseLog, createWorld } from '../world.mjs';
+import { dayKey, multiplier, dayWork, dayCredit, dayXp, oldDayCredit, oldDayXp, homeLevel, levelOf, homeReach, HOME_FEATURES, COLONY_FEATURES, colonyStage, LEVELS, FULL_DAY, commitKey, countsFile, readTokens, parseLog, createWorld, treeFingerprint, slotOf } from '../world.mjs';
 
 const START = Date.UTC(2026, 9, 21, 9, 0);
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'world-'));
@@ -533,4 +533,119 @@ test('today shows active minutes and no multiplier', async () => {
   fs.writeFileSync(file, JSON.stringify(st));
   const t = load(file, START).summary().today;
   assert.deepEqual([t.active, t.credit], [600, dayCredit({ slots: 120 })], 'ten hours at most');
+});
+
+// ---------------------------------------------------------------- active time from the working tree
+/** A World over a repository whose one reply is hours before the clock `to()` sets, so only the tree can mark that slot. */
+function treeWorld(r, { runner = run } = {}) {
+  const configDir = tmp(), file = path.join(tmp(), 'world', 'default.json');
+  fs.mkdirSync(path.join(configDir, 'projects', 'p'), { recursive: true });
+  let clock = T0;
+  const world = createWorld({ file, configDirs: [configDir], run: runner, gitPlace: () => ({ repo: r }), now: () => clock });
+  world.open();
+  fs.writeFileSync(path.join(configDir, 'projects', 'p', 's.jsonl'), reply('m1', T0 + 5000, { output_tokens: 1 }, r));
+  const replySlot = [dayKey(T0 + 5000), slotOf(T0 + 5000)];
+  return { world, file, replySlot, to: (ms) => { clock = ms; return [dayKey(ms), slotOf(ms)]; } };
+}
+const LATER = T0 + 3 * 3600_000;
+
+test('an edit in a counted repository marks the slot', async () => {
+  const r = repo();
+  commit(r, 'a.txt', 3, 10);
+  const { world, file, replySlot, to } = treeWorld(r);
+  const [day, slot] = to(LATER);
+  await world.scan({ git: true });
+  assert.deepEqual(saved(file).active, { [replySlot[0]]: [replySlot[1]] });
+  fs.appendFileSync(path.join(r, 'a.txt'), 'edited\n');
+  fs.writeFileSync(path.join(r, 'new.txt'), 'untracked\n');
+  await world.scan({ git: true });
+  assert.ok(saved(file).active[day].includes(slot), 'the slot of now is active');
+  assert.equal(typeof saved(file).trees[r], 'string');
+});
+
+test('nothing changed marks nothing', async () => {
+  const r = repo();
+  commit(r, 'a.txt', 3, 10);
+  fs.writeFileSync(path.join(r, 'dirty.txt'), 'x\n');
+  const { world, file, replySlot, to } = treeWorld(r);
+  to(LATER);
+  await world.scan({ git: true });
+  await world.scan({ git: true });
+  assert.deepEqual(saved(file).active, { [replySlot[0]]: [replySlot[1]] });
+});
+
+test('the first look only records', async () => {
+  const r = repo();
+  commit(r, 'a.txt', 3, 10);
+  fs.writeFileSync(path.join(r, 'dirty.txt'), 'x\n');
+  const { world, file, replySlot, to } = treeWorld(r);
+  to(LATER);
+  await world.scan({ git: true });
+  assert.deepEqual(saved(file).active, { [replySlot[0]]: [replySlot[1]] });
+  assert.deepEqual(Object.keys(saved(file).trees), [r]);
+});
+
+test('cleaning the tree, a commit or a discard, is a change too', async () => {
+  const r = repo();
+  commit(r, 'a.txt', 3, 10);
+  fs.appendFileSync(path.join(r, 'a.txt'), 'wip\n');
+  const { world, file, to } = treeWorld(r);
+  const [day, slot] = to(LATER);
+  await world.scan({ git: true });
+  git(r, ['checkout', '-q', '--', 'a.txt']);
+  await world.scan({ git: true });
+  assert.ok(saved(file).active[day].includes(slot));
+});
+
+test('a busy, missing or broken repository is skipped and keeps its fingerprint', async () => {
+  const r = repo(), gone = repo(), plain = tmp();
+  commit(r, 'a.txt', 3, 10);
+  commit(gone, 'a.txt', 3, 10);
+  const { world, file, replySlot, to } = treeWorld(r);
+  to(LATER);
+  await world.scan({ git: true });
+  const before = saved(file).trees[r];
+  fs.appendFileSync(path.join(r, 'a.txt'), 'edit\n');
+  fs.writeFileSync(path.join(r, '.git', 'index.lock'), ''); // another git is writing the index
+  assert.equal(await treeFingerprint(r, run), null);
+  await world.scan({ git: true });
+  assert.deepEqual(saved(file).active, { [replySlot[0]]: [replySlot[1]] });
+  assert.equal(saved(file).trees[r], before);
+  fs.rmSync(path.join(r, '.git', 'index.lock'));
+  fs.rmSync(gone, { recursive: true });
+  assert.equal(await treeFingerprint(gone, run), null);
+  assert.equal(await treeFingerprint(plain, run), null);
+  const failing = (cmd, args, opts) => (args.includes('status') ? Promise.resolve({ err: new Error('boom'), stdout: '', stderr: '' }) : run(cmd, args, opts));
+  assert.equal(await treeFingerprint(r, failing), null);
+});
+
+test('a renamed file and a vanished file are fingerprinted', async () => {
+  const r = repo();
+  commit(r, 'a.txt', 3, 10);
+  git(r, ['mv', 'a.txt', 'b.txt']);
+  const one = await treeFingerprint(r, run);
+  assert.equal(typeof one, 'string');
+  fs.rmSync(path.join(r, 'b.txt'));
+  const two = await treeFingerprint(r, run);
+  assert.equal(typeof two, 'string');
+  assert.notEqual(one, two);
+  assert.equal(await treeFingerprint(r, run), two);
+});
+
+test('without Command Line Tools the working tree is not looked at either', async () => {
+  const r = repo(), calls = [];
+  const spy = (cmd, args, opts) => { calls.push([cmd, ...args]); return cmd === 'xcode-select' ? Promise.resolve({ err: new Error('exit 2'), stdout: '', stderr: '' }) : run(cmd, args, opts); };
+  const { world } = treeWorld(r, { runner: spy });
+  await world.scan({ git: true });
+  assert.deepEqual(calls.filter((c) => c[0] === 'git'), []);
+  assert.equal(calls.filter((c) => c[0] === 'xcode-select').length, 1);
+});
+
+test('a scan without git leaves the working trees alone', async () => {
+  const r = repo(), calls = [];
+  commit(r, 'a.txt', 3, 10);
+  const spy = (cmd, args, opts) => { calls.push([cmd, ...args]); return run(cmd, args, opts); };
+  const { world } = treeWorld(r, { runner: spy });
+  await world.scan({ git: false });
+  assert.deepEqual(calls, []);
 });
