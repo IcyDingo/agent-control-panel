@@ -37,7 +37,9 @@ All of them are environment variables, read once at start-up.
 | `HUB_DEV_LOGIN` | off | `1` allows the dev sign-in. Never on a public hub. |
 | `HUB_HOST` | `0.0.0.0` | The address to listen on. Behind Caddy on the same machine, `127.0.0.1` keeps the plain-http port off the internet. In a container leave it, Docker's port mapping does the binding. |
 | `HUB_TRUST_PROXY` | off | `1` says the hub sits behind a proxy and takes each visitor's address from the last entry of `X-Forwarded-For` (the one the proxy appended), but only on connections that come from loopback or a private range, where a proxy of yours would be. From anywhere else, and when off, the header is ignored. |
-| `HUB_RELEASE` | none | The commit (full sha) this hub runs; workers install and update to it. The deploy script writes it; unset, /api/release answers 503. |
+| `HUB_RELEASE` | none | The commit (full sha) this hub runs, with `HUB_RELEASE_N` and `HUB_RELEASE_SIG`; workers install and update to it. The deploy script writes it; unset, /api/release answers 503. |
+| `HUB_RELEASE_N` | none | The release number, the commit count on `main`; it only goes up. |
+| `HUB_RELEASE_SIG` | none | The owner's signatures of the release, separated by commas. The release is served only when one of them verifies against `release-keys.mjs`; otherwise /api/release answers 503. |
 
 ## Sign in with GitHub
 
@@ -72,6 +74,94 @@ shares one bucket. An IPv6 visitor is their whole /64: one person holds that man
 An **unlisted** galaxy (a choice on the profile page) is reached by its link and nothing else: its page and its API
 answer carry `X-Robots-Tag: noindex`, it cannot be found by its coordinates, and no probe finds it or names it. `robots.txt` allows `/` and `/@…`
 and keeps crawlers out of `/api/`, `/me` and `/device`.
+
+## Releases
+
+A release is a commit on `main`, a number, and one signature per signing key. The number is the commit count on `main`
+(`git rev-list --count`), so it goes up from one release to the next, and the signature covers the number and the
+commit together. The hub serves the release at `/api/release`, and a worker installs nothing else: only a signed
+release that is on `main` **and descends from the release it runs**, so neither a stolen key nor a stolen server can
+send it back to older code. Whoever holds the key chooses the number, so the number is only a first filter; before it
+downloads, the worker asks GitHub whether the new commit comes after the one it runs, and that is what holds. Every
+step below runs on the maintainer's Mac, in a checkout of this repository.
+
+Make the signing key once:
+
+```sh
+node tools/release.mjs keygen
+```
+
+It asks for a passphrase twice, writes the key encrypted to `~/.config/agent-panel/signing-key.pem` (mode 600, never
+overwritten) and prints the public key as one line. Paste that line into `RELEASE_KEYS` in `release-keys.mjs`, as the
+comment there shows, and commit it.
+
+```js
+export const RELEASE_KEYS = [
+  'base64…', // added 2026-10-22
+];
+```
+
+Back the key file up, for example in a password manager, and keep its passphrase apart from it. The folder is outside
+`~/Library/Application Support/Agent Panel`, so the uninstall steps do not delete it. A lost key or a forgotten
+passphrase means nobody can sign a release: every worker has to be re-installed with the one line. The check is never
+weakened to get around it. A key file restored from a backup must get its mode back (`chmod 600`), or `sign` refuses it.
+
+To release, check out `main` with nothing uncommitted, pull, and sign:
+
+```sh
+node tools/release.mjs sign
+```
+
+`sign` refuses a commit that is not on `origin/main` and a working tree with changes. It asks for the passphrase once and
+opens every key file in the folder with it. It then checks its signatures against `RELEASE_KEYS` as it is in the commit
+being signed, the list the hub checks them against once it runs that commit, and refuses when that list holds none of
+your keys. It prints `HUB_RELEASE=`, `HUB_RELEASE_N=` and `HUB_RELEASE_SIG=` and, last, the ssh line that deploys the
+release. Set `ACP_HUB=https://universe.cashegg.com` and it also lists the commits since the release the hub serves now.
+Set `ACP_RELEASE_HOST=root@<server ip>` (one `export` line in your shell profile) and the ssh line names your server;
+without it the line starts `ssh <host>`, which is not meant to be run as it is. Copy the line, or let the tool run it
+for you:
+
+```sh
+node tools/release.mjs sign --deploy root@<server ip>[:/srv/agent-hub]
+```
+
+The first signed release is a little different; `deploy/README.md` has the steps. A deploy that failed (a build error,
+a hub slow to start) can be run again with the same line: `update.sh` records a release only once its build has
+succeeded, and deploys the release on record again when given its own line.
+
+To rotate the key, make a second one with `node tools/release.mjs keygen`. It is written to `signing-key-2.pem`, and
+`sign` now signs with both. `sign` opens every key file with the one passphrase it asks for, so the new key must be made
+with the same passphrase as the current one; `keygen` refuses one that does not open the key files already there. Add
+the new public key to `RELEASE_KEYS`, commit, and release. From then on every release carries two signatures, so a
+worker on either side of that commit follows. Wait 30 days: a worker checks daily, and one that has been asleep longer
+has to be re-installed. Then delete the old key file and remove its line from `RELEASE_KEYS` in a release that the new
+key alone signs.
+
+If a key is stolen (the file and its passphrase), act at once, in three steps. They work with a single key too, since
+the one release among them passes every check on the way:
+
+1. Make a new key with `node tools/release.mjs keygen`, with the same passphrase as the stolen one. Leave the stolen
+   key file in the folder, so `sign` signs with both: the thief already has that key, so signing with it adds no risk.
+2. Make one release whose commit sets `RELEASE_KEYS` to the new key only, and sign and deploy it as usual. It passes
+   every check: workers check it against the list they run now, which holds the stolen key, and its signature is
+   there; `update.sh` checks it against the keys in the code the server runs now, the same list; and the hub, once it
+   runs the new commit, checks it against the new list, and the new key's signature is there too. A worker that has
+   this release no longer accepts anything the stolen key signs.
+3. After 30 days, delete the stolen key file. Until then every release carries both signatures, so a worker that was
+   asleep when step 2 went out still follows it; one asleep longer has to be re-installed.
+
+Until a worker has the release of step 2, the thief can sign any number, but the worker installs only a commit that is
+on `main` and descends from the release it runs, so they would also need the GitHub account, and `main` is protected so
+that even the account can change it only through a pull request made in the open. Keep that protection on; the design
+counts on it.
+
+A worker that refuses a release says so, and keeps running the release it has. On that Mac, the `status` command
+prints the last check, for example `Last update check <time>: Release 1a2b3c4 is not signed by a known key.`,
+`Release 1a2b3c4 is older than the one running.` or `Release 1a2b3c4 does not follow the release running here.`:
+
+```sh
+node "$HOME/Library/Application Support/Agent Panel/worker/current/server.mjs" status
+```
 
 ## Behind Caddy
 

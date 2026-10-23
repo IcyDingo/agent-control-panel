@@ -103,6 +103,16 @@ test('it installs the release into worker/<sha>, writes the launcher, installs t
   assert.ok(r.stdout.includes('Linked to @ada.'));
 });
 
+test('a reinstall clears the switch, the release number and the last check an earlier install left', async (t) => {
+  const f = fixture(t);
+  fs.mkdirSync(f.dir, { recursive: true });
+  const old = { switch: `${SHA} ${'1'.repeat(40)} 0\n`, release: `${'1'.repeat(40)} 99\n`, 'last-check': '{"outcome":"current"}\n' };
+  for (const [name, text] of Object.entries(old)) fs.writeFileSync(path.join(f.dir, name), text);
+  const r = await f.go();
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+  for (const name of Object.keys(old)) assert.equal(fs.existsSync(path.join(f.dir, name)), false, name);
+});
+
 test('a link code that starts with a dash is still a code, and is passed through', async (t) => {
   const f = fixture(t);
   const r = await f.go(['--link', '-abc']);

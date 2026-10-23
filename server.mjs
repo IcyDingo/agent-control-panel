@@ -24,7 +24,7 @@ import { prefsPath } from './cli.mjs';
 import { createHub } from './hub.mjs';
 import { createHubSync } from './hub-sync.mjs';
 import { createHubOrders } from './hub-orders.mjs';
-import { workerOf, markStarted, rolledBack, checkForUpdate } from './update.mjs';
+import { workerOf, markStarted, rolledBack, checkForUpdate, recordCheck, lastCheck } from './update.mjs';
 
 // `node server.mjs <command>` runs the CLI (cli.mjs) and never starts the server.
 if (process.argv.length > 2) { const { main } = await import('./cli.mjs'); process.exit(await main(process.argv.slice(2))); }
@@ -1592,7 +1592,7 @@ function snapshot() {
   const now = Date.now();
   return {
     now, armed, rosterError, port: PORT, profile: profileInfo, world: worldSummary(), hub: hubInfo(), oldVersions,
-    version: WORKER?.sha ?? null, rolledBack: WORKER ? rolledBack(WORKER.dir) : null,
+    version: WORKER?.sha ?? null, rolledBack: WORKER ? rolledBack(WORKER.dir) : null, lastCheck: WORKER ? lastCheck(WORKER.dir) : null,
     sessions: [...sessions.values()].map(({ spawns, hereCwd, rosterCwd, ranCwd, editTops, ...s }) => {
       const here = ranCwd ?? hereCwd ?? s.cwd, git = placeOut(gitPlace(here));
       return {
@@ -1791,12 +1791,15 @@ server.listen(PORT, '127.0.0.1', () => {
     try { markStarted(WORKER); } catch (err) { console.error('worker: could not record the start:', err?.message ?? err); }
     // A timer's clock stops while the Mac sleeps, so a day-long interval on a laptop could go many days without a check.
     // An hourly tick that checks once a day of wall time has passed keeps it daily.
-    let lastCheck = Date.now();
+    let checkedAt = Date.now();
     const check = () => {
-      lastCheck = Date.now();
-      checkForUpdate({ worker: WORKER, hubUrl: hub.status().url, run }).then((r) => { if (r.outcome === 'error') console.error('update check:', r.error); });
+      checkedAt = Date.now();
+      checkForUpdate({ worker: WORKER, hubUrl: hub.status().url, run }).then((r) => {
+        try { recordCheck(WORKER.dir, r); } catch (err) { console.error('worker: could not record the check:', err?.message ?? err); }
+        if (r.outcome === 'error') console.error('update check:', r.error);
+      });
     };
     setTimeout(check, UPDATE_FIRST_MS);
-    setInterval(() => { if (Date.now() - lastCheck >= UPDATE_MS) check(); }, UPDATE_TICK_MS);
+    setInterval(() => { if (Date.now() - checkedAt >= UPDATE_MS) check(); }, UPDATE_TICK_MS);
   }
 });

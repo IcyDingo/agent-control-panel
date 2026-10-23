@@ -177,8 +177,8 @@ export function createHub(config, { fetch = globalThis.fetch, now = Date.now, ra
 
   route('GET', '/healthz', 'pub', ({ res }) => send(res, 200, { ok: true, v: 1 }));
   route('GET', '/api/release', 'pub', ({ res }) => (config.release
-    ? send(res, 200, { ok: true, sha: config.release, url: `https://codeload.github.com/${RELEASE_REPO}/tar.gz/${config.release}` }, { cache: 'public, max-age=30' })
-    : fail(res, 503, 'This hub does not name a release yet.')));
+    ? send(res, 200, { ok: true, ...config.release, url: `https://codeload.github.com/${RELEASE_REPO}/tar.gz/${config.release.sha}` }, { cache: 'public, max-age=30' })
+    : fail(res, 503, config.releaseError)));
   for (const [url, file] of Object.entries(STATIC)) route('GET', url, 'pub', staticFile(file));
   for (const [url, name] of Object.entries(PAGES)) route('GET', url, 'pub', staticFile(path.join(HERE, 'public', name)));
   route('GET', /^\/@(?<handle>[^/]+)$/, 'pub', staticFile(path.join(HERE, 'public', SYSTEM_PAGE), ({ params }) => (unlisted(accounts.byHandle(params.handle)) ? NOINDEX : {})));

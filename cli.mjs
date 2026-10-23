@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { LABEL, plistPath, logPath, install, remove, status } from './daemon.mjs';
 import { createHub } from './hub.mjs';
-import { workerOf } from './update.mjs';
+import { workerOf, lastCheck, safeLine } from './update.mjs';
 
 const USAGE = 'usage: node server.mjs daemon install [--program <path>]|remove|status | login [--link <code>] | logout | status';
 
@@ -67,6 +67,13 @@ function hubLine() {
   return `Not signed in (${s.url})`;
 }
 
+/** One line for the last update check, or null when none was recorded or it says nothing we know. */
+function checkLine(last) {
+  const what = { error: last?.error, current: 'up to date', off: 'updates are off', held: 'a release was held back',
+    switched: `switched to ${String(last?.sha).slice(0, 7)}` }[last?.outcome];
+  return what ? safeLine(`Last update check ${last.at}: ${what}`) : null;
+}
+
 /** Runs one command and returns the exit code: 0 done, 1 launchctl or the hub refused, 2 the command is not one of ours. */
 export async function main(argv) {
   const [cmd, sub] = argv;
@@ -79,6 +86,8 @@ export async function main(argv) {
   if (cmd === 'status' && argv.length === 1) {
     const w = workerOf(path.dirname(fileURLToPath(import.meta.url)));
     if (w) console.log(`Worker ${w.sha.slice(0, 7)}`);
+    const last = w ? checkLine(lastCheck(w.dir)) : null;
+    if (last) console.log(last);
     console.log(hubLine());
     return main(['daemon', 'status']);
   }
