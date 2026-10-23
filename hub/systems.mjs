@@ -3,10 +3,10 @@
 // profile to its system. Every snapshot is re-validated and re-serialised here, so what is stored and served is the hub's
 // own canonical copy of the shape, never the caller's bytes.
 import crypto from 'node:crypto';
-import { validProjection, PROJECTION_VERSION, LEVELS } from '../world.mjs';
+import { validProjection, levelName } from '../world.mjs';
 
-/** The versions a Mac may upload: this one, and the one before probes (a Mac not yet updated). */
-const UPLOADS = [1, PROJECTION_VERSION];
+/** The versions a Mac may upload: the current one, and the two before it (a Mac not yet updated). */
+const UPLOADS = [1, 2, 3];
 
 const fail = (status, error, more = {}) => ({ ok: false, status, error, ...more });
 const day = (ms) => new Date(ms).toISOString().slice(0, 10);
@@ -19,16 +19,18 @@ const STATUS_REFUSED = 'The status could not be read; nothing was stored.';
 function cleanStatus(s) {
   if (!plain(s) || !plain(s.prices) || !plain(s.today) || !plain(s.home) || !plain(s.mac)) return null;
   const { prices, today, home, mac } = s;
-  const todayKeys = ['credit', 'commits', 'added', 'removed', 'tokens', 'multiplier'];
+  const todayKeys = ['credit', 'commits', 'added', 'removed', 'tokens'];
+  const optional = ['multiplier', 'active']; // a Mac from before this release sends the multiplier only; a new one adds the minutes active
   if (!num(s.balance) || typeof s.building !== 'boolean') return null;
   if (!['frontier', 'rocket', 'build'].every((k) => num(prices[k])) || !todayKeys.every((k) => num(today[k]))) return null;
+  if (optional.some((k) => today[k] !== undefined && !num(today[k])) || (today.active !== undefined && (today.active < 0 || today.active > 1440))) return null;
   if (prices.probe !== undefined && !num(prices.probe)) return null; // a Mac from before probes leaves it out
   if (!num(home.xp) || !num(home.today)) return null;
   if (typeof mac.name !== 'string' || mac.name.trim().length > 40 || typeof mac.online !== 'boolean') return null;
   return {
     balance: s.balance,
     prices: { frontier: prices.frontier, rocket: prices.rocket, build: prices.build, ...(prices.probe !== undefined && { probe: prices.probe }) },
-    today: Object.fromEntries(todayKeys.map((k) => [k, today[k]])),
+    today: Object.fromEntries([...todayKeys, ...optional.filter((k) => today[k] !== undefined)].map((k) => [k, today[k]])),
     home: { xp: home.xp, today: home.today },
     building: s.building,
     mac: { name: mac.name.trim(), online: mac.online },
@@ -62,7 +64,7 @@ export function createSystems(db, { now = Date.now } = {}) {
         snapshot = excluded.snapshot, level = excluded.level, stage = excluded.stage, days_worked = excluded.days_worked,
         colonies = excluded.colonies, builds = excluded.builds, received_at = excluded.received_at`)
       .run(accountId, pv, seq, hash, typeof device === 'string' && device.length <= 100 ? device : null, json,
-        level, LEVELS[level - 1][1], clean.daysActive, clean.planets.filter((p) => p.colony !== null).length, clean.builds.length, now());
+        level, levelName(level), clean.daysActive, clean.planets.filter((p) => p.colony !== null).length, clean.builds.length, now());
     return { ok: true, seq, hash };
   }
 
@@ -97,7 +99,7 @@ export function createSystems(db, { now = Date.now } = {}) {
       },
       stats: system
         ? { level: system.level, stage: system.stage, daysWorked: system.daysWorked, colonies: system.colonies, builds: system.builds, lastActive: day(system.receivedAt), pv: system.pv }
-        : { level: 1, stage: LEVELS[0][1], daysWorked: 0, colonies: 0, builds: 0, lastActive: null, pv: 0 },
+        : { level: 1, stage: levelName(1), daysWorked: 0, colonies: 0, builds: 0, lastActive: null, pv: 0 },
       system: system ? system.snapshot : null,
     };
   }

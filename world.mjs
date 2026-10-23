@@ -80,6 +80,9 @@ export function levelOf(xp) {
   return { level: top + k, stage: k === 0 ? LEVELS[top - 1][1] : featureName(HOME_FEATURES, k - 1), at: topAt + 1000 * k,
     next: { level: top + k + 1, name: featureName(HOME_FEATURES, k), at: topAt + 1000 * (k + 1) } };
 }
+/** The name of level `level` (1 up) from its number alone, built on `levelOf` at the XP where that level begins: a
+ *  projection carries the number, and the name is rebuilt here, never taken from the upload. */
+export const levelName = (level) => levelOf(level <= LEVELS.length ? LEVELS[level - 1][0] : LEVELS.at(-1)[0] + 1000 * (level - LEVELS.length)).stage;
 /** Home from the days as the store stamped them (each with its `xp`): its XP, today's XP, its level and stage, where that
  *  level began, and the next. */
 export function homeLevel(days, today) {
@@ -103,6 +106,10 @@ export function colonyStage(colonyXp) {
   const k = Math.floor((colonyXp - COLONY_AT[last]) / 1000);
   return { stage: last + 1 + k, name: k === 0 ? COLONY_STAGES[last] : featureName(COLONY_FEATURES, k - 1) };
 }
+
+/** The name of colony stage `stage` (1 up) from its number alone, built on `colonyStage` at the colony XP where that
+ *  stage begins. */
+export const colonyStageName = (stage) => colonyStage(stage <= COLONY_STAGES.length ? COLONY_AT[stage - 1] : COLONY_AT.at(-1) + 1000 * (stage - COLONY_STAGES.length)).name;
 
 // ---------------------------------------------------------------- spending: the frontier, and the moments on the map
 
@@ -250,7 +257,7 @@ export function colonyName(raw) {
 // on every upload and the page on everything it fetches: it builds a fresh object from what it checked, and returns null
 // at the first value that is oversize, non-finite, off the list or not one of the allowed keys.
 
-export const PROJECTION_VERSION = 2;
+export const PROJECTION_VERSION = 3;
 
 /** `me` is the signed-in account's spot in the Universe: only its probes leave (a probe belongs to the account that sent
  *  it), and none signed out. A probe's target leaves once it has arrived, never before. */
@@ -265,7 +272,7 @@ export function publicProjection(s, me = null) {
     sun: { x: s.sun.x, y: s.sun.y, r: s.sun.r, look: s.sun.look },
     frontier: s.frontier.map((l) => ({ from: l.from, ang: l.ang, bought: l.bought, lit: l.lit, tip: l.tip })),
     planets: s.planets.map((p) => ({ id: p.id, x: p.x, y: p.y, look: p.look,
-      colony: p.colony ? { name: p.colony.name, day: dayKey(p.colony.at) } : null })),
+      colony: p.colony ? { name: p.colony.name, day: dayKey(p.colony.at), stage: p.colony.stage } : null })),
     moments: s.moments.map((m) => (m.from === undefined
       ? { id: m.id, kind: m.kind, name: m.name, day: m.day, x: m.x, y: m.y }
       : { id: m.id, kind: m.kind, name: m.name, day: m.day, from: m.from, x: m.x, y: m.y })),
@@ -277,8 +284,9 @@ export function publicProjection(s, me = null) {
 }
 
 const PROJECTION_KEYS = ['pv', 'seed', 'since', 'daysActive', 'home', 'reach', 'sun', 'frontier', 'planets', 'moments', 'builds'];
-/** Version 1 (before pushes from colonies and probes) is still read: every lobe from Home, no probes. */
-const READS = [1, PROJECTION_VERSION];
+/** Version 1 (before pushes from colonies and probes) is still read: every lobe from Home, no probes. Version 2 (before
+ *  Home past level 12 and colony stages) too: Home up to level 12, and a colony reads as stage 1. */
+const READS = [1, 2, 3];
 const PROJECTION_MOMENTS = ['week', 'cleanup', 'level'];
 /** How many worked days a projection carries (the latest ones); `worked` is optional so a projection from before it still reads. */
 export const WORKED_DAYS = 100;
@@ -295,7 +303,7 @@ export function validProjection(p) {
   const str = (v, max) => typeof v === 'string' && v.length <= max;
   const list = (v, max) => Array.isArray(v) && v.length <= max;
 
-  const v1 = p?.pv === 1;
+  const v1 = p?.pv === 1, v3 = p?.pv === 3;
   if (!shape(p, v1 ? PROJECTION_KEYS : [...PROJECTION_KEYS, 'probes'], ['worked']) || !READS.includes(p.pv) || !int(p.seed, 0, 2 ** 31 - 1) || !day(p.since)
     || !int(p.daysActive, 0, 100_000) || !num(p.reach, 0, 1e6)) return null;
   const worked = [];
@@ -306,8 +314,8 @@ export function validProjection(p) {
       worked.push(d);
     }
   }
-  if (!shape(p.home, ['level', 'stage']) || !int(p.home.level, 1, LEVELS.length)) return null;
-  const home = { level: p.home.level, stage: LEVELS[p.home.level - 1][1] };
+  if (!shape(p.home, ['level', 'stage']) || !int(p.home.level, 1, v3 ? 1000 : LEVELS.length)) return null;
+  const home = { level: p.home.level, stage: levelName(p.home.level) };
   if (!shape(p.sun, ['x', 'y', 'r', 'look']) || !num(p.sun.x, -1e6, 1e6) || !num(p.sun.y, -1e6, 1e6) || !num(p.sun.r, 0, 1e3)
     || !SUN_LOOKS.includes(p.sun.look)) return null;
   const sun = { x: p.sun.x, y: p.sun.y, r: p.sun.r, look: p.sun.look };
@@ -320,9 +328,9 @@ export function validProjection(p) {
     ids.add(q.id);
     let colony = null;
     if (q.colony !== null) {
-      const name = shape(q.colony, ['name', 'day']) ? colonyName(q.colony.name) : null;
-      if (name === null || !day(q.colony.day)) return null;
-      colony = { name, day: q.colony.day };
+      const name = shape(q.colony, v3 ? ['name', 'day', 'stage'] : ['name', 'day']) ? colonyName(q.colony.name) : null;
+      if (name === null || !day(q.colony.day) || (v3 && !int(q.colony.stage, 1, 1000))) return null;
+      colony = { name, day: q.colony.day, stage: v3 ? q.colony.stage : 1 }; // before stages, a colony reads as its first
     }
     planets.push({ id: q.id, x: q.x, y: q.y, look: q.look, colony });
   }

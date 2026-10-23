@@ -311,6 +311,9 @@ test('a system and a status upload; strangers read the system and never the stat
   assert.equal((await call('PUT', '/api/me/status', { token, body: STATUS() })).status, 200);
   assert.deepEqual((await call('GET', '/api/me/status', { cookie })).json, { ok: true, status: STATUS() });
   assert.equal((await call('GET', '/api/me/status')).status, 401);
+  const fresher = STATUS(); delete fresher.today.multiplier; fresher.today.active = 75;
+  assert.equal((await call('PUT', '/api/me/status', { token, body: fresher })).status, 200, 'a status with active and no multiplier');
+  assert.deepEqual((await call('GET', '/api/me/status', { cookie })).json, { ok: true, status: fresher });
   assert.doesNotMatch((await call('GET', '/api/systems/@alice')).text, /balance|1234/);
 
   const { x, y } = placeOf(1);
@@ -615,7 +618,8 @@ test('an unlisted galaxy is reached by its link only: noindex on its page and AP
 async function synced(name, pv = PROJECTION_VERSION) {
   const cookie = await login(name), token = await tokenFor(name), me = (await call('GET', '/api/me', { cookie })).json.account;
   let snapshot = projection();
-  if (pv === 1) { snapshot = JSON.parse(JSON.stringify(snapshot)); snapshot.pv = 1; delete snapshot.probes; for (const l of snapshot.frontier) delete l.from; }
+  if (pv <= 2) { snapshot = JSON.parse(JSON.stringify(snapshot)); snapshot.pv = pv; for (const q of snapshot.planets) if (q.colony) delete q.colony.stage; }
+  if (pv === 1) { delete snapshot.probes; for (const l of snapshot.frontier) delete l.from; }
   const r = await call('PUT', '/api/me/system', { token, body: { pv, seq: clock++, device: 'Studio', snapshot } });
   assert.equal(r.status, 200, r.text);
   return { cookie, token, me };

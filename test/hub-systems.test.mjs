@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
-import { createWorld, publicProjection, PROJECTION_VERSION } from '../world.mjs';
+import { createWorld, publicProjection, PROJECTION_VERSION, levelName } from '../world.mjs';
 import { openDb } from '../hub/db.mjs';
 import { createAccounts } from '../hub/accounts.mjs';
 import { createSystems } from '../hub/systems.mjs';
@@ -89,12 +89,12 @@ test('a snapshot the validator refuses is a 422 and nothing changes', () => {
   const p = projection();
   systems.put(account.id, upload(p, 1));
   const before = systems.get(account.id);
-  for (const bad of [{ ...p, balance: 99 }, null, 'text', { ...p, pv: 3 }]) {
+  for (const bad of [{ ...p, balance: 99 }, null, 'text', { ...p, pv: 4 }]) {
     assert.deepEqual(systems.put(account.id, upload(bad, 2)), { ok: false, status: 422, error: 'The system could not be read; nothing was stored.' });
   }
   assert.equal(systems.put(account.id, upload(p, 'x')).status, 422);
   assert.equal(systems.put(account.id, upload(p, Infinity)).status, 422);
-  assert.equal(systems.put(account.id, { ...upload(p, 2), pv: 3 }).status, 422, 'the upload names another version');
+  assert.equal(systems.put(account.id, { ...upload(p, 2), pv: 4 }).status, 422, 'the upload names another version');
   assert.deepEqual(systems.get(account.id), before);
   const bob = accounts.signIn({ provider: 'github', subject: '2', login: 'bob' }).account;
   assert.equal(systems.put(bob.id, upload({ ...p, extra: 1 })).ok, false);
@@ -137,19 +137,67 @@ test('a version 1 upload is accepted and kept as version 1, read as version 2', 
   const v2 = projection(), v1 = JSON.parse(JSON.stringify(v2));
   v1.pv = 1; delete v1.probes;
   for (const l of v1.frontier) delete l.from;
+  for (const q of v1.planets) if (q.colony) delete q.colony.stage;
   assert.equal(systems.put(account.id, upload(v1, 1, { pv: 1 })).ok, true);
   const got = systems.get(account.id);
   assert.equal(got.pv, 1);
-  assert.deepEqual(got.snapshot, { ...v2, probes: [] });
+  assert.deepEqual(got.snapshot, { ...v2, planets: v2.planets.map((q) => (q.colony ? { ...q, colony: { ...q.colony, stage: 1 } } : q)), probes: [] });
   assert.equal(systems.publicView(accounts.byId(account.id), got).stats.pv, 1);
   assert.equal(systems.put(account.id, upload(v2, 2, { pv: 1 })).status, 422, 'the upload and its snapshot must name the same version');
+});
+
+test('the hub takes a v2 upload from an old Mac and a v3 one from a new Mac', () => {
+  fresh();
+  const v3 = projection(), v2 = JSON.parse(JSON.stringify(v3));
+  v2.pv = 2;
+  for (const q of v2.planets) if (q.colony) delete q.colony.stage;
+  assert.equal(systems.put(account.id, upload(v2, 1, { pv: 2 })).ok, true);
+  const old = systems.get(account.id);
+  assert.deepEqual([old.pv, old.snapshot.planets[0].colony.stage], [2, 1]);
+  assert.equal(systems.put(account.id, upload(v2, 2, { pv: 3 })).status, 422, 'a v2 snapshot cannot be sent as v3');
+  assert.equal(systems.put(account.id, upload(v3, 3, { pv: 3 })).ok, true);
+  assert.equal(systems.get(account.id).pv, 3);
+  assert.equal(systems.put(account.id, upload(v3, 4, { pv: 4 })).status, 422);
+});
+
+test('a Home past 12 is stored with the rebuilt stage name, whatever the upload called it', () => {
+  fresh();
+  const p = projection();
+  p.home = { level: 17, stage: 'Paradise' };
+  p.planets[0].colony.stage = 9;
+  assert.equal(systems.put(account.id, upload(p, 1)).ok, true);
+  const got = systems.get(account.id), name = levelName(17);
+  assert.deepEqual([got.level, got.stage, got.snapshot.home.stage, got.snapshot.planets[0].colony.stage], [17, name, name, 9]);
+  assert.equal(systems.publicView(accounts.byId(account.id), got).stats.stage, name);
+  assert.equal(JSON.stringify(got).includes('Paradise'), false);
 });
 
 test('a version 2 upload with probes is accepted', () => {
   fresh();
   const p = { ...projection(), probes: [{ ang: 0, progress: 1, to: { x: 5, y: 6 } }, { ang: 1, progress: 0.25 }] };
   assert.equal(systems.put(account.id, upload(p, 1)).ok, true);
-  assert.deepEqual([systems.get(account.id).pv, systems.get(account.id).snapshot.probes], [2, p.probes]);
+  assert.deepEqual([systems.get(account.id).pv, systems.get(account.id).snapshot.probes], [3, p.probes]);
+});
+
+test('the hub takes a status with multiplier and no active, and one with active and no multiplier', () => {
+  fresh();
+  const old = STATUS();
+  assert.equal(systems.putStatus(account.id, old).ok, true);
+  assert.deepEqual(systems.getStatus(account.id).today, old.today);
+  const fresh1 = STATUS(); delete fresh1.today.multiplier; fresh1.today.active = 95;
+  assert.equal(systems.putStatus(account.id, fresh1).ok, true);
+  assert.deepEqual(systems.getStatus(account.id).today, fresh1.today, 'whichever came');
+  const both = STATUS(); both.today.active = 0;
+  assert.equal(systems.putStatus(account.id, both).ok, true);
+  assert.deepEqual(systems.getStatus(account.id).today, both.today);
+  const no = { ok: false, status: 422, error: 'The status could not be read; nothing was stored.' };
+  for (const bad of [-1, 1441, '60', NaN, Infinity]) {
+    const s = STATUS(); s.today.active = bad;
+    assert.deepEqual(systems.putStatus(account.id, s), no, `active ${bad}`);
+  }
+  const wrong = STATUS(); wrong.today.multiplier = 'x';
+  assert.deepEqual(systems.putStatus(account.id, wrong), no, 'a multiplier that is there must be a number');
+  assert.equal(systems.getStatus(account.id).today.active, 0, 'a refused status leaves the stored one');
 });
 
 test('the owner status may say what a probe costs, and may leave it out', () => {
@@ -188,7 +236,7 @@ test('a public view carries the profile and the stats and never the owner status
   const view = systems.publicView(accounts.byId(account.id), systems.get(account.id));
   assert.deepEqual(Object.keys(view), ['profile', 'stats', 'system']);
   assert.deepEqual(view.profile, { handle: 'alice', name: null, bio: null, link: null, avatar: null, x: account.x, y: account.y, joined: '2026-10-22', visibility: 'public' });
-  assert.deepEqual(view.stats, { level: p.home.level, stage: p.home.stage, daysWorked: 21, colonies: 1, builds: 1, lastActive: '2026-10-22', pv: 2 });
+  assert.deepEqual(view.stats, { level: p.home.level, stage: p.home.stage, daysWorked: 21, colonies: 1, builds: 1, lastActive: '2026-10-22', pv: 3 });
   assert.deepEqual(view.system, p);
   const text = JSON.stringify(view);
   for (const word of ['balance', 'prices', 'multiplier', 'Studio', 'email', 'show_friends', 'showFriends', 'createdAt']) assert.equal(text.includes(word), false, `leaks ${word}`);
