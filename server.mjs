@@ -1477,7 +1477,9 @@ function ownerStatus() {
   if (!w.started) return null;
   return {
     balance: w.balance, prices: { frontier: w.prices.frontier, rocket: w.prices.rocket, build: w.prices.build, probe: w.prices.probe },
-    today: { credit: w.today.credit, commits: w.today.commits, added: w.today.added, removed: w.today.removed, tokens: w.today.tokens, multiplier: w.today.multiplier },
+    // multiplier is gone from the credit, but a hub from before requires it, so a Mac that updates first still reports.
+    today: { credit: w.today.credit, commits: w.today.commits, added: w.today.added, removed: w.today.removed, tokens: w.today.tokens,
+      active: w.today.active, multiplier: 1 },
     home: { xp: w.home.xp, today: w.home.today }, building,
     mac: { name: os.hostname().slice(0, 40), online: true }, // the hub refuses a longer name
   };

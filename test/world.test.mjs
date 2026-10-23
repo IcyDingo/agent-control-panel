@@ -62,18 +62,18 @@ test('a full day is 100 XP; more work earns more, 50 per doubling, with no daily
 });
 
 test("Home's level adds up the XP of the days worked", () => {
-  const days = { '2026-10-19': { tokens: 9e6 }, '2026-10-20': { tokens: 1.5e6 }, '2026-10-21': { added: 600 } };
+  const days = { '2026-10-19': { xp: 179 }, '2026-10-20': { xp: 50 }, '2026-10-21': { xp: 20 } }; // stamped, as the store gives them
   assert.deepEqual(homeLevel(days, '2026-10-21'), { xp: 249, today: 20, level: 3, stage: 'Oceans', at: 100, next: { level: 4, name: 'Continents', at: 300 } }); // 179 + 50 + 20
   assert.deepEqual(homeLevel({}, '2026-10-21'), { xp: 0, today: 0, level: 1, stage: 'Bare rock', at: 0, next: { level: 2, name: 'Clouds', at: 15 } });
 });
 
 test('level 9 is terraformed after twenty full days, and the levels go on for the productive', () => {
   assert.deepEqual(LEVELS.map(([at]) => at), [0, 15, 100, 300, 500, 800, 1200, 1600, 2000, 2600, 3300, 4000]);
-  const days = (n, tokens = 3e6) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`2026-11-${String(i + 1).padStart(2, '0')}`, { tokens }]));
+  const days = (n, xp = 100) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`2026-11-${String(i + 1).padStart(2, '0')}`, { xp }]));
   assert.equal(homeLevel(days(19), '2026-11-19').stage, 'Cities');
   assert.deepEqual(homeLevel(days(20), '2026-11-20'), { xp: 2000, today: 100, level: 9, stage: 'Terraformed', at: 2000, next: { level: 10, name: 'Orbital ring', at: 2600 } });
-  assert.equal(homeLevel(days(10, 12e6), '2026-11-10').level, 9); // four times the work a day: there in ten days
-  assert.deepEqual(homeLevel(days(14, 48e6), '2026-11-14'), { xp: 4200, today: 300, level: 12, stage: 'Twin moons', at: 4000, next: { level: 13, name: HOME_FEATURES[0], at: 5000 } });
+  assert.equal(homeLevel(days(10, 200), '2026-11-10').level, 9); // twice the XP a day: there in ten days
+  assert.deepEqual(homeLevel(days(14, 300), '2026-11-14'), { xp: 4200, today: 300, level: 12, stage: 'Twin moons', at: 4000, next: { level: 13, name: HOME_FEATURES[0], at: 5000 } });
 });
 
 test('levels past Twin moons come every 1,000 XP', () => {
@@ -102,6 +102,16 @@ test('lockfiles do not count', () => {
   assert.equal(countsFile('a/package-lock.json'), false);
   assert.equal(countsFile('go.sum'), false);
   assert.equal(countsFile('src/a.js'), true);
+});
+
+test('readTokens marks the slot of each reply', () => {
+  const file = path.join(tmp(), 's.jsonl');
+  fs.writeFileSync(file, reply('m1', START + 60_000, USAGE) + reply('m2', START + 7 * 60_000, USAGE) + reply('m3', START + 9 * 60_000, USAGE)
+    + reply('m3', START + 20 * 60_000, USAGE)); // m3 again: a reply already counted marks nothing
+  assert.deepEqual(readTokens(file, undefined, START).slots, { '2026-10-21': [108, 109] }); // 09:01, then 09:07 and 09:09 in one slot
+  const early = path.join(tmp(), 's.jsonl');
+  fs.writeFileSync(early, reply('m1', START - 60_000, USAGE));
+  assert.deepEqual(readTokens(early, undefined, START).slots, {}, 'nothing from before World started');
 });
 
 test('one reply split over several entries counts once', () => {
@@ -294,11 +304,13 @@ test('nothing is stored until World is opened, and it survives a restart', async
 test("the summary carries Home's level and XP, today's filling as work comes in", async () => {
   const configDir = tmp(), file = path.join(tmp(), 'w.json');
   fs.mkdirSync(path.join(configDir, 'projects', 'p'), { recursive: true });
-  const world = createWorld({ file, configDirs: [configDir], run, gitPlace: () => null, now: () => T0 });
+  const world = createWorld({ file, configDirs: [configDir], run, gitPlace: () => null, now: () => START });
   world.open();
-  fs.writeFileSync(path.join(configDir, 'projects', 'p', 's.jsonl'), reply('m1', T0 + 5000, { output_tokens: 1_500_000 }));
+  // Seven replies five minutes apart: 35 minutes of active time, the day's only work (the tokens earn nothing).
+  fs.writeFileSync(path.join(configDir, 'projects', 'p', 's.jsonl'),
+    Array.from({ length: 7 }, (_, i) => reply(`m${i}`, START + 5000 + i * 300_000, { output_tokens: 1_500_000 })).join(''));
   await world.scan({ git: false });
-  assert.deepEqual(world.summary().home, { xp: 50, today: 50, level: 2, stage: 'Clouds', at: 15, next: { level: 3, name: 'Oceans', at: 100 } });
+  assert.deepEqual(world.summary().home, { xp: 17, today: 17, level: 2, stage: 'Clouds', at: 15, next: { level: 3, name: 'Oceans', at: 100 } });
   assert.equal('terraform' in world.summary(), false);
 });
 
@@ -440,4 +452,85 @@ test('a broken world file is set aside, not fatal', () => {
   assert.deepEqual(world.summary(), { started: false });
   assert.equal(fs.existsSync(file), false);
   assert.equal(fs.readdirSync(dir).filter((f) => f.startsWith('world.json.bad-')).length, 1);
+});
+
+// ---------------------------------------------------------------- switching to the new rules
+const DAY = 86_400_000;
+const saved = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
+/** A world.json as a World from before the switch kept it: no newFrom, no active time. */
+function fromBefore({ tokens = {}, lines = {}, purchases = [] } = {}) {
+  const file = path.join(tmp(), 'world.json');
+  fs.writeFileSync(file, JSON.stringify({ v: 2, startedAt: START - 3 * DAY, seed: 7, files: {}, tokens, lines, repos: [], noEmail: [], gitFailed: [], purchases }));
+  return file;
+}
+const load = (file, at) => createWorld({ file, configDirs: [], run, gitPlace: () => null, now: () => at });
+
+test('a World from before keeps its balance', async () => {
+  const work = { '2026-10-18': { tokens: 30e6 }, '2026-10-19': { added: 400, removed: 600, commits: 3 }, '2026-10-20': { tokens: 15e6 },
+    '2026-10-21': { added: 50, removed: 0, commits: 1, tokens: 1e6 } }; // the last is the day it loads
+  const lines = { '/r': {} }, tokens = {};
+  for (const [d, x] of Object.entries(work)) {
+    if (x.tokens) tokens[d] = x.tokens;
+    if (x.added !== undefined) lines['/r'][d] = { added: x.added, removed: x.removed, commits: x.commits };
+  }
+  const push = { kind: 'frontier', at: START - DAY, price: 4000, earnedAt: 0, ang: 0 };
+  const file = fromBefore({ tokens, lines, purchases: [push] });
+  const earned = Object.values(work).reduce((s, x) => s + oldDayCredit(x), 0), xp = Object.values(work).reduce((s, x) => s + oldDayXp(x), 0);
+  assert.ok(earned > 4000);
+  const world = load(file, START);
+  let s = world.summary();
+  assert.deepEqual([s.earned, s.spent, s.balance, s.home.xp], [earned, 4000, earned - 4000, xp]);
+  assert.equal(saved(file).newFrom, '2026-10-22', 'the day after it was loaded');
+  await world.scan({ git: false });
+  s = load(file, START + DAY).summary();
+  assert.deepEqual([s.earned, s.balance, s.home.xp], [earned, earned - 4000, xp], 'and the next day, after a scan and a restart');
+  assert.equal(saved(file).newFrom, '2026-10-22', 'set once');
+});
+
+test('the switch day counts the old way until midnight', async () => {
+  const work = { added: 300, removed: 100, commits: 2 }, tokens = 2e6;
+  const file = fromBefore({ tokens: { '2026-10-21': tokens }, lines: { '/r': { '2026-10-21': work } } });
+  load(file, START).summary(); // loaded: the new rules start tomorrow
+  const st = saved(file);
+  st.active = { '2026-10-21': [108, 109, 110] }; // active time on the load day earns nothing
+  fs.writeFileSync(file, JSON.stringify(st));
+  const today = load(file, START + 3600_000);
+  await today.scan({ git: false });
+  const before = today.summary();
+  assert.equal(before.today.credit, oldDayCredit({ ...work, tokens }));
+  assert.equal(before.earned, oldDayCredit({ ...work, tokens }));
+  const peak = saved(file).peak;
+  assert.equal(peak, before.earned);
+  // The same work the next day, with the active time that came with it.
+  const next = saved(file);
+  next.tokens['2026-10-22'] = tokens;
+  next.lines['/r']['2026-10-22'] = work;
+  next.active['2026-10-22'] = [108, 109, 110];
+  fs.writeFileSync(file, JSON.stringify(next));
+  const tomorrow = load(file, START + DAY);
+  await tomorrow.scan({ git: false });
+  const after = tomorrow.summary();
+  assert.equal(after.today.credit, dayCredit({ ...work, slots: 3 }));
+  assert.notEqual(after.today.credit, oldDayCredit({ ...work, tokens }), 'the two rules differ on this work');
+  assert.equal(after.earned, before.earned + dayCredit({ ...work, slots: 3 }), 'the switch day kept its old credit');
+  assert.equal(after.home.xp, oldDayXp({ ...work, tokens }) + dayXp({ ...work, slots: 3 }));
+  assert.ok(saved(file).peak >= peak, 'peak never goes down');
+});
+
+test('today shows active minutes and no multiplier', async () => {
+  const configDir = tmp(), file = path.join(tmp(), 'w.json');
+  fs.mkdirSync(path.join(configDir, 'projects', 'p'), { recursive: true });
+  const world = createWorld({ file, configDirs: [configDir], run, gitPlace: () => null, now: () => START });
+  world.open();
+  assert.equal(saved(file).newFrom, '2026-10-21', 'a World opened now counts by the new rules from its first day');
+  fs.writeFileSync(path.join(configDir, 'projects', 'p', 's.jsonl'),
+    [1, 2, 3, 8].map((m, i) => reply(`m${i}`, START + m * 60_000, { output_tokens: 1000 })).join('')); // slots 108, 108, 108, 109
+  await world.scan({ git: false });
+  assert.deepEqual(world.summary().today, { day: '2026-10-21', commits: 0, added: 0, removed: 0, tokens: 4000, active: 10, credit: dayCredit({ slots: 2 }) });
+  assert.deepEqual(saved(file).active, { '2026-10-21': [108, 109] });
+  const st = saved(file);
+  st.active['2026-10-21'] = Array.from({ length: 200 }, (_, i) => i); // more than ten hours
+  fs.writeFileSync(file, JSON.stringify(st));
+  const t = load(file, START).summary().today;
+  assert.deepEqual([t.active, t.credit], [600, dayCredit({ slots: 120 })], 'ten hours at most');
 });

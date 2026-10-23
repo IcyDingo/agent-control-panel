@@ -37,10 +37,24 @@ test('a rocket lands a colony on a planet the frontier found, and costs what it 
   const r = world.buy({ kind: 'rocket', planet: 'p0', name: 'Vesta' });
   assert.equal(r.ok, true, r.error);
   const p = saved(file).purchases.at(-1);
-  assert.deepEqual({ kind: p.kind, price: p.price, planet: p.planet, name: p.name, at: p.at }, { kind: 'rocket', price: 4000, planet: 'p0', name: 'Vesta', at: at(0) });
+  assert.deepEqual({ kind: p.kind, price: p.price, planet: p.planet, name: p.name, at: p.at }, { kind: 'rocket', price: 1200, planet: 'p0', name: 'Vesta', at: at(0) });
   const s = world.summary();
-  assert.deepEqual(s.planets[0].colony, { name: 'Vesta', at: at(0) });
-  assert.deepEqual([s.spent, s.balance, s.prices.rocket], [8_000, 22_000, 4_000]);
+  assert.deepEqual(s.planets[0].colony, { name: 'Vesta', at: at(0), stage: 2, stageName: 'Outpost' }); // half of the day's 432 XP
+  assert.deepEqual([s.spent, s.balance, s.prices.rocket], [5_200, 24_800, 1_200]);
+});
+
+test("a colony's stage follows half the XP since it landed", () => {
+  const tokens = {};
+  for (let d = 0; d < 5; d++) tokens[key(at(d))] = credit(1200); // 200 XP a day
+  const rockets = [{ kind: 'rocket', at: at(1) + 9 * 3600_000, price: 4000, earnedAt: 0, planet: found[0], name: 'Vesta' },
+    { kind: 'rocket', at: at(4), price: 4000, earnedAt: 0, planet: found[1], name: 'Ceres' }];
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'world-')), 'world.json');
+  fs.writeFileSync(file, JSON.stringify({ v: 2, startedAt: T0, seed: 7, files: {}, tokens, lines: {}, repos: [], purchases: [...FOUR, ...rockets] }));
+  const s = createWorld({ file, configDirs: [], run: async () => ({ stdout: '' }), gitPlace: () => null, now: () => at(4) + 11 * 3600_000 }).summary();
+  const colony = (id) => s.planets.find((p) => p.id === id).colony;
+  assert.deepEqual([colony(found[0]).stage, colony(found[0]).stageName], [3, 'Domes'], 'its landing day and the three after: 800 XP, 400 its own');
+  assert.deepEqual([colony(found[1]).stage, colony(found[1]).stageName], [2, 'Outpost'], 'landed today: 200 XP, 100 its own');
+  assert.equal(s.home.xp, 1000, 'Home has all of it');
 });
 
 test('a colony is kept: it is there after a restart', () => {
@@ -50,8 +64,8 @@ test('a colony is kept: it is there after a restart', () => {
 });
 
 test('a rocket needs the full price', () => {
-  const { world, file } = seeded({ earned: 7_999 });
-  assert.deepEqual(world.buy({ kind: 'rocket', planet: 'p0', name: 'Vesta' }), { ok: false, error: 'It costs 4,000 credit, and you have 3,999.' });
+  const { world, file } = seeded({ earned: 5_199 });
+  assert.deepEqual(world.buy({ kind: 'rocket', planet: 'p0', name: 'Vesta' }), { ok: false, error: 'It costs 1,200 credit, and you have 1,199.' });
   assert.equal(saved(file).purchases.length, 1);
 });
 
@@ -96,5 +110,5 @@ test('two colonies cannot share a name', () => {
   assert.equal(world.buy({ kind: 'rocket', planet: found[1], name: 'Ceres' }).ok, true);
   const s = world.summary();
   assert.deepEqual(s.planets.filter((p) => p.colony).map((p) => p.colony.name), ['Vesta', 'Ceres']);
-  assert.deepEqual([s.prices.rocket, s.prices.frontier], [4_000, 4_000], 'the next ones cost the same');
+  assert.deepEqual([s.prices.rocket, s.prices.frontier], [1_200, 300], 'the next ones cost the same');
 });

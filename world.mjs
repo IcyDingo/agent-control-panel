@@ -4,7 +4,8 @@
 // the active time (five-minute slots with an agent turn or a commit in them, ten hours at most), on one curve that
 // flattens, so each doubling of work adds the same. Tokens are shown but earn nothing. Only work after World's first
 // open counts. The days you work also give Home XP, a third of the day's credit, which levels it up from a bare rock
-// over weeks. XP is never spent; credit is what you spend.
+// over weeks. XP is never spent; credit is what you spend. A World from before these rules keeps every day before its
+// switch day (`newFrom`, the day after it was first loaded under them) as the old formula counted it, so no balance drops.
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -78,10 +79,11 @@ export function levelOf(xp) {
   return { level: top + k, stage: k === 0 ? LEVELS[top - 1][1] : featureName(HOME_FEATURES, k - 1), at: topAt + 1000 * k,
     next: { level: top + k + 1, name: featureName(HOME_FEATURES, k), at: topAt + 1000 * (k + 1) } };
 }
-/** Home from the work per day (`days`): its XP, today's XP, its level and stage, where that level began, and the next. */
+/** Home from the days as the store stamped them (each with its `xp`): its XP, today's XP, its level and stage, where that
+ *  level began, and the next. */
 export function homeLevel(days, today) {
-  const xp = Object.values(days).reduce((s, x) => s + oldDayXp(x), 0);
-  return { xp, today: oldDayXp(days[today]), ...levelOf(xp) };
+  const xp = Object.values(days).reduce((s, x) => s + (x.xp ?? 0), 0);
+  return { xp, today: days[today]?.xp ?? 0, ...levelOf(xp) };
 }
 
 /** How far Home's light reaches on the map (map px; the map is 900 across zoomed out): quick at first, all of it at 4,000
@@ -105,10 +107,12 @@ export function colonyStage(colonyXp) {
 
 /** What each kind costs: the same every time, a push, a rocket, a build or a probe, however many came before. A purchase
     keeps the price it was bought at, so what was spent stays what it was. */
-export const PRICES = { frontier: 4000, rocket: 4000, build: 4000, probe: 4000 };
+export const PRICES = { frontier: 300, rocket: 1200, build: 150, probe: 400 };
 export const priceOf = (kind) => PRICES[kind];
-/** A push buys this much lobe (map px) from Home outward, lit as this much credit is earned after it. */
-export const PUSH_LEN = 150, LIGHT_CREDIT = 3000;
+/** A push buys this much lobe (map px) from Home outward, lit as PUSH_LIGHT more credit is earned after it; a probe
+ *  arrives as PROBE_TRAVEL more is. Each keeps the one it was bought with (`light`, `travel`), so one in flight finishes
+ *  as promised; one bought before they were kept needs OLD_THRESHOLD. */
+export const PUSH_LEN = 150, PUSH_LIGHT = 600, PROBE_TRAVEL = 500, OLD_THRESHOLD = 3000;
 /** Lobes start this far out, inside Home's light, and widen toward their tip (the mockup's shape); a colony's start
  *  nearer, inside its own smaller light. */
 export const LOBE_START = 60, COLONY_LOBE_START = 30;
@@ -150,7 +154,7 @@ export function frontierOf(purchases, peak, seed) {
         look: LOOKS[Math.floor(hash(seed, `planet ${i} look`) * LOOKS.length)] });
     }
   });
-  const litBy = (pushes, earned) => pushes.reduce((sum, p) => sum + PUSH_LEN * Math.min(1, Math.max(0, (earned - p.earnedAt) / LIGHT_CREDIT)), 0);
+  const litBy = (pushes, earned) => pushes.reduce((sum, p) => sum + PUSH_LEN * Math.min(1, Math.max(0, (earned - p.earnedAt) / (p.light ?? OLD_THRESHOLD))), 0);
   for (const l of lobes) { l.lit = litBy(l.pushes, peak); l.tip = l.start + l.lit; }
   return { lobes, planets: planets.map((p) => ({ ...p, found: p.lobe.tip >= p.along + 8 })), litBy };
 }
@@ -173,16 +177,17 @@ export function walledIn(grid, n, dark = 0.3) {
   return out;
 }
 
-/** The stretches of work the map marks: each finished week with work in it, each finished day that removed 500 lines or
- *  more and more than it added, and each level Home reached from 3 up (at once). Each sits in the light as it was then:
- *  along the lobe growing at the time, else in Home's light. Never about repositories. */
+/** The stretches of work the map marks, from the days as the store stamped them (each with its `credit` and `xp`): each
+ *  finished week with work in it, each finished day that removed 500 lines or more and more than it added, and each
+ *  level Home reached from 3 up (at once), past Twin moons too. Each sits in the light as it was then: along the lobe
+ *  growing at the time, else in Home's light. Never about repositories. */
 export function momentsOf(days, today, purchases, seed) {
   const sorted = Object.keys(days).sort(), out = [];
   const pushes = purchases.filter((p) => p.kind === 'frontier'), { lobes, litBy } = frontierOf(purchases, 0, seed);
   let earned = 0, xp = 0;
   const through = {}; // day → { earned, xp } up to and including it
   for (const d of sorted) {
-    earned += oldDayCredit(days[d]); xp += oldDayXp(days[d]);
+    earned += days[d].credit; xp += days[d].xp;
     through[d] = { earned, xp };
   }
   const upTo = (day) => through[sorted.filter((d) => d <= day).at(-1)] ?? { earned: 0, xp: 0 };
@@ -205,25 +210,24 @@ export function momentsOf(days, today, purchases, seed) {
     weeks.set(monday, [...(weeks.get(monday) ?? []), d]);
   }
   for (const [monday, list] of weeks) {
-    const sunday = addDays(monday, 6), worked = list.filter((d) => oldDayCredit(days[d]) > 0);
+    const sunday = addDays(monday, 6), worked = list.filter((d) => days[d].credit > 0);
     if (sunday >= today || !worked.length) continue;
     const sum = (k) => list.reduce((s, d) => s + days[d][k], 0);
     add({ id: `week ${monday}`, kind: 'week', name: 'A week of work', day: sunday, from: monday,
-      info: { commits: sum('commits'), added: sum('added'), removed: sum('removed'), credit: list.reduce((s, d) => s + oldDayCredit(days[d]), 0), days: worked.length } });
+      info: { commits: sum('commits'), added: sum('added'), removed: sum('removed'), credit: sum('credit'), days: worked.length } });
   }
   for (const d of sorted) {
     const x = days[d];
     if (d >= today || x.removed < 500 || x.removed <= x.added) continue;
-    add({ id: `cleanup ${d}`, kind: 'cleanup', name: 'Big cleanup', day: d,
-      info: { added: x.added, removed: x.removed, multiplier: multiplier(x.added, x.removed), credit: oldDayCredit(x) } });
+    add({ id: `cleanup ${d}`, kind: 'cleanup', name: 'Big cleanup', day: d, info: { added: x.added, removed: x.removed, credit: x.credit } });
   }
-  let before = 0;
+  let level = levelOf(0);
   for (const d of sorted) {
     const now = through[d].xp;
-    LEVELS.forEach(([at, stage], i) => {
-      if (i >= 2 && before < at && now >= at) add({ id: `level ${i + 1}`, kind: 'level', name: `Home: ${stage}`, day: d, info: { level: i + 1, xp: now } });
-    });
-    before = now;
+    while (now >= level.next.at) { // each level passed that day, one by one
+      level = levelOf(level.next.at);
+      if (level.level >= 3) add({ id: `level ${level.level}`, kind: 'level', name: `Home: ${level.stage}`, day: d, info: { level: level.level, xp: now } });
+    }
   }
   return out.sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
 }
@@ -488,15 +492,19 @@ const tokensOf = (u) => (u.output_tokens ?? 0) + (u.input_tokens ?? 0) + (u.cach
 
 const EDITS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 
+/** The 5-minute slot of the local day a moment falls in, 0 to 287. */
+export const slotOf = (ms) => { const d = new Date(ms); return Math.floor((d.getHours() * 60 + d.getMinutes()) / SLOT_MIN); };
+
 /** Reads what a transcript gained since `seen` (whole lines only) and returns the tokens per day it adds, counting each
- *  reply once (Claude Code writes one reply as several entries that repeat its message id and usage), and the folders
- *  those entries worked in or edited files in. A file untouched since before World started is skipped, not read. */
+ *  reply once (Claude Code writes one reply as several entries that repeat its message id and usage), the slots per day
+ *  those replies came in (sorted, each once), and the folders those entries worked in or edited files in. A file
+ *  untouched since before World started is skipped, not read. */
 export function readTokens(file, seen, startedAt) {
-  const tokens = {}, dirs = new Set(), ids = [...(seen?.ids ?? [])];
+  const tokens = {}, slots = {}, dirs = new Set(), ids = [...(seen?.ids ?? [])];
   const st = fs.statSync(file);
-  if (!seen && st.mtimeMs < startedAt) return { state: { offset: st.size, ids: [] }, tokens, dirs: [] };
+  if (!seen && st.mtimeMs < startedAt) return { state: { offset: st.size, ids: [] }, tokens, slots, dirs: [] };
   let offset = seen?.offset ?? 0;
-  if (offset > st.size) return { state: { offset: st.size, ids }, tokens, dirs: [] }; // shrank: never recount
+  if (offset > st.size) return { state: { offset: st.size, ids }, tokens, slots, dirs: [] }; // shrank: never recount
   const fd = fs.openSync(file, 'r');
   try {
     // Split on newline bytes, never on decoded text: a chunk can end inside a multi-byte character.
@@ -512,7 +520,8 @@ export function readTokens(file, seen, startedAt) {
       rest = bytes.subarray(end + 1);
     }
   } finally { fs.closeSync(fd); }
-  return { state: { offset, ids: ids.slice(-KEEP_IDS) }, tokens, dirs: [...dirs] };
+  for (const day of Object.keys(slots)) slots[day] = [...new Set(slots[day])].sort((a, b) => a - b);
+  return { state: { offset, ids: ids.slice(-KEEP_IDS) }, tokens, slots, dirs: [...dirs] };
 
   function count(line) {
     if (!line.includes('"usage"') && !line.includes('"cwd"')) return;
@@ -530,6 +539,7 @@ export function readTokens(file, seen, startedAt) {
     if (id) ids.push(id);
     const day = dayKey(at);
     tokens[day] = (tokens[day] ?? 0) + tokensOf(u);
+    (slots[day] ??= []).push(slotOf(at));
   }
 }
 
@@ -560,10 +570,13 @@ export function parseLog(text, email, sinceSec = 0) {
 
 const LOG_FORMAT = '--format=%x1e%H%x1f%at%x1f%ae%x1f%ce%x1f%s';
 const WINDOW_DAYS = 30;
-const blank = () => ({ added: 0, removed: 0, tokens: 0, commits: 0 });
+const blank = () => ({ added: 0, removed: 0, tokens: 0, commits: 0, slots: 0, credit: 0, xp: 0 });
+/** Still 2: `active` and `newFrom` came later and are optional, so a World from before them loads as it is. */
 const VERSION = 2;
+const isDay = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
 const valid = (st) => st && st.v === VERSION && Number.isFinite(st.startedAt) && [st.files, st.tokens, st.lines].every((o) => o && typeof o === 'object')
-  && [st.repos, st.purchases].every(Array.isArray);
+  && [st.repos, st.purchases].every(Array.isArray) && (st.active === undefined || (st.active && typeof st.active === 'object'))
+  && (st.newFrom === undefined || isDay(st.newFrom));
 /** The most two counts of one repository's day have seen. */
 const most = (a, b) => ({ added: Math.max(a.added, b.added), removed: Math.max(a.removed, b.removed), commits: Math.max(a.commits, b.commits) });
 /** A folder's true path. The Mac's disk ignores case, and git names a repository the way it was asked, so one repository
@@ -588,6 +601,7 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
     }
     st.lines = lines;
     st.repos = [...new Set(st.repos.map(real))];
+    st.active ??= {};
   }
 
   function save() {
@@ -596,6 +610,22 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
     fs.writeFileSync(tmp, JSON.stringify(st));
     fs.renameSync(tmp, file);
     memo = null;
+  }
+  // A World from before the new rules switches at the next local midnight, once: the day it is loaded on may already have
+  // earned and spent under the old ones, and counting it again by the new could take back credit.
+  if (st && !st.newFrom) {
+    st.newFrom = addDays(dayKey(now()), 1);
+    try { save(); } catch {} // kept in memory either way; the next save writes it
+  }
+
+  /** Marks a 5-minute slot of a day active (`slot`, 0 to 287). True when it was not yet. */
+  function markActive(day, slot) {
+    const list = (st.active[day] ??= []);
+    if (list.includes(slot)) return false;
+    list.push(slot);
+    list.sort((a, b) => a - b);
+    memo = null;
+    return true;
   }
 
   /** Every transcript of every profile: sessions, and their subagents. */
@@ -629,6 +659,7 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
       st.files[f] = r.state;
       changed = true;
       for (const [day, n] of Object.entries(r.tokens)) st.tokens[day] = (st.tokens[day] ?? 0) + n;
+      for (const [day, list] of Object.entries(r.slots)) for (const slot of list) markActive(day, slot);
       for (const dir of r.dirs) {
         if (!seenDirs.has(dir)) { const repo = gitPlace(dir)?.repo; seenDirs.set(dir, repo ? real(repo) : null); }
         const repo = seenDirs.get(dir);
@@ -673,7 +704,8 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
     st.gitFailed = failed;
   }
 
-  /** The work per day: tokens, and every repository's lines and commits. */
+  /** The work per day (tokens, every repository's lines and commits, and the active slots), each day stamped with its
+   *  credit and XP by the rules in force on it: the new from the switch day on, the old before it. */
   function daysOf() {
     const days = {};
     for (const [d, n] of Object.entries(st.tokens)) (days[d] ??= blank()).tokens += n;
@@ -681,9 +713,15 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
       const x = (days[d] ??= blank());
       x.added += c.added; x.removed += c.removed; x.commits += c.commits;
     }
+    for (const [d, list] of Object.entries(st.active)) if (list.length) (days[d] ??= blank()).slots = list.length;
+    for (const [d, x] of Object.entries(days)) {
+      const isNew = d >= st.newFrom;
+      x.credit = isNew ? dayCredit(x) : oldDayCredit(x);
+      x.xp = isNew ? dayXp(x) : oldDayXp(x);
+    }
     return days;
   }
-  const earnedIn = (days) => Object.values(days).reduce((sum, x) => sum + oldDayCredit(x), 0);
+  const earnedIn = (days) => Object.values(days).reduce((sum, x) => sum + x.credit, 0);
   const fmt = (n) => Math.round(n).toLocaleString('en-US');
 
   function summary() {
@@ -693,18 +731,23 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
     const days = daysOf(), earned = earnedIn(days), peak = Math.max(st.peak ?? 0, earned);
     const spent = st.purchases.reduce((sum, p) => sum + (p.price ?? 0), 0), t = days[today] ?? blank(), home = homeLevel(days, today);
     const { lobes, planets } = frontierOf(st.purchases, peak, st.seed), colonies = new Map();
-    for (const p of st.purchases) if (p.kind === 'rocket') colonies.set(p.planet, { name: p.name, at: p.at });
+    for (const p of st.purchases) if (p.kind === 'rocket') { // a colony grows on half the XP earned from the day it landed
+      const landed = dayKey(p.at), xp = Object.entries(days).reduce((sum, [d, x]) => sum + (d >= landed ? x.xp : 0), 0);
+      const { stage, name } = colonyStage(xp / 2);
+      colonies.set(p.planet, { name: p.name, at: p.at, stage, stageName: name });
+    }
     const s = { started: true, startedAt: st.startedAt, seed: st.seed, earned, spent, balance: earned - spent, home, reach: homeReach(home.xp),
-      sun: sunOf(st.seed), daysActive: Object.values(days).filter((x) => oldDayCredit(x) > 0).length,
-      worked: Object.keys(days).filter((d) => oldDayCredit(days[d]) > 0).sort(), // the days with work in them, oldest first
-      today: { day: today, commits: t.commits, added: t.added, removed: t.removed, multiplier: multiplier(t.added, t.removed), tokens: t.tokens, credit: oldDayCredit(t) },
+      sun: sunOf(st.seed), daysActive: Object.values(days).filter((x) => x.credit > 0).length,
+      worked: Object.keys(days).filter((d) => days[d].credit > 0).sort(), // the days with work in them, oldest first
+      today: { day: today, commits: t.commits, added: t.added, removed: t.removed, tokens: t.tokens,
+        active: Math.min(t.slots, MAX_SLOTS) * SLOT_MIN, credit: t.credit }, // active time in minutes, as much as counts
       prices: { frontier: priceOf('frontier'), rocket: priceOf('rocket'), build: priceOf('build'), probe: priceOf('probe') },
       frontier: lobes.map((l) => ({ from: l.from, ang: l.ang, bought: l.pushes.length * PUSH_LEN, lit: l.lit, tip: l.tip })),
       planets: planets.filter((p) => p.found).map((p) => ({ id: p.id, x: p.x, y: p.y, look: p.look, colony: colonies.get(p.id) ?? null })),
       moments: momentsOf(days, today, st.purchases, st.seed),
       builds: st.purchases.filter((p) => p.kind === 'build').map((p, i) => ({ id: `b${i}`, on: p.on, caption: p.caption, pieces: p.pieces, at: p.at })),
       probes: st.purchases.filter((p) => p.kind === 'probe').map((p, i) => {
-        const progress = Math.min(1, Math.max(0, (peak - p.earnedAt) / LIGHT_CREDIT));
+        const progress = Math.min(1, Math.max(0, (peak - p.earnedAt) / (p.travel ?? OLD_THRESHOLD)));
         return { id: `q${i}`, ang: p.ang, by: p.by, to: p.to, progress, arrived: progress >= 1 };
       }),
       noEmail: st.noEmail ?? [], gitFailed: st.gitFailed ?? [], toolsMissing };
@@ -716,7 +759,9 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
     started: () => Boolean(st),
     open() {
       if (st) return;
-      st = { v: VERSION, startedAt: now(), seed: crypto.randomInt(2 ** 31), files: {}, tokens: {}, lines: {}, repos: [], noEmail: [], gitFailed: [], purchases: [] };
+      // A World opened now has nothing old to keep: the new rules count from its first day.
+      st = { v: VERSION, startedAt: now(), seed: crypto.randomInt(2 ** 31), files: {}, tokens: {}, lines: {}, active: {}, newFrom: dayKey(now()),
+        repos: [], noEmail: [], gitFailed: [], purchases: [] };
       save();
     },
     async scan({ git = true } = {}) {
@@ -739,7 +784,7 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
       if (kind === 'frontier') {
         if (from !== 'home' && !s.planets.find((p) => p.id === from)?.colony) return fail('Push from Home or one of your colonies.');
         if (typeof ang !== 'number' || !Number.isFinite(ang)) return fail('Pick a direction to push.');
-        item = { ang: normAng(ang), ...(from === 'home' ? {} : { from }) };
+        item = { ang: normAng(ang), ...(from === 'home' ? {} : { from }), light: PUSH_LIGHT };
       } else if (kind === 'rocket') {
         const there = s.planets.find((p) => p.id === planet);
         if (!there) return fail("The frontier hasn't found that planet yet.");
@@ -777,7 +822,7 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
       if (short()) return fail(short());
       const state = on === 'home'
         ? `level ${s.home.level} (${s.home.stage}), which so far has: ${LEVELS.slice(0, s.home.level).map(([, stage]) => stage.toLowerCase()).join(', ')}`
-        : `a colony on a bare ${LOOK_WORDS[planet.look] ?? ''} planet with craters`;
+        : `a colony at its ${planet.colony.stageName} stage on a ${LOOK_WORDS[planet.look] ?? ''} planet`;
       const prompt = buildPrompt({ place: on === 'home' ? 'Home' : planet.colony.name, state, description: text,
         built: s.builds.filter((b) => b.on === on).map((b) => b.caption) });
       building = true;
@@ -819,7 +864,7 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
       if (!to || !Number.isInteger(to.x) || !Number.isInteger(to.y)) return fail("The hub can't be reached, so a probe can't be aimed. Try again later.");
       if (short()) return fail(`${short()} Nothing was spent.`);
       const peak = Math.max(st.peak ?? 0, summary().earned);
-      const p = { kind: 'probe', at: now(), price: priceOf('probe'), earnedAt: peak, ang: normAng(ang), by: { x: me.x, y: me.y }, to: { x: to.x, y: to.y } };
+      const p = { kind: 'probe', at: now(), price: priceOf('probe'), earnedAt: peak, travel: PROBE_TRAVEL, ang: normAng(ang), by: { x: me.x, y: me.y }, to: { x: to.x, y: to.y } };
       st.peak = peak;
       st.purchases.push(p);
       save();

@@ -52,7 +52,7 @@ test('an order placed on the hub is run by the Mac and answered in its own words
   const order = await until(async () => (await hubCall('GET', '/api/me/orders')).json?.orders?.find((o) => o.status !== 'pending' && o.status !== 'running'));
   assert.ok(order, 'the order was never answered: ' + panel.log());
   assert.equal(order.status, 'failed');
-  assert.match(order.result.error, /costs 4,000 credit/);
+  assert.match(order.result.error, /costs 300 credit/);
 });
 
 test('/world is the same page opened on the world, and / opens the board', async () => {

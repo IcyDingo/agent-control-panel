@@ -5,16 +5,17 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createWorld, frontierOf, priceOf, PRICES, PUSH_LEN, LIGHT_CREDIT, LOBE_START, lobeRadius, homeReach, walledIn } from '../world.mjs';
+import { createWorld, frontierOf, priceOf, PRICES, PUSH_LEN, PUSH_LIGHT, PROBE_TRAVEL, LOBE_START, lobeRadius, homeReach, walledIn, HOME_FEATURES } from '../world.mjs';
 
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 9, 12, 9, 0); // a Monday
 const at = (d, h = 9) => T0 + d * DAY + (h - 9) * 3_600_000;
 const key = (ms) => new Date(ms).toISOString().slice(0, 10);
-/** A World saved with this much work per day (`tokens`: 10,000 tokens is 1 credit), opened at T0, looked at `now`. */
+/** A World saved with this much work per day (`tokens`: 10,000 tokens is 1 credit), opened at T0, looked at `now`. Its
+ *  switch to the new rules is far off, so every day here counts the old way and tokens set the credit exactly. */
 function seeded({ tokens = {}, lines = {}, purchases = [], peak, now = at(0) } = {}) {
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'world-')), 'world.json');
-  fs.writeFileSync(file, JSON.stringify({ v: 2, startedAt: T0, seed: 7, files: {}, tokens, lines, repos: [], purchases, ...(peak ? { peak } : {}) }));
+  fs.writeFileSync(file, JSON.stringify({ v: 2, startedAt: T0, seed: 7, files: {}, tokens, lines, repos: [], purchases, newFrom: '2027-01-01', ...(peak ? { peak } : {}) }));
   const clock = { now };
   const world = createWorld({ file, configDirs: [], run: async () => ({ stdout: '' }), gitPlace: () => null, now: () => clock.now });
   return { world, file, clock, reload: () => createWorld({ file, configDirs: [], run: async () => ({ stdout: '' }), gitPlace: () => null, now: () => clock.now }) };
@@ -22,29 +23,37 @@ function seeded({ tokens = {}, lines = {}, purchases = [], peak, now = at(0) } =
 const credit = (c) => c * 10_000; // tokens for c credit
 const saved = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 
-test('a push and a rocket cost 4,000 every time, like a build', () => {
-  assert.deepEqual(PRICES, { frontier: 4000, rocket: 4000, build: 4000, probe: 4000 });
-  assert.equal(priceOf('frontier', []), 4000);
-  const two = [{ kind: 'frontier', price: 4000 }, { kind: 'frontier', price: 5000 }, { kind: 'rocket', price: 8000 }];
-  assert.equal(priceOf('frontier', two), 4000, 'pushes bought before do not raise it');
-  assert.equal(priceOf('rocket', two), 4000, 'nor do rockets');
+test('a push costs 300 and a rocket 1,200 every time', () => {
+  assert.equal(priceOf('frontier', []), 300);
+  const two = [{ kind: 'frontier', price: 300 }, { kind: 'frontier', price: 5000 }, { kind: 'rocket', price: 8000 }];
+  assert.equal(priceOf('frontier', two), 300, 'pushes bought before do not raise it');
+  assert.equal(priceOf('rocket', two), 1200, 'nor do rockets');
 });
 
 test('a build costs the same wherever it goes, however many came before', () => {
   const builds = [{ kind: 'build', on: 'home' }, { kind: 'build', on: 'p0' }, { kind: 'build', on: 'home' }];
-  assert.equal(priceOf('build', []), 4000);
-  assert.equal(priceOf('build', builds), 4000);
-  assert.equal(priceOf('build', [...builds, { kind: 'frontier' }, { kind: 'rocket' }]), 4000);
+  assert.equal(priceOf('build', []), 150);
+  assert.equal(priceOf('build', builds), 150);
+  assert.equal(priceOf('build', [...builds, { kind: 'frontier' }, { kind: 'rocket' }]), 150);
 });
 
-test('the summary carries the prices', () => {
-  const { world } = seeded();
-  assert.deepEqual(world.summary().prices, { frontier: 4000, rocket: 4000, build: 4000, probe: 4000 });
+test('prices are the new ones, and a purchase keeps the price it was bought at', () => {
+  assert.deepEqual(PRICES, { frontier: 300, rocket: 1200, build: 150, probe: 400 });
+  assert.deepEqual([PUSH_LIGHT, PROBE_TRAVEL], [600, 500]);
+  const old = { kind: 'frontier', at: at(0), price: 4000, earnedAt: 0, ang: 0 }; // bought before the prices fell
+  const { world, file } = seeded({ tokens: { [key(at(0))]: credit(5000) }, purchases: [old] });
+  assert.deepEqual(world.summary().prices, { frontier: 300, rocket: 1200, build: 150, probe: 400 });
+  assert.equal(world.buy({ kind: 'frontier', ang: 2 }).ok, true);
+  const [a, b] = saved(file).purchases;
+  assert.deepEqual([a.price, b.price, b.light], [4000, 300, PUSH_LIGHT]);
+  assert.equal('light' in a, false, 'what was bought is not rewritten');
+  const s = world.summary();
+  assert.deepEqual([s.spent, s.balance], [4300, 700]);
 });
 
 test('a push needs the full price', () => {
-  const { world, file } = seeded({ tokens: { [key(at(0))]: credit(3999) } });
-  assert.deepEqual(world.buy({ kind: 'frontier', ang: 0 }), { ok: false, error: 'It costs 4,000 credit, and you have 3,999.' });
+  const { world, file } = seeded({ tokens: { [key(at(0))]: credit(299) } });
+  assert.deepEqual(world.buy({ kind: 'frontier', ang: 0 }), { ok: false, error: 'It costs 300 credit, and you have 299.' });
   assert.equal(saved(file).purchases.length, 0);
 });
 
@@ -60,10 +69,10 @@ test('a push is spent, stored with its price, and the balance drops', () => {
   const r = world.buy({ kind: 'frontier', ang: 7 }); // past a full turn: kept as the same direction
   assert.equal(r.ok, true);
   const p = saved(file).purchases[0];
-  assert.deepEqual({ kind: p.kind, price: p.price, earnedAt: p.earnedAt, at: p.at }, { kind: 'frontier', price: 4000, earnedAt: 9000, at: at(0) });
+  assert.deepEqual({ kind: p.kind, price: p.price, earnedAt: p.earnedAt, at: p.at, light: p.light }, { kind: 'frontier', price: 300, earnedAt: 9000, at: at(0), light: 600 });
   assert.ok(Math.abs(p.ang - (7 - 2 * Math.PI)) < 1e-9);
   const s = world.summary();
-  assert.deepEqual([s.spent, s.balance, s.prices.frontier], [4000, 5000, 4000]);
+  assert.deepEqual([s.spent, s.balance, s.prices.frontier], [300, 8700, 300]);
 });
 
 test('a new lobe starts dark and lights up as credit is earned after the push', () => {
@@ -74,11 +83,11 @@ test('a new lobe starts dark and lights up as credit is earned after the push', 
   assert.deepEqual([lobes[0].ang, lobes[0].bought], [0, PUSH_LEN]);
   assert.equal(lobes[0].lit, 0, 'nothing earned since');
   const st = saved(file);
-  st.tokens[key(at(1))] = credit(LIGHT_CREDIT / 2);
+  st.tokens[key(at(1))] = credit(PUSH_LIGHT / 2);
   fs.writeFileSync(file, JSON.stringify(st));
   clock.now = at(1);
-  assert.equal(reload().summary().frontier[0].lit, PUSH_LEN / 2, 'half lit after half of LIGHT_CREDIT');
-  st.tokens[key(at(2))] = credit(LIGHT_CREDIT * 5);
+  assert.equal(reload().summary().frontier[0].lit, PUSH_LEN / 2, 'half lit after half of PUSH_LIGHT');
+  st.tokens[key(at(2))] = credit(PUSH_LIGHT * 5);
   fs.writeFileSync(file, JSON.stringify(st));
   clock.now = at(2);
   assert.equal(reload().summary().frontier[0].lit, PUSH_LEN, 'never more than it bought');
@@ -99,10 +108,10 @@ test('a lit lobe never shrinks when a day is worth less on a later count', () =>
   const { world, file, reload } = seeded({ tokens: { [day]: credit(4000) } });
   world.buy({ kind: 'frontier', ang: 0 });
   const st = saved(file);
-  st.tokens[key(at(1))] = credit(LIGHT_CREDIT);
-  st.peak = 7000; // what World had seen: 4,000 + 3,000
-  st.lines = { '/r': { [key(at(1))]: { added: 30_000, removed: 0, commits: 1 } } };
-  st.tokens[key(at(1))] = 0; // the same day now counts 3,000 from lines instead
+  st.tokens[key(at(1))] = credit(PUSH_LIGHT);
+  st.peak = 4600; // what World had seen: 4,000 + 600
+  st.lines = { '/r': { [key(at(1))]: { added: 6_000, removed: 0, commits: 1 } } };
+  st.tokens[key(at(1))] = 0; // the same day now counts 600 from lines instead
   fs.writeFileSync(file, JSON.stringify(st));
   assert.equal(reload().summary().frontier[0].lit, PUSH_LEN);
   st.lines = {};
@@ -127,7 +136,7 @@ test('the first push finds a planet, out in its stretch, once the light reaches 
   world.buy({ kind: 'frontier', ang: 0 });
   assert.deepEqual(world.summary().planets, [], 'not before the light reaches it');
   const st = saved(file);
-  st.tokens[key(at(1))] = credit(LIGHT_CREDIT);
+  st.tokens[key(at(1))] = credit(PUSH_LIGHT);
   fs.writeFileSync(file, JSON.stringify(st));
   clock.now = at(1);
   const [p] = reload().summary().planets;
@@ -167,7 +176,7 @@ test('a finished day that removed more than it added, 500 lines or more, is a bi
   const { world } = seeded({ lines, now: at(3) });
   const cleanups = world.summary().moments.filter((m) => m.kind === 'cleanup');
   assert.deepEqual(cleanups.map((m) => m.day), [key(at(1))], 'not one that added more, nor today until it ends');
-  assert.deepEqual(cleanups[0].info, { added: 100, removed: 900, multiplier: 3.7, credit: Math.round(10 * 3.7) });
+  assert.deepEqual(cleanups[0].info, { added: 100, removed: 900, credit: Math.round(10 * 3.7) }); // credit as that day was counted
 });
 
 test('Home reaching level 3 and up is a moment on the day it happened', () => {
@@ -176,6 +185,16 @@ test('Home reaching level 3 and up is a moment on the day it happened', () => {
   const levels = world.summary().moments.filter((m) => m.kind === 'level');
   assert.deepEqual(levels.map((m) => [m.day, m.name]), [[key(at(0)), 'Home: Oceans'], [key(at(2)), 'Home: Continents']], 'today’s too: a level is reached at once');
   assert.deepEqual(levels[0].info, { level: 3, xp: 100 });
+});
+
+test('levels past Twin moons are moments too', () => {
+  const tokens = {};
+  for (let d = 0; d < 17; d++) tokens[key(at(d))] = credit(4800); // 300 XP a day
+  const { world } = seeded({ tokens, now: at(16, 20) });
+  const levels = world.summary().moments.filter((m) => m.kind === 'level');
+  assert.deepEqual(levels.slice(-2).map((m) => [m.day, m.name, m.info.level]),
+    [[key(at(13)), 'Home: Twin moons', 12], [key(at(16)), `Home: ${HOME_FEATURES[0]}`, 13]]);
+  assert.deepEqual(levels.map((m) => m.info.level), [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13], 'each once, from 3 up');
 });
 
 test('moments sit in the light: in Home’s before any push, along the lobe growing when they happened', () => {
