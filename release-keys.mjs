@@ -11,7 +11,9 @@ import { pathToFileURL } from 'node:url';
 // The raw 32-byte Ed25519 public keys of the people who may sign a release, each as standard base64. The owner pastes
 // the first one after running `keygen`, one line per key with the date it was added, like this:
 //   'base64…', // added 2026-10-22
-export const RELEASE_KEYS = [];
+export const RELEASE_KEYS = [
+  'zybNiChhjc7PQWDd717MxVtW8ymb5tj3UjL1Y+KAyyk=', // added 2026-10-23
+];
 
 export const SHA_RE = /^[0-9a-f]{40}$/;
 
