@@ -9,11 +9,12 @@ You need a Mac (macOS 14 or newer) with Node 20 or newer. Open https://universe.
 in with GitHub, and paste the one line it shows into Terminal:
 
 ```bash
-curl -fsSL https://universe.cashegg.com/install | sh
+curl -fsSL https://raw.githubusercontent.com/IcyDingo/agent-control-panel/main/hub/public/install.sh | sh
 ```
 
 It installs a small background service that counts your agents' work and keeps your galaxy up to date, and
-links this Mac to your account. Your galaxy page is the whole interface; the Mac app below is optional.
+links this Mac to your account. The script runs from GitHub, not from the hub, and installs only a release that is on
+`main` and signed by the maintainer's key. Your galaxy page is the whole interface; the Mac app below is optional.
 
 Updates are daily, only to a release signed by the project's key on the maintainer's Mac, never to an older one, and a version that cannot start is rolled back; to turn them off:
 `printf '{ "auto": false }\n' > "$HOME/Library/Application Support/Agent Panel/worker/update.json"`
@@ -587,7 +588,7 @@ Sign out first, so the hub forgets this Mac's token, then remove the worker:
 
 ```bash
 node "$HOME/Library/Application Support/Agent Panel/worker/current/server.mjs" logout
-curl -fsSL https://universe.cashegg.com/install | sh -s -- --uninstall
+curl -fsSL https://raw.githubusercontent.com/IcyDingo/agent-control-panel/main/hub/public/install.sh | sh -s -- --uninstall
 ```
 
 ### The app too

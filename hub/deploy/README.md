@@ -89,6 +89,27 @@ curl -fsSL https://universe.cashegg.com/api/release            # {"ok":true,"sha
 curl -fsSL https://universe.cashegg.com/install | head -1      # #!/bin/sh
 ```
 
+## Upgrading to the locked-down container
+
+From the release that locks the container down, the hub runs as the image's `node` user with a read-only filesystem
+and no Linux capabilities (`compose.yml`), and `update.sh` hands the database volume to that user before each start.
+Both files live here, not in `src`, so copy them in **before** the signed deploy of that release. Without the copy the
+new image meets a database that root owns and stops with "attempt to write a readonly database":
+
+```sh
+cd /srv/agent-hub
+git -C src fetch -q origin main
+git -C src show origin/main:hub/deploy/update.sh > update.sh && chmod +x update.sh
+git -C src show origin/main:hub/deploy/compose.yml > compose.yml
+```
+
+Then sign and deploy as usual, and check it took:
+
+```sh
+docker exec agent-hub id                                                                    # uid=1000(node) …
+docker inspect agent-hub --format '{{.HostConfig.ReadonlyRootfs}} {{.HostConfig.CapDrop}}'   # true [ALL]
+```
+
 ## A deploy-only key (optional)
 
 `--deploy` runs ssh as you, so it uses the key that can do anything on the server. To let it do one thing only, make a
