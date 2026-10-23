@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** World pays for a day of work by lines, commits and active time on one flattening curve, with new prices, Home levels past 12, growing colonies, repositories added by hand, and old earnings kept.
+**Goal:** World pays for a day of work by lines, commits and active time on one flattening curve, with new prices, Home levels past 12, growing colonies, and old earnings kept. (Repositories added by hand were built in Task 5 and then removed at the owner's request; repositories come from agent sessions only.)
 
 **Architecture:** The formula and the ladders are pure functions in `world.mjs`. The store (`createWorld`) records active 5-minute slots from transcripts and from working-tree changes, stamps each day with its credit and XP under the rules in force (old before the switch day, new from it), and everything downstream (balance, Home, moments, colonies) reads those stamps. The public projection goes to version 3 for Home levels past 12 and colony stages; the hub accepts it before any Mac sends it.
 
@@ -28,7 +28,7 @@
 ## Review Focus
 
 1. A `world.json` from before this change (no `newFrom`, no `active`, purchases without thresholds): balance unchanged on first load, pushes and probes in flight keep moving at 3,000. Test in Task 3.
-2. A repository removed by hand that an agent session later works in: it stays removed. Test in Task 5.
+2. ~~A repository removed by hand that an agent session later works in: it stays removed. Test in Task 5.~~ Dropped with Task 5.
 3. A repository where git is busy (`index.lock` present), deleted or moved: the work-tree scan skips it without an error and without marking a slot. Test in Task 4.
 4. An old Mac (projection v2, status with `multiplier` and no `active`) talking to the new hub, next to a new Mac sending v3: both accepted. Test in Task 6.
 5. A day that straddles the switch: today's credit is the old formula until midnight, the new one after; `peak` never goes down. Test in Task 3.
@@ -163,6 +163,8 @@ assert.deepEqual([0, 99, 100, 1999, 2000, 3000].map((x) => colonyStage(x).name),
 
 ### Task 5: Repositories by hand: the list, the command line, the panel
 
+> **Removed (owner, 2026-10-23).** Built, then reverted: the owner found it confusing and it risks counting the same work twice. Repositories come from agent sessions only.
+
 **Files:**
 - Create: `world-repos.mjs`
 - Modify:
@@ -256,7 +258,7 @@ assert.deepEqual([0, 99, 100, 1999, 2000, 3000].map((x) => colonyStage(x).name),
 
 **Files:**
 - Modify:
-  - `README.md`: the World section on how credit is earned, prices, Home, colonies, repositories by hand, and the commands
+  - `README.md`: the World section on how credit is earned, prices, Home, colonies, and which repositories count (those an agent session worked in)
   - `hub/deploy/README.md`: a short "Releases that change the projection" note: deploy the signed release to the hub first; workers follow by their daily update
 - Test: none (docs)
 
@@ -267,7 +269,7 @@ assert.deepEqual([0, 99, 100, 1999, 2000, 3000].map((x) => colonyStage(x).name),
 - [ ] **Step 2: Document the rest**:
   - the prices and the timings;
   - Home past 12 and colony stages;
-  - `node server.mjs world add|remove|list` and the panel's Repositories part;
+  - which repositories count: World finds them from agent sessions (the session's folder → its git repository); there is no way to add one by hand;
   - that credit earned before the change is kept.
 - [ ] **Step 3: Add the deploy note.**
 - [ ] **Step 4: Run** `npm test`. Expected: PASS.

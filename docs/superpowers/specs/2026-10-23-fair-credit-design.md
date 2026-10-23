@@ -89,10 +89,11 @@ recently is the alternative if that turns out to be abused.
 **Tokens earn nothing.** They are still counted and shown in the panel (today's numbers), and they still mark a slot
 active, but they add no credit by themselves **(owner: agent or not must not matter)**.
 
-**Repositories without agents.** Today World learns a repository only from an agent session that ran in it. A developer
-who never uses an agent would have no repositories counted, which breaks "agent or not must not matter". The player
-must be able to add a repository (or a folder of repositories) to World by hand, from the panel and from the command
-line, and remove one **(call; required for the owner's agent-neutral rule)**.
+**Repositories without agents (deferred).** World learns a repository only from an agent session that ran in it, so a
+developer who never uses an agent has no repositories counted. Adding and removing repositories by hand was built and
+then taken out again **(owner, 2026-10-23: confusing, and it risks counting the same work twice; World is for agent
+users for now)**. Once World knows a repository from a session, it counts that repository's commits and working-tree
+changes whoever made them, so inside a known repository agent or not still does not matter.
 
 ## Credit
 
@@ -197,8 +198,6 @@ release) before the workers update, as with probes. A hub that runs the new vers
 
 - How the 5-minute slots are sampled and stored (they never leave the Mac), and how cheaply the working-tree check runs
   on many repositories (it must not slow the Mac or touch a repository while git is busy in it).
-- How a repository is added and removed by hand: the panel control, the command line, and whether a folder adds every
-  repository under it.
 - The drawing of colony stages and of Home's features past Twin moons, within the progressions above.
 - The exact colony XP thresholds and post-City features, within the pacing above.
 - Tests: the formula's examples above, the switch keeping old balances, in-flight purchases keeping their thresholds,
