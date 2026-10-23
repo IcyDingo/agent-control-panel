@@ -562,7 +562,11 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .w-who .avatar { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line-strong); background: var(--raise); color: var(--fg-dim); font: 600 13px var(--sans); object-fit: cover; }
 .w-links { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; }
 /* A system shown read-only (world.js enter with readOnly): nothing to spend, and none of the owner's own numbers. */
-body.w-readonly #w-profile, body.w-readonly #w-build-box, body.w-readonly #w-rocket-box, body.w-readonly #w-push-box, body.w-readonly #w-today-box, body.w-readonly #w-total-box { display: none; }
+body.w-readonly #w-profile, body.w-readonly #w-build-box, body.w-readonly #w-rocket-box, body.w-readonly #w-push-box, body.w-readonly #w-today-box, body.w-readonly #w-total-box, body.w-readonly #w-repos-box { display: none; }
+.w-repos li { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.w-repos li > div { min-width: 0; display: grid; }
+.w-repos .w-path { font: 12px var(--mono); overflow-wrap: anywhere; }
+.w-repos .w-by { color: var(--fg-dim); font-size: 11.5px; }
 /* Narrow: Home's level, then the rail as a row, then the open card at full width, all over the top of the map. */
 @media (max-width: 760px) {
   .w-hud { position: static; width: auto; margin: calc(var(--sp-top, 52px) + 10px) 16px 0; }
@@ -1023,6 +1027,15 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
         <p id="w-total"></p>
         <p>Lines removed multiply the day's credit. Stars on the map are moments: a week of work, a big cleanup, a level
           Home reached. Click one to see what was done.</p>
+      </div>
+      <div class="w-part" id="w-repos-box">
+        <h3>Repositories</h3>
+        <p>World counts the commits and the time you spend in these. A repository an agent works in is added by itself;
+          add the ones you work in by hand.</p>
+        <ul class="w-list w-repos" id="w-repos" aria-label="Repositories counted" hidden></ul>
+        <p id="w-repos-none">No repositories yet.</p>
+        <div class="w-act"><span></span><button class="btn small" type="button" id="w-repos-add">Add a repository</button></div>
+        <p class="err" id="w-repos-err" role="alert" hidden></p>
       </div>
     </section>
   </aside>

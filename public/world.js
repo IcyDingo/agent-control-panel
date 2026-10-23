@@ -699,6 +699,7 @@
   function wire() {
     cv = $('w-canvas'); x = cv.getContext('2d');
     if ($('w-profile')) wireProfile(); // the panel's; the hub's page has no such box
+    if ($('w-repos-add')) wireRepos();
     if ($('w-rail')) {
       personMark = [...($('w-rail-avatar')?.childNodes ?? [])].map((n) => n.cloneNode(true));
       for (const b of $('w-rail').querySelectorAll('[data-card]')) b.onclick = () => openCard(card === b.dataset.card ? null : b.dataset.card);
@@ -765,6 +766,7 @@
     for (const s of $('w-side').querySelectorAll('.w-card[data-card]')) s.hidden = s.dataset.card !== card;
     if (card && opts.card?.key) try { localStorage.setItem(opts.card.key, card); } catch { /* not remembered, no harm */ }
     if (card === 'probe') checkProbe();
+    if (card === 'today') loadRepos();
   }
   /** The card a World opens with: the one open last time, else the page's first. */
   function firstCard() {
@@ -1221,8 +1223,48 @@
       }
     }
   }
+  // ---------- Repositories: what World counts besides the ones agents worked in (someone coding by hand has no sessions).
+  // The list comes from the Mac's panel only; paths are shown here and go nowhere else.
+  const reposFail = (r) => { $('w-repos-err').textContent = r.error || 'That did not go through.'; $('w-repos-err').hidden = false; };
+  function showRepos(list) {
+    $('w-repos-err').hidden = true;
+    $('w-repos-none').hidden = list.length > 0;
+    $('w-repos').hidden = !list.length;
+    $('w-repos').replaceChildren(...list.map((r) => {
+      const li = document.createElement('li'), path = document.createElement('span'), by = document.createElement('span'), rm = document.createElement('button');
+      path.className = 'w-path'; path.textContent = r.path;
+      by.className = 'w-by'; by.textContent = r.by === 'hand' ? 'added by hand' : 'found from an agent session';
+      rm.type = 'button'; rm.className = 'btn small quiet'; rm.textContent = 'Remove'; rm.setAttribute('aria-label', `Stop counting ${r.path}`);
+      rm.onclick = async () => {
+        rm.disabled = true;
+        const out = await opts.api('/api/world/repos', { remove: r.path });
+        if (out.ok) showRepos(out.repos); else { rm.disabled = false; reposFail(out); }
+      };
+      const text = document.createElement('div');
+      text.append(path, by);
+      li.append(text, rm);
+      return li;
+    }));
+  }
+  async function loadRepos() {
+    if (opts.readOnly || !$('w-repos')) return; // the hub's page has no such part
+    const r = await opts.api('/api/world/repos', {});
+    if (r.ok) showRepos(r.repos);
+  }
+  function wireRepos() {
+    $('w-repos-add').onclick = async () => {
+      const b = $('w-repos-add');
+      b.disabled = true;
+      try {
+        const picked = await opts.api('/api/pick-folder', { for: 'repos' });
+        if (!picked.ok) { if (!picked.cancelled) reposFail(picked); return; }
+        const r = await opts.api('/api/world/repos', { add: picked.path });
+        if (r.ok) { showRepos(r.repos); opts.toast?.('Counting the commits and the work in it from now on.'); } else reposFail(r);
+      } finally { b.disabled = false; }
+    };
+  }
   function wireProfile() {
-    const call = (id, path, then) => {
+    const call =(id, path, then) => {
       const b = $(id);
       b.onclick = async () => {
         b.disabled = true;
