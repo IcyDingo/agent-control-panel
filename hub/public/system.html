@@ -96,6 +96,7 @@
         </div>
         <p class="w-note" id="w-owner-text">Only you see this. Your Mac runs it and keeps this page up to date. <span id="w-owner-sync"></span></p>
         <p id="o-prices" hidden></p>
+        <p id="o-today" hidden></p>
       </div>
     </section>
 
@@ -283,11 +284,13 @@
     }
     function showStatus() {
       const on = status !== null;
-      $('o-balance').hidden = $('o-prices').hidden = !on;
+      $('o-balance').hidden = $('o-prices').hidden = $('o-today').hidden = !on;
       if (on) {
         $('o-balance').textContent = `${fmt(status.balance)} credit`;
         $('o-prices').textContent = `Push ${fmt(status.prices.frontier)} · Rocket ${fmt(status.prices.rocket)} · Build ${fmt(status.prices.build)}`
           + (status.prices.probe != null ? ` · Probe ${fmt(status.prices.probe)}` : '');
+        // Today's work as the panel's World button says it; a Mac from before active time leaves that part out.
+        $('o-today').textContent = `Today: ${AgentWorld.read.todayLine(status.today)}`;
       }
       macNote();
       sync();

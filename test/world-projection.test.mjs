@@ -2,7 +2,7 @@
 process.env.TZ = 'UTC';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
+import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import vm from 'node:vm';
 import { createWorld, publicProjection, validProjection, PROJECTION_VERSION, LEVELS, HOME_FEATURES, COLONY_FEATURES, levelOf, levelName, colonyStage, colonyStageName } from '../world.mjs';
 
 const DAY = 86_400_000, T0 = Date.UTC(2026, 9, 12, 9, 0), at = (d) => T0 + d * DAY, key = (ms) => new Date(ms).toISOString().slice(0, 10);
@@ -203,4 +203,63 @@ test('a colony comes out with its stage name rebuilt, whatever the input said, a
   old.planets[0].colony.stageName = 'City';
   assert.equal(validProjection(old), null, 'a version 2 colony has no stageName');
   assert.equal(JSON.stringify(publicProjection(rich())).includes('stageName'), false, 'and the Mac does not send one');
+});
+
+/** public/world.js's pure readers (AgentWorld.read), run in node: the page script with a window that only answers
+ *  matchMedia, as nothing else is touched until World is entered. Its arrays are another realm's: compare them as JSON. */
+function pageRead() {
+  const window = { matchMedia: () => ({ matches: false }) };
+  vm.runInNewContext(fs.readFileSync(new URL('../public/world.js', import.meta.url), 'utf8'), { window });
+  return window.AgentWorld.read;
+}
+
+test('the page places a level with no XP where world.mjs begins it, past 12 too', () => {
+  const read = pageRead();
+  for (let level = 1; level <= 40; level++) {
+    assert.equal(levelOf(read.levelXp(level)).level, level, `level ${level} begins at ${read.levelXp(level)}`);
+    if (level > 1) assert.equal(levelOf(read.levelXp(level) - 1).level, level - 1, `and not before, level ${level}`);
+  }
+  assert.deepEqual(Array.from({ length: 12 }, (_, i) => read.levelXp(i + 1)), LEVELS.map(([at]) => at));
+  assert.equal(read.levelXp(1000), levelOf(4000 + 1000 * 988).at);
+});
+
+test("the page draws each feature past Twin moons and past City in world.mjs's order, round and round", () => {
+  const read = pageRead();
+  assert.equal(read.homeFeature(12), null, 'Twin moons is no feature');
+  assert.equal(read.colonyFeature(6), null, 'nor is City');
+  for (let level = 13; level < 13 + 3 * HOME_FEATURES.length; level++) {
+    const f = read.homeFeature(level), name = levelName(level);
+    assert.equal(name === HOME_FEATURES[f.index] || name.startsWith(`${HOME_FEATURES[f.index]} `), true, `level ${level} draws ${HOME_FEATURES[f.index]}, named ${name}`);
+    assert.equal(f.round === 0, HOME_FEATURES.includes(name), `level ${level} is round ${f.round}`);
+  }
+  for (let stage = 7; stage < 7 + 3 * COLONY_FEATURES.length; stage++) {
+    const f = read.colonyFeature(stage), name = colonyStageName(stage);
+    assert.equal(name === COLONY_FEATURES[f.index] || name.startsWith(`${COLONY_FEATURES[f.index]} `), true, `colony stage ${stage} draws ${COLONY_FEATURES[f.index]}, named ${name}`);
+    assert.equal(f.round === 0, COLONY_FEATURES.includes(name), `colony stage ${stage} is round ${f.round}`);
+  }
+});
+
+test("the page names a colony's stage from what is served, and a colony stored before version 3 is a landing site", () => {
+  const read = pageRead(), p = JSON.parse(JSON.stringify(publicProjection(rich())));
+  p.planets[0].colony.stage = 4;
+  const v3 = validProjection(p).planets[0].colony;
+  assert.deepEqual([read.stage(v3), read.stageName(v3)], [4, 'Green patches']);
+  const summary = rich().planets[0].colony; // the panel's own summary carries both too
+  assert.deepEqual([read.stage(summary), read.stageName(summary)], [summary.stage, summary.stageName]);
+  const before = { name: 'Vesta', day: '2026-10-13' }; // a hub row from before version 3
+  assert.deepEqual([read.stage(before), read.stageName(before)], [1, 'Landing site']);
+});
+
+test("the page shows today's active time, lines, commits and credit, tokens apart and no multiplier", () => {
+  const read = pageRead();
+  assert.deepEqual([200, 45, 120, 0, 600].map(read.active), ['3 h 20 min', '45 min', '2 h', '0 min', '10 h']);
+  const today = { day: '2026-11-02', commits: 3, added: 1200, removed: 40, tokens: 2_000_000, active: 200, credit: 245 };
+  assert.deepEqual(JSON.parse(JSON.stringify(read.todayRows(today))), [['Active time', '3 h 20 min'], ['Lines changed', '+1,200 / −40'], ['Commits', '3'],
+    ['Credit today', '245'], ['Tokens', '2,000,000, not counted toward credit']]);
+  assert.equal(read.todayLine(today), '+1,200 / −40 lines, 3 commits, 3 h 20 min active, 245 credit earned.');
+  assert.equal(read.todayLine({ ...today, active: undefined, multiplier: 1, commits: 1 }), '+1,200 / −40 lines, 1 commit, 245 credit earned.',
+    "a status from a Mac before active time: that part left out, and the multiplier it still sends never shown");
+  const s = rich().today;
+  assert.equal('multiplier' in s, false);
+  assert.equal(JSON.stringify(read.todayRows(s)).includes('×'), false);
 });

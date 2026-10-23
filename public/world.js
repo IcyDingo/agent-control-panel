@@ -26,6 +26,26 @@
   const SUN = { gold: '#ffd27a', white: '#eef2ff', orange: '#ffa65c', blue: '#bcd3ff' };
   /** world.mjs LEVELS' XP: a public projection of a system has a level but no XP, so Home is drawn at its level's start. */
   const LEVEL_XP = [0, 15, 100, 300, 500, 800, 1200, 1600, 2000, 2600, 3300, 4000];
+  /** What the page reads from a summary or a projection. The names (Home's stage, a colony's stage name) are always the
+   *  ones served; the drawing goes by the numbers. Pure, so test/world-projection.test.mjs runs them in node. */
+  const read = {
+    /** Where a level begins (XP): the 12 levels above, then world.mjs levelOf's rule, a new level every 1,000 XP. */
+    levelXp: (level) => (level <= LEVEL_XP.length ? LEVEL_XP[Math.max(1, level) - 1] : LEVEL_XP.at(-1) + 1000 * (level - LEVEL_XP.length)),
+    /** A colony's stage, 1 up; one stored before projection 3 has none and is a landing site. */
+    stage: (colony) => (Number.isInteger(colony?.stage) && colony.stage >= 1 ? colony.stage : 1),
+    stageName: (colony) => (typeof colony?.stageName === 'string' ? colony.stageName : 'Landing site'),
+    /** Minutes active as "3 h 20 min", "45 min" or "2 h". */
+    active: (min) => {
+      const m = Math.max(0, Math.round(min ?? 0)), h = Math.floor(m / 60);
+      return h ? `${h} h${m % 60 ? ` ${m % 60} min` : ''}` : `${m} min`;
+    },
+    /** Today's numbers as the today card lists them: no multiplier, and tokens shown but not paid for. */
+    todayRows: (t) => [['Active time', read.active(t.active)], ['Lines changed', `+${fmt(t.added)} / −${fmt(t.removed)}`],
+      ['Commits', fmt(t.commits)], ['Credit today', fmt(t.credit)], ['Tokens', `${fmt(t.tokens)}, not counted toward credit`]],
+    /** The day's work in a line: the panel's World button and the galaxy page's orders say it the same way. */
+    todayLine: (t) => `+${fmt(t.added)} / −${fmt(t.removed)} lines, ${fmt(t.commits)} commit${t.commits === 1 ? '' : 's'}, `
+      + (t.active != null ? `${read.active(t.active)} active, ` : '') + `${fmt(t.credit)} credit earned.`,
+  };
   const sun = () => world?.sun ?? null;
   let light = { lx: Math.cos(Math.PI * 1.25), ly: Math.sin(Math.PI * 1.25) }; // which way the sun is from Home: the lit side faces it
 
@@ -54,7 +74,7 @@
   }
 
   // ---------- the light: Home's, and the frontier's lobes
-  const days = () => (world?.home?.xp ?? LEVEL_XP[(world?.home?.level ?? 1) - 1] ?? 0) / 100; // in full days' work: Home's stages below are drawn on that scale
+  const days = () => (world?.home?.xp ?? read.levelXp(world?.home?.level ?? 1) ?? 0) / 100; // in full days' work: Home's stages below are drawn on that scale
   /** 0 before day `a`, 1 from day `b`, linear between: each stage eases in over the days before it is named. */
   const ramp = (a, b) => clamp((days() - a) / (b - a));
   const g = () => Math.sqrt(Math.min(1, days() / 40)); // how far the lit map reaches: quick at first, all of it at the ladder's top
@@ -198,7 +218,7 @@
     }
     x.restore();
     if (moon > 0) { // terraformed: a moon arrives and circles Home
-      const a = (calm.matches ? 0 : t / 30000) - 0.6, mx = cx + Math.cos(a) * R * 1.75, my = cy + Math.sin(a) * R * 0.55;
+      const [mx, my] = moonAt(cx, cy, R, t);
       const m = x.createRadialGradient(mx - R * 0.05, my - R * 0.05, R * 0.02, mx, my, R * 0.16);
       m.addColorStop(0, `rgba(222,226,232,${moon})`); m.addColorStop(1, `rgba(96,102,112,${moon})`);
       x.fillStyle = m; x.beginPath(); x.arc(mx, my, R * 0.15, 0, 7); x.fill();
@@ -216,6 +236,121 @@
       const m = x.createRadialGradient(mx - R * 0.03, my - R * 0.03, R * 0.01, mx, my, R * 0.1);
       m.addColorStop(0, `rgba(226,204,186,${moon2})`); m.addColorStop(1, `rgba(110,86,74,${moon2})`);
       x.fillStyle = m; x.beginPath(); x.arc(mx, my, R * 0.09, 0, 7); x.fill();
+    }
+  }
+  /** Where Home's first moon is now: the moon base past Twin moons sits on it. */
+  const moonAt = (cx, cy, R, t) => { const a = (calm.matches ? 0 : t / 30000) - 0.6; return [cx + Math.cos(a) * R * 1.75, cy + Math.sin(a) * R * 0.55]; };
+  /** How many drawings Home's features past Twin moons and a colony's past City have: world.mjs HOME_FEATURES and
+   *  COLONY_FEATURES, in their order (test/world-projection.test.mjs checks the counts agree). A level or stage past the
+   *  last comes round again, "Beacon II", and its drawing shows once more, up to three times. */
+  const HOME_LOOKS = 12, COLONY_LOOKS = 6;
+  /** Which feature a level past 12 (or a colony stage past City, 6) draws: its index in the list, and which time round. */
+  read.homeFeature = (level) => (level > LEVEL_XP.length ? { index: (level - 13) % HOME_LOOKS, round: Math.floor((level - 13) / HOME_LOOKS) } : null);
+  read.colonyFeature = (stage) => (stage > 6 ? { index: (stage - 7) % COLONY_LOOKS, round: Math.floor((stage - 7) / COLONY_LOOKS) } : null);
+  /** How much of Home's feature `i` there is, 0 to 3: each time round it eases in over the days before its level begins,
+   *  like the stages in drawHome. */
+  function homeHas(i) {
+    let n = 0;
+    for (let round = 0; round < 3; round++) { const d = read.levelXp(13 + i + HOME_LOOKS * round) / 100; n += ramp(d - 6, d); }
+    return n;
+  }
+  /** Home past Twin moons: one feature a level, in HOME_FEATURES' order. Small and kept to Home's rim and the corners of
+   *  its view, so what was built stays clear: the 'far' pass goes before the builds behind Home, 'near' after Home's
+   *  face and before the builds on and in front of it. */
+  function drawHomeFeatures(cx, cy, R, t, layer) {
+    if (R < 16) return; // a dot on the map: too small to show them
+    const T = calm.matches ? 0 : t, u = Math.max(1.2, R * 0.012), sunA = Math.atan2(light.ly, light.lx);
+    const glow = (gx, gy, r, c, a) => { const g = x.createRadialGradient(gx, gy, 0, gx, gy, r); g.addColorStop(0, rgba(c, a)); g.addColorStop(1, rgba(c, 0)); x.fillStyle = g; x.beginPath(); x.arc(gx, gy, r, 0, 7); x.fill(); };
+    const dot = (dx, dy, r, c, a) => { x.fillStyle = rgba(c, a); x.beginPath(); x.arc(dx, dy, r, 0, 7); x.fill(); };
+    const far = layer === 'far', blink = (k) => (calm.matches ? 1 : 0.4 + 0.6 * (0.5 + 0.5 * Math.sin(T / 420 + k)));
+    const DRAW = [
+      (a, j) => { // Satellite: a small craft on a tilted orbit, behind Home for half of it
+        const th = T / (16000 + 4000 * j) + j * 2.3, tilt = 0.45 - 0.35 * j, ex = Math.cos(th) * R * (1.24 + 0.1 * j), ey = Math.sin(th) * R * 0.4;
+        if ((Math.sin(th) < 0) !== far) return;
+        const sx = cx + ex * Math.cos(tilt) - ey * Math.sin(tilt), sy = cy + ex * Math.sin(tilt) + ey * Math.cos(tilt), v = u * 1.4;
+        x.fillStyle = rgba('#8fb4e8', 0.9 * a); x.fillRect(sx - v * 3, sy - v * 0.4, v * 2, v * 0.8); x.fillRect(sx + v, sy - v * 0.4, v * 2, v * 0.8);
+        x.fillStyle = rgba('#e8ecf2', a); x.fillRect(sx - v * 0.7, sy - v * 0.7, v * 1.4, v * 1.4);
+      },
+      (a, j) => { if (far) glow(cx, cy, R * (1.12 + 0.03 * j), '#a8d4ff', 0.42 * a); }, // Bright air: a brighter rim of sky
+      (a, j) => { // Ring of lights: lights along the orbital ring, turning with it
+        const m = 22 + 12 * j;
+        for (let k = 0; k < m; k++) {
+          const th = (k + 0.5 * j) / m * 2 * Math.PI + T / 70000;
+          if ((Math.sin(th) < 0) !== far) continue;
+          const ex = Math.cos(th) * R * 1.65, ey = Math.sin(th) * R * 0.36;
+          x.fillStyle = rgba('#ffe2a8', (far ? 0.5 : 0.95) * a);
+          x.fillRect(cx + ex * Math.cos(-0.25) - ey * Math.sin(-0.25) - u / 2, cy + ex * Math.sin(-0.25) + ey * Math.cos(-0.25) - u / 2, u, u);
+        }
+      },
+      (a, j) => { // Near star: a bright star in a corner of the view
+        if (!far) return;
+        const [sx, sy] = [[-1.25, 1.35], [-1.85, -0.25], [0.95, 1.45]][j];
+        glow(cx + sx * R, cy + sy * R, R * 0.18, '#fff0d0', 0.5 * a);
+        dot(cx + sx * R, cy + sy * R, Math.max(1.6, R * 0.03), '#fff6e6', a);
+      },
+      (a, j) => { // Aurora: green curtains over the south pole, then the north
+        if (far) return;
+        const pole = j === 1 ? -1 : 1, m = 14;
+        for (let k = 0; k < m; k++) {
+          const th = pole * Math.PI / 2 + (k / (m - 1) - 0.5) * (1.1 + 0.3 * j), wave = 0.04 * Math.sin(T / 800 + k * 0.9);
+          const bx = cx + Math.cos(th) * R * 1.01, by = cy + Math.sin(th) * R * 1.01, top = R * (1.09 + wave);
+          const g = x.createLinearGradient(bx, by, cx + Math.cos(th) * top, cy + Math.sin(th) * top);
+          g.addColorStop(0, rgba('#7cf0b0', 0.4 * a)); g.addColorStop(1, rgba('#7cf0b0', 0));
+          x.strokeStyle = g; x.lineWidth = Math.max(1, R * 0.03);
+          x.beginPath(); x.moveTo(bx, by); x.lineTo(cx + Math.cos(th) * top, cy + Math.sin(th) * top); x.stroke();
+        }
+      },
+      (a, j) => { // Beacon: a mast on the rim with a red light blinking
+        if (far) return;
+        const th = -0.35 + 0.55 * j, bx = cx + Math.cos(th) * R, by = cy + Math.sin(th) * R, tx = cx + Math.cos(th) * R * 1.08, ty = cy + Math.sin(th) * R * 1.08;
+        x.strokeStyle = rgba('#c8d0dc', 0.85 * a); x.lineWidth = Math.max(1, R * 0.008);
+        x.beginPath(); x.moveTo(bx, by); x.lineTo(tx, ty); x.stroke();
+        glow(tx, ty, u * 5, '#ff5a4a', 0.35 * a * blink(j)); dot(tx, ty, u * 1.1, '#ff6a58', a * blink(j));
+      },
+      (a, j) => { // Second sun glow: warm light from the other side, and a rim of it on Home's night side
+        const o = sunA + Math.PI + 0.6 * j * (j % 2 ? 1 : -1);
+        if (far) glow(cx + Math.cos(o) * R * 2.4, cy + Math.sin(o) * R * 2.4, R * 1.7, '#ffb48a', 0.16 * a);
+        else { x.strokeStyle = rgba('#ffc49a', 0.3 * a); x.lineWidth = Math.max(1, R * 0.018); x.beginPath(); x.arc(cx, cy, R * 0.995, o - 0.8, o + 0.8); x.stroke(); }
+      },
+      (a, j) => { // Comet trail: a comet high in the sky, its tail away from the sun
+        if (!far) return;
+        const [hx, hy] = [[1.45, -1.25], [-1.55, -0.75], [1.9, -0.4]][j], px = cx + (hx + 0.03 * Math.sin(T / 9000)) * R, py = cy + hy * R;
+        const ex = px - light.lx * R * 0.7, ey = py - light.ly * R * 0.7, g = x.createLinearGradient(px, py, ex, ey);
+        g.addColorStop(0, rgba('#d6ecff', 0.7 * a)); g.addColorStop(1, rgba('#d6ecff', 0));
+        x.strokeStyle = g; x.lineWidth = Math.max(1.2, R * 0.02); x.lineCap = 'round';
+        x.beginPath(); x.moveTo(px, py); x.lineTo(ex, ey); x.stroke(); x.lineCap = 'butt';
+        dot(px, py, Math.max(1.4, R * 0.014), '#f2f8ff', a);
+      },
+      (a, j) => { // Moon base: lights on the first moon
+        if (far) return;
+        const [mx, my] = moonAt(cx, cy, R, t), r = rng(91 + j);
+        x.fillStyle = rgba('#ffd89a', a);
+        for (let k = 0; k < 3 + 2 * j; k++) x.fillRect(mx + (r() - 0.5) * R * 0.17 - u / 2, my + (r() - 0.3) * R * 0.14 - u / 2, u, u);
+      },
+      (a, j) => { // Shield halo: a thin shimmering shell around Home
+        if (!far) return;
+        x.strokeStyle = rgba('#8ee8ff', 0.4 * a); x.lineWidth = Math.max(1, R * 0.006); x.setLineDash([R * 0.05, R * 0.03]); x.lineDashOffset = -T / 200;
+        x.beginPath(); x.arc(cx, cy, R * (1.17 + 0.05 * j), 0, 7); x.stroke(); x.setLineDash([]); x.lineDashOffset = 0;
+      },
+      (a, j) => { // Sky lanterns: warm lights rising off the night side and fading
+        if (far) return;
+        const r = rng(57 + j);
+        for (let k = 0; k < 9; k++) {
+          const th = sunA + Math.PI + (r() - 0.5) * 2, ph = ((T / 11000) + r()) % 1, d = R * (1.02 + 0.2 * ph);
+          dot(cx + Math.cos(th) * d, cy + Math.sin(th) * d, u * 0.9, '#ffc070', a * (1 - ph) * 0.9);
+        }
+      },
+      (a, j) => { // Far lighthouse: a distant light whose beam sweeps round
+        if (!far) return;
+        const [lx, ly] = [[1.55, 1.25], [-1.6, 0.6], [1.85, 0.45]][j], px = cx + lx * R, py = cy + ly * R, b = T / 2600 + j, w = 0.12;
+        x.fillStyle = rgba('#fff3c4', 0.14 * a);
+        x.beginPath(); x.moveTo(px, py); x.lineTo(px + Math.cos(b - w) * R * 0.55, py + Math.sin(b - w) * R * 0.55); x.lineTo(px + Math.cos(b + w) * R * 0.55, py + Math.sin(b + w) * R * 0.55); x.fill();
+        glow(px, py, u * 5, '#fff3c4', 0.4 * a); dot(px, py, u * 1.1, '#fffbe8', a);
+      },
+    ];
+    for (let i = 0; i < HOME_LOOKS; i++) {
+      const n = homeHas(i);
+      for (let j = 0; j < Math.ceil(n); j++) DRAW[i](clamp(n - j), j);
     }
   }
   /** The mascot: a small stone creature in the spirit of Rocky from Project Hail Mary, squared off like the hub's mosaic,
@@ -239,13 +374,15 @@
     x.restore();
   }
   const idSeed = (id) => [...id].reduce((h, ch) => h * 31 + ch.charCodeAt(0), made.seed) | 0;
-  /** A planet the frontier found: a bare world in its own colours, with craters. A colony on it adds a warm air and
-   *  domes lit from inside. */
-  function drawPlanet(cx, cy, R, p, colony, look = {}) {
-    if (colony) {
-      const a = x.createRadialGradient(cx, cy, R * 0.95, cx, cy, R * 1.2);
-      a.addColorStop(0, 'rgba(240,180,120,.3)'); a.addColorStop(1, 'rgba(240,180,120,0)');
-      x.fillStyle = a; x.beginPath(); x.arc(cx, cy, R * 1.2, 0, 7); x.fill();
+  /** A planet the frontier found: a bare world in its own colours, with craters. A colony on it grows by stage (world.mjs
+   *  COLONY_STAGES), over the planet's look: a lander, then a few lights, lit domes, green on the land, night lights, and
+   *  a city's dense lights and glow; past City one feature a stage (COLONY_FEATURES). Builds draw on top. */
+  function drawPlanet(cx, cy, R, p, colony, look = {}, t = 0) {
+    const st = colony ? read.stage(colony) : 0;
+    if (colony) { // a warm air, thicker as the colony grows
+      const k = st >= 6 ? 0.5 : 0.18 + 0.03 * st, a = x.createRadialGradient(cx, cy, R * 0.95, cx, cy, R * 1.22);
+      a.addColorStop(0, `rgba(240,180,120,${k})`); a.addColorStop(1, 'rgba(240,180,120,0)');
+      x.fillStyle = a; x.beginPath(); x.arc(cx, cy, R * 1.22, 0, 7); x.fill();
     }
     const [c0, c1, c2] = look.land ? [mix(look.land, '#ffffff', 0.35), look.land, mix(look.land, '#000000', 0.8)] : LOOK[p.look] ?? LOOK.rust;
     const gr = x.createRadialGradient(cx + light.lx * R * 0.35, cy + light.ly * R * 0.35, 0, cx, cy, R);
@@ -255,16 +392,101 @@
       const r = rng(idSeed(p.id));
       x.save(); x.beginPath(); x.arc(cx, cy, R, 0, 7); x.clip();
       for (let i = 0; i < 14; i++) { x.fillStyle = 'rgba(20,14,10,.28)'; x.beginPath(); x.arc(cx + (r() - 0.5) * 1.8 * R, cy + (r() - 0.5) * 1.8 * R, R * (0.03 + r() * 0.07), 0, 7); x.fill(); }
-      if (colony) {
-        const d = rng(idSeed(p.id) + 5), u = Math.max(1.5, R / 110);
-        for (let i = 0; i < 7; i++) {
-          const dx = cx + (d() - 0.6) * R * 0.9, dy = cy + (d() - 0.3) * R * 0.8, dr = R * (0.05 + d() * 0.06);
-          x.fillStyle = 'rgba(190,225,255,.38)'; x.beginPath(); x.ellipse(dx, dy, dr * 1.4, dr, 0, Math.PI, 2 * Math.PI); x.fill();
-          x.fillStyle = 'rgba(255,205,120,.9)'; x.fillRect(dx - u / 2, dy - u * 1.4, u, u);
-        }
-      }
+      if (colony) drawColony(cx, cy, R, p, st, t, 'ground');
       x.restore();
-    } else if (colony) { x.fillStyle = 'rgba(255,205,120,.95)'; x.fillRect(cx + R * 0.15, cy - R * 0.2, 1.5, 1.5); }
+      if (colony) drawColony(cx, cy, R, p, st, t, 'sky');
+    } else if (colony) { // a dot on the map: a light, two once it is a township
+      x.fillStyle = 'rgba(255,205,120,.95)'; x.fillRect(cx + R * 0.15, cy - R * 0.2, 1.5, 1.5);
+      if (st >= 5) x.fillRect(cx - R * 0.3, cy + R * 0.1, 1.5, 1.5);
+    }
+  }
+  /** A colony at stage `st` on its planet: 'ground' on the face (clipped to it), 'sky' around it. Each stage keeps what
+   *  came before, all of it gathered round one place on the face, so it reads as one settlement growing. */
+  function drawColony(cx, cy, R, p, st, t, layer) {
+    const T = calm.matches ? 0 : t, u = Math.max(1.5, R / 110), seed = idSeed(p.id);
+    const night = (px, py) => (px - cx) * light.lx + (py - cy) * light.ly < -R * 0.05;
+    const sunlit = (px, py) => clamp(1.2 - Math.hypot(px - (cx + light.lx * 0.45 * R), py - (cy + light.ly * 0.4 * R)) / (1.5 * R), 0.3, 1);
+    const blink = (k) => (calm.matches ? 1 : 0.4 + 0.6 * (0.5 + 0.5 * Math.sin(T / 420 + k)));
+    const hx = cx - R * 0.08, hy = cy + R * 0.12; // where the settlement is
+    /** `k` spots spread round it (or round `ox`, `oy`), wider with `spread`, the same every frame. */
+    const around = (salt, k, spread, ox = hx, oy = hy) => {
+      const r = rng(seed + salt), out = [];
+      for (let i = 0; i < k; i++) {
+        const a = r() * 2 * Math.PI, d = Math.sqrt(r()) * spread * R, px = ox + Math.cos(a) * d * 1.3, py = oy + Math.sin(a) * d * 0.8;
+        if (Math.hypot(px - cx, py - cy) < R * 0.93) out.push({ x: px, y: py, w: r() });
+      }
+      return out;
+    };
+    const domes = around(5, 7, 0.45).map((d) => ({ ...d, r: R * (0.05 + d.w * 0.05) }));
+    const extra = (i) => (st >= 7 + i ? Math.min(3, Math.floor((st - 7 - i) / COLONY_LOOKS) + 1) : 0); // how many times past City feature i shows
+    if (layer === 'ground') {
+      if (st >= 4) for (const g of around(9, 10, 0.65)) { // Green patches: green on the land round the settlement
+        x.fillStyle = `rgba(88,170,92,${0.75 * sunlit(g.x, g.y)})`;
+        x.beginPath(); x.ellipse(g.x, g.y, R * (0.08 + 0.08 * g.w), R * (0.05 + 0.04 * g.w), 0.4, 0, 7); x.fill();
+      }
+      if (st >= 6) { // City: the settlement glows
+        const g = x.createRadialGradient(hx, hy, 0, hx, hy, R * 0.6);
+        g.addColorStop(0, 'rgba(255,196,120,.35)'); g.addColorStop(1, 'rgba(255,196,120,0)');
+        x.fillStyle = g; x.beginPath(); x.arc(hx, hy, R * 0.6, 0, 7); x.fill();
+      }
+      if (st >= 3) for (const [i, d] of domes.entries()) { // Domes: lit from inside; garden roofs past City turn them green on top
+        x.fillStyle = 'rgba(190,225,255,.4)'; x.beginPath(); x.ellipse(d.x, d.y, d.r * 1.4, d.r, 0, Math.PI, 2 * Math.PI); x.fill();
+        if (extra(4) && i < 3 * extra(4)) { x.fillStyle = 'rgba(110,200,110,.75)'; x.beginPath(); x.ellipse(d.x, d.y - d.r * 0.55, d.r * 0.9, d.r * 0.4, 0, Math.PI, 2 * Math.PI); x.fill(); }
+        x.fillStyle = 'rgba(255,205,120,.9)'; x.fillRect(d.x - u / 2, d.y - u * 1.4, u, u);
+      }
+      if (st >= 2) for (const l of around(13, 5, 0.25)) { // Outpost: a few lights, each with a glow round it
+        const g = x.createRadialGradient(l.x, l.y, 0, l.x, l.y, u * 5);
+        g.addColorStop(0, 'rgba(255,200,120,.5)'); g.addColorStop(1, 'rgba(255,200,120,0)');
+        x.fillStyle = g; x.beginPath(); x.arc(l.x, l.y, u * 5, 0, 7); x.fill();
+        x.fillStyle = 'rgba(255,220,150,1)'; x.fillRect(l.x - u, l.y - u, u * 2, u * 2);
+      }
+      const lights = st >= 6 ? 110 : st >= 5 ? 36 : 0; // Township: night lights; City: dense ones
+      for (const l of around(17, lights, st >= 6 ? 0.75 : 0.55, hx - light.lx * R * 0.3, hy - light.ly * R * 0.3)) { // leaning to the night side, where they show
+        const d = u * (1.1 + 0.7 * l.w);
+        x.fillStyle = night(l.x, l.y) ? 'rgba(255,205,120,.92)' : 'rgba(236,228,210,.4)'; x.fillRect(l.x - d / 2, l.y - d / 2, d, d);
+      }
+      if (st <= 2) { // Landing site: the lander, its light blinking
+        const lx = hx + R * 0.05, ly = hy - R * 0.02, v = Math.max(1.6, R * 0.05);
+        x.fillStyle = 'rgba(0,0,0,.3)'; x.beginPath(); x.ellipse(lx, ly + v * 1.6, v * 2.2, v * 0.5, 0, 0, 7); x.fill();
+        x.strokeStyle = 'rgba(200,206,216,.95)'; x.lineWidth = Math.max(1, v * 0.3);
+        x.beginPath(); x.moveTo(lx - v * 0.8, ly + v * 0.4); x.lineTo(lx - v * 1.7, ly + v * 1.6); x.moveTo(lx + v * 0.8, ly + v * 0.4); x.lineTo(lx + v * 1.7, ly + v * 1.6); x.stroke();
+        x.fillStyle = 'rgba(214,220,230,.98)'; x.beginPath(); x.moveTo(lx - v, ly + v * 0.6); x.lineTo(lx - v * 0.6, ly - v * 0.7); x.lineTo(lx + v * 0.6, ly - v * 0.7); x.lineTo(lx + v, ly + v * 0.6); x.fill();
+        x.fillStyle = `rgba(255,190,90,${blink(1)})`; x.beginPath(); x.arc(lx, ly - v * 0.95, Math.max(1, v * 0.3), 0, 7); x.fill();
+      }
+      for (let j = 0; j < extra(2); j++) { // Harbour lights: a bay of water, pale blue lights along its shore
+        const m = 16, ax = hx + R * (0.15 - 0.3 * j), ay = hy + R * (0.55 - 0.75 * j), rx = R * 0.36, ry = R * 0.11;
+        x.fillStyle = 'rgba(34,78,128,.75)'; x.beginPath(); x.ellipse(ax, ay, rx, ry, 0, 0, 7); x.fill();
+        x.fillStyle = 'rgba(196,232,255,.95)';
+        for (let k = 0; k < m; k++) { const th = Math.PI * (1.05 + 0.9 * k / (m - 1)); x.fillRect(ax + Math.cos(th) * rx - u * 0.75, ay + Math.sin(th) * ry - u * 0.75, u * 1.5, u * 1.5); }
+      }
+      for (let j = 0; j < extra(3); j++) { // Rail ring: a line round the face, a train's light running along it
+        const tilt = 0.12 - 0.3 * j, ry = R * (0.16 + 0.06 * j), oy = cy + R * (0.05 + 0.25 * j);
+        x.strokeStyle = 'rgba(206,214,226,.55)'; x.lineWidth = Math.max(1, R * 0.012);
+        x.beginPath(); x.ellipse(cx, oy, R * 1.02, ry, tilt, 0, Math.PI); x.stroke();
+        const th = (T / 5000 + j) % Math.PI, ex = Math.cos(th) * R * 1.02, ey = Math.sin(th) * ry;
+        x.fillStyle = 'rgba(255,236,190,.95)'; x.beginPath(); x.arc(cx + ex * Math.cos(tilt) - ey * Math.sin(tilt), oy + ex * Math.sin(tilt) + ey * Math.cos(tilt), u * 1.2, 0, 7); x.fill();
+      }
+      return;
+    }
+    for (let j = 0; j < extra(0); j++) { // Beacon tower: a tower on the rim, red at the top
+      const th = -1.0 + 0.55 * j, bx = cx + Math.cos(th) * R * 0.97, by = cy + Math.sin(th) * R * 0.97, tx = cx + Math.cos(th) * R * 1.14, ty = cy + Math.sin(th) * R * 1.14;
+      x.strokeStyle = 'rgba(200,208,220,.9)'; x.lineWidth = Math.max(1.2, R * 0.018);
+      x.beginPath(); x.moveTo(bx, by); x.lineTo(tx, ty); x.stroke();
+      x.fillStyle = `rgba(255,96,80,${blink(j)})`; x.beginPath(); x.arc(tx, ty, Math.max(1.5, R * 0.014), 0, 7); x.fill();
+    }
+    for (let j = 0; j < extra(1); j++) { // Orbital mirror: a bright panel in orbit, shining a little light down
+      const th = T / 30000 + 2 + j * 2.1, mx = cx + Math.cos(th) * R * 1.3, my = cy + Math.sin(th) * R * 0.45 - R * 0.55, v = Math.max(2, R * 0.03);
+      x.fillStyle = 'rgba(255,244,214,.1)'; x.beginPath(); x.moveTo(mx, my); x.lineTo(hx - R * 0.25, hy); x.lineTo(hx + R * 0.25, hy); x.fill();
+      x.fillStyle = 'rgba(236,244,255,.95)'; x.beginPath(); x.moveTo(mx, my - v); x.lineTo(mx + v * 1.6, my); x.lineTo(mx, my + v); x.lineTo(mx - v * 1.6, my); x.fill();
+    }
+    for (let j = 0; j < extra(5); j++) { // Space lift: a cable up from the north, a car climbing it
+      const th = -Math.PI / 2 + 0.3 + 0.45 * j, bx = cx + Math.cos(th) * R, by = cy + Math.sin(th) * R, tx = cx + Math.cos(th) * R * 1.75, ty = cy + Math.sin(th) * R * 1.75;
+      x.strokeStyle = 'rgba(200,210,226,.7)'; x.lineWidth = Math.max(1, R * 0.008);
+      x.beginPath(); x.moveTo(bx, by); x.lineTo(tx, ty); x.stroke();
+      x.fillStyle = 'rgba(214,220,230,.95)'; x.fillRect(tx - u * 2, ty - u * 1.2, u * 4, u * 2.4);
+      const k = calm.matches ? 0.5 : (T / 7000 + j * 0.4) % 1;
+      x.fillStyle = 'rgba(255,214,140,.95)'; x.fillRect(bx + (tx - bx) * k - u, by + (ty - by) * k - u, u * 2, u * 2);
+    }
   }
   // ---------- what was built: Claude's pieces from world.mjs's CATALOGUE, at any size from a map dot to close up
   const SIZE = { small: 0.6, medium: 1, large: 1.45 };
@@ -608,8 +830,10 @@
       x.fillStyle = wg; x.fillRect(0, 0, W, H);
     }
     if (seen(hx, hy, hr * 3.2)) {
+      drawHomeFeatures(hx, hy, hr, t, 'far');
       drawBuilt(hx, hy, hr, hp, t, 'back', spin, true);
       drawHome(hx, hy, hr, t, here === 'home' ? detail : 0, lookOf(hp));
+      drawHomeFeatures(hx, hy, hr, t, 'near');
       drawBuilt(hx, hy, hr, hp, t, 'ground', spin, true);
       drawBuilt(hx, hy, hr, hp, t, 'front', spin, true);
       drawMascot(hx, hy, hr);
@@ -619,10 +843,10 @@
       const [px, py] = to(p.x, p.y), r = bodyR(BODY.planet), colony = colonyOf(p), pp = colony ? piecesOn(p.id) : [];
       if (!seen(px, py, r * 3.2)) continue;
       drawBuilt(px, py, r, pp, t, 'back', 0, false);
-      drawPlanet(px, py, r, p, colony, lookOf(pp));
+      drawPlanet(px, py, r, p, colony, lookOf(pp), t);
       drawBuilt(px, py, r, pp, t, 'ground', 0, false);
       drawBuilt(px, py, r, pp, t, 'front', 0, false);
-      if (z > 0.5 && colony) label(colony.name, px, py + r + 20, '#e3e7ed', 12.5);
+      if (z > 0.5 && colony) { label(colony.name, px, py + r + 20, '#e3e7ed', 12.5); label(read.stageName(colony), px, py + r + 35, '#8c96a4', 11); }
       else if (z > 0.5) {
         x.strokeStyle = 'rgba(227,171,62,.6)'; x.setLineDash([3, 4]); x.lineWidth = 1;
         x.beginPath(); x.arc(px, py, r + 7, 0, 7); x.stroke(); x.setLineDash([]);
@@ -637,8 +861,9 @@
     }
     if (uA > 0) drawUniverse(uA, t);
     view.uA = uA;
-    const name = placeName(here);
-    $('w-where').textContent = uA > 0.5 ? 'Universe' : z < 0.3 ? name : z > 0.7 ? 'Map' : `Leaving ${name}`;
+    const name = placeName(here), at = here !== 'home' && colonyOf(placeOf(here) ?? {});
+    $('w-where').textContent = uA <= 0.5 && z < 0.3 && at ? `${name} · ${read.stageName(at)}`
+      : uA > 0.5 ? 'Universe' : z < 0.3 ? name : z > 0.7 ? 'Map' : `Leaving ${name}`;
     raf = requestAnimationFrame(frame);
   }
   const PUSH_PX = 150; // world.mjs PUSH_LEN: how far a push reaches, for the aiming arrow
@@ -1005,12 +1230,12 @@
   }
   /** The zoom bar: Home, each colony, the map. */
   function showColonies() {
-    const list = planets().filter(colonyOf), sig = list.map((p) => `${p.id}:${p.colony.name}`).join();
+    const list = planets().filter(colonyOf), sig = list.map((p) => `${p.id}:${p.colony.name}:${read.stageName(p.colony)}`).join();
     if (sig === coloniesSig) return;
     coloniesSig = sig;
     $('w-colonies').replaceChildren(...list.map((p) => {
       const b = document.createElement('button');
-      b.type = 'button'; b.className = 'btn small'; b.dataset.place = p.id; b.textContent = p.colony.name;
+      b.type = 'button'; b.className = 'btn small'; b.dataset.place = p.id; b.textContent = p.colony.name; b.title = `${p.colony.name}, ${read.stageName(p.colony)}`;
       b.onclick = () => flyTo(p.id);
       return b;
     }));
@@ -1031,11 +1256,11 @@
       return;
     }
     $('w-m-when').textContent = m.kind === 'week' ? `${short(m.from)} to ${short(m.day)}, ${i.days} day${i.days === 1 ? '' : 's'} worked.`
-      : m.kind === 'cleanup' ? 'A day that removed more than it added. Removing pays most.' : `Home reached level ${i.level}.`;
+      : m.kind === 'cleanup' ? 'A day that removed more than it added.' : `Home reached level ${i.level}.`;
     $('w-m-info').replaceChildren(...(m.kind === 'level' ? row('XP', fmt(i.xp)) : [
       ...(m.kind === 'week' ? row('Commits', fmt(i.commits)) : []),
       ...row('Lines written', '+' + fmt(i.added)),
-      ...row('Lines removed', `−${fmt(i.removed)}` + (m.kind === 'cleanup' ? `, so ×${i.multiplier.toFixed(1)}` : '')),
+      ...row('Lines removed', `−${fmt(i.removed)}`),
       ...row('Credit earned', fmt(i.credit))]));
   }
   function showMoments(list) {
@@ -1065,18 +1290,12 @@
     $('w-next').textContent = h.next ? `${h.stage} → ${h.next.name}` : `${h.stage}, the top level`;
     $('w-xp-today').hidden = $('w-bar-today').parentElement.hidden = h.today == null;
     $('w-xp-today').textContent = `+${fmt(h.today ?? 0)} today`;
-    $('w-xp-today').title = `+${fmt(h.today ?? 0)} XP today. ` + ((h.today ?? 0) >= 100 ? 'More work gives more.' : 'A full day gives 100.')
-      + " A full day's work, 300 credit, is about an hour of one agent working. Past it, each doubling of the work gives 50 XP more.";
+    $('w-xp-today').title = `+${fmt(h.today ?? 0)} XP today. A day's XP is a third of its credit: a typical full working day gives about 85.`;
     $('w-bar-today').style.width = pct((h.today ?? 0) / 100) + '%';
     $('w-credit').textContent = fmt(Math.max(0, w.balance ?? 0));
     if (!opts.readOnly) { // today's numbers, the totals and the notes are the owner's alone
       const t = w.today;
-      $('w-today').replaceChildren(
-        ...row('Commits', fmt(t.commits)),
-        ...row('Lines written', '+' + fmt(t.added)),
-        ...row('Lines removed', `−${fmt(t.removed)}, so ×${t.multiplier.toFixed(1)}`),
-        ...row('Tokens', fmt(t.tokens)),
-        ...row('Credit earned', fmt(t.credit)));
+      $('w-today').replaceChildren(...read.todayRows(t).flatMap(([name, value]) => row(name, value)));
       const since = new Date(w.startedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'long' });
       $('w-total').textContent = w.earned > 0 ? `${fmt(w.earned)} credit earned since ${since}, ${fmt(w.spent ?? 0)} spent.`
         : `Your world started on ${since} as a bare rock. Each day you work gives Home XP, and it levels up.`;
@@ -1287,5 +1506,7 @@
     flyTo(id) { if (raf) flyTo(id); },
     /** Where a point on the map (map px, Home at 0,0) is on the canvas now. */
     at(mx, my) { return view ? [view.cx + mx * view.s, view.cy + my * view.s] : null; },
+    /** The pure readers above (today's line, a colony's stage...), for the pages around it and the tests. */
+    read,
   };
 })();

@@ -1021,8 +1021,9 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
       </div>
       <div class="w-part" id="w-total-box">
         <p id="w-total"></p>
-        <p>Lines removed multiply the day's credit. Stars on the map are moments: a week of work, a big cleanup, a level
-          Home reached. Click one to see what was done.</p>
+        <p>A day's credit comes from the lines changed, the commits and the time an agent was at work, and grows more
+          slowly the bigger the day. Stars on the map are moments: a week of work, a big cleanup, a level Home reached.
+          Click one to see what was done.</p>
       </div>
     </section>
   </aside>
@@ -2630,10 +2631,8 @@ function renderWorldBtn(w) {
   const b = $('world-btn'), fmt = (n) => Math.round(n).toLocaleString('en-US');
   $('wb').hidden = !w?.started;
   if (!w?.started) { setAttr(b, 'title', 'A world your agents\' work builds'); return; }
-  const t = w.today, x = t.multiplier > 1 ? ` ×${t.multiplier.toFixed(1)}` : '';
   setText($('wb-bal'), fmt(Math.max(0, w.balance)));
-  setAttr(b, 'title', `${fmt(Math.max(0, w.balance))} credit to spend in World. Today: ${fmt(t.commits)} commit${t.commits === 1 ? '' : 's'}, `
-    + `+${fmt(t.added)} / −${fmt(t.removed)} lines${x}, ${fmt(t.tokens)} tokens, ${fmt(t.credit)} credit earned.`
+  setAttr(b, 'title', `${fmt(Math.max(0, w.balance))} credit to spend in World. Today: ${AgentWorld.read.todayLine(w.today)}`
     + (w.home ? ` Home is level ${w.home.level}, ${w.home.stage}.` : ''));
 }
 /** How many sessions wait on you, shown in World's top bar; it takes you to the first. */
