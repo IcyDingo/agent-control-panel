@@ -480,7 +480,7 @@ either way.
 
 ```
 node server.mjs login      # prints a code and a link, and opens the link
-node server.mjs status     # signed in as whom, and whether the background service runs
+node server.mjs status     # signed in as whom, whether the site may place orders, and whether the background service runs
 node server.mjs logout     # revokes this Mac's token on the hub and forgets it
 ```
 
@@ -531,6 +531,20 @@ and you have 3,200."). One order at a time. With two Macs signed in to one accou
 signed-in Mac claims it first, and an order whose Mac went away while running it is released after an hour. If the
 Mac is asleep or offline, the order waits and runs when it wakes (the background service does this with no panel
 open); an order not picked up within 24 hours expires.
+
+**Your Mac decides what the site may do.** The hub only queues orders; the Mac runs them, and only within limits kept
+on the Mac, in `web-orders.json` beside `prefs.json`, which nothing from the hub can change. It runs the four kinds above
+and nothing else. A build asks Claude, on this Mac's account, for drawing pieces only: the call has no tools (each one
+that could read, write, run or fetch is also denied by name), no MCP servers, hooks or skills, and an answer that shows
+Claude tried anything more is thrown away. At most 10 builds a day come from the site (set `"buildsPerDay"` in the
+file to change it), and every order the Mac runs or refuses shows a notification, so one you didn't place is seen at
+once. To stop the site placing orders on this Mac at all, or allow it again:
+
+```
+node server.mjs orders off   # orders from the site are refused here, with a sentence the page shows
+node server.mjs orders on
+node server.mjs orders       # on or off, and today's builds
+```
 
 **Only want World?** Open `http://127.0.0.1:4747/world`: the page opens straight into World, without the board. A
 bookmark can point there.

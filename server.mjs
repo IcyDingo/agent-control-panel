@@ -24,6 +24,7 @@ import { prefsPath } from './cli.mjs';
 import { createHub } from './hub.mjs';
 import { createHubSync } from './hub-sync.mjs';
 import { createHubOrders } from './hub-orders.mjs';
+import { admit, takeBuild } from './web-orders.mjs';
 import { workerOf, markStarted, rolledBack, checkForUpdate, recordCheck, lastCheck } from './update.mjs';
 
 // `node server.mjs <command>` runs the CLI (cli.mjs) and never starts the server.
@@ -1451,11 +1452,11 @@ async function askClaude(prompt) {
   } finally { setTimeout(() => quietIds.delete(id), 120_000); } // until the roster has seen it go
 }
 let building = false; // a Build it is waiting on Claude; the hub's site shows it
-async function buildInWorld(body) {
+async function buildInWorld(body, ask = askClaude) {
   building = true;
   hubSync.schedule({ urgent: true });
   try {
-    const r = await world.build({ on: body?.on, description: body?.description, ask: askClaude });
+    const r = await world.build({ on: body?.on, description: body?.description, ask });
     if (!r.ok) return r;
     broadcast();
     return { ok: true, caption: r.purchase.caption, world: worldSummary() };
@@ -1482,9 +1483,28 @@ function ownerStatus() {
   };
 }
 const hubSync = createHubSync({ hub, projection: () => (world.started() ? worldSummary() : null), status: ownerStatus });
+// What the website may make this Mac do (web-orders.mjs): off, or a kind it doesn't know, is refused before anything
+// runs, and a build asks Claude only while the day's cap allows.
+const WEB_ORDERS = path.join(path.dirname(PREFS), 'web-orders.json');
+const ORDER_WORDS = { frontier: 'Push', rocket: 'Rocket', build: 'Build', probe: 'Probe' };
+/** A macOS notification for every website order this Mac ran or refused, so one the owner didn't place is seen at once.
+ *  The text goes in as an argument, never into the script. */
+function notifyOrder(order, r) {
+  if (process.platform !== 'darwin') return;
+  const what = ORDER_WORDS[order?.kind] ?? 'An order';
+  const text = (r.ok ? `${what} done${r.caption ? `: ${r.caption}` : '.'}` : `${what} not done: ${r.error ?? 'it failed.'}`).slice(0, 240);
+  run('osascript', ['-e', 'on run argv', '-e', 'display notification (item 2 of argv) with title (item 1 of argv)', '-e', 'end run',
+    'Agent Panel · ordered on the website', text], { timeout: 10_000 });
+}
 /** An order from the hub's site, run like the panel's own buttons; only the outcome goes back. */
 async function runOrder(order) {
-  const r = order.kind === 'build' ? await buildInWorld(order) : order.kind === 'probe' ? await probeInWorld(order) : buyInWorld(order);
+  const refused = admit(WEB_ORDERS, order);
+  let r;
+  if (refused) r = { ok: false, error: refused };
+  else if (order.kind === 'build') {
+    r = await buildInWorld(order, (prompt) => { const capped = takeBuild(WEB_ORDERS); return capped ? { ok: false, error: capped } : askClaude(prompt); });
+  } else r = order.kind === 'probe' ? await probeInWorld(order) : buyInWorld(order);
+  notifyOrder(order, r);
   return { ok: r.ok, error: r.error, caption: r.caption };
 }
 // Each time the stream (re)connects, the account is asked for again: a handle changed on the site moves "Your page".
