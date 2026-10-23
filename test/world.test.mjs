@@ -708,3 +708,74 @@ test('when the worktree list fails the repository itself is still looked at', as
   await world.scan({ git: true });
   assert.ok(saved(file).active[day].includes(slot));
 });
+
+// ---------------------------------------------------------------- new untracked folders
+test('a hand edit inside a new untracked folder changes the fingerprint', async () => {
+  const r = repo();
+  commit(r, 'a.txt', 3, 10);
+  fs.mkdirSync(path.join(r, 'mod', 'deep'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'mod', 'deep', 'x.js'), 'one\n');
+  const one = await treeFingerprint(r, run);
+  fs.writeFileSync(path.join(r, 'mod', 'deep', 'x.js'), 'two, longer\n');
+  const two = await treeFingerprint(r, run);
+  assert.notEqual(one, two);
+  fs.writeFileSync(path.join(r, 'mod', 'y.js'), 'new\n');
+  assert.notEqual(await treeFingerprint(r, run), two, 'a new file in it too');
+});
+
+test('an ignored file inside a new untracked folder does not change the fingerprint', async () => {
+  const r = repo();
+  fs.writeFileSync(path.join(r, '.gitignore'), '*.log\n');
+  commit(r, 'a.txt', 3, 10);
+  fs.mkdirSync(path.join(r, 'mod'));
+  fs.writeFileSync(path.join(r, 'mod', 'x.js'), 'one\n');
+  fs.writeFileSync(path.join(r, 'mod', 'noise.log'), 'a\n');
+  const one = await treeFingerprint(r, run);
+  fs.writeFileSync(path.join(r, 'mod', 'noise.log'), 'much longer noise\n');
+  assert.equal(await treeFingerprint(r, run), one);
+});
+
+test('a failing listing of a new folder keeps the folder entry and the tree is still fingerprinted', async () => {
+  const r = repo();
+  commit(r, 'a.txt', 3, 10);
+  fs.mkdirSync(path.join(r, 'mod'));
+  fs.writeFileSync(path.join(r, 'mod', 'x.js'), 'one\n');
+  const failing = (cmd, args, opts) => (args.includes('ls-files') ? Promise.resolve({ err: new Error('boom'), stdout: '', stderr: '' }) : run(cmd, args, opts));
+  assert.equal(typeof await treeFingerprint(r, failing), 'string');
+});
+
+test('only 20 new folders are looked into, and 2,000 files in all', async () => {
+  const r = repo(), calls = [];
+  commit(r, 'a.txt', 3, 10);
+  for (let i = 0; i < 25; i++) { fs.mkdirSync(path.join(r, `d${i}`)); fs.writeFileSync(path.join(r, `d${i}`, 'f'), 'x\n'); }
+  const spy = (cmd, args, opts) => { calls.push(args); return run(cmd, args, opts); };
+  await treeFingerprint(r, spy);
+  assert.equal(calls.filter((a) => a.includes('ls-files')).length, 20);
+
+  const big = repo();
+  commit(big, 'a.txt', 3, 10);
+  fs.mkdirSync(path.join(big, 'm'));
+  for (let i = 0; i < 2100; i++) fs.writeFileSync(path.join(big, 'm', `f${String(i).padStart(4, '0')}`), 'x\n');
+  const before = await treeFingerprint(big, run);
+  fs.writeFileSync(path.join(big, 'm', 'f2099'), 'edited past the cap\n');
+  assert.equal(await treeFingerprint(big, run), before, 'the files past 2,000 are not looked at');
+  fs.writeFileSync(path.join(big, 'm', 'f0000'), 'edited within the cap\n');
+  assert.notEqual(await treeFingerprint(big, run), before);
+});
+
+// ---------------------------------------------------------------- no lock written
+test('every git call World makes to look at a working tree starts with --no-optional-locks', async () => {
+  const r = repo(), wt = path.join(fs.realpathSync(tmp()), 'wt'), calls = [];
+  commit(r, 'a.txt', 3, 10);
+  git(r, ['worktree', 'add', '-q', '-b', 'side', wt]);
+  fs.mkdirSync(path.join(r, 'mod'));
+  fs.writeFileSync(path.join(r, 'mod', 'x.js'), 'one\n');
+  const spy = (cmd, args, opts) => { calls.push([cmd, ...args]); return run(cmd, args, opts); };
+  await treeFingerprint(r, spy);
+  const { world, to } = treeWorld(r, { runner: spy });
+  to(LATER);
+  await world.scan({ git: true });
+  const gits = calls.filter((c) => c[0] === 'git' && ['status', 'ls-files', 'worktree'].some((sub) => c.includes(sub))); // the working-tree looks; config and log only read
+  for (const sub of ['status', 'ls-files', 'worktree']) assert.ok(gits.some((c) => c.includes(sub)), `${sub} was called`);
+  for (const c of gits) assert.equal(c[1], '--no-optional-locks', `git ${c.slice(1).join(' ')}`);
+});

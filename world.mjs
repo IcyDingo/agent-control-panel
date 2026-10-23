@@ -1,7 +1,7 @@
 // World: a universe your agents' work pays for (docs/superpowers/specs/2026-10-21-world-design.md).
 //
 // Credit is earned per local calendar day from the work in it: the lines changed in your own commits, the commits, and
-// the active time (five-minute slots with an agent turn or a commit in them, ten hours at most), on one curve that
+// the active time (five-minute slots with an agent turn or a change in a counted repository's working tree in them, ten hours at most), on one curve that
 // flattens, so each doubling of work adds the same. Tokens are shown but earn nothing. Only work after World's first
 // open counts. The days you work also give Home XP, a third of the day's credit, which levels it up from a bare rock
 // over weeks. XP is never spent; credit is what you spend. A World from before these rules keeps every day before its
@@ -576,6 +576,9 @@ export function parseLog(text, email, sinceSec = 0) {
   return out;
 }
 
+/** How far `treeFingerprint` looks into new untracked folders: this many folders, and this many files in all, per tree. */
+const UNTRACKED_DIRS = 20, UNTRACKED_FILES = 2000;
+
 /** A hash of a repository's uncommitted files: each path `git status` lists with its size and mtime. Editing, adding,
  *  removing or renaming a file changes it, and so does a commit or a discard (a clean tree hashes the empty list). Null
  *  when git is mid-write (`.git/index.lock`), the repository is gone or git fails: nothing can be said then. */
@@ -594,9 +597,23 @@ export async function treeFingerprint(repo, run) {
   const r = await run('git', ['--no-optional-locks', '-C', repo, 'status', '--porcelain=v1', '-z', '--untracked-files=normal'], { timeout: 10_000 });
   if (r.err) return null;
   const entries = r.stdout.split('\0'), files = [];
+  let looked = 0, added = 0;
   for (let i = 0; i < entries.length; i++) {
     const e = entries[i];
     if (e.length < 4) continue;
+    if (e[0] === '?' && e.endsWith('/') && looked < UNTRACKED_DIRS && added < UNTRACKED_FILES) {
+      // status shows a new folder as one entry whose size and mtime do not move when a file inside is edited, so list
+      // what is in it (read-only, no lock, .gitignore respected); bounded, as a folder can be huge
+      looked++;
+      const l = await run('git', ['--no-optional-locks', '-C', repo, 'ls-files', '-z', '--others', '--exclude-standard', '--', e.slice(3)], { timeout: 10_000 });
+      const inside = l.err ? [] : l.stdout.split('\0').filter(Boolean);
+      if (inside.length) {
+        const room = UNTRACKED_FILES - added;
+        files.push(...inside.slice(0, room));
+        added += Math.min(room, inside.length);
+        if (inside.length <= room) continue; // past the cap the folder entry stays too
+      }
+    }
     files.push(e.slice(3));
     if (e[0] === 'R' || e[0] === 'C' || e[1] === 'R' || e[1] === 'C') { // a rename or copy is followed by the path it came from
       if (entries[i + 1]) files.push(entries[i + 1]);
@@ -661,7 +678,7 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
   // earned and spent under the old ones, and counting it again by the new could take back credit.
   if (st && !st.newFrom) {
     st.newFrom = addDays(dayKey(now()), 1);
-    try { save(); } catch {} // kept in memory either way; the next save writes it
+    try { save(); } catch (e) { console.error(`world: could not save ${file}: ${e.message}`); } // kept in memory either way; the next save writes it
   }
 
   /** Marks a 5-minute slot of a day active (`slot`, 0 to 287). True when it was not yet. */
