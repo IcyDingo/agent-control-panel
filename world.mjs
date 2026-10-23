@@ -570,7 +570,17 @@ export function parseLog(text, email, sinceSec = 0) {
  *  removing or renaming a file changes it, and so does a commit or a discard (a clean tree hashes the empty list). Null
  *  when git is mid-write (`.git/index.lock`), the repository is gone or git fails: nothing can be said then. */
 export async function treeFingerprint(repo, run) {
-  if (!fs.existsSync(repo) || fs.existsSync(path.join(repo, '.git', 'index.lock'))) return null;
+  if (!fs.existsSync(repo)) return null;
+  try { // in a linked worktree `.git` is a file naming the real git directory
+    const dot = path.join(repo, '.git');
+    let gitDir = dot;
+    if (!fs.statSync(dot).isDirectory()) {
+      const m = /^gitdir:\s*(.+?)\s*$/m.exec(fs.readFileSync(dot, 'utf8'));
+      if (!m) return null;
+      gitDir = path.resolve(repo, m[1]);
+    }
+    if (fs.existsSync(path.join(gitDir, 'index.lock'))) return null;
+  } catch { return null; }
   const r = await run('git', ['--no-optional-locks', '-C', repo, 'status', '--porcelain=v1', '-z', '--untracked-files=normal'], { timeout: 10_000 });
   if (r.err) return null;
   const entries = r.stdout.split('\0'), files = [];
@@ -736,12 +746,32 @@ export function createWorld({ file, configDirs, gitPlace, run, now = Date.now })
   async function scanWorkTrees() {
     if (toolsMissing) return;
     const trees = (st.trees ??= {});
+    let touched = false;
     for (const repo of st.repos) {
-      const print = await treeFingerprint(repo, run);
-      if (print === null) continue;
-      if (trees[repo] !== undefined && trees[repo] !== print) markActive(dayKey(now()), slotOf(now()));
-      trees[repo] = print;
+      if (!fs.existsSync(repo)) continue;
+      for (const tree of await workTreesOf(repo)) { // a repository's linked worktrees are where the hand edits often are
+        const print = await treeFingerprint(tree, run);
+        if (print === null) continue;
+        if (trees[tree] !== undefined && trees[tree] !== print) touched = true;
+        trees[tree] = print;
+      }
     }
+    if (touched) markActive(dayKey(now()), slotOf(now())); // one slot, however many trees changed
+  }
+
+  /** The folders of a repository's working trees: the checkout and its linked worktrees. Just the repository when git
+   *  cannot list them. */
+  async function workTreesOf(repo) {
+    const r = await run('git', ['--no-optional-locks', '-C', repo, 'worktree', 'list', '--porcelain', '-z'], { timeout: 10_000 });
+    if (r.err) return [repo];
+    const out = [];
+    let cur = null;
+    for (const field of r.stdout.split('\0')) {
+      if (field.startsWith('worktree ')) out.push(cur = { dir: field.slice(9), skip: false });
+      else if (cur && (field === 'bare' || field.startsWith('prunable'))) cur.skip = true;
+    }
+    const dirs = out.filter((w) => !w.skip && fs.existsSync(w.dir)).map((w) => w.dir);
+    return dirs.length ? dirs : [repo];
   }
 
   /** The work per day (tokens, every repository's lines and commits, and the active slots), each day stamped with its

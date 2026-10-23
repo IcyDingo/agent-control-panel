@@ -649,3 +649,62 @@ test('a scan without git leaves the working trees alone', async () => {
   await world.scan({ git: false });
   assert.deepEqual(calls, []);
 });
+
+test('an edit in a linked worktree of a counted repository marks the slot', async () => {
+  const r = repo(), wt = path.join(fs.realpathSync(tmp()), 'wt');
+  commit(r, 'a.txt', 3, 10);
+  git(r, ['worktree', 'add', '-q', '-b', 'side', wt]);
+  const { world, file, replySlot, to } = treeWorld(r);
+  const [day, slot] = to(LATER);
+  await world.scan({ git: true });
+  assert.deepEqual(saved(file).active, { [replySlot[0]]: [replySlot[1]] });
+  assert.deepEqual(Object.keys(saved(file).trees).sort(), [r, wt].sort());
+  fs.appendFileSync(path.join(wt, 'a.txt'), 'edited by hand\n');
+  await world.scan({ git: true });
+  assert.ok(saved(file).active[day].includes(slot), 'the worktree edit marks the slot');
+});
+
+test('a busy linked worktree is skipped and keeps its fingerprint', async () => {
+  const r = repo(), wt = path.join(fs.realpathSync(tmp()), 'wt');
+  commit(r, 'a.txt', 3, 10);
+  git(r, ['worktree', 'add', '-q', '-b', 'side', wt]);
+  const { world, file, replySlot, to } = treeWorld(r);
+  to(LATER);
+  await world.scan({ git: true });
+  const before = saved(file).trees[wt];
+  assert.equal(typeof before, 'string');
+  fs.appendFileSync(path.join(wt, 'a.txt'), 'edit\n');
+  const gitDir = git(wt, ['rev-parse', '--absolute-git-dir']).trim();
+  fs.writeFileSync(path.join(gitDir, 'index.lock'), '');
+  assert.equal(await treeFingerprint(wt, run), null);
+  await world.scan({ git: true });
+  assert.deepEqual(saved(file).active, { [replySlot[0]]: [replySlot[1]] });
+  assert.equal(saved(file).trees[wt], before);
+});
+
+test('a removed worktree is no longer looked at', async () => {
+  const r = repo(), wt = path.join(fs.realpathSync(tmp()), 'wt'), calls = [];
+  commit(r, 'a.txt', 3, 10);
+  git(r, ['worktree', 'add', '-q', '-b', 'side', wt]);
+  const spy = (cmd, args, opts) => { calls.push(args); return run(cmd, args, opts); };
+  const { world, file, replySlot, to } = treeWorld(r, { runner: spy });
+  to(LATER);
+  await world.scan({ git: true });
+  git(r, ['worktree', 'remove', '--force', wt]);
+  calls.length = 0;
+  await world.scan({ git: true });
+  assert.ok(!calls.some((a) => a.includes(wt)), 'git is not asked about the removed folder');
+  assert.deepEqual(saved(file).active, { [replySlot[0]]: [replySlot[1]] });
+});
+
+test('when the worktree list fails the repository itself is still looked at', async () => {
+  const r = repo();
+  commit(r, 'a.txt', 3, 10);
+  const failing = (cmd, args, opts) => (args.includes('worktree') ? Promise.resolve({ err: new Error('boom'), stdout: '', stderr: '' }) : run(cmd, args, opts));
+  const { world, file, to } = treeWorld(r, { runner: failing });
+  const [day, slot] = to(LATER);
+  await world.scan({ git: true });
+  fs.appendFileSync(path.join(r, 'a.txt'), 'edit\n');
+  await world.scan({ git: true });
+  assert.ok(saved(file).active[day].includes(slot));
+});
