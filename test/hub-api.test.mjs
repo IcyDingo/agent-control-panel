@@ -8,7 +8,7 @@ import http from 'node:http';
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
 import { createWorld, publicProjection, PROJECTION_VERSION } from '../world.mjs';
 import { createHub } from '../hub/server.mjs';
-import { generateKeyPairSync } from 'node:crypto';
+import crypto, { generateKeyPairSync } from 'node:crypto';
 import { loadConfig } from '../hub/config.mjs';
 import { rawPublicKey, signRelease } from '../release-keys.mjs';
 import { placeOf } from '../hub/coords.mjs';
@@ -248,7 +248,9 @@ test('the download page leads with the one line, links the script to read, and k
   const r = await call('GET', '/download');
   assert.equal(r.status, 200);
   assert.ok(r.text.includes('Get the worker'));
-  assert.ok(r.text.includes('href="/install"'), 'the script link is not rewritten with a version');
+  assert.ok(r.text.includes('href="https://github.com/IcyDingo/agent-control-panel/blob/main/hub/public/install.sh"'), 'the script to read is the one on GitHub');
+  assert.ok(r.text.includes("'https://raw.githubusercontent.com/IcyDingo/agent-control-panel/main/hub/public/install.sh'"), 'the line runs it from GitHub');
+  assert.equal((await call('GET', '/install')).text, fs.readFileSync(new URL('../hub/public/install.sh', import.meta.url), 'utf8'), 'the hub still serves the same script');
   assert.ok(r.text.includes('Want the session board too?'));
   assert.ok(r.text.includes('./install.sh'));
 });
@@ -468,6 +470,19 @@ test('logout deletes the session and clears the cookie; the Bearer token wins wh
   assert.equal((await call('GET', '/api/me', { cookie })).status, 401);
 });
 
+test('a hub served over https tells browsers to keep to https on its pages', async () => {
+  const secure = createHub(loadConfig({ HUB_DATA: tmp(), HUB_PUBLIC_URL: 'https://hub.example.com' }), { now, rates: LOOSE });
+  const { port: securePort } = await secure.listen(0, '127.0.0.1');
+  try {
+    const page = await call('GET', '/', { host: 'hub.example.com', on: securePort });
+    assert.equal(page.status, 200);
+    assert.equal(page.headers.get('strict-transport-security'), 'max-age=31536000');
+    assert.match(page.headers.get('content-security-policy'), /^default-src 'none'; /);
+  } finally {
+    await secure.close();
+  }
+});
+
 test('bodies must be JSON objects; unknown paths and missing pages are 404; the shared script is served', async () => {
   const token = await tokenFor();
   const bad = await call('PUT', '/api/me/status', { token, raw: '{nope' });
@@ -495,6 +510,16 @@ test('bodies must be JSON objects; unknown paths and missing pages are 404; the 
   assert.match(download.text, /\.\/install\.sh/, 'the download page carries the install lines');
   assert.doesNotMatch(page.text, /href="\/me"[^>]*>Your profile/, 'the landing\'s bar has no profile link; the galaxy page has it');
   assert.equal((await call('GET', '/healthz')).headers.get('x-frame-options'), null, 'JSON answers are as they were');
+  // Each page runs only this origin's scripts and its own inline block, named by the hash of the text it was sent with.
+  for (const p of [page, download, await call('GET', '/@alice')]) {
+    const csp = p.headers.get('content-security-policy');
+    assert.match(csp, /^default-src 'none'; script-src 'self' 'sha256-[A-Za-z0-9+/]{43}='; /, csp);
+    assert.doesNotMatch(csp.split('; ')[1], /unsafe/, 'no inline script runs unless it is the page\'s own');
+    const inline = /<script>([\s\S]*?)<\/script>/.exec(p.text)[1];
+    assert.ok(csp.includes(`'sha256-${crypto.createHash('sha256').update(inline).digest('base64')}'`));
+    assert.equal(p.headers.get('strict-transport-security'), null, 'a plain-http hub does not ask for https');
+  }
+  assert.equal((await call('GET', '/healthz')).headers.get('content-security-policy'), null);
   const js = await call('GET', '/world.js');
   assert.equal(js.status, 200);
   assert.match(js.headers.get('content-type'), /javascript/);

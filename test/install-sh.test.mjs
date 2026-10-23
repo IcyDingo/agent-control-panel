@@ -11,7 +11,10 @@ import { execFile, execFileSync } from 'node:child_process';
 const SHA = 'abcdef0123'.repeat(4);
 const SCRIPT = path.join(import.meta.dirname, '..', 'hub', 'public', 'install.sh');
 const LAUNCHER = path.join(import.meta.dirname, '..', 'launcher.sh');
-const RELEASE = JSON.stringify({ ok: true, sha: SHA, url: `https://codeload.github.com/IcyDingo/agent-control-panel/tar.gz/${SHA}` });
+const SIG = 'x'.repeat(86);
+const RELEASE = JSON.stringify({ ok: true, sha: SHA, n: 204, sigs: [SIG], url: `https://codeload.github.com/IcyDingo/agent-control-panel/tar.gz/${SHA}` });
+// GitHub's compare of main with the release, laid out as GitHub does, with a file's own status after the top-level one.
+const compare = (status) => `{\n  "url": "https://api.github.com/x",\n  "status": "${status}",\n  "ahead_by": 0,\n  "behind_by": 3,\n  "files": [{ "status": "modified" }]\n}`;
 const sh = (...lines) => ['#!/bin/sh', ...lines, ''].join('\n');
 
 const STUBS = {
@@ -19,6 +22,7 @@ const STUBS = {
     'echo "$*" >> "$STUB_LOG"',
     'case "$*" in',
     '  "-p process.versions.node") echo "${STUB_NODE_VERSION:-22.1.0}" ;;',
+    '  *"release-keys.mjs verify"*) exit "${STUB_VERIFY:-0}" ;;',
     '  *"daemon install"*)',
     '    prog=; prev=',
     '    for a in "$@"; do [ "$prev" = --program ] && prog="$a"; prev="$a"; done',
@@ -34,8 +38,10 @@ const STUBS = {
     '  case "$1" in -o) out="$2"; shift ;; http*) url="$1" ;; esac',
     '  shift',
     'done',
+    'echo "curl $url" >> "$STUB_LOG"',
     'case "$url" in',
     '  *127.0.0.1:4747*) exit "${STUB_READY:-0}" ;;',
+    '  https://api.github.com/repos/IcyDingo/agent-control-panel/compare/main...*) [ -n "${STUB_COMPARE_FAILS:-}" ] && exit 22; echo "$STUB_COMPARE"; exit 0 ;;',
     '  */api/release) echo "$STUB_RELEASE"; exit 0 ;;',
     'esac',
     '[ -n "$out" ] && cp "$STUB_ARCHIVE" "$out"'),
@@ -60,6 +66,7 @@ function fixture(t, { without = [], launcher = true } = {}) {
   const release = path.join(root, 'src', `agent-control-panel-${SHA}`);
   fs.mkdirSync(release, { recursive: true });
   fs.writeFileSync(path.join(release, 'server.mjs'), '');
+  fs.writeFileSync(path.join(release, 'release-keys.mjs'), '');
   if (launcher) fs.copyFileSync(LAUNCHER, path.join(release, 'launcher.sh'));
   const archive = path.join(root, 'release.tgz');
   execFileSync('tar', ['-czf', archive, '-C', path.join(root, 'src'), `agent-control-panel-${SHA}`],
@@ -71,7 +78,7 @@ function fixture(t, { without = [], launcher = true } = {}) {
   const go = (args = [], env = {}) => new Promise((resolve) =>
     execFile('/bin/sh', [SCRIPT, ...args], {
       env: { PATH: `${stubs}:/usr/bin:/bin:/usr/sbin:/sbin`, HOME: home, STUB_LOG: log, STUB_ARCHIVE: archive,
-        STUB_RELEASE: RELEASE, ...env },
+        STUB_RELEASE: RELEASE, STUB_COMPARE: compare('behind'), ...env },
     }, (err, stdout, stderr) => resolve({ code: err ? err.code : 0, stdout: String(stdout), stderr: String(stderr) })));
   return { root, home, stubs, dir, plist, lines, go };
 }
@@ -252,4 +259,58 @@ test('a sign-in that fails is a stop with a sentence', async (t) => {
   assert.equal(r.code, 1);
   assert.ok(r.stdout.includes("The worker is installed but this Mac isn't signed in. Run the line again; with --link, get a new code from the website first."));
   assert.ok(!r.stdout.includes('Done.'));
+});
+
+test('the release is fetched from GitHub by its commit, whatever address the hub names, once GitHub says main holds it', async (t) => {
+  const f = fixture(t);
+  const r = await f.go([], { STUB_RELEASE: JSON.stringify({ ok: true, sha: SHA, n: 204, sigs: [SIG], url: 'https://evil.example/x.tgz' }) });
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+  const curls = f.lines().filter((l) => l.startsWith('curl '));
+  assert.ok(!curls.some((l) => l.includes('evil.example')), curls.join('\n'));
+  const asked = curls.findIndex((l) => l === `curl https://api.github.com/repos/IcyDingo/agent-control-panel/compare/main...${SHA}`);
+  const fetched = curls.findIndex((l) => l === `curl https://codeload.github.com/IcyDingo/agent-control-panel/tar.gz/${SHA}`);
+  assert.ok(asked !== -1 && fetched > asked, curls.join('\n'));
+  // The signature is checked by the release's own release-keys.mjs, with the number and the signatures the hub gave.
+  assert.ok(f.lines().some((l) => l.endsWith(`/${SHA}.tmp/agent-control-panel-${SHA}/release-keys.mjs verify ${SHA} 204 ${SIG}`)), f.lines().join('\n'));
+  assert.equal((await f.go([], { STUB_COMPARE: compare('identical') })).code, 0, 'the tip of main itself is fine');
+});
+
+test('a release that is not on main is a stop before anything is downloaded', async (t) => {
+  for (const status of ['ahead', 'diverged']) {
+    const f = fixture(t);
+    const r = await f.go([], { STUB_COMPARE: compare(status) });
+    assert.equal(r.code, 1, status);
+    assert.ok(r.stdout.includes(`Release ${SHA.slice(0, 7)} is not on main, so it is not installed.`), r.stdout);
+    assert.equal(fs.existsSync(f.dir), false, 'nothing was written');
+    assert.ok(!f.lines().some((l) => l.includes('codeload')), 'nothing was downloaded');
+  }
+});
+
+test('GitHub that cannot be asked is a stop, not a pass', async (t) => {
+  for (const env of [{ STUB_COMPARE_FAILS: '1' }, { STUB_COMPARE: '{"message":"API rate limit exceeded"}' }]) {
+    const f = fixture(t);
+    const r = await f.go([], env);
+    assert.equal(r.code, 1);
+    assert.ok(r.stdout.includes('GitHub could not be asked whether release'), r.stdout);
+    assert.equal(fs.existsSync(f.dir), false);
+  }
+});
+
+test('a release without a number or a signature is a stop', async (t) => {
+  for (const body of [{ ok: true, sha: SHA }, { ok: true, sha: SHA, n: 204, sigs: [] }, { ok: true, sha: SHA, sigs: [SIG] }, { ok: true, sha: SHA, n: 204, sigs: ['a b'] }]) {
+    const f = fixture(t);
+    const r = await f.go([], { STUB_RELEASE: JSON.stringify(body) });
+    assert.equal(r.code, 1, JSON.stringify(body));
+    assert.ok(r.stdout.includes(`The hub's release ${SHA.slice(0, 7)} is not signed, so it is not installed.`), r.stdout);
+    assert.equal(fs.existsSync(f.dir), false);
+  }
+});
+
+test('a signature that does not verify is a stop that leaves nothing behind and installs no service', async (t) => {
+  const f = fixture(t);
+  const r = await f.go([], { STUB_VERIFY: '1' });
+  assert.equal(r.code, 1);
+  assert.ok(r.stdout.includes(`Release ${SHA.slice(0, 7)} is not signed by a known key, so it is not installed.`), r.stdout);
+  assert.deepEqual(fs.readdirSync(f.dir), []);
+  assert.equal(f.lines().some((l) => l.includes('daemon install')), false);
 });

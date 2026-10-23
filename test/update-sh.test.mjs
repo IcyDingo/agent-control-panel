@@ -167,4 +167,14 @@ test('once release.env carries a signature, a missing release-keys.mjs is refuse
   assert.equal(d.calls().length, 0);
 });
 
+test('a deploy hands the database volume to the node user after the build and before the start, as root with CHOWN only', () => {
+  const d = deploy();
+  assert.equal(d.run([]).status, 0);
+  const c = d.calls();
+  const build = c.indexOf('docker compose build -q'), up = c.indexOf('docker compose up -d');
+  const chown = c.findIndex((x) => x.startsWith('docker compose run --rm --no-deps -T --user root --cap-add CHOWN --entrypoint sh hub -c '));
+  assert.ok(build !== -1 && build < chown && chown < up, c.join('\n'));
+  assert.match(c[chown], /\|\| chown -R node:node \/data$/);
+});
+
 test('the script parses', () => { assert.equal(spawnSync('sh', ['-n', 'hub/deploy/update.sh']).status, 0); });

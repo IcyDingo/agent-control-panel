@@ -183,12 +183,17 @@ Build from the repository root, because the image needs `world.mjs` and `public/
 ```sh
 docker build -f hub/Dockerfile -t agent-hub .
 docker run -d -p 127.0.0.1:4848:4848 -v hub-data:/data \
+  --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true --memory 512m --pids-limit 256 \
   -e HUB_PUBLIC_URL=https://hub.example.com -e HUB_TRUST_PROXY=1 \
   -e HUB_GITHUB_CLIENT_ID=… -e HUB_GITHUB_CLIENT_SECRET=… agent-hub
 ```
 
 The database lives in the `/data` volume. Binding to `127.0.0.1` keeps the plain-http port off the internet; only
-Caddy reaches it. The same as a compose file, which also brings it back after a reboot:
+Caddy reaches it. The image runs the hub as its unprivileged `node` user (uid 1000), and the other flags lock the
+container down: nothing but `/data` and an in-memory `/tmp` can be written, and it holds no Linux capabilities and cannot
+gain any. A new named volume is made owned by `node`; a folder mounted from the host, or a volume an older image (which
+ran as root) wrote, must be handed over once: `chown -R 1000:1000` it. The same as a compose file, which also brings it
+back after a reboot:
 
 ```yaml
 services:
@@ -197,6 +202,12 @@ services:
     restart: unless-stopped
     ports: ["127.0.0.1:4848:4848"]
     volumes: ["hub-data:/data"]
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 512m
+    pids_limit: 256
     environment:
       HUB_PUBLIC_URL: https://hub.example.com
       HUB_TRUST_PROXY: "1"

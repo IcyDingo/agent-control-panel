@@ -94,6 +94,10 @@ else
 fi
 
 docker compose build -q
+# The hub runs as the image's node user. A database volume made while it still ran as root is handed to that user
+# once; after that /data is node's and this changes nothing.
+docker compose run --rm --no-deps -T --user root --cap-add CHOWN --entrypoint sh hub \
+  -c '[ "$(stat -c %U /data)" = node ] || chown -R node:node /data'
 # Only a build that succeeded puts the new release on record; the container reads release.env when it starts.
 [ -n "$restart" ] || mv -f release.env.new release.env
 docker compose up -d
