@@ -58,16 +58,48 @@ export function oldDayXp(x) {
  *  (terraformed), and the levels go on past that for the productive. */
 export const LEVELS = [[0, 'Bare rock'], [15, 'Clouds'], [100, 'Oceans'], [300, 'Continents'], [500, 'Green coasts'], [800, 'Forests'],
   [1200, 'Settlements'], [1600, 'Cities'], [2000, 'Terraformed'], [2600, 'Orbital ring'], [3300, 'Star port'], [4000, 'Twin moons']];
+/** What Home gains past Twin moons, one a level, each something to draw at Home's zoom. Once they run out they come
+ *  round again with a numeral ("Beacon II"). */
+export const HOME_FEATURES = ['Satellite', 'Bright air', 'Ring of lights', 'Near star', 'Aurora', 'Beacon', 'Second sun glow', 'Comet trail',
+  'Moon base', 'Shield halo', 'Sky lanterns', 'Far lighthouse'];
+/** The `k`th (from 0) of a list of feature names that never ends: the second time round each gets II, then III... */
+function featureName(names, k) {
+  const round = Math.floor(k / names.length) + 1, roman = (n) => (n >= 10 ? 'X' : '') + ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX'][n % 10];
+  return round === 1 ? names[k] : `${names[k % names.length]} ${roman(round)}`;
+}
+/** A level by XP, and it never ends: the 12 LEVELS up to 4,000, then a new level every 1,000 XP from 13, each named by a
+ *  feature. Its stage, where it began, and the next level. */
+export function levelOf(xp) {
+  const top = LEVELS.length, topAt = LEVELS[top - 1][0], k = Math.max(0, Math.floor((xp - topAt) / 1000));
+  if (xp < topAt) {
+    const i = LEVELS.findLastIndex(([at]) => xp >= at), next = LEVELS[i + 1];
+    return { level: i + 1, stage: LEVELS[i][1], at: LEVELS[i][0], next: { level: i + 2, name: next[1], at: next[0] } };
+  }
+  return { level: top + k, stage: k === 0 ? LEVELS[top - 1][1] : featureName(HOME_FEATURES, k - 1), at: topAt + 1000 * k,
+    next: { level: top + k + 1, name: featureName(HOME_FEATURES, k), at: topAt + 1000 * (k + 1) } };
+}
 /** Home from the work per day (`days`): its XP, today's XP, its level and stage, where that level began, and the next. */
 export function homeLevel(days, today) {
-  const xp = Object.values(days).reduce((s, x) => s + oldDayXp(x), 0), i = LEVELS.findLastIndex(([at]) => xp >= at), next = LEVELS[i + 1];
-  return { xp, today: oldDayXp(days[today]), level: i + 1, stage: LEVELS[i][1], at: LEVELS[i][0],
-    next: next ? { level: i + 2, name: next[1], at: next[0] } : null };
+  const xp = Object.values(days).reduce((s, x) => s + oldDayXp(x), 0);
+  return { xp, today: oldDayXp(days[today]), ...levelOf(xp) };
 }
 
-/** How far Home's light reaches on the map (map px; the map is 900 across zoomed out): quick at first, all of it at the
- *  ladder's top. */
-export const homeReach = (xp) => 46 + 120 * Math.sqrt(Math.min(1, xp / 100 / 40));
+/** How far Home's light reaches on the map (map px; the map is 900 across zoomed out): quick at first, all of it at 4,000
+ *  XP, then 4 more for each 1,000 XP, 60 more at most. */
+export const homeReach = (xp) => 46 + 120 * Math.sqrt(Math.min(1, xp / 100 / 40)) + Math.min(60, 4 * Math.max(0, xp - 4000) / 1000);
+
+/** A colony's stages by its own XP (half of what Home earned since it landed). */
+export const COLONY_STAGES = ['Landing site', 'Outpost', 'Domes', 'Green patches', 'Township', 'City'];
+const COLONY_AT = [0, 100, 300, 700, 1300, 2000];
+/** What a colony gains past City, a feature every 1,000 colony XP, round again with a numeral like Home's. */
+export const COLONY_FEATURES = ['Beacon tower', 'Orbital mirror', 'Harbour lights', 'Rail ring', 'Garden roofs', 'Space lift'];
+/** A colony's stage (1 up) and its name from its XP; past City each 1,000 XP is one more. */
+export function colonyStage(colonyXp) {
+  const last = COLONY_STAGES.length - 1, i = COLONY_AT.findLastIndex((at) => colonyXp >= at);
+  if (i < last) return { stage: i + 1, name: COLONY_STAGES[i] };
+  const k = Math.floor((colonyXp - COLONY_AT[last]) / 1000);
+  return { stage: last + 1 + k, name: k === 0 ? COLONY_STAGES[last] : featureName(COLONY_FEATURES, k - 1) };
+}
 
 // ---------------------------------------------------------------- spending: the frontier, and the moments on the map
 

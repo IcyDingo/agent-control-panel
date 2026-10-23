@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
-import { dayKey, multiplier, dayWork, dayCredit, dayXp, oldDayCredit, oldDayXp, homeLevel, LEVELS, FULL_DAY, commitKey, countsFile, readTokens, parseLog, createWorld } from '../world.mjs';
+import { dayKey, multiplier, dayWork, dayCredit, dayXp, oldDayCredit, oldDayXp, homeLevel, levelOf, homeReach, HOME_FEATURES, COLONY_FEATURES, colonyStage, LEVELS, FULL_DAY, commitKey, countsFile, readTokens, parseLog, createWorld } from '../world.mjs';
 
 const START = Date.UTC(2026, 9, 21, 9, 0);
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'world-'));
@@ -73,7 +73,24 @@ test('level 9 is terraformed after twenty full days, and the levels go on for th
   assert.equal(homeLevel(days(19), '2026-11-19').stage, 'Cities');
   assert.deepEqual(homeLevel(days(20), '2026-11-20'), { xp: 2000, today: 100, level: 9, stage: 'Terraformed', at: 2000, next: { level: 10, name: 'Orbital ring', at: 2600 } });
   assert.equal(homeLevel(days(10, 12e6), '2026-11-10').level, 9); // four times the work a day: there in ten days
-  assert.deepEqual(homeLevel(days(14, 48e6), '2026-11-14'), { xp: 4200, today: 300, level: 12, stage: 'Twin moons', at: 4000, next: null });
+  assert.deepEqual(homeLevel(days(14, 48e6), '2026-11-14'), { xp: 4200, today: 300, level: 12, stage: 'Twin moons', at: 4000, next: { level: 13, name: HOME_FEATURES[0], at: 5000 } });
+});
+
+test('levels past Twin moons come every 1,000 XP', () => {
+  assert.deepEqual([levelOf(3999).level, levelOf(4000).level, levelOf(4999).level, levelOf(5000).level], [11, 12, 12, 13]);
+  assert.equal(levelOf(5000).stage, HOME_FEATURES[0]);
+  assert.equal(levelOf(4000).next.at, 5000, 'the ladder never ends');
+  assert.equal(levelOf(4000 + 1000 * (HOME_FEATURES.length + 1)).stage, `${HOME_FEATURES[0]} II`);
+  assert.ok(HOME_FEATURES.length >= 12);
+  assert.ok(homeReach(10_000) > homeReach(4000) && homeReach(1e9) <= homeReach(4000) + 60);
+  assert.equal(homeReach(4000), 166);
+});
+
+test('a colony grows through its six stages', () => {
+  assert.deepEqual([0, 99, 100, 1999, 2000, 3000].map((x) => colonyStage(x).name),
+    ['Landing site', 'Landing site', 'Outpost', 'Township', 'City', COLONY_FEATURES[0]]);
+  assert.deepEqual([0, 100, 300, 700, 1300, 2000, 2999, 3000, 4000].map((x) => colonyStage(x).stage), [1, 2, 3, 4, 5, 6, 6, 7, 8]);
+  assert.equal(colonyStage(2000 + 1000 * (COLONY_FEATURES.length + 1)).name, `${COLONY_FEATURES[0]} II`);
 });
 
 test('a rebased or amended commit keeps its key', () => {
