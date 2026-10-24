@@ -65,10 +65,11 @@ Each session is a tile with its name, how many subagents it's running, its age, 
 what it's doing or what it last said. Click a tile to open its panel in the rest of the window. The
 panel reads like a chat: its name and what you can do on top, the conversation in the middle, and
 what it's asking, what it's doing now and the box to write in pinned along the bottom. The chat keeps
-to reading width on a big screen. **Details** folds away its folder and branch, and **Expand** gives it
-the whole window (**Collapse** brings the board back). Its subagents, each titled with the task its
-parent gave it, get a column on the right when the panel is wide (its tab folds it to a strip) and sit
-under the conversation when it isn't. When the open session goes away, the top of Needs you takes its place;
+to reading width on a big screen. Its details sit in a column on the right: its folder and branch, the
+command that reopens it, its subagents (each titled with the task its parent gave it) and the buttons that
+stop it. The column's **Details** tab folds it to a strip, and dragging its left edge widens it (double-click
+for the default). On a narrow panel the same details sit under the conversation. **Expand** gives the panel
+the whole window (**Collapse** brings the board back). When the open session goes away, the top of Needs you takes its place;
 close it yourself and the space offers that one instead. On a narrow window the rail takes the width
 and an open session covers it.
 
