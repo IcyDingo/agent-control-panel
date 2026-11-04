@@ -1,4 +1,4 @@
-// The launchd agent that keeps `node server.mjs` running, so World keeps growing without the app open.
+// The launchd agent that keeps `node server.mjs` running, so the panel holds requests and answers hooks without the app open.
 //
 // A headless install is one plist in ~/Library/LaunchAgents, loaded into the user's GUI domain: launchd starts the panel
 // at login, restarts it when it dies, and logs to ~/Library/Logs/Agent Panel. The label mirrors the app bundle id
@@ -28,12 +28,10 @@ const esc = (s) => String(s).replaceAll('&', '&amp;').replaceAll('<', '&lt;').re
 const str = (k, v) => `<key>${k}</key><string>${esc(v)}</string>`;
 
 /**
- * The plist XML: run the server from the repo with the given node, PATH and port, keep it alive, log both streams. A
- * `program` is the worker install's launcher, which picks the version to run; with one the plist runs that path alone,
- * and without one it runs the server from the repo as before.
+ * The plist XML: run the server from the repo with the given node, PATH and port, keep it alive, log both streams.
  */
-export function launchdPlist({ label, node, repo, port, pathEnv, log, program }) {
-  const args = program ? [program] : [node, path.join(repo, 'server.mjs')];
+export function launchdPlist({ label, node, repo, port, pathEnv, log }) {
+  const args = [node, path.join(repo, 'server.mjs')];
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
@@ -61,13 +59,13 @@ const BOOTSTRAP_TRIES = 5;
 
 /**
  * Writes the plist and loads it, replacing any agent already loaded under the label. Throws with launchctl's message if
- * it won't load. `retryMs` is the wait between tries; tests set it to 0. `program` is passed to the plist (see launchdPlist).
+ * it won't load. `retryMs` is the wait between tries; tests set it to 0.
  */
-export async function install({ port, node, repo, pathEnv, home = os.homedir(), run = execRun, retryMs = 500, program }) {
+export async function install({ port, node, repo, pathEnv, home = os.homedir(), run = execRun, retryMs = 500 }) {
   const label = LABEL(port), plist = plistPath(port, home), log = logPath(port, home);
   fs.mkdirSync(path.dirname(plist), { recursive: true });
   fs.mkdirSync(path.dirname(log), { recursive: true });
-  fs.writeFileSync(plist, launchdPlist({ label, node, repo, port, pathEnv, log, program }), { mode: 0o644 });
+  fs.writeFileSync(plist, launchdPlist({ label, node, repo, port, pathEnv, log }), { mode: 0o644 });
   await run('launchctl', ['bootout', `${domain()}/${label}`]); // nothing loaded is fine
   // Right after a running agent is booted out, launchd may still be taking it down, and a bootstrap then fails with
   // "5: Input/output error" for a moment. So it tries a few times before it reports the failure.

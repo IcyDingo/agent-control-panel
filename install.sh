@@ -89,11 +89,6 @@ app/build.sh
 
 if (( daemon )); then
   echo
-  # A worker folder alone says nothing about the service; only a plist that runs the worker's launcher is taken over.
-  plist="$HOME/Library/LaunchAgents/local.agent-panel$([[ "$port" == 4747 ]] || echo ".$port").plist"
-  if [[ -f "$plist" ]] && grep -qF "worker/run.sh" "$plist"; then
-    warn "The background service will run from this folder from now on (it was running from the worker install)."
-  fi
   echo "Installing the background service:"
   ACP_NODE="$(command -v node)" node server.mjs daemon install ||
     { fail "The background service didn't install (see the line above). The app still works; run ./install.sh again to retry."; exit 1; }
@@ -102,18 +97,16 @@ if (( daemon )); then
     if curl -fsS --max-time 2 "http://127.0.0.1:$port/" >/dev/null 2>&1; then answered=1; break; fi
     sleep 0.5
   done
-  if (( answered )); then ok "The panel is running and World has started"
+  if (( answered )); then ok "The panel is running"
   else warn "The service hasn't answered yet; its log is ~/Library/Logs/Agent Panel/daemon-$port.log"; fi
 
   cat <<EOF
 
-Done. The panel runs in the background from now on, also after a restart, and World grows from your sessions whether
-or not you open it. Next:
+Done. The panel runs in the background from now on, also after a restart. Next:
   1. Open Agent Panel ($shown, or Spotlight). macOS may ask whether it may use your Documents folder:
      the panel reads the repositories your sessions work in.
   2. If you use more than one Claude Code profile, pick yours under Profile, top right.
   3. Click Connect this profile. Sessions you start after that show up on the board.
-  4. Optional: sign in to the hub with \`node server.mjs login\` to put your galaxy in the Universe.
 
 Keep this folder where it is: the service runs the panel from here. After a git pull, run ./install.sh again: it
 restarts the service on the new code (requests the panel was holding go back to their terminals for a moment).
