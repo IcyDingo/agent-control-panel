@@ -161,7 +161,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .col-h .n { font: 500 11px var(--mono); color: var(--fg-dim); }
 .col-h .btn.small { height: 20px; padding: 0 7px; font-size: 11px; text-transform: none; letter-spacing: 0; }
 .col[data-col="waiting"] .col-h { color: var(--amber); }
-.col-name { flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: 8px; padding: 0 0 0 12px; border: 0; background: none; font-weight: inherit; text-align: left; }
+.col-name { flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: 8px; padding: 0 0 0 12px; text-transform: inherit; letter-spacing: inherit; border: 0; background: none; font-weight: inherit; text-align: left; }
 .col-fold { cursor: pointer; }
 .col-fold:hover { color: var(--fg); }
 .col-fold:focus-visible { outline-offset: -2px; }
@@ -212,6 +212,14 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .sn { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .sage { flex: none; font: 11.5px var(--mono); color: var(--fg-dim); }
 .sub[data-state="waiting"] .sage { color: var(--amber); }
+/* Find by name (/) and the keys, at the rail's top and bottom. */
+#rail-find { flex: none; box-sizing: border-box; height: 26px; margin: 4px 4px 2px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--raise); color: var(--fg); font: 12px var(--mono); outline: none; }
+#rail-find:focus { border-color: var(--fg-dim); }
+#rail-find::placeholder { color: var(--fg-dim); }
+#rail-keys { flex: none; margin-top: auto; display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 6px 10px; border-top: 1px solid var(--line); font-size: 11px; color: var(--fg-dim); }
+#rail-keys span { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+#rail-keys kbd { display: inline-block; min-width: 14px; padding: 0 4px; border: 1px solid var(--line-strong); border-radius: 4px; font: 500 10.5px var(--mono); color: var(--fg-dim); text-align: center; line-height: 16px; }
+.board.narrow #rail-keys { display: none; }
 /* Where it works: its branch, with a branch mark in a shared checkout and a folder mark in a worktree of its own. */
 :root {
   --i-branch: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6'%3E%3Ccircle cx='4.5' cy='3.5' r='1.7'/%3E%3Ccircle cx='4.5' cy='12.5' r='1.7'/%3E%3Ccircle cx='11.5' cy='4.5' r='1.7'/%3E%3Cpath d='M4.5 5.2v5.6M11.5 6.2c0 3.2-7 1.8-7 4.6'/%3E%3C/svg%3E");
@@ -960,6 +968,70 @@ const colEls = COLS.map(([k, name]) => {
   $('board').append(c.sec);
   return c;
 });
+// ---- find by name, and the keys that move you through the rail
+let railQuery = '';
+const railFind = el('input', { id: 'rail-find', type: 'search', placeholder: 'Find a session', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Find a session' });
+railFind.hidden = true;
+$('board').prepend(railFind);
+const kb = (...keys) => keys.map((k) => el('kbd', { text: k }));
+$('board').append(el('div', { id: 'rail-keys', 'aria-hidden': 'true' },
+  el('span', {}, ...kb('↑', '↓'), ' move'), el('span', {}, ...kb('→'), ' subagents'), el('span', {}, ...kb('n'), ' next needs you'), el('span', {}, ...kb('/'), ' find')));
+new ResizeObserver(() => $('board').classList.toggle('narrow', $('board').clientWidth < 240)).observe($('board'));
+const matchesQuery = (s) => !railQuery || label(s).toLowerCase().includes(railQuery);
+function showFind(on) {
+  railFind.hidden = !on;
+  if (on) railFind.focus();
+  else { railFind.value = ''; railQuery = ''; }
+}
+railFind.oninput = () => { railQuery = railFind.value.trim().toLowerCase(); render(); };
+railFind.onblur = () => { if (!railFind.value) showFind(false); };
+railFind.onkeydown = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); showFind(false); railFind.blur(); render(); } };
+/** The rail's rows in visual order: sessions in unfolded sections, and the subagents of open trees, as filtered. */
+function railRows() {
+  const rows = [];
+  for (const c of colEls) {
+    if (c.k !== 'waiting' && folded.has(c.k)) continue;
+    for (const w of c.body.children) {
+      const s = w.dataset?.sid && sessionOf(w.dataset.sid);
+      if (!s) continue;
+      if (w.classList.contains('tile-wrap')) rows.push({ kind: 'session', s, el: w.firstChild });
+      else if (w.classList.contains('sub')) { const a = s.subagents.find((x) => x.agentId === w.dataset.aid); if (a) rows.push({ kind: 'sub', s, a, el: w }); }
+    }
+  }
+  return rows;
+}
+let followSoon = false; // the selection is moving by key: the follow waits 120 ms for the key to settle
+function moveSel(delta) {
+  const rows = railRows();
+  if (!rows.length) return;
+  const i = subFocus ? rows.findIndex((r) => r.kind === 'sub' && r.a.agentId === subFocus) : rows.findIndex((r) => r.kind === 'session' && r.s.sessionId === open);
+  const to = rows[i < 0 ? (delta > 0 ? 0 : rows.length - 1) : Math.max(0, Math.min(rows.length - 1, i + delta))];
+  followSoon = true;
+  if (to.kind === 'sub') focusSub(to.s, to.a);
+  else { cancelAdvance(); subFocus = null; open = to.s.sessionId; render(); }
+  to.el.scrollIntoView({ block: 'nearest' });
+}
+function nextNeedsYou() {
+  const ids = asking().filter((id) => { const s = sessionOf(id); return s && matchesQuery(s); });
+  if (!ids.length) { toast('Nothing needs you.'); return; }
+  cancelAdvance();
+  subFocus = null;
+  open = ids[(ids.indexOf(open) + 1) % ids.length];
+  render();
+  tiles.get(open)?.btn.scrollIntoView({ block: 'nearest' });
+}
+function railKeys(e) {
+  if (dlg.open || e.ctrlKey || e.metaKey || e.altKey) return;
+  const t = e.target;
+  if (t.closest?.('textarea, input, select, [contenteditable], [role=menu], [role=separator]')) return;
+  const arrow = e.key.startsWith('Arrow');
+  if (arrow && !(t === document.body || t === document.documentElement || t.closest?.('#board'))) return;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); moveSel(e.key === 'ArrowDown' ? 1 : -1); }
+  else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { const s = sessionOf(open); if (s?.subagents.length) { e.preventDefault(); setTree(s, e.key === 'ArrowRight'); } }
+  else if (e.key === 'n' && !e.shiftKey) { e.preventDefault(); nextNeedsYou(); }
+  else if (e.key === '/') { e.preventDefault(); showFind(true); }
+}
+document.addEventListener('keydown', railKeys);
 function tileAction(s, st) {
   const bg = s.kind === 'background';
   if (st === 'busy' || st === 'waiting') return { kind: 'int', ask: 'Interrupt?', name: 'Interrupt', run: () => doInterrupt(s), title: HINT.int };
@@ -1044,6 +1116,7 @@ function subRow(s, a, last) {
   }
   const st = subState(s, a);
   b.dataset.sid = s.sessionId;
+  b.dataset.aid = a.agentId;
   setAttr(b, 'data-state', st);
   b.classList.toggle('focus', subFocus === a.agentId);
   b.classList.toggle('last', last);
@@ -1123,8 +1196,8 @@ function renderBoard(g, vis) {
       run: () => bulk(g.finished, doRemove, (n) => `Cleared ${sessions(n)}. Transcripts are kept.`) },
   };
   for (const c of colEls) {
-    const list = g[c.k], b = BULK[c.k] || null, on = Boolean(b) && armed?.key === b.key;
-    setText(c.n, String(list.length));
+    const all = g[c.k], list = railQuery ? all.filter(matchesQuery) : all, b = BULK[c.k] || null, on = Boolean(b) && armed?.key === b.key;
+    setText(c.n, railQuery ? `${list.length}/${all.length}` : String(all.length));
     if (c.peek) {
       const shut = folded.has(c.k);
       c.sec.classList.toggle('folded', shut);
@@ -1141,7 +1214,7 @@ function renderBoard(g, vis) {
     }
     c.hint.hidden = !on;
     if (on) setText(c.hint, HINT[b.key.slice(0, -1)]);
-    c.empty.hidden = list.length > 0;
+    c.empty.hidden = list.length > 0 || Boolean(railQuery);
     setText(c.empty, c.k === 'waiting' ? 'Nothing needs you.' : c.k === 'busy' && !vis.length ? 'No sessions yet. Press New agent, or run claude in a terminal, and it shows up here.' : 'None.');
     // Move only what is out of place.
     const want = [c.hint, ...list.flatMap((s) => { const w = tile(s); return [w, ...tiles.get(s.sessionId).subRows]; }), c.empty];
@@ -1342,7 +1415,7 @@ function ranHow(m) {
 const CAP = 400; // rows kept in the DOM while you follow the bottom; Show earlier and scrolling up lift it
 /** sessionId → { rows: Map<key, item>, more, pending, loading, early, version }: the open session's thread. */
 const threads = new Map();
-let followed = null, followAsk = 0; // the session the last followOpen was for, and which ask that was
+let followed = null, followAsk = 0, followTimer = 0; // the session the last followOpen was for, which ask that was, and a key-driven delay
 /** Tell the server which session this page has open, and seed its thread from the reply. Rows that arrive while the
  *  reply is on its way wait in `early`; a reply for a session you have already left, or overtaken by a newer ask
  *  (a reconnect), is dropped. Older rows read with Show earlier stay when the same session is asked for again. */
@@ -1817,7 +1890,10 @@ function render() {
   // At the start, and when the open one goes away, the top of Needs you (it has waited longest) takes the workspace.
   if (open === undefined || (open && !vis.some((s) => s.sessionId === open))) open = g.waiting[0]?.sessionId ?? null;
   if (launchedId) { const s = vis.find((x) => x.id === launchedId); if (s) { launchedId = null; open = s.sessionId; } }
-  if (open !== followed) followOpen(open);
+  if (open !== followed) {
+    if (followSoon) { clearTimeout(followTimer); followTimer = setTimeout(() => { followSoon = false; if (open !== followed) followOpen(open); }, 120); }
+    else followOpen(open);
+  }
   const live = new Set(snap.pending.map((p) => p.id));
   for (const [id, c] of cards) if (!live.has(id)) { c.el.remove(); cards.delete(id); }
   renderBoard(g, vis);
