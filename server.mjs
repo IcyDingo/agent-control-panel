@@ -385,7 +385,9 @@ function holdPermission(e, res) {
   pending.set(id, p);
   if (e.session_id && profileDir === configDir) {
     session(e.session_id).lastEventAt = Date.now();
-    if (!e.agent_id) threadOf(e.session_id).request(e, { waiting: true }); // a subagent's call is not in this thread
+    // A subagent's call is not in this thread.
+    try { if (!e.agent_id) threadOf(e.session_id).request(e, { waiting: true }); }
+    catch (err) { console.error('thread:', err?.message ?? err); }
   }
   broadcast({ type: 'new-request', id });
 }
@@ -402,7 +404,9 @@ function settle(id, decision, why) {
     p.res.writeHead(200, { 'content-type': 'application/json' });
     p.res.end(decision ? JSON.stringify({ hookSpecificOutput: { hookEventName: 'PermissionRequest', decision } }) : '');
   }
-  if (!p.agentId) threads.get(p.sessionId)?.request({ tool_use_id: p.toolUseId, tool_name: p.toolName, tool_input: p.toolInput }, { why });
+  // Also runs from timers (HOLD_MS, the last page closing), where a throw would stop the server.
+  try { if (!p.agentId) threads.get(p.sessionId)?.request({ tool_use_id: p.toolUseId, tool_name: p.toolName, tool_input: p.toolInput }, { why }); }
+  catch (err) { console.error('thread:', err?.message ?? err); }
   broadcast({ type: 'settled', id, why });
   return true;
 }
@@ -1445,20 +1449,22 @@ function threadOf(sessionId) {
 
 /** Start following a session's transcript, if it has one now. The follow opens first, at the file's end, and what lies
  *  before that offset is read back into the thread, so no line lands in neither and none in both; lines the follow
- *  reads meanwhile go in after it. Resolves whether it is live. */
+ *  reads meanwhile go in after it. Resolves whether it is live, and never rejects: an open that fails is logged and
+ *  forgotten, so the next /api/follow or retry tries again. */
 function openFollow(f) {
   if (f.ready) return f.ready;
   const file = transcriptFile(f.sessionId);
   if (!file) return Promise.resolve(false);
   const id = f.sessionId, t = threadOf(id);
-  return (f.ready = (async () => {
+  let follow = null;
+  const ready = (async () => {
     let early = [];
-    const follow = createFollow(file, {
+    follow = createFollow(file, {
       onItems: (items) => { try { if (early) early.push(...items); else t.addItems(items); } catch (err) { console.error('follow:', err?.message ?? err); } },
       // Shrunk or replaced: what the pages have is gone, and they ask again.
       onReset: () => { try { if (early) early = []; t.reset(); sendTo(f.clients, 'thread-reset', { sessionId: id }); } catch (err) { console.error('follow:', err?.message ?? err); } },
     });
-    try { await follow.start(); } catch { f.ready = null; return false; } // gone again since it was found
+    await follow.start(); // rejects if it is gone again since it was found
     if (f.stopped) { follow.stop(); return false; }
     f.follow = follow;
     try {
@@ -1471,7 +1477,14 @@ function openFollow(f) {
     early = null;
     try { if (late.length) t.addItems(late); } catch (err) { console.error('follow:', err?.message ?? err); }
     return true;
-  })());
+  })().catch((err) => { // runs after `f.ready = ready` below, even for a throw before the first await
+    console.error('follow:', err?.message ?? err);
+    follow?.stop();
+    if (f.follow === follow) f.follow = null;
+    if (f.ready === ready) f.ready = null;
+    return false;
+  });
+  return (f.ready = ready);
 }
 /** Look for a pending follow's transcript again in a second, until it is found or nobody follows it. */
 function retryFollow(f) {
