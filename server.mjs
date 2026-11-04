@@ -18,6 +18,8 @@ import { fileURLToPath } from 'node:url';
 import { execFile, spawn } from 'node:child_process';
 import { findRemoved } from './versions.mjs';
 import { readChat, summaryOf } from './history.mjs';
+import { createFollow } from './follow.mjs';
+import { createThread } from './thread.mjs';
 import { UNTRUSTED, trustKey, isTrusted, trustScript } from './trust.mjs';
 import { prefsPath } from './cli.mjs';
 
@@ -266,6 +268,9 @@ function onHookEvent(e) {
       clearStops(e.session_id);
       break;
   }
+  // The session's Chat: a call starting makes its thread, so a page that opens the session mid-turn sees its state.
+  try { (e.hook_event_name === 'PreToolUse' && !e.agent_id ? threadOf(e.session_id) : threads.get(e.session_id))?.hook(e); }
+  catch (err) { console.error('thread:', err?.message ?? err); }
   broadcast();
   return reply;
 }
@@ -359,6 +364,9 @@ function prune() {
     const stale = s.leftRosterAt ? now - s.leftRosterAt > 600_000 : now - s.lastEventAt > 3600_000;
     if (!s.inRoster && stale && ![...pending.values()].some((p) => p.sessionId === id)) sessions.delete(id);
   }
+  // A thread nobody follows keeps only its hook state (a session's calls would otherwise pile up as rows), and goes
+  // with its session.
+  for (const [id, t] of threads) if (!follows.has(id)) { if (sessions.has(id)) t.reset(); else threads.delete(id); }
 }
 
 // ---------------------------------------------------------------- held permission requests
@@ -368,14 +376,17 @@ function prune() {
 function holdPermission(e, res) {
   const id = crypto.randomUUID(), profileDir = profileDirOf(e);
   const p = { id, sessionId: e.session_id, agentId: e.agent_id ?? null, agentType: e.agent_type ?? null,
-              toolName: e.tool_name, toolInput: e.tool_input ?? {}, suggestions: e.permission_suggestions ?? [],
+              toolName: e.tool_name, toolInput: e.tool_input ?? {}, toolUseId: e.tool_use_id ?? null, suggestions: e.permission_suggestions ?? [],
               cwd: e.cwd ?? null, permissionMode: e.permission_mode ?? null, createdAt: Date.now(),
               deadline: Date.now() + HOLD_MS, profileDir, res, timer: null };
   p.timer = setTimeout(() => settle(id, null, 'expired'), HOLD_MS);
   // The hook timed out or its session went away. (A terminal answer does NOT close it: see pollRoster.)
   res.on('close', () => { if (pending.has(id)) settle(id, null, 'closed by Claude Code'); });
   pending.set(id, p);
-  if (e.session_id && profileDir === configDir) session(e.session_id).lastEventAt = Date.now();
+  if (e.session_id && profileDir === configDir) {
+    session(e.session_id).lastEventAt = Date.now();
+    if (!e.agent_id) threadOf(e.session_id).request(e, { waiting: true }); // a subagent's call is not in this thread
+  }
   broadcast({ type: 'new-request', id });
 }
 /** The held requests of the profile on the board. */
@@ -391,6 +402,7 @@ function settle(id, decision, why) {
     p.res.writeHead(200, { 'content-type': 'application/json' });
     p.res.end(decision ? JSON.stringify({ hookSpecificOutput: { hookEventName: 'PermissionRequest', decision } }) : '');
   }
+  if (!p.agentId) threads.get(p.sessionId)?.request({ tool_use_id: p.toolUseId, tool_name: p.toolName, tool_input: p.toolInput }, { why });
   broadcast({ type: 'settled', id, why });
   return true;
 }
@@ -1288,6 +1300,7 @@ function switchProfile(body) {
   if (p.dir === profile.dir) return { ok: true };
   const queued = [...inbox.values()].reduce((n, q) => n + q.length, 0);
   if (queued && body.force !== true) return { ok: false, confirm: true, queued };
+  dropFollows();
   for (const m of [inbox, sessions, stops, files, turns]) m.clear();
   for (const s of [dismissed, saidRead]) s.clear();
   useProfile(p);
@@ -1386,6 +1399,148 @@ async function checkVersions() {
   finally { checkingVersions = false; }
 }
 
+// ---------------------------------------------------------------- live thread
+// The open session's Chat is live. Its transcript is followed from the end (follow.mjs), what the hooks say is merged
+// into it (thread.mjs), and every change goes to each page that has the session open, as an `event: thread` message on
+// that page's /events stream. A page names itself with `c=` and says which session it has open with /api/follow (one
+// at a time); however many pages open a session, its transcript has one follow, which stops RECONNECT_MS after the last
+// of them has left. A session with no transcript yet (one just launched) is looked for every second until it has one.
+
+const FOLLOW_RETRY_MS = 1000;
+const CLIENT = /^[\w-]{1,64}$/;
+/** sessionId → its thread. Made by the session's first PreToolUse or follow. */
+const threads = new Map();
+/** sessionId → { follow, clients: Set<clientId>, hush: clients whose /api/follow reply is still coming, ... } */
+const follows = new Map();
+/** clientId → the session that page has open. */
+const clientOpen = new Map();
+/** clientId → that page's /events response. */
+const clientRes = new Map();
+
+/** What a page gets of a row or an update: all but the call's input, which only the thread keys by. A copy: the
+ *  thread's own objects are never changed. */
+function bare(x) {
+  if (x.who === 'update') { const { input, ...patch } = x.patch; return { ...x, patch }; }
+  const { input, ...rest } = x;
+  return rest;
+}
+function sendTo(ids, name, data) {
+  const msg = `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const c of ids) { const res = clientRes.get(c); if (res && !res.writableEnded && !res.destroyed) res.write(msg); }
+}
+
+function threadOf(sessionId) {
+  let t = threads.get(sessionId);
+  if (!t) {
+    // Changes go to the pages that follow it, except one still waiting for its /api/follow reply: that carries them.
+    t = createThread({ emit: (events) => {
+      const f = follows.get(sessionId);
+      const to = f ? [...f.clients].filter((c) => !f.hush.has(c)) : [];
+      if (to.length) sendTo(to, 'thread', { sessionId, events: events.map(bare) });
+    } });
+    threads.set(sessionId, t);
+  }
+  return t;
+}
+
+/** Start following a session's transcript, if it has one now. The follow opens first, at the file's end, and what lies
+ *  before that offset is read back into the thread, so no line lands in neither and none in both; lines the follow
+ *  reads meanwhile go in after it. Resolves whether it is live. */
+function openFollow(f) {
+  if (f.ready) return f.ready;
+  const file = transcriptFile(f.sessionId);
+  if (!file) return Promise.resolve(false);
+  const id = f.sessionId, t = threadOf(id);
+  return (f.ready = (async () => {
+    let early = [];
+    const follow = createFollow(file, {
+      onItems: (items) => { try { if (early) early.push(...items); else t.addItems(items); } catch (err) { console.error('follow:', err?.message ?? err); } },
+      // Shrunk or replaced: what the pages have is gone, and they ask again.
+      onReset: () => { try { if (early) early = []; t.reset(); sendTo(f.clients, 'thread-reset', { sessionId: id }); } catch (err) { console.error('follow:', err?.message ?? err); } },
+    });
+    try { await follow.start(); } catch { f.ready = null; return false; } // gone again since it was found
+    if (f.stopped) { follow.stop(); return false; }
+    f.follow = follow;
+    try {
+      const { items, more } = await readChat(file, { limit: f.limit, before: follow.offset() });
+      if (f.stopped) return false;
+      f.more = more;
+      t.addItems(items);
+    } catch (err) { console.error('follow: reading back', err?.message ?? err); }
+    const late = early;
+    early = null;
+    try { if (late.length) t.addItems(late); } catch (err) { console.error('follow:', err?.message ?? err); }
+    return true;
+  })());
+}
+/** Look for a pending follow's transcript again in a second, until it is found or nobody follows it. */
+function retryFollow(f) {
+  if (f.retry || f.stopped) return;
+  f.retry = setTimeout(async () => {
+    f.retry = null;
+    if (f.stopped) return;
+    try { if (!(await openFollow(f))) retryFollow(f); } catch (err) { console.error('follow:', err?.message ?? err); }
+  }, FOLLOW_RETRY_MS);
+}
+function stopFollow(f) {
+  f.stopped = true;
+  f.follow?.stop();
+  clearTimeout(f.retry);
+  clearTimeout(f.release);
+  if (follows.get(f.sessionId) === f) follows.delete(f.sessionId);
+  threads.get(f.sessionId)?.reset(); // its rows are read back when it is opened again; its hook state stays
+}
+/** A page no longer has session `id` open. Its follow stops RECONNECT_MS after it has nobody left. */
+function leave(client, id) {
+  const f = follows.get(id);
+  if (!f) return;
+  f.clients.delete(client);
+  f.hush.delete(client);
+  if (f.clients.size || f.release) return;
+  f.release = setTimeout(() => { f.release = null; if (!f.clients.size) stopFollow(f); }, RECONNECT_MS);
+}
+/** A page that went away: its stream closed, or it never opened one. */
+function dropClient(client) {
+  clientOpen.delete(client);
+  for (const [id, f] of follows) if (f.clients.has(client)) leave(client, id);
+}
+/** A profile switch: every follow stops, and each page that had a session open is told it is gone. */
+function dropFollows() {
+  for (const f of [...follows.values()]) {
+    const to = [...f.clients];
+    stopFollow(f);
+    sendTo(to, 'thread-reset', { sessionId: f.sessionId });
+  }
+  clientOpen.clear();
+  threads.clear();
+}
+
+/** `{ client, sessionId | null, limit }`: page `client` has that session open (null: none). Its thread so far, and
+ *  whether there is more before it; `pending` while the session has no transcript, whose rows then come as events. */
+async function followSession(body) {
+  const client = body?.client, id = body?.sessionId ?? null;
+  if (typeof client !== 'string' || !CLIENT.test(client)) return { ok: false, error: 'Which page is this?' };
+  if (id !== null && (typeof id !== 'string' || !UUID.test(id))) return { ok: false, error: 'There is no such session.' };
+  const limit = Number.isInteger(body.limit) ? Math.min(2000, Math.max(1, body.limit)) : 60;
+  const was = clientOpen.get(client);
+  if (was && was !== id) leave(client, was);
+  if (id === null) { clientOpen.delete(client); return { ok: true, items: [], more: false }; }
+  clientOpen.set(client, id);
+  // A page that asks before its stream is up gets the grace a reload does; one that never opens a stream is let go.
+  if (!clientRes.has(client)) setTimeout(() => { if (!clientRes.has(client)) dropClient(client); }, RECONNECT_MS);
+  let f = follows.get(id);
+  if (!f) follows.set(id, f = { sessionId: id, clients: new Set(), hush: new Set(), follow: null, ready: null, more: false, limit,
+                                retry: null, release: null, stopped: false });
+  clearTimeout(f.release);
+  f.release = null;
+  f.clients.add(client);
+  f.hush.add(client);
+  const live = await openFollow(f);
+  f.hush.delete(client);
+  if (!live) { retryFollow(f); return { ok: true, items: [], more: false, pending: true }; }
+  return { ok: true, items: threadOf(id).items().map(bare), more: f.more };
+}
+
 // ---------------------------------------------------------------- snapshot + SSE
 
 function snapshot() {
@@ -1405,18 +1560,20 @@ function snapshot() {
   };
 }
 
+// Changes close together go out as one snapshot, which carries every event since the last one (two requests held in
+// the same moment are two `new-request`s, not the second alone).
 let queued = false;
-let lastEvent = null;
+let events = [];
 function broadcast(event) {
-  if (event) lastEvent = event;
+  if (event) events.push(event);
   if (queued) return;
   queued = true;
   setTimeout(() => {
     queued = false;
-    const data = `data: ${JSON.stringify({ ...snapshot(), event: lastEvent })}\n\n`;
-    lastEvent = null;
+    const data = `data: ${JSON.stringify({ ...snapshot(), events })}\n\n`;
+    events = [];
     for (const c of clients) c.write(data);
-  }, 80);
+  }, 30);
 }
 
 // ---------------------------------------------------------------- http
@@ -1478,6 +1635,9 @@ async function handle(req, res) {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
     res.write(`retry: 2000\ndata: ${JSON.stringify(snapshot())}\n\n`);
     clients.add(res);
+    // The page's own id, for the thread of the session it has open (a reconnect brings the same one back).
+    const client = CLIENT.test(url.searchParams.get('c') ?? '') ? url.searchParams.get('c') : null;
+    if (client) clientRes.set(client, res);
     if (DAEMON && setRosterPace(true)) pollRoster().then(checkVersions); // back from idle: catch up at once
     clearTimeout(releaseTimer);
     releaseTimer = null;
@@ -1485,6 +1645,7 @@ async function handle(req, res) {
     req.on('close', () => {
       clearInterval(ping);
       clients.delete(res);
+      if (client && clientRes.get(client) === res) { clientRes.delete(client); dropClient(client); }
       // Last tab gone and not back in time: hand every held request back to the terminal, and (under the daemon) slow
       // the roster down. Not before: until then a held request still needs the fast polls to see a terminal answer.
       if (clients.size === 0 && releaseTimer === null) releaseTimer = setTimeout(() => {
@@ -1516,7 +1677,7 @@ async function handle(req, res) {
     const ACTIONS = { '/api/end': end, '/api/remove': remove, '/api/reply': reply, '/api/unqueue': unqueue, '/api/mode': switchMode,
                       '/api/folders': listFolders, '/api/folder': folderInfo, '/api/pick-folder': pickFolder,
                       '/api/profiles': profiles, '/api/profile': switchProfile, '/api/profile/connect': connectProfile,
-                      '/api/answer-open': answerOpen, '/api/history': history,
+                      '/api/answer-open': answerOpen, '/api/history': history, '/api/follow': followSession,
                       '/api/trust-terminal': openTrustTerminal };
     if (Object.hasOwn(ACTIONS, url.pathname)) {
       let r;
