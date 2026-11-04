@@ -58,16 +58,6 @@ folder the session started in). When a session edits files in other checkouts, i
 ("Also edits files in agent-control-panel (main)"). Branches are read from the files under `.git`, never
 by running git.
 
-**Space view** shows the same sessions full screen, as satellites orbiting you, each one a body in its
-state's colour between two solar wings, flying along its orbit. Its orbit is its state: the inner
-orbit needs you, then working, idle and finished. Background sessions carry a dish, subagents are
-small satellites circling their session's, and a request shows as an amber tether to you. Click a satellite
-for the same panel, click the centre to jump to the next request, and press Esc to go back.
-**Earth**, bottom left, launches a new agent: a rocket lifts off and flies to a free slot on its
-orbit, and the satellite appears where the rocket arrives and opens its wings. Its panel then opens,
-unless you are typing in the open one. With reduced motion there is no flight: the satellite simply
-appears.
-
 When a session or subagent asks for something, the request appears in its panel:
 
 - **Permission:** allow it, edit the command first, allow and remember, or deny with a reason.
