@@ -304,10 +304,10 @@ body.resizing .drawer { transition: none; }
 .side-sec:empty { display: none; }
 .side-sec + .side-sec { border-top: 1px solid var(--line); }
 .d-side-body > .side-sec:first-child { padding-top: 4px; }
-.side-acts { flex: none; display: grid; gap: 8px; margin-top: auto; padding-top: 18px; }
+.side-acts { flex: none; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: auto; padding-top: 18px; }
 .side-acts:empty { display: none; }
-.side-acts .btn { justify-content: center; }
-.side-acts .hint { margin: 0; }
+.side-acts .btn { justify-content: center; min-width: 0; padding-inline: 8px; }
+.side-acts .hint { grid-column: 1 / -1; margin: 0; }
 .kv { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px 14px; margin: 0; font-size: 12.5px; }
 .kv dt { color: var(--fg-faint); }
 .kv dd { margin: 0; min-width: 0; color: var(--fg); overflow-wrap: anywhere; }

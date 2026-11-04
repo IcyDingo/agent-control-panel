@@ -50,8 +50,10 @@ The keys move you: ↑ and ↓ step through the rows and open each session as th
 too), → and ← unfold and fold the selected session's subagents, `n` jumps to the next session that
 needs you, and `/` opens a find field that filters the rows by name (Esc clears it). None of them fire
 while you type. Click a row to open its panel in the rest of the window. The
-panel reads like a chat: its name and what you can do on top, the conversation in the middle, and
-what it's asking, what it's doing now and the box to write in pinned along the bottom. The chat keeps
+panel reads like a chat: one line on top with its name, state, kind, mode and age (Expand and Close
+are the two icons at its right), the conversation in the middle, and what it's asking and the box to
+write in pinned along the bottom. The box carries one chip for its mode, model and effort; click it to
+change any of them. What the box will do is the Send button's tooltip. The chat keeps
 to reading width on a big screen. Its details sit in a column on the right: its folder and branch, the
 command that reopens it, its subagents (each titled with the task its parent gave it) and the buttons that
 stop it. The column's **Details** tab folds it to a strip, and dragging its left edge widens it (double-click
@@ -360,8 +362,9 @@ Full Disk Access doesn't help. A restart on the installed version does.
 Every minute the panel checks each running session, in every profile, and the processes it was started from
 (`versions.mjs`: one `ps` and one `lsof`, comparing each program file with what is on disk now).
 
-- **A banner** over the board lists every one it finds, other profiles' sessions too: the one that loses access is
-  often not the one on screen. A **toast** says when it finds a new one.
+- **A banner** over the board counts them, other profiles' sessions too: the one that loses access is often not the
+  one on screen. **Show which** unfolds the list with each one's restart command; **×** puts the banner away until the
+  list changes. A **toast** says when it finds a new one.
 - **Its row** carries a small amber mark before its age, and **its panel** says why and how.
 - **To restart**: a terminal session quits in its terminal and resumes with the command the panel gives you to copy.
   A background job is ended in the panel, then sent a message, and comes back on the installed version.
