@@ -37,8 +37,19 @@ Everything stays on your Mac: the server listens on 127.0.0.1 only, and the page
 **Finished**. Needs you is always open. Click any other queue's header to fold it to one line, which
 keeps its count and the name of its newest session; the panel remembers what you folded, and starts
 with Idle and Finished folded. Drag the rail's right edge to widen it (double-click for the default).
-Each session is a tile with its name, how many subagents it's running, its age, and one line saying
-what it's doing or what it last said. Click a tile to open its panel in the rest of the window. The
+Each session is one row: its state square, its name, what it is doing (the tool it runs, or what it asks
+for: `Bash`, `Asks`, `Plan`, with `sub:` in front when a subagent is asking) and its age. Hover a row for its
+branch, folder and the full text; hover its right end for Interrupt, End or Remove. A session with
+subagents gets a chevron, and while one of them runs or waits its tree is open under the row: each
+subagent with its own square, title and age, `asks you` in amber when a request waits on it, and
+`done` when it has finished. The tree folds by itself 20 seconds after the last one finishes; the chevron
+(or → and ←) wins until a new subagent starts. Click a subagent row to open its session with that
+subagent marked in the details.
+
+The keys move you: ↑ and ↓ step through the rows and open each session as they go (into an open tree
+too), → and ← unfold and fold the selected session's subagents, `n` jumps to the next session that
+needs you, and `/` opens a find field that filters the rows by name (Esc clears it). None of them fire
+while you type. Click a row to open its panel in the rest of the window. The
 panel reads like a chat: its name and what you can do on top, the conversation in the middle, and
 what it's asking, what it's doing now and the box to write in pinned along the bottom. The chat keeps
 to reading width on a big screen. Its details sit in a column on the right: its folder and branch, the
@@ -49,8 +60,8 @@ the whole window (**Collapse** brings the board back). When the open session goe
 close it yourself and the space offers that one instead. On a narrow window the rail takes the width
 and an open session covers it.
 
-Each tile also shows the session's **branch**: a branch mark when it works in a repository's main
-checkout, a folder mark when it is in a worktree. The panel says which worktree of which repository, and
+Each row's tooltip names the session's **branch**: which branch, in a repository's main checkout or in a
+worktree. The panel says which worktree of which repository, and
 names the other live sessions in the same checkout, since they share its branch and files (one that
 switches the branch switches it for all of them). Where a session works comes from its transcript, so it
 follows a session that moves into a worktree after it starts, which `claude agents` doesn't (it keeps the
@@ -351,7 +362,7 @@ Every minute the panel checks each running session, in every profile, and the pr
 
 - **A banner** over the board lists every one it finds, other profiles' sessions too: the one that loses access is
   often not the one on screen. A **toast** says when it finds a new one.
-- **Its tile** says **restart**, and **its panel** says why and how.
+- **Its row** carries a small amber mark before its age, and **its panel** says why and how.
 - **To restart**: a terminal session quits in its terminal and resumes with the command the panel gives you to copy.
   A background job is ended in the panel, then sent a message, and comes back on the installed version.
 
