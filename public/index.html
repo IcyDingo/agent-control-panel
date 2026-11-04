@@ -493,6 +493,16 @@ textarea.field { flex-basis: 100%; height: auto; min-height: 3.4em; padding: 6px
 .c-mode + .c-mode { border-left: 1px solid var(--line); border-radius: 0 6px 6px 0; }
 .c-bar .grow + .btn { margin-left: 6px; }
 .c-hint { margin: 6px 0 0; font-size: 12px; }
+.c-hint:empty { display: none; }
+/* One chip for mode, model and effort; its popover holds the three selects. */
+.c-opts { position: relative; }
+#d-opts { color: var(--fg-dim); font-weight: 400; }
+#d-opts::after { content: "\25BE"; margin-left: 2px; font-size: 9px; color: var(--fg-faint); }
+#d-opts[aria-expanded="true"], #d-opts:hover { color: var(--fg); }
+.c-pop { position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 7; display: grid; gap: 6px; min-width: 260px; padding: 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--raise); box-shadow: 0 12px 28px -16px var(--shade); }
+.c-row { display: grid; grid-template-columns: 56px 1fr; align-items: center; gap: 8px; font-size: 12px; color: var(--fg-dim); }
+.c-pop .c-mode { width: 100%; border: 1px solid var(--line); border-radius: 6px; background-color: var(--panel); }
+.c-pop .c-mode + .c-mode { border-left: 1px solid var(--line); border-radius: 6px; }
 .lf-row { display: flex; gap: 6px; min-width: 0; }
 .lf-row input { flex: 1; }
 .advance { flex: none; position: relative; display: flex; align-items: center; gap: 14px; padding: 10px 20px; border-top: 1px solid var(--line-strong); background: var(--raise); font-size: 13px; font-weight: 550; }
@@ -616,9 +626,14 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
               <div class="composer">
                 <textarea id="d-reply" rows="2" placeholder="Answer it, or tell it what to do next" aria-label="Your message"></textarea>
                 <div class="c-bar">
-                  <select class="c-mode" id="d-mode" aria-label="Its permission mode"></select>
-                  <select class="c-mode" id="d-model" aria-label="Its model"></select>
-                  <select class="c-mode" id="d-effort" aria-label="Its effort level"></select>
+                  <div class="c-opts">
+                    <button class="btn quiet small" type="button" id="d-opts" aria-haspopup="dialog" aria-expanded="false" title="Mode, model and effort"></button>
+                    <div class="c-pop" id="d-pop" role="dialog" aria-label="Mode, model and effort" hidden>
+                      <label class="c-row"><span>Mode</span><select class="c-mode" id="d-mode" aria-label="Its permission mode"></select></label>
+                      <label class="c-row"><span>Model</span><select class="c-mode" id="d-model" aria-label="Its model"></select></label>
+                      <label class="c-row"><span>Effort</span><select class="c-mode" id="d-effort" aria-label="Its effort level"></select></label>
+                    </div>
+                  </div>
                   <span class="grow"></span>
                   <button class="btn primary small" type="button" id="d-send" disabled>Send</button>
                 </div>
@@ -1784,16 +1799,32 @@ function renderCompose(s, st) {
   setText(btn, on ? (queue ? 'Confirm: close it once done' : 'Confirm: close it and send') : sending.has(s.sessionId) ? (typing ? 'Running…' : 'Sending…')
     : typing ? (queue ? 'Run when it is done' : 'Run') : queue ? 'Send when it is done' : restart ? 'Restart and send' : term && running ? 'Send, move to background' : 'Send');
   const back = comesBack(picked && picked !== s.mode ? picked : null, mPick, ePick), carry = back ? ` It comes back ${back}.` : '';
-  setText($('d-send-hint'), to ? `Switching it to ${modeOf(to).toLowerCase()}…`
-    : typing ? (queue ? 'Once it is done, this is typed at its prompt, as you would in claude attach.' : 'This is typed at its prompt, as you would in claude attach.')
+  const how = typing ? (queue ? 'Once it is done, this is typed at its prompt, as you would in claude attach.' : 'This is typed at its prompt, as you would in claude attach.')
     : restart ? (queue ? 'When it is done, it' : 'It') + (inOwnTree(s) ? ' carries on as a copy under a new id, in its worktree, with this as its next prompt.' : ' restarts in the background with this as its next prompt.') + tasksStop(s) + carry
     : live ? (s.working ? 'It reads this at its next step, as if you typed it while it works.' : 'It carries on with your message.')
     : queue ? 'When it is done, Claude closes in its terminal and carries on in the background with this. Or type it in its terminal.' + tasksStop(s) + carry
     : (term && running ? 'Claude closes in its terminal and carries on in the background with this. claude attach opens it there.'
       : running ? 'It restarts in the background with this as its next prompt.'
-      : 'It starts again in the background with this as its next prompt.') + (running ? tasksStop(s) : '') + carry);
+      : 'It starts again in the background with this as its next prompt.') + (running ? tasksStop(s) : '') + carry;
+  setText($('d-send-hint'), to ? `Switching it to ${modeOf(to).toLowerCase()}…` : '');
+  setAttr(btn, 'title', how);
+  chipLabel();
   syncSend();
 }
+/** The chip reads what the three selects say, e.g. "Auto mode · Fable 5.1 · High effort". */
+function chipLabel() {
+  const text = ['d-mode', 'd-model', 'd-effort'].map((id) => { const o = $(id).selectedOptions[0]; return o ? o.text : ''; }).filter(Boolean).join(' · ');
+  setText($('d-opts'), text || 'Options');
+}
+function showPop(on) {
+  $('d-pop').hidden = !on;
+  setAttr($('d-opts'), 'aria-expanded', String(on));
+  if (on) $('d-mode').focus({ preventScroll: true });
+}
+$('d-opts').onclick = () => showPop($('d-pop').hidden);
+document.addEventListener('pointerdown', (e) => { if (!$('d-pop').hidden && !e.target.closest('.c-opts')) showPop(false); }, true);
+$('d-pop').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); showPop(false); $('d-opts').focus(); } });
+for (const id of ['d-mode', 'd-model', 'd-effort']) $(id).addEventListener('change', chipLabel);
 $('d-mode').onchange = async () => {
   const s = sessionOf(open), m = $('d-mode').value;
   if (!s || !m) return;
