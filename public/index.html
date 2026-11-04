@@ -276,7 +276,7 @@ body.resizing .drawer { transition: none; }
 .d-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 /* One column at reading width, centred once the panel is wider than that. */
 .d-col { width: 100%; max-width: 760px; margin-inline: auto; padding-inline: 32px; }
-.d-top-band { flex: none; max-height: 45%; overflow: auto; padding-block: 22px 18px; border-bottom: 1px solid var(--line); }
+.d-top-band { flex: none; max-height: 45%; overflow: auto; padding-block: 14px 12px; border-bottom: 1px solid var(--line); }
 .d-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding-block: 28px 24px; }
 .d-foot { flex: none; max-height: 62%; overflow: auto; padding-block: 0 20px; }
 /* What it asks you, and the options its last reply offered, come at the end of the chat: one place to scroll. */
@@ -329,9 +329,10 @@ body.wide-session .stage:has(> .drawer:not([hidden])) > .board, body.wide-sessio
 .d-top .btn.quiet[aria-pressed="true"] { color: var(--fg); }
 .d-top .age { flex: none; font: 12px var(--mono); color: var(--fg-faint); }
 .d-name { flex: 0 1 auto; min-width: 0; margin: 0; font-size: 20px; line-height: 1.2; font-weight: 600; letter-spacing: -0.015em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.d-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin: 10px 0 0 20px; color: var(--fg-dim); font-size: 12.5px; }
-.d-facts .tag { font-weight: 550; }
-.d-share { margin: 8px 0 0 20px; color: var(--amber); font-size: 12.5px; }
+.d-meta { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-dim); font-size: 12.5px; }
+.d-meta .st { font-weight: 550; }
+.d-meta .st[data-s="waiting"] { color: var(--amber); } .d-meta .st[data-s="busy"] { color: var(--run); } .d-meta .st[data-s="stopping"], .d-meta .st[data-s="failed"] { color: var(--stop); } .d-meta .st[data-s="finished"] { color: var(--ok); }
+.d-meta .bypass { color: var(--stop); }
 .where-b { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font: 12px var(--mono); color: var(--fg-dim); overflow-wrap: anywhere; }
 .mode-tag { display: inline-block; padding: 0 7px; border: 1px solid var(--line-strong); border-radius: 5px; font-size: 11.5px; line-height: 18px; white-space: nowrap; }
 .mode-tag[data-mode="bypassPermissions"] { border-color: var(--stop); color: var(--stop); }
@@ -1320,23 +1321,20 @@ function renderDrawer(vis) {
   const elsewhere = (s.elsewhere ?? []).map((g) => elsewhereOf(g, s.git)), here = s.workCwd ?? s.cwd;
   const stateWord = s.leftRosterAt ? 'Closed' : s.state === 'stopped' ? 'Ended' : LABEL[st];
   patch($('d-head'), JSON.stringify([s.sessionId, st, label(s), s.cwd, here, s.kind, s.inRoster, Boolean(s.leftRosterAt), s.state, noteText, s.hostsPanel, s.mode, s.git, sharers, elsewhere, s.oldVersion, snap.profile?.command, wideSession]), () => [
-    el('div', { class: 'd-top' }, glyph(st), el('h2', { class: 'd-name', text: label(s), title: label(s) }), el('span', { class: 'age' }), el('span', { class: 'grow' }),
-      el('button', { class: 'btn quiet small d-expand', type: 'button', text: wideSession ? 'Collapse' : 'Expand', 'aria-pressed': String(wideSession),
-        title: wideSession ? 'Show the board beside it again' : 'Give it the whole window', onclick: () => setLayout('wideSession', !wideSession) }),
-      el('button', { class: 'btn quiet small', type: 'button', text: 'Close', onclick: () => { cancelAdvance(); open = null; render(); } })),
-    el('div', { class: 'd-facts' },
-      el('span', { class: 'tag', 'data-s': st, text: stateWord }),
-      el('span', { text: KIND[s.kind] || 'Headless session' }),
-      where ? el('span', { class: 'where-b' + (s.git.worktree ? ' wt' : ''), title: where.long, text: where.on }) : null,
-      where ? el('span', { text: 'in ' + where.at }) : null,
-      s.mode ? el('span', { class: 'mode-tag', 'data-mode': s.mode, title: 'Its permission mode', text: modeOf(s.mode) }) : null),
-    sharers.length ? el('p', { class: 'd-share', title: sharers.join('\n'), text: `Shares this checkout and its branch with ${listOf(sharers)}.` }) : null,
-    elsewhere.length ? el('p', { class: 'd-share', text: `Also edits files in ${listOf(elsewhere)}.` }) : null,
+    el('div', { class: 'd-top' }, glyph(st), el('h2', { class: 'd-name', text: label(s), title: label(s) }),
+      el('span', { class: 'd-meta', title: where ? where.long : null },
+        el('span', { class: 'st', 'data-s': st, text: stateWord }), ' · ', KIND[s.kind]?.replace(' session', '') || 'Headless',
+        s.mode ? [' · ', el('span', { class: s.mode === 'bypassPermissions' ? 'bypass' : '', title: 'Its permission mode', text: modeOf(s.mode) })] : null,
+        el('span', { class: 'age' })),
+      el('button', { class: 'btn icon d-expand', type: 'button', 'aria-pressed': String(wideSession), 'aria-label': wideSession ? 'Collapse' : 'Expand',
+        title: wideSession ? 'Show the board beside it again' : 'Give it the whole window', onclick: () => setLayout('wideSession', !wideSession) },
+        svgIcon(wideSession ? 'M10 4H4v6M14 20h6v-6M4 4l7 7M20 20l-7-7' : 'M4 10V4h6M20 14v6h-6M20 4l-7 7M4 20l7-7')),
+      el('button', { class: 'btn icon', type: 'button', 'aria-label': 'Close', title: 'Close (Esc)', onclick: () => { cancelAdvance(); open = null; render(); } }, svgIcon('M6 6l12 12M18 6L6 18'))),
     noteText ? el('p', { class: 'note', text: noteText }) : null,
     s.oldVersion && !ended ? el('div', { class: 'note old', role: 'status' }, el('span', { class: 'lead', text: 'Restart this session.' }),
       el('span', { text: oldWhy(s.oldVersion) }), ...restartHow({ ...s, shown: true, profile: snap.profile })) : null,
   ]);
-  setText($('d-head').querySelector('.age'), s.startedAt ? 'up ' + ago(snap.now - s.startedAt) : '');
+  setText($('d-head').querySelector('.age'), s.startedAt ? ' · up ' + ago(snap.now - s.startedAt) : '');
 
   // Request cards are built once and kept, so an edit in progress survives every update.
   const rs = reqsOf(s.sessionId), box = $('d-cards');
@@ -1352,14 +1350,19 @@ function renderDrawer(vis) {
   want.forEach((c, i) => { if (box.children[i] !== c.el) box.insertBefore(c.el, box.children[i] ?? null); });
   for (const c of want) if (!c.fitted && c.el.offsetParent !== null) { c.fitted = true; c.el._fit(); }
 
-  patch($('d-line'), JSON.stringify([st, stateWord, s.lastTool?.tool, s.lastTool?.text, s.waitingFor, s.leftRosterAt, s.state, rs.length, s.bgTasks, s.hostsPanel]),
+  // The live thread shows what it is doing; this line stays only for what the thread cannot show.
+  const showNow = st === 'waiting' || st === 'stopping' || isOver(s) || Boolean(s.leftRosterAt);
+  $('d-line').hidden = !showNow;
+  if (showNow) patch($('d-line'), JSON.stringify([st, stateWord, s.lastTool?.tool, s.lastTool?.text, s.waitingFor, s.leftRosterAt, s.state, rs.length, s.bgTasks, s.hostsPanel]),
     () => [el('span', { class: 'tag', 'data-s': st }, glyph(st), stateWord), nowLine(s, st, rs)]);
   renderCompose(s, st);
 
   // The column: where it works, how to reopen it, its subagents, and the buttons that stop it.
-  patch($('d-info'), JSON.stringify([s.sessionId, s.cwd, here, s.git, s.kind, s.id, Boolean(s.leftRosterAt), snap.profile?.command]), () => el('dl', { class: 'kv' },
+  patch($('d-info'), JSON.stringify([s.sessionId, s.cwd, here, s.git, s.kind, s.id, Boolean(s.leftRosterAt), snap.profile?.command, sharers, elsewhere]), () => el('dl', { class: 'kv' },
     el('dt', { text: 'Folder' }), el('dd', { class: 'mono', text: here || 'unknown', title: here !== s.cwd && s.cwd ? `Started in ${s.cwd}` : null }),
-    where ? [el('dt', { text: 'Branch' }), el('dd', { class: 'mono', text: where.on }), el('dt', { text: 'Checkout' }), el('dd', { text: where.at[0].toUpperCase() + where.at.slice(1) })] : null,
+    where ? [el('dt', { text: 'Branch' }), el('dd', { class: 'mono' + (s.git.worktree ? ' where-b wt' : ' where-b'), text: where.on, title: where.long }), el('dt', { text: 'Checkout' }), el('dd', { text: where.at[0].toUpperCase() + where.at.slice(1) })] : null,
+    sharers.length ? [el('dt', { text: 'Shares with' }), el('dd', { title: sharers.join('\n'), text: listOf(sharers) })] : null,
+    elsewhere.length ? [el('dt', { text: 'Also edits' }), el('dd', { text: listOf(elsewhere) })] : null,
     bg && s.id ? [el('dt', { text: 'Reopen' }), el('dd', {}, copyBtn('claude attach ' + s.id))]
       : s.kind === 'interactive' && s.leftRosterAt ? [el('dt', { text: 'Reopen' }), el('dd', {}, copyBtn('claude --resume ' + s.sessionId))] : null));
   patch($('d-acts'), JSON.stringify([s.sessionId, live, ended, canEnd(s), canRm(s), bg, armedHere, s.bgTasks]), () => [
@@ -1911,6 +1914,12 @@ function cancelAdvance() {
 }
 
 // ---------- render ----------
+/** A 24-viewBox stroke icon from one path, for .btn.icon. */
+function svgIcon(d) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'), path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true'); path.setAttribute('d', d); svg.append(path);
+  return svg;
+}
 function render() {
   if (!snap) return;
   renderProfile();
