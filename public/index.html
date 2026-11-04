@@ -191,6 +191,27 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .srow[data-state="stopping"] .tdetail { color: var(--stop); }
 .tage { flex: none; width: 26px; text-align: right; font: 11.5px var(--mono); color: var(--fg-dim); }
 .told { flex: none; font: 600 10.5px var(--mono); color: var(--amber); }
+.chev-slot svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; transition: transform .12s; }
+.chev-slot.open svg { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .chev-slot svg { transition: none; } }
+/* A session's subagents hang under its row as a small tree: each its own state square, title and age or outcome. */
+.sub {
+  position: relative; display: flex; align-items: center; gap: 7px; width: 100%; height: 24px; padding: 0 8px 0 24px; border: 0; border-radius: 5px;
+  background: none; color: var(--fg-dim); font-size: 12px; text-align: left; cursor: pointer; white-space: nowrap;
+}
+.sub::before { content: ""; position: absolute; left: 11px; top: -2px; bottom: 0; border-left: 1px solid var(--line-strong); }
+.sub::after { content: ""; position: absolute; left: 11px; top: 12px; width: 7px; border-top: 1px solid var(--line-strong); }
+.sub.last::before { bottom: 12px; }
+.sub:hover { background: var(--hover); color: var(--fg); }
+.sub.focus { box-shadow: inset 0 0 0 1px var(--fg); }
+.sd { flex: none; width: 5px; height: 5px; border-radius: 1px; background: var(--fg-faint); }
+.sub[data-state="running"] .sd, .sub[data-state="stopping"] .sd { background: var(--run); }
+.sub[data-state="waiting"] .sd { background: var(--amber); }
+.sub[data-state="done"] .sd { background: var(--ok); }
+.sub[data-state="stopped"] .sd { background: var(--stop); }
+.sn { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sage { flex: none; font: 11.5px var(--mono); color: var(--fg-dim); }
+.sub[data-state="waiting"] .sage { color: var(--amber); }
 /* Where it works: its branch, with a branch mark in a shared checkout and a folder mark in a worktree of its own. */
 :root {
   --i-branch: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6'%3E%3Ccircle cx='4.5' cy='3.5' r='1.7'/%3E%3Ccircle cx='4.5' cy='12.5' r='1.7'/%3E%3Ccircle cx='11.5' cy='4.5' r='1.7'/%3E%3Cpath d='M4.5 5.2v5.6M11.5 6.2c0 3.2-7 1.8-7 4.6'/%3E%3C/svg%3E");
@@ -372,6 +393,7 @@ textarea.field { flex-basis: 100%; height: auto; min-height: 3.4em; padding: 6px
 .branch[data-state="waiting"]::after { border-top-color: var(--amber); }
 .branch[data-state="stopping"]::after { border-top-color: var(--stop); }
 .b-head { display: flex; align-items: center; gap: 8px; min-height: 24px; }
+.branch.focus > .b-head { box-shadow: inset 0 0 0 1px var(--fg); border-radius: 6px; padding: 0 6px; margin-left: -6px; }
 .b-title { font-weight: 550; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .b-type { font: 11.5px var(--mono); color: var(--fg-faint); white-space: nowrap; }
 .b-head > :last-child { margin-left: auto; }
@@ -977,6 +999,69 @@ function tipOf(s, st) {
   const more = d.full || (['busy', 'waiting', 'stopping'].includes(st) ? '' : textOf(lineOf(s)));
   return [w?.long, s.workCwd ?? s.cwd, more].filter(Boolean).join('\n') || label(s);
 }
+// ---- subagent trees: a session's subagents under its row. Open by itself while one runs or waits, folds 20 s after the
+// last one finishes; a chevron click or a key wins until a new subagent starts. Nothing folds or unfolds by itself while
+// the pointer is over that session's rows: the change waits for the pointer to leave.
+const trees = new Map(); // sessionId → { mode: 'auto'|'open'|'shut', shown, hover, pending, known: Set<agentId> }
+const TREE_LINGER_MS = 20_000;
+const CHEV_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
+function treeOf(s) {
+  let t = trees.get(s.sessionId);
+  if (!t) { t = { mode: 'auto', shown: false, hover: false, pending: null, known: new Set(), leave: 0 }; trees.set(s.sessionId, t); }
+  return t;
+}
+/** Whether the session's tree shows now, after the automatic rule, a manual choice and the pointer. */
+function treeOpen(s) {
+  if (!s.subagents.length) return false;
+  const t = treeOf(s);
+  if (s.subagents.some((a) => !t.known.has(a.agentId))) { t.known = new Set(s.subagents.map((a) => a.agentId)); t.mode = 'auto'; }
+  const live = s.subagents.some((a) => ['running', 'waiting', 'stopping'].includes(subState(s, a)));
+  const lastStop = Math.max(0, ...s.subagents.map((a) => a.stoppedAt ?? 0));
+  const want = t.mode === 'auto' ? live || snap.now - lastStop < TREE_LINGER_MS : t.mode === 'open';
+  if (want !== t.shown) {
+    if (t.mode === 'auto' && t.hover) { t.pending = want; return t.shown; }
+    t.shown = want; t.pending = null;
+  }
+  return t.shown;
+}
+function setTree(s, on) { const t = treeOf(s); t.mode = on ? 'open' : 'shut'; t.shown = on; t.pending = null; render(); }
+/** Moving between a row and its subagents fires leave then enter; a short wait tells that apart from leaving for good. */
+function hoverTree(s, on) {
+  const t = treeOf(s);
+  t.hover = on;
+  clearTimeout(t.leave);
+  if (!on && t.pending !== null) t.leave = setTimeout(() => { if (!t.hover && t.pending !== null) { t.shown = t.pending; t.pending = null; render(); } }, 120);
+}
+const subEls = new Map(); // agentId → its row under the session
+let subFocus = null;      // the subagent picked from the rail, marked in the details
+function subRow(s, a, last) {
+  let b = subEls.get(a.agentId);
+  if (!b) {
+    b = el('button', { class: 'sub', type: 'button' }, el('span', { class: 'sd', 'aria-hidden': 'true' }), el('span', { class: 'sn' }), el('span', { class: 'sage' }));
+    b.onpointerenter = () => { const o = sessionOf(b.dataset.sid); if (o) hoverTree(o, true); };
+    b.onpointerleave = () => { const o = sessionOf(b.dataset.sid); if (o) hoverTree(o, false); };
+    subEls.set(a.agentId, b);
+  }
+  const st = subState(s, a);
+  b.dataset.sid = s.sessionId;
+  setAttr(b, 'data-state', st);
+  b.classList.toggle('focus', subFocus === a.agentId);
+  b.classList.toggle('last', last);
+  b.onclick = () => focusSub(s, a);
+  setText(b.children[1], a.title || a.agentType);
+  setText(b.children[2], st === 'running' ? ago(snap.now - a.startedAt) : st === 'waiting' ? 'asks you' : LABEL[st].toLowerCase());
+  setAttr(b, 'title', a.lastTool ? `${a.lastTool.tool} ${a.lastTool.text}` : a.task ?? (a.title || a.agentType));
+  return b;
+}
+/** Open the session and mark this subagent in its details, unfolding the details column if it was folded away. */
+function focusSub(s, a) {
+  cancelAdvance();
+  open = s.sessionId;
+  subFocus = a.agentId;
+  if (sideFolded) { sideFolded = false; pref('acp.sideFolded', '0'); }
+  render();
+  document.querySelector('#d-subs .branch.focus')?.scrollIntoView({ block: 'nearest' });
+}
 const tiles = new Map(); // sessionId → its row
 function tile(s) {
   const id = s.sessionId;
@@ -984,13 +1069,22 @@ function tile(s) {
   if (!t) {
     t = { chev: el('span', { class: 'chev-slot', 'aria-hidden': 'true' }), glyph: el('span', { class: 'glyph', 'aria-hidden': 'true' }), name: el('span', { class: 'tname' }),
           detail: el('span', { class: 'tdetail' }), old: el('span', { class: 'told', text: '!' }), age: el('span', { class: 'tage' }) };
-    t.btn = el('button', { class: 'srow', type: 'button', onclick: () => { cancelAdvance(); open = open === id ? null : id; render(); } },
+    t.btn = el('button', { class: 'srow', type: 'button', onclick: () => { cancelAdvance(); subFocus = null; open = open === id ? null : id; render(); } },
       t.chev, t.glyph, t.name, t.detail, t.old, t.age);
     t.q = el('button', { class: 'qstop', type: 'button', onclick: () => t.act && confirmOr(t.key, t.act.run) });
     t.wrap = el('div', { class: 'tile-wrap', 'data-sid': id }, t.btn, t.q);
+    t.wrap.onpointerenter = () => { const o = sessionOf(id); if (o) hoverTree(o, true); };
+    t.wrap.onpointerleave = () => { const o = sessionOf(id); if (o) hoverTree(o, false); };
+    t.subRows = [];
     tiles.set(id, t);
   }
-  const st = stateOf(s);
+  const st = stateOf(s), hasSubs = s.subagents.length > 0, treeOn = hasSubs && treeOpen(s);
+  if (hasSubs && !t.chev.firstChild) t.chev.innerHTML = CHEV_SVG;
+  else if (!hasSubs && t.chev.firstChild) t.chev.replaceChildren();
+  t.chev.classList.toggle('open', treeOn);
+  t.chev.onclick = hasSubs ? (e) => { e.stopPropagation(); setTree(s, !treeOpen(s)); } : null;
+  if (hasSubs) setAttr(t.btn, 'aria-expanded', String(treeOn)); else t.btn.removeAttribute('aria-expanded');
+  t.subRows = treeOn ? s.subagents.map((a, i) => subRow(s, a, i === s.subagents.length - 1)) : [];
   setAttr(t.btn, 'data-state', st);
   setAttr(t.btn, 'aria-current', String(open === id));
   setAttr(t.btn, 'title', tipOf(s, st));
@@ -1050,12 +1144,15 @@ function renderBoard(g, vis) {
     c.empty.hidden = list.length > 0;
     setText(c.empty, c.k === 'waiting' ? 'Nothing needs you.' : c.k === 'busy' && !vis.length ? 'No sessions yet. Press New agent, or run claude in a terminal, and it shows up here.' : 'None.');
     // Move only what is out of place.
-    const want = [c.hint, ...list.map(tile), c.empty];
+    const want = [c.hint, ...list.flatMap((s) => { const w = tile(s); return [w, ...tiles.get(s.sessionId).subRows]; }), c.empty];
     want.forEach((n, i) => { if (c.body.children[i] !== n) c.body.insertBefore(n, c.body.children[i] ?? null); });
     while (c.body.children.length > want.length) c.body.lastChild.remove();
   }
   const keep = new Set(vis.map((s) => s.sessionId));
-  for (const [id, t] of tiles) if (!keep.has(id)) { t.wrap.remove(); tiles.delete(id); }
+  for (const [id, t] of tiles) if (!keep.has(id)) { t.wrap.remove(); tiles.delete(id); trees.delete(id); }
+  const agents = new Set(vis.flatMap((s) => s.subagents.map((a) => a.agentId)));
+  for (const [id, b] of subEls) if (!agents.has(id)) { b.remove(); subEls.delete(id); }
+  if (subFocus && !agents.has(subFocus)) subFocus = null;
   countsInto($('counts'), g);
 }
 function countsInto(node, g) {
@@ -1169,7 +1266,7 @@ function renderDrawer(vis) {
   // The tree's buttons only rebuild when its shape changes; each subagent's "now" line updates on its own.
   const subArmed = armed?.key.startsWith(`sub:${s.sessionId}:`) ? armed.key : null;
   const shape = s.subagents.map((a) => [a.agentId, subState(s, a), a.title, a.agentType, Boolean(a.task)]);
-  patch($('d-subs'), JSON.stringify([s.sessionId, subArmed, shape]), () => (s.subagents.length ? subTree(s)
+  patch($('d-subs'), JSON.stringify([s.sessionId, subArmed, shape, subFocus]), () => (s.subagents.length ? subTree(s)
     : el('section', { class: 'sec' }, el('h4', { class: 'rule', text: 'Subagents' }), quiet('None right now. Each appears here, titled with the task its parent gave it.'))));
   for (const a of s.subagents) {
     const node = subNows.get(a.agentId);
@@ -1680,7 +1777,7 @@ function subTree(s) {
     subNows.set(a.agentId, now);
     const task = a.task ? el('details', { open: tasksOpen.has(a.agentId), ontoggle: (e) => (e.target.open ? tasksOpen.add(a.agentId) : tasksOpen.delete(a.agentId)) },
       el('summary', { text: 'Its task' }), el('p', { text: a.task })) : null;
-    return el('li', { class: 'branch', 'data-state': st },
+    return el('li', { class: 'branch' + (subFocus === a.agentId ? ' focus' : ''), 'data-state': st },
       el('div', { class: 'b-head' }, glyph(st), el('span', { class: 'b-title', text: a.title || a.agentType }), el('span', { class: 'b-type', text: a.agentType }),
         live ? armBtn(key, 'Stop', 'Confirm stop', () => doInterrupt(s, a)) : el('span', { class: 'b-age', text: LABEL[st].toLowerCase() })),
       now,
