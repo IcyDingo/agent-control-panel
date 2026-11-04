@@ -52,8 +52,8 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 /* ---------- top bar ---------- */
 .top {
-  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; min-height: 50px;
-  padding: 8px max(16px, env(safe-area-inset-right, 0px)) 8px max(16px, env(safe-area-inset-left, 0px)); border-bottom: 1px solid var(--line);
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; min-height: 44px;
+  padding: 5px max(16px, env(safe-area-inset-right, 0px)) 5px max(16px, env(safe-area-inset-left, 0px)); border-bottom: 1px solid var(--line);
   background: var(--panel);
 }
 .brand { display: inline-flex; align-items: center; gap: 9px; font-weight: 600; font-size: 14px; letter-spacing: -0.01em; }
@@ -73,9 +73,10 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .switch input:checked + i::after { transform: translateX(12px); }
 .switch input:focus-visible + i { outline: 1px solid var(--fg); outline-offset: 2px; }
 .banner { flex: none; margin: 0; padding: 8px max(16px, env(safe-area-inset-left, 0px)); border-bottom: 1px solid var(--amber-line); color: var(--amber); font-size: 12.5px; }
-.banner.connect { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; color: var(--fg-dim); }
+.banner.connect { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px 14px; min-height: 30px; padding-block: 4px; color: var(--fg-dim); }
+.banner.connect > span:first-child { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .banner.connect b { color: var(--fg); font-weight: 600; }
-.banner.connect .mono { font: 11.5px var(--mono); color: var(--fg-faint); }
+.banner.connect .mono { display: none; }
 /* Sessions on a Claude Code version deleted under them: macOS can refuse them ~/Documents at any moment. */
 .banner.old { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-height: 30px; padding-block: 4px; }
 .banner.old > .lead { flex: 1 1 auto; min-width: 0; }
@@ -164,6 +165,8 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .col[data-col="waiting"] { flex: 0 1 auto; min-height: 0; max-height: 50%; }
 .col.folded { flex: none; min-height: 0; }
 .col.folded .col-body { display: none; }
+.col.folded .col-tools { opacity: 0; transition: opacity .12s; }
+.col.folded:hover .col-tools, .col.folded:focus-within .col-tools, .col.folded .col-tools:has(.armed) { opacity: 1; }
 .col-h { flex: none; display: flex; align-items: center; gap: 8px; height: 28px; padding-right: 8px; font-size: 11.5px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; color: var(--fg-dim); }
 .col-h .n { font: 500 11px var(--mono); color: var(--fg-dim); }
 .col-h .btn.small { height: 20px; padding: 0 7px; font-size: 11px; text-transform: none; letter-spacing: 0; }
@@ -316,7 +319,8 @@ body.resizing .drawer { transition: none; }
 /* Under the conversation, on a narrow panel */
 .d-subs-in .d-side-body { padding: 0; overflow: visible; }
 .d-subs-in:empty { display: none; }
-.d-subs-in .side-acts { grid-auto-flow: column; justify-content: start; margin-top: 0; }
+.d-subs-in .side-acts { margin-top: 0; }
+.side-acts .btn:only-of-type { grid-column: 1 / -1; }
 .d-side.folded { width: 40px; }
 .d-side.folded .d-side-body, .d-side.folded .s-grip { display: none; }
 .d-side.folded .d-side-tab { writing-mode: vertical-rl; padding: 16px 12px; }
@@ -326,16 +330,13 @@ body.wide-session .stage:has(> .drawer:not([hidden])) > .board, body.wide-sessio
 /* Two rows: the name with its state light, then one line of facts. */
 .d-top { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .d-top .glyph { width: 8px; height: 8px; }
-.d-top .btn.quiet[aria-pressed="true"] { color: var(--fg); }
-.d-top .age { flex: none; font: 12px var(--mono); color: var(--fg-faint); }
+.d-meta .age { font: inherit; color: inherit; }
 .d-name { flex: 0 1 auto; min-width: 0; margin: 0; font-size: 20px; line-height: 1.2; font-weight: 600; letter-spacing: -0.015em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .d-meta { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-dim); font-size: 12.5px; }
 .d-meta .st { font-weight: 550; }
 .d-meta .st[data-s="waiting"] { color: var(--amber); } .d-meta .st[data-s="busy"] { color: var(--run); } .d-meta .st[data-s="stopping"], .d-meta .st[data-s="failed"] { color: var(--stop); } .d-meta .st[data-s="finished"] { color: var(--ok); }
 .d-meta .bypass { color: var(--stop); }
 .where-b { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font: 12px var(--mono); color: var(--fg-dim); overflow-wrap: anywhere; }
-.mode-tag { display: inline-block; padding: 0 7px; border: 1px solid var(--line-strong); border-radius: 5px; font-size: 11.5px; line-height: 18px; white-space: nowrap; }
-.mode-tag[data-mode="bypassPermissions"] { border-color: var(--stop); color: var(--stop); }
 .mode-pick { flex: 0 1 auto; width: auto; }
 .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
 .hint { margin: 8px 0 0; font-size: 12.5px; color: var(--stop); }
@@ -499,7 +500,7 @@ textarea.field { flex-basis: 100%; height: auto; min-height: 3.4em; padding: 6px
 #d-opts { color: var(--fg-dim); font-weight: 400; }
 #d-opts::after { content: "\25BE"; margin-left: 2px; font-size: 9px; color: var(--fg-faint); }
 #d-opts[aria-expanded="true"], #d-opts:hover { color: var(--fg); }
-.c-pop { position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 7; display: grid; gap: 6px; min-width: 260px; padding: 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--raise); box-shadow: 0 12px 28px -16px var(--shade); }
+.c-pop { position: fixed; z-index: 40; display: grid; gap: 6px; min-width: 260px; padding: 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--raise); box-shadow: 0 12px 28px -16px var(--shade); }
 .c-row { display: grid; grid-template-columns: 56px 1fr; align-items: center; gap: 8px; font-size: 12px; color: var(--fg-dim); }
 .c-pop .c-mode { width: 100%; border: 1px solid var(--line); border-radius: 6px; background-color: var(--panel); }
 .c-pop .c-mode + .c-mode { border-left: 1px solid var(--line); border-radius: 6px; }
@@ -1291,15 +1292,15 @@ function restartHow(o) {
 }
 /** Every profile's sessions on a deleted version: the one that loses access is often not on screen. */
 // One line until asked: "Show which" unfolds the list, × puts the banner away until the list changes.
-let oldOpen = false, oldDismissed = '';
+let oldOpen = false; const oldDismissed = new Set();
 function renderOld(list) {
-  const b = $('old-ver'), key = list.map((o) => o.sessionId).sort().join(',');
-  b.hidden = !list.length || oldDismissed === key;
+  const b = $('old-ver');
+  b.hidden = !list.length || list.every((o) => oldDismissed.has(o.sessionId));
   b.classList.toggle('open', oldOpen);
   patch(b, JSON.stringify([list, snap.profile?.id, oldOpen]), () => !list.length ? null : [
     el('span', { class: 'lead', text: `${list.length === 1 ? 'A session runs' : `${list.length} sessions run`} a Claude Code version the updater has deleted; restart ${list.length === 1 ? 'it' : 'them'} before macOS stops ${list.length === 1 ? 'it' : 'them'} reading ~/Documents.` }),
     el('button', { class: 'btn small', type: 'button', text: oldOpen ? 'Hide' : 'Show which', 'aria-expanded': String(oldOpen), onclick: () => { oldOpen = !oldOpen; render(); } }),
-    el('button', { class: 'btn icon', type: 'button', 'aria-label': 'Dismiss', title: 'Put this away until the list changes', text: '×', onclick: () => { oldDismissed = key; render(); } }),
+    el('button', { class: 'btn icon', type: 'button', 'aria-label': 'Dismiss', title: 'Put this away until the list changes', text: '×', onclick: () => { for (const o of list) oldDismissed.add(o.sessionId); render(); } }),
     el('ul', {}, ...list.map((o) => el('li', {}, el('b', { text: o.name || o.id || o.sessionId.slice(0, 8) }),
       el('span', { text: `${o.shown ? '' : `${o.profile.label} profile, `}Claude Code ${o.version}.` }), ...restartHow(o)))),
   ]);
@@ -1366,7 +1367,10 @@ function renderDrawer(vis) {
   for (const c of want) if (!c.fitted && c.el.offsetParent !== null) { c.fitted = true; c.el._fit(); }
 
   // The live thread shows what it is doing; this line stays only for what the thread cannot show.
-  const showNow = st === 'waiting' || st === 'stopping' || isOver(s) || Boolean(s.leftRosterAt);
+  const showNow = st === 'waiting' || st === 'stopping' || isOver(s) || Boolean(s.leftRosterAt)
+    || (st === 'busy' && !(threads.get(s.sessionId)?.rows.size)) // no transcript rows to show it: say what it does
+    || (st === 'idle' && Boolean(s.hostsPanel || s.bgTasks));     // "reply in its terminal", "N background tasks"
+
   $('d-line').hidden = !showNow;
   if (showNow) patch($('d-line'), JSON.stringify([st, stateWord, s.lastTool?.tool, s.lastTool?.text, s.waitingFor, s.leftRosterAt, s.state, rs.length, s.bgTasks, s.hostsPanel]),
     () => [el('span', { class: 'tag', 'data-s': st }, glyph(st), stateWord), nowLine(s, st, rs)]);
@@ -1766,6 +1770,7 @@ function renderCompose(s, st) {
   }
   $('d-chat').hidden = !renderThread(s) && !show;
   $('d-compose').hidden = !show;
+  if (!$('d-pop').hidden && (!show || popFor !== s.sessionId)) showPop(false);
   if (!show) return;
   const running = s.inRoster && !isOver(s), term = s.kind === 'interactive';
   setAttr($('d-reply'), 'placeholder', s.working ? 'Tell it something while it works' : 'Answer it, or tell it what to do next');
@@ -1797,7 +1802,7 @@ function renderCompose(s, st) {
   btn.className = 'btn small ' + (on ? 'danger armed' : 'primary');
   const cmd = isCommand(), typing = live && cmd && !restart;
   setText(btn, on ? (queue ? 'Confirm: close it once done' : 'Confirm: close it and send') : sending.has(s.sessionId) ? (typing ? 'Running…' : 'Sending…')
-    : typing ? (queue ? 'Run when it is done' : 'Run') : queue ? 'Send when it is done' : restart ? 'Restart and send' : term && running ? 'Send, move to background' : 'Send');
+    : typing ? (queue ? 'Run when it is done' : 'Run') : queue ? 'Send when done' : restart ? 'Restart and send' : term && running ? 'Send, move to background' : 'Send');
   const back = comesBack(picked && picked !== s.mode ? picked : null, mPick, ePick), carry = back ? ` It comes back ${back}.` : '';
   const how = typing ? (queue ? 'Once it is done, this is typed at its prompt, as you would in claude attach.' : 'This is typed at its prompt, as you would in claude attach.')
     : restart ? (queue ? 'When it is done, it' : 'It') + (inOwnTree(s) ? ' carries on as a copy under a new id, in its worktree, with this as its next prompt.' : ' restarts in the background with this as its next prompt.') + tasksStop(s) + carry
@@ -1816,14 +1821,23 @@ function chipLabel() {
   const text = ['d-mode', 'd-model', 'd-effort'].map((id) => { const o = $(id).selectedOptions[0]; return o ? o.text : ''; }).filter(Boolean).join(' · ');
   setText($('d-opts'), text || 'Options');
 }
+let popFor = null; // the session the popover was opened for; it closes when that changes or the reply box hides
 function showPop(on) {
-  $('d-pop').hidden = !on;
+  const pop = $('d-pop');
+  if (on) { // fixed, above the chip: the footer's scroll box would clip an absolutely placed one
+    const r = $('d-opts').getBoundingClientRect();
+    pop.style.left = Math.max(8, r.left) + 'px';
+    pop.style.bottom = (innerHeight - r.top + 6) + 'px';
+  }
+  pop.hidden = !on;
+  popFor = on ? open : null;
   setAttr($('d-opts'), 'aria-expanded', String(on));
   if (on) $('d-mode').focus({ preventScroll: true });
 }
 $('d-opts').onclick = () => showPop($('d-pop').hidden);
 document.addEventListener('pointerdown', (e) => { if (!$('d-pop').hidden && !e.target.closest('.c-opts')) showPop(false); }, true);
 $('d-pop').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); showPop(false); $('d-opts').focus(); } });
+$('d-pop').addEventListener('focusout', (e) => { if (!$('d-pop').hidden && !e.relatedTarget?.closest?.('.c-opts') && e.relatedTarget) showPop(false); });
 for (const id of ['d-mode', 'd-model', 'd-effort']) $(id).addEventListener('change', chipLabel);
 $('d-mode').onchange = async () => {
   const s = sessionOf(open), m = $('d-mode').value;
@@ -2361,6 +2375,7 @@ function renderProfile() {
   $('prof-banner').hidden = p.connected;
   setText($('pb-name'), name);
   setText($('pb-file'), `Adds its hooks to ${p.where}/settings.json and keeps a copy of the old file.`);
+  setAttr($('pb-connect'), 'title', `Adds its hooks to ${p.where}/settings.json and keeps a copy of the old file.`);
 }
 async function openProfiles() {
   const menu = $('prof-menu'), r = await api('/api/profiles', {});
@@ -2458,6 +2473,7 @@ $('pb-connect').onclick = async () => {
 
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || dlg.open || e.target.closest?.('textarea, input, select')) return;
+  if (!$('d-pop').hidden) { showPop(false); return; }
   if (open) { cancelAdvance(); open = null; render(); }
 });
 

@@ -129,7 +129,7 @@ its own icon. Open it like any app, or keep it in the Dock.
 - The Dock icon counts the requests waiting on you, and bounces when a new one arrives while you're
   in another app. Closing the window keeps the panel connected: the count stays live and requests are
   still held. Click the Dock icon to bring the window back; ⌘Q quits.
-- **Turn on desktop alerts** gives you the Mac's own notifications. Clicking one opens that session.
+- the bell (**Turn on desktop alerts**) gives you the Mac's own notifications. Clicking one opens that session.
 - The title bar follows the panel's theme.
 - **File › New Agent** (⌘T) opens the launcher, and the **New agent** button shows the shortcut. In a
   browser ⌘T opens a new tab, so there the button shows none.
@@ -179,7 +179,7 @@ without touching your settings, run a single session with the hooks:
 
 - A permission request appears here **and** in the session's terminal at the same time.
   Whichever answers first wins.
-- The panel holds a request only while a panel tab is open and **Answer prompts here** is on.
+- The panel holds a request only while a panel tab is open and **Answering here** is on.
   Otherwise it answers nothing and the terminal decides as usual. A reload (yours, or the app's when
   its health check is slow) isn't a closed tab: held requests wait 15 seconds for a page to come back.
 - If the server isn't running, the hooks fail silently and Claude Code behaves as if they weren't there.
