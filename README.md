@@ -208,11 +208,13 @@ your words.
 
 ## Messaging a session
 
-Every session's panel has a **Chat**: the conversation so far, read from its transcript, with a message
-box with the session's mode and **Send** along its bottom. Each of your messages shows with the reply
-Claude ended on (not its running commentary between tool calls); **Show earlier** reads further back,
-and a compacted stretch shows as a note. It opens at the newest message and keeps it in view as more
-arrive, unless you scrolled up to read. When its last reply ends with a numbered or lettered list,
+Every session's panel has a **Chat**, with a message box with the session's mode and **Send** along
+its bottom. The Chat follows the session's transcript as it is written: what you typed, each piece
+Claude writes, every tool it calls with its state and how long it took, and a short look at what the
+tool returned (click the tool's line to unfold it). A new line is on screen within a fraction of a
+second of Claude Code writing it. Thinking and a tool's full output stay in the terminal. **Show
+earlier** reads further back, and a compacted stretch shows as a note. It opens at the newest message
+and keeps it in view as more arrive, unless you scrolled up to read. When its last reply ends with a numbered or lettered list,
 each option shows as a chip that fills the box; add to it if you like.
 
 **Enter** sends at once: the message leaves the box and shows in the chat as sending. If it doesn't
