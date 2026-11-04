@@ -412,6 +412,32 @@ textarea.field { flex-basis: 100%; height: auto; min-height: 3.4em; padding: 6px
 .msg.note { justify-self: center; font-size: 12px; color: var(--fg-faint); }
 .msg.you .m-who { justify-content: flex-end; margin: 4px 0 0; }
 .msg.out .m-body { max-height: 260px; overflow: auto; margin: 0; padding: 10px 14px; border-radius: 10px; background: var(--raise); font: 12.5px/1.5 var(--mono); white-space: pre-wrap; }
+/* a tool call: one quiet line (its state as the small light, what it ran, how long it took), what it returned behind a
+   disclosure. Calls in a row sit close together; failed and refused ones take the stop colour. */
+.msg.tool { font-size: 12.5px; color: var(--fg-dim); }
+.msg.tool + .msg.tool { margin-top: -20px; }
+.msg.tool .t-line { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 22px; }
+.msg.tool summary.t-line { list-style: none; cursor: pointer; }
+.msg.tool summary.t-line::-webkit-details-marker { display: none; }
+.msg.tool summary.t-line::after { content: ""; flex: none; width: 5px; height: 5px; margin: 0 3px 2px 0; border: solid var(--fg-faint); border-width: 0 1.5px 1.5px 0; transform: rotate(-45deg); transition: transform .15s; }
+.msg.tool details[open] > summary.t-line::after { transform: rotate(45deg); }
+.msg.tool summary.t-line:hover .t-what { color: var(--fg-dim); }
+.msg.tool .glyph { margin-right: 1px; }
+.msg.tool .glyph[data-s="refused"] { background: var(--stop); }
+.msg.tool b { flex: none; font: 500 12px var(--mono); color: var(--fg-dim); }
+.msg.tool .t-what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px var(--mono); color: var(--fg-faint); }
+.msg.tool .t-dur { flex: none; font: 11.5px var(--mono); color: var(--fg-faint); white-space: nowrap; }
+.msg.tool .t-note { margin: 1px 0 0 16px; font-size: 12px; color: var(--fg-faint); }
+.msg.tool pre.m-body { max-height: 260px; overflow: auto; margin: 6px 0 2px 16px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--code); font: 12px/1.5 var(--mono); white-space: pre-wrap; }
+.msg.tool[data-state="running"] b { color: var(--run); }
+.msg.tool[data-state="waiting"] b, .msg.tool[data-state="waiting"] .t-dur { color: var(--amber); }
+.msg.tool[data-state="failed"] b, .msg.tool[data-state="refused"] b, .msg.tool[data-state="failed"] .t-what, .msg.tool[data-state="refused"] .t-what { color: var(--stop); }
+/* the end of a turn: a hairline */
+.turn { width: 100%; margin: 0; border: 0; border-top: 1px solid var(--line); }
+/* newer rows below: a small button at the bottom of the chat's view, which takes no room of its own */
+.d-newer-at { position: sticky; bottom: 0; height: 0; display: flex; justify-content: center; pointer-events: none; }
+.d-newer { pointer-events: auto; height: 26px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--raise); box-shadow: 0 2px 10px var(--shade); font-size: 12px; color: var(--fg-dim); cursor: pointer; transform: translateY(calc(-100% - 10px)); }
+.d-newer:hover { color: var(--fg); }
 .linkish { padding: 0; border: 0; background: none; color: var(--fg-dim); font-size: 11.5px; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .composer { border: 1px solid var(--line-strong); border-radius: 12px; background: var(--raise); }
 .composer:focus-within { border-color: var(--fg-dim); }
@@ -540,6 +566,8 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
             <section class="sec needs" id="d-needs" hidden><h4 class="rule">Needs you <span class="n" id="d-needs-n"></span></h4><div class="cards" id="d-cards"></div></section>
             <div class="d-subs-in" id="d-subs-in"></div>
           </div>
+          <!-- Shown when rows came in below while you read further up. -->
+          <div class="d-newer-at"><button class="d-newer" type="button" id="d-newer" hidden>↓ newer</button></div>
         </div>
         <div class="d-foot">
           <div class="d-col">
@@ -620,6 +648,8 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 
 <script>
 const TOKEN = '__ACP_TOKEN__';
+// This page, to the server: the thread of the session it has open comes on its stream, under this id.
+const CLIENT = crypto.randomUUID?.() ?? Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
 const COLS = [['waiting', 'Needs you'], ['busy', 'Working'], ['idle', 'Idle'], ['finished', 'Finished']];
 const LABEL = { waiting: 'Needs you', busy: 'Working', idle: 'Idle', finished: 'Finished', failed: 'Failed', stopping: 'Stopping', running: 'Running', done: 'Done', stopped: 'Stopped' };
 const KIND = { background: 'Background session', interactive: 'Terminal session' };
@@ -724,9 +754,13 @@ function patch(node, sig, build) {
 
 // ---------- live connection ----------
 function connect() {
-  const es = new EventSource('/events?t=' + encodeURIComponent(TOKEN));
+  const es = new EventSource('/events?t=' + encodeURIComponent(TOKEN) + '&c=' + CLIENT);
   const conn = $('conn');
-  es.onopen = () => { conn.classList.remove('down'); conn.textContent = 'Live'; };
+  // The server forgets what a page follows when its stream closes: a stream that opens again asks for it again.
+  es.onopen = () => { conn.classList.remove('down'); conn.textContent = 'Live'; if (followed) followOpen(followed); };
+  es.addEventListener('thread', (m) => { const d = JSON.parse(m.data); applyThread(d.sessionId, d.events); });
+  // Its transcript was cut or replaced, or the profile switched: what the page holds is gone, so it asks again.
+  es.addEventListener('thread-reset', (m) => { const { sessionId } = JSON.parse(m.data); if (sessionId === followed) { threads.delete(sessionId); followOpen(sessionId); } });
   es.onerror = () => {
     conn.classList.add('down');
     conn.textContent = 'Disconnected. Is server.mjs running?';
@@ -740,8 +774,9 @@ function connect() {
     const newOld = prev ? (snap.oldVersions ?? []).filter((o) => !(prev.oldVersions ?? []).some((x) => x.sessionId === o.sessionId)) : [];
     if (newOld.length === 1) toast(`${newOld[0].name || 'A session'} runs Claude Code ${newOld[0].version}, which has been deleted. Restart it before it loses ~/Documents.`);
     else if (newOld.length) toast(`${newOld.length} sessions run a Claude Code version that has been deleted. Restart them before they lose ~/Documents.`);
-    const ev = snap.event;
-    if (ev?.type === 'settled' && cards.has(ev.id)) {
+    // Every request settled since the last snapshot (the first one, on connect, carries none).
+    for (const ev of snap.events ?? []) {
+      if (ev?.type !== 'settled' || !cards.has(ev.id)) continue;
       const r = cards.get(ev.id).req;
       const how = (ev.why === 'deny' && DIALOG[r.toolName]?.deny) || SETTLED[ev.why] || ev.why;
       notes.set(r.sessionId, { text: `${toolName(r.toolName)}: ${how}.`, at: Date.now() });
@@ -1059,7 +1094,7 @@ function renderDrawer(vis) {
     d.classList.remove('enter');
     void d.offsetWidth;
     d.classList.add('enter');
-    stick = true; // a session opens at its newest message, like a chat
+    pinEnd(); // a session opens at its newest message, like a chat
     drawerWas = s.sessionId;
     $('d-reply').value = drafts.get(s.sessionId) ?? '';
   }
@@ -1095,7 +1130,7 @@ function renderDrawer(vis) {
   setText($('d-needs-n'), rs.length > 1 ? String(rs.length) : '');
   const want = rs.map((p) => {
     let c = cards.get(p.id);
-    if (!c) { c = { req: p, el: buildCard(p) }; cards.set(p.id, c); stick = true; }
+    if (!c) { c = { req: p, el: buildCard(p) }; cards.set(p.id, c); pinEnd(); }
     setText(c.el.querySelector('.req-age'), 'waiting ' + ago(snap.now - p.createdAt));
     return c;
   });
@@ -1192,70 +1227,261 @@ function ranHow(m) {
   return m.status === 'waiting' ? `Ran${as}. It opened something on its screen: claude attach shows it`
     : m.status === 'busy' ? `Ran${as}. It is working on it` : m.ran ? `Ran${as} at its prompt` : 'Typed at its prompt. Nothing came back in its conversation';
 }
-// ---------- the conversation: read back from its transcript, plus what you sent from here until it shows there ----------
-const chats = new Map(); // sessionId → { items, more, limit, key, busy }
-// Read again when it said something, you sent something, or (while it works) every quarter minute.
-const chatKey = (s) => JSON.stringify([s.lastMessageAt ?? 0, (s.sent ?? []).length, (s.queued ?? []).length, s.state, s.status, s.working ? Math.floor((s.lastEventAt ?? 0) / 15_000) : 0]);
-async function loadChat(s, limit) {
-  const c = chats.get(s.sessionId) ?? { items: [], more: false, limit: 60 };
-  chats.set(s.sessionId, c);
-  if (c.busy) return;
-  c.busy = true; c.key = chatKey(s);
-  const r = await api('/api/history', { sessionId: s.sessionId, limit: limit ?? c.limit });
-  c.busy = false;
-  if (r.ok) Object.assign(c, { items: r.items, more: r.more, limit: limit ?? c.limit });
-  if (open === s.sessionId) render();
+// ---------- the conversation: the open session's thread, live from its transcript, plus what you sent from here ----------
+// The server follows the transcript of the session this page has open (followOpen tells it which) and sends its rows as
+// they are written: a row is new (an item) or an update to one it sent before, by key. The page only keeps and draws
+// them. What you sent from here shows beside them until the transcript has it.
+const CAP = 400; // rows kept in the DOM while you follow the bottom; Show earlier and scrolling up lift it
+/** sessionId → { rows: Map<key, item>, more, pending, loading, early, version }: the open session's thread. */
+const threads = new Map();
+let followed = null, followAsk = 0; // the session the last followOpen was for, and which ask that was
+/** Tell the server which session this page has open, and seed its thread from the reply. Rows that arrive while the
+ *  reply is on its way wait in `early`; a reply for a session you have already left, or overtaken by a newer ask
+ *  (a reconnect), is dropped. Older rows read with Show earlier stay when the same session is asked for again. */
+async function followOpen(id) {
+  if (followed && followed !== id) threads.delete(followed);
+  followed = id ?? null;
+  const ask = ++followAsk;
+  let t = id ? threads.get(id) : null;
+  if (id && !t) threads.set(id, t = { rows: new Map(), more: false, pending: false, version: 0 });
+  if (t) { t.loading = true; t.early = []; }
+  const r = await api('/api/follow', { client: CLIENT, sessionId: id ?? null, limit: 60 });
+  if (!id || ask !== followAsk || threads.get(id) !== t) return;
+  t.loading = false;
+  if (r.ok) {
+    const items = r.items.map(bareItem), low = Math.min(...items.map((m) => (typeof m.pos === 'number' ? m.pos : Infinity)));
+    const old = t.rows, kept = [...old.values()].filter((m) => typeof m.pos === 'number' && m.pos < low);
+    t.rows = new Map();
+    for (const m of [...kept, ...items]) putRow(t, m, old);
+    t.more = kept.length ? t.more : r.more;
+    t.pending = Boolean(r.pending);
+  } else console.error('follow:', r.error);
+  const early = t.early;
+  t.early = [];
+  applyThread(id, early);
+  t.version++;
+  later();
 }
+const bareItem = ({ input, ...m }) => m; // /api/history's items carry a call's input, which nothing here draws
+/** Put an item under its key, keeping the element drawn for that key (`from`: where it was). */
+function putRow(t, m, from = t.rows) {
+  const was = from.get(m.key);
+  if (was) { m.el = was.el; m._sig = was._sig; m.dur = was.dur; }
+  t.rows.set(m.key, m);
+}
+/** Thread events for a session: new rows, and updates that patch a row (or drop it). */
+function applyThread(id, events) {
+  const t = threads.get(id);
+  if (!t || id !== followed || !events?.length) return;
+  if (t.loading) { t.early.push(...events); return; }
+  for (const e of events) {
+    if (e.who !== 'update') { putRow(t, bareItem(e)); continue; }
+    const r = t.rows.get(e.key);
+    if (!r) continue;
+    if (e.patch.removed) t.rows.delete(e.key); else Object.assign(r, e.patch);
+  }
+  t.pending = false;
+  t.version++;
+  later();
+}
+let frame = 0; // thread events come in bursts: one redraw per frame
+function later() { if (!frame) frame = requestAnimationFrame(() => { frame = 0; render(); }); }
+/** A thread's rows in order: transcript rows by their place in the file, the rest (a call its hook announced, a turn's
+ *  end) among them by time, as thread.mjs orders them. Kept until the thread changes. */
+function rowsOf(t) {
+  if (t.ordered?.version === t.version) return t.ordered.rows;
+  const all = [...t.rows.values()];
+  const filed = all.filter((m) => typeof m.pos === 'number').sort((a, b) => a.pos - b.pos);
+  const loose = all.filter((m) => typeof m.pos !== 'number').sort((a, b) => a.at - b.at);
+  const rows = [];
+  let i = 0, j = 0;
+  while (i < filed.length || j < loose.length) rows.push(j < loose.length && (i >= filed.length || loose[j].at < filed[i].at) ? loose[j++] : filed[i++]);
+  t.ordered = { version: t.version, rows };
+  return rows;
+}
+/** Show earlier: rows kept out of the DOM first, then the transcript before the oldest row. A result whose call is
+ *  here folds into its row, a call whose result is here takes it over, as thread.mjs does. */
+async function earlier() {
+  const s = sessionOf(open), t = s && threads.get(s.sessionId), sc = $('d-scroll');
+  if (!t || t.busy) return;
+  if (!shownFrom.hidden && t.more) {
+    const pos = [...t.rows.values()].map((m) => m.pos).filter((p) => typeof p === 'number');
+    t.busy = true;
+    const r = await api('/api/history', { sessionId: s.sessionId, limit: 100, ...(pos.length ? { before: Math.min(...pos) } : {}) });
+    t.busy = false;
+    if (threads.get(s.sessionId) !== t) return;
+    if (!r.ok) { toast(r.error || 'Nothing earlier could be read.', true); return; }
+    const orphans = new Map([...t.rows.values()].filter((x) => x.who === 'result').map((x) => [x.toolUseId, x]));
+    for (const m of r.items.map(bareItem)) {
+      if (t.rows.has(m.key)) continue;
+      const call = m.who === 'result' ? t.rows.get('tool:' + m.toolUseId) : null;
+      if (call?.who === 'tool') { foldResult(call, m); continue; }
+      putRow(t, m);
+      const orphan = m.who === 'tool' && orphans.get(m.toolUseId);
+      if (orphan) { foldResult(m, orphan); t.rows.delete(orphan.key); orphans.delete(m.toolUseId); }
+    }
+    t.more = r.more;
+    t.version++;
+  }
+  uncapped = true;
+  keepBelow = sc.scrollHeight - sc.scrollTop;
+  render();
+}
+function foldResult(row, res) {
+  if (row.state !== 'refused') row.state = res.ok ? 'done' : 'failed';
+  row.preview = res.preview;
+  row.endedAt = res.at;
+}
+$('d-earlier').onclick = earlier;
+
 const outbox = new Map(); // sessionId → messages on their way: shown at once, and put back in the box if they fail
-let stick = false, keepBelow = null; // scroll to the newest message; or keep your place when older ones load above
-// Whether you are at the newest message, from your own scrolling: the bands around the chat grow and shrink (a note, a
-// card, the box), and that alone must not stop new messages from staying in view.
-let followEnd = true;
-$('d-scroll').addEventListener('scroll', () => { const n = $('d-scroll'); followEnd = n.scrollHeight - n.scrollTop - n.clientHeight < 48; }, { passive: true });
-new ResizeObserver(() => { if (followEnd) $('d-scroll').scrollTop = $('d-scroll').scrollHeight; }).observe($('d-scroll'));
+let keepBelow = null; // keep your place when older rows load above
+// Whether you are at the newest row (within 48 px of the bottom), from your own scrolling: new rows keep it in view,
+// and so does the box growing under it. Opening a session, a new card and sending set it again. A scroll of yours whose
+// event has not come yet shows as the view sitting above where the page last put it (`pinTop`).
+let followEnd = true, pinTop = 0;
+const atEnd = (n) => n.scrollHeight - n.scrollTop - n.clientHeight < 48;
+const following = (n) => atEnd(n) || (followEnd && n.scrollTop >= pinTop - 2);
+/** Go to the newest row at the next redraw, wherever you were. */
+function pinEnd() { followEnd = true; pinTop = 0; }
+function toEnd(n) { n.scrollTop = n.scrollHeight; pinTop = n.scrollTop; followEnd = true; $('d-newer').hidden = true; }
+$('d-scroll').addEventListener('scroll', () => { followEnd = atEnd($('d-scroll')); if (followEnd) $('d-newer').hidden = true; }, { passive: true });
+new ResizeObserver(() => { if (following($('d-scroll'))) toEnd($('d-scroll')); }).observe($('d-scroll'));
+$('d-newer').onclick = () => toEnd($('d-scroll'));
 const norm = (t) => String(t ?? '').replace(/\s+/g, ' ').trim();
-function renderThread(s) {
-  const c = chats.get(s.sessionId);
-  if (!c || (!c.busy && c.key !== chatKey(s))) loadChat(s);
-  const hist = c?.items ?? [], yours = new Set(hist.filter((m) => m.who === 'you').map((m) => norm(m.text)));
-  const claude = hist.filter((m) => m.who === 'claude').map((m) => norm(m.text)), sentTexts = new Set((s.sent ?? []).map((m) => norm(m.text)));
-  const local = [
+let drawn = null, uncapped = false, shownFrom = { key: null, hidden: 0 }, lastShown = null; // what the DOM holds, for the open session
+const localRows = new Map(); // `local:<at>` → its row, kept between redraws so its element is too
+const openTools = new Set(); // tool row keys whose output is unfolded
+/** How long a call took (or has taken): 1.2 s, 45 s, 2 m. */
+function took(ms) {
+  const s = Math.max(0, ms) / 1000;
+  return s < 9.95 ? s.toFixed(1) + ' s' : s < 59.5 ? Math.round(s) + ' s' : Math.round(s / 60) + ' m';
+}
+/** What a row draws from, so it is rebuilt only when that changes. A running call's clock is set on each tick. */
+function sigOf(m, cont, s) {
+  return JSON.stringify(m.who === 'tool' ? [m.who, m.state, m.waiting, m.settledWhy, m.preview, m.endedAt, m.at, m.summary?.tool, m.summary?.text, m.name]
+    : m.who === 'result' ? [m.who, m.ok, m.preview]
+    : m.who === 'claude' ? [m.who, cont, m.text]
+    : m.who === 'local' ? [m.who, m.kind, m.text, m.note, Boolean(m.held), m.sending, m.title, m.held ? s.queueError : null]
+    : [m.who, m.text]);
+}
+function toolRow(m) {
+  const res = m.who === 'result', state = res ? (m.ok ? 'done' : 'failed') : m.state;
+  const shown = !res && m.waiting && state === 'running' ? 'waiting' : state;
+  const name = res ? 'Result' : shortTool(m.summary?.tool ?? m.name ?? 'Tool'), what = res ? '' : m.summary?.text ?? '';
+  const dur = el('span', { class: 't-dur' });
+  const line = [glyph(shown), el('b', { text: name, title: res ? null : m.summary?.tool ?? m.name }), el('span', { class: 't-what', text: what, title: what || null }), dur];
+  const why = m.settledWhy != null ? el('div', { class: 't-note', text: SETTLED[m.settledWhy] ?? m.settledWhy }) : null;
+  const n = el('div', { class: 'msg tool', 'data-state': shown, title: m.at ? new Date(m.at).toLocaleString() : null },
+    m.preview ? el('details', { open: openTools.has(m.key), ontoggle: (e) => (e.target.open ? openTools.add(m.key) : openTools.delete(m.key)) },
+      el('summary', { class: 't-line' }, line), el('pre', { class: 'm-body', text: m.preview }))
+      : el('div', { class: 't-line' }, line),
+    why);
+  m.dur = dur;
+  return n;
+}
+function rowEl(m, cont, s) {
+  if (m.who === 'tool' || m.who === 'result') return toolRow(m);
+  if (m.who === 'turn') return el('hr', { class: 'turn' });
+  if (m.who === 'note') return el('div', { class: 'msg note', text: m.text });
+  if (m.who === 'claude') return cont ? el('div', { class: 'm-body' }, md(m.text))
+    : el('div', { class: 'msg claude', title: m.at ? new Date(m.at).toLocaleString() : null }, el('div', { class: 'm-who' }, el('b', { text: 'Claude' })), el('div', { class: 'm-body' }, md(m.text)));
+  if (m.kind === 'out') return el('div', { class: 'msg out' }, el('div', { class: 'm-who' }, el('b', { text: m.title }), 'printed'), el('pre', { class: 'm-body', text: m.text }));
+  return el('div', { class: 'msg you' + (m.held ? ' waiting' : '') + (m.sending ? ' sending' : ''), title: m.at ? new Date(m.at).toLocaleString() : null }, el('div', { class: 'm-body', text: m.text }),
+    m.note || m.held ? el('div', { class: 'm-who' },
+      m.held && s.queueError ? el('span', { class: 'wait', text: 'Not sent yet: ' + s.queueError }) : el('span', { text: m.held ? 'Waiting until it is done' : m.note }),
+      m.held ? el('button', { class: 'linkish', type: 'button', text: 'Cancel', onclick: () => unqueue(s, m.held) }) : null) : null);
+}
+/** What you sent from here that its transcript does not have yet, as rows keyed `local:<at>`. A message has landed
+ *  when the thread has a `you` row with its text, recorded no earlier than 10 s before you sent it; an outbox entry
+ *  that has landed (or that the server's own record now shows) is dropped. */
+function localOf(s, rows) {
+  const yours = rows.filter((m) => m.who === 'you').map((m) => ({ text: norm(m.text), at: m.at }));
+  const landed = (m) => yours.some((y) => y.text === norm(m.text) && y.at >= m.at - 10_000);
+  const sentTexts = new Set((s.sent ?? []).map((m) => norm(m.text)));
+  const box = outbox.get(s.sessionId);
+  if (box) outbox.set(s.sessionId, box.filter((m) => !(landed(m) || (m.done && (sentTexts.has(norm(m.text)) || (s.queued ?? []).some((q) => norm(q.text) === norm(m.text)))))));
+  const you = (m, extra) => ({ who: 'local', kind: 'you', text: m.text, at: m.at, note: undefined, held: undefined, sending: false, title: undefined, ...extra });
+  const items = [
     // What you sent from here shows with how it went until its transcript has it (a command's printout stays).
-    ...(s.sent ?? []).flatMap((m) => [...(yours.has(norm(m.text)) ? [] : [{ who: 'you', text: m.text, at: m.at, note: m.how === 'command' ? ranHow(m) : SENT_HOW[m.how] ?? 'Sent' }]),
-      ...(m.output ? [{ who: 'out', text: m.output, at: m.at + 1, title: m.ran ?? m.text.split(' ')[0] }] : [])]),
-    ...(s.queued ?? []).map((m) => ({ who: 'you', text: m.text, at: m.at, held: m })),
-    ...(outbox.get(s.sessionId) ?? []).filter((m) => !(m.done && (sentTexts.has(norm(m.text)) || yours.has(norm(m.text)) || (s.queued ?? []).some((q) => norm(q.text) === norm(m.text)))))
-      .map((m) => ({ who: 'you', text: m.text, at: m.at, note: m.done ? 'Sent' : 'Sending…', sending: !m.done })),
-    // Its newest reply, from the Stop hook, until the transcript read has caught up with it.
-    ...(s.lastMessage && !claude.some((t) => t.includes(norm(s.lastMessage))) && (s.lastMessageAt ?? 0) >= (hist.at(-1)?.at ?? 0)
-      ? [{ who: 'claude', text: s.lastMessage, at: s.lastMessageAt ?? 0 }] : []),
+    ...(s.sent ?? []).flatMap((m) => [...(landed(m) ? [] : [you(m, { note: m.how === 'command' ? ranHow(m) : SENT_HOW[m.how] ?? 'Sent' })]),
+      ...(m.output ? [{ ...you(m), kind: 'out', text: m.output, at: m.at + 1, title: m.ran ?? m.text.split(' ')[0] }] : [])]),
+    ...(s.queued ?? []).map((m) => you(m, { held: m })),
+    ...(outbox.get(s.sessionId) ?? []).map((m) => you(m, { note: m.done ? 'Sent' : 'Sending…', sending: !m.done })),
   ].sort((a, b) => a.at - b.at);
-  const items = [...hist, ...local], sc = $('d-scroll');
-  $('d-earlier').hidden = !c?.more;
-  patch($('d-thread'), JSON.stringify([s.sessionId, hist.length, hist[0]?.at, hist.at(-1)?.at, local.map((m) => [m.who, m.at, m.text, m.note]), s.queueError]), () => items.map((m) => (m.who === 'claude'
-    ? el('div', { class: 'msg claude', title: m.at ? new Date(m.at).toLocaleString() : null }, el('div', { class: 'm-who' }, el('b', { text: 'Claude' })), el('div', { class: 'm-body' }, md(m.text)))
-    : m.who === 'note' ? el('div', { class: 'msg note', text: m.text })
-    : m.who === 'out' ? el('div', { class: 'msg out' }, el('div', { class: 'm-who' }, el('b', { text: m.title }), 'printed'), el('pre', { class: 'm-body', text: m.text }))
-    : el('div', { class: 'msg you' + (m.held ? ' waiting' : '') + (m.sending ? ' sending' : ''), title: m.at ? new Date(m.at).toLocaleString() : null }, el('div', { class: 'm-body', text: m.text }),
-      m.note || m.held ? el('div', { class: 'm-who' },
-        m.held && s.queueError ? el('span', { class: 'wait', text: 'Not sent yet: ' + s.queueError }) : el('span', { text: m.held ? 'Waiting until it is done' : m.note }),
-        m.held ? el('button', { class: 'linkish', type: 'button', text: 'Cancel', onclick: () => unqueue(s, m.held) }) : null) : null))));
+  const seen = new Set();
+  return items.map((m) => {
+    let key = `local:${m.at}`;
+    while (seen.has(key)) key += '+';
+    seen.add(key);
+    const row = Object.assign(localRows.get(key) ?? {}, m, { key });
+    localRows.set(key, row);
+    return row;
+  });
+}
+/** Draw the open session's thread into #d-thread, keyed: a row's element is kept while what it draws is the same and
+ *  rebuilt alone when it changes; rows are put in order and elements whose row is gone are removed. Adjacent Claude
+ *  rows of one message share one bubble (the first row's), the later ones adding a body to it. Returns the row count. */
+function renderThread(s) {
+  const t = threads.get(s.sessionId), sc = $('d-scroll'), box = $('d-thread');
+  if (drawn !== s.sessionId) { drawn = s.sessionId; uncapped = false; shownFrom = { key: null, hidden: 0 }; lastShown = null; localRows.clear(); box.replaceChildren(); $('d-newer').hidden = true; }
+  const atBottom = following(sc); // measured before the rows change
+  const thread = t ? rowsOf(t) : [], local = localOf(s, thread);
+  for (const k of localRows.keys()) if (!local.some((m) => m.key === k)) localRows.delete(k);
+  // A command's printout goes among the thread's rows by time; what is still on its way to the transcript (sending,
+  // sent, waiting until it is done) stays at the end, as it always has.
+  const out = local.filter((m) => m.kind === 'out'), all = [];
+  for (let i = 0, j = 0; i < thread.length || j < out.length;) all.push(j < out.length && (i >= thread.length || out[j].at < thread[i].at) ? out[j++] : thread[i++]);
+  all.push(...local.filter((m) => m.kind !== 'out'));
+  // The latest CAP rows, unless you are reading back: scrolled up keeps the top where it is, Show earlier shows all
+  // until you are back at the bottom.
+  if (atBottom && keepBelow == null) uncapped = false;
+  let from = 0;
+  if (!uncapped) {
+    const i = atBottom ? -1 : all.findIndex((m) => m.key === shownFrom.key);
+    from = i >= 0 ? i : Math.max(0, all.length - CAP);
+  }
+  shownFrom = { key: all[from]?.key ?? null, hidden: from };
+  const rows = all.slice(from);
+  let prev = null, wrap = null, inWrap = null;
+  const closeWrap = () => { if (wrap) while (inWrap.nextSibling) inWrap.nextSibling.remove(); wrap = inWrap = null; };
+  rows.forEach((m, i) => {
+    const before = rows[i - 1], cont = m.who === 'claude' && before?.who === 'claude' && m.messageId != null && before.messageId === m.messageId;
+    const sig = sigOf(m, cont, s);
+    if (!m.el || m._sig !== sig) { m.el = rowEl(m, cont, s); m._sig = sig; }
+    if (m.dur) setText(m.dur, m.who === 'tool' && m.state === 'running' ? (m.waiting ? 'waiting for you' : took(Date.now() - m.at))
+      : m.endedAt != null && m.at ? took(m.endedAt - m.at) : '');
+    if (cont) {
+      const at = inWrap.nextSibling;
+      if (at !== m.el) wrap.insertBefore(m.el, at);
+      inWrap = m.el;
+      return;
+    }
+    closeWrap();
+    const at = prev ? prev.nextSibling : box.firstChild;
+    if (at !== m.el) box.insertBefore(m.el, at);
+    prev = m.el;
+    if (m.who === 'claude') { wrap = m.el; inWrap = m.el.querySelector('.m-body'); }
+  });
+  closeWrap();
+  while (prev ? prev.nextSibling : box.firstChild) (prev ? prev.nextSibling : box.firstChild).remove();
+  $('d-earlier').hidden = !(from > 0 || t?.more);
+  const last = rows.at(-1)?.key ?? null, grew = last !== lastShown;
+  lastShown = last;
   if (keepBelow != null) { sc.scrollTop = sc.scrollHeight - keepBelow; keepBelow = null; }
-  else if (stick || followEnd) { sc.scrollTop = sc.scrollHeight; followEnd = true; if (c && !c.busy) stick = false; }
-  return items.length;
+  else if (atBottom) toEnd(sc);
+  else if (grew) $('d-newer').hidden = false;
+  return all.length;
 }
-/** What it said last: its transcript's newest reply, unless the Stop hook brought a newer one (a profile that doesn't
- *  report here never does). */
+/** What it said last: the newest reply in its thread (every block of it), unless the Stop hook brought a newer one (a
+ *  session whose transcript is not followed yet). */
 function lastSaidOf(s) {
-  const h = chats.get(s.sessionId)?.items.findLast((m) => m.who === 'claude');
-  return h && h.at >= (s.lastMessageAt ?? 0) ? h.text : s.lastMessage;
+  const rows = threads.has(s.sessionId) ? rowsOf(threads.get(s.sessionId)) : [], i = rows.findLastIndex((m) => m.who === 'claude');
+  if (i < 0 || rows[i].at < (s.lastMessageAt ?? 0)) return s.lastMessage;
+  let j = i;
+  while (j > 0 && rows[j - 1].who === 'claude' && rows[j - 1].messageId != null && rows[j - 1].messageId === rows[i].messageId) j--;
+  return rows.slice(j, i + 1).map((m) => m.text).join('\n\n');
 }
-$('d-earlier').onclick = () => {
-  const s = sessionOf(open), c = s && chats.get(s.sessionId);
-  if (!c || c.busy) return;
-  keepBelow = $('d-scroll').scrollHeight - $('d-scroll').scrollTop;
-  loadChat(s, c.limit + 100);
-};
 
 // ---------- the panel's layout: the whole window, and its details in a column of their own ----------
 function pref(key, value) {
@@ -1390,7 +1616,7 @@ async function doReply(s) {
   const ta = $('d-reply'), text = ta.value.trim(), msg = { text, at: Date.now() };
   outbox.set(s.sessionId, [...(outbox.get(s.sessionId) ?? []).filter((m) => !m.done || Date.now() - m.done < 10_000), msg]);
   ta.value = ''; fit(ta); drafts.delete(s.sessionId);
-  stick = true;
+  pinEnd();
   sending.add(s.sessionId);
   render();
   const mode = bgLive(s) ? null : modePicks.get(s.sessionId), model = modelPicks.get(s.sessionId), effort = effortPicks.get(s.sessionId);
@@ -1472,6 +1698,7 @@ function render() {
   // At the start, and when the open one goes away, the top of Needs you (it has waited longest) takes the workspace.
   if (open === undefined || (open && !vis.some((s) => s.sessionId === open))) open = g.waiting[0]?.sessionId ?? null;
   if (launchedId) { const s = vis.find((x) => x.id === launchedId); if (s) { launchedId = null; open = s.sessionId; } }
+  if (open !== followed) followOpen(open);
   const live = new Set(snap.pending.map((p) => p.id));
   for (const [id, c] of cards) if (!live.has(id)) { c.el.remove(); cards.delete(id); }
   renderBoard(g, vis);
