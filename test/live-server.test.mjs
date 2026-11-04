@@ -157,11 +157,11 @@ test('a held permission request marks its tool row waiting, and settling it reco
   fs.writeFileSync(file, [you('edit it', 1), call('toolu_9', 'Edit', { file_path: '/x' }, 2)].join('\n') + '\n');
   const page = await s.stream();
   await s.api('/api/follow', { client: page.client, sessionId: id });
-  const held = s.hook('permission', { session_id: id, transcript_path: file, hook_event_name: 'PermissionRequest', tool_name: 'Edit', tool_input: { file_path: '/x' }, tool_use_id: 'toolu_9' });
+  const held = s.hook('permission', { session_id: id, transcript_path: file, hook_event_name: 'PermissionRequest', tool_name: 'Edit', tool_input: { file_path: '/x' } });
   const wait = await until(() => page.thread(id).find((ev) => ev.who === 'update' && ev.key === 'tool:toolu_9' && ev.patch.waiting === true));
   assert.ok(wait, 'the held request never marked the row waiting');
   const req = await until(() => page.msgs.findLast((m) => m.data.pending?.length)?.data.pending[0]);
-  assert.equal(req.toolUseId, 'toolu_9');
+  assert.equal(req.toolUseId, null); // a real PermissionRequest carries no tool_use_id: the row is found by its tool and input
   const d = await s.api('/api/decide', { id: req.id, behavior: 'deny', message: 'no' });
   assert.equal(d.ok, true);
   assert.equal((await held).status, 200);
@@ -184,7 +184,7 @@ test('a follow for a session with no transcript yet turns live when the file app
   assert.ok(await until(() => page.thread(id).some((e) => e.text === 'then this')), 'not live after the file appeared');
 });
 
-test('many broadcasts in one tick give one snapshot whose events list has them all', async (t) => {
+test('broadcasts close together ride the snapshots as events lists, each event once', async (t) => {
   const s = await setup(t), id = crypto.randomUUID();
   const page = await s.stream();
   const stop = new AbortController();
@@ -192,12 +192,13 @@ test('many broadcasts in one tick give one snapshot whose events list has them a
   const e = (n) => ({ session_id: id, hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'echo ' + n } });
   const held = [s.hook('permission', e(1), stop.signal), s.hook('permission', e(2), stop.signal)];
   held.forEach((p) => p.catch(() => {}));
-  const snap = await until(() => page.msgs.find((m) => m.event === 'message' && m.data.events?.length)?.data);
-  assert.ok(snap, 'no snapshot carried events');
-  assert.equal('event' in snap, false);
-  assert.deepEqual(snap.events.map((ev) => ev.type), ['new-request', 'new-request']);
-  assert.equal(snap.pending.length, 2);
-  assert.equal(page.msgs.filter((m) => m.data.events?.length).length, 1);
+  // Two separate POSTs may or may not land in one tick, so what is asserted is the union of the snapshots' events.
+  const carried = () => page.msgs.filter((m) => m.event === 'message' && m.data.events?.length).map((m) => m.data);
+  const snaps = await until(() => { const c = carried(); return c.flatMap((d) => d.events).length >= 2 && c; });
+  assert.ok(snaps, 'the snapshots never carried both events');
+  for (const d of snaps) assert.equal('event' in d, false);
+  assert.deepEqual(snaps.flatMap((d) => d.events.map((ev) => ev.type)), ['new-request', 'new-request']);
+  assert.equal(snaps.at(-1).pending.length, 2);
 });
 
 test('a profile switch drops the follow: thread-reset arrives, and a line appended to the old transcript afterwards sends nothing', async (t) => {
