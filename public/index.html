@@ -150,17 +150,18 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .tag[data-s="finished"] { color: var(--ok); }
 
 /* ---------- the rail: Needs you always open, the other queues fold to their header ---------- */
-.stage { flex: 1; min-height: 0; position: relative; display: flex; overflow: clip; --rail-w: var(--rail-user, 320px); } /* clip: the panel slides in from 14px out */
+.stage { flex: 1; min-height: 0; position: relative; display: flex; overflow: clip; --rail-w: var(--rail-user, 260px); } /* clip: the panel slides in from 14px out */
 .board { flex: none; width: var(--rail-w); min-height: 0; overflow-y: auto; display: flex; flex-direction: column; background: var(--panel); border-right: 1px solid var(--line); }
 /* Open queues share what Needs you leaves, which takes what it needs up to half the rail. */
 .col { flex: 1 1 auto; min-height: 112px; min-width: 0; display: flex; flex-direction: column; border-bottom: 1px solid var(--line); }
 .col[data-col="waiting"] { flex: 0 1 auto; min-height: 0; max-height: 50%; }
 .col.folded { flex: none; min-height: 0; }
 .col.folded .col-body { display: none; }
-.col-h { flex: none; display: flex; align-items: center; gap: 8px; height: 42px; padding-right: 12px; font-size: 12.5px; font-weight: 600; color: var(--fg-dim); }
-.col-h .n { font: 500 12px var(--mono); color: var(--fg-faint); }
+.col-h { flex: none; display: flex; align-items: center; gap: 8px; height: 28px; padding-right: 8px; font-size: 11.5px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; color: var(--fg-dim); }
+.col-h .n { font: 500 11px var(--mono); color: var(--fg-dim); }
+.col-h .btn.small { height: 20px; padding: 0 7px; font-size: 11px; text-transform: none; letter-spacing: 0; }
 .col[data-col="waiting"] .col-h { color: var(--amber); }
-.col-name { flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: 8px; padding: 0 0 0 16px; border: 0; background: none; font-weight: inherit; text-align: left; }
+.col-name { flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: 8px; padding: 0 0 0 12px; border: 0; background: none; font-weight: inherit; text-align: left; }
 .col-fold { cursor: pointer; }
 .col-fold:hover { color: var(--fg); }
 .col-fold:focus-visible { outline-offset: -2px; }
@@ -169,37 +170,34 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .chev { flex: none; width: 16px; margin-left: auto; font-size: 16px; line-height: 1; text-align: center; color: var(--fg-dim); transition: transform .15s; }
 .col:not(.folded) .chev { transform: rotate(90deg); }
 .col-tools { display: flex; }
-.col-body { flex: 1; min-height: 0; overflow: auto; padding: 2px 12px 12px; display: grid; gap: 8px; align-content: start; }
+.col-body { flex: 1; min-height: 0; overflow: auto; padding: 0 4px 6px; display: grid; gap: 0; align-content: start; }
 .col-empty { margin: 4px 2px; color: var(--fg-faint); font-size: 12.5px; }
 .col-hint { margin: 0 2px 4px; }
 
 .tile-wrap { position: relative; }
-.tile {
-  display: grid; grid-template-columns: 7px minmax(0, 1fr) auto; column-gap: 9px; row-gap: 4px; align-items: center; width: 100%;
-  padding: 11px 14px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--raise); text-align: left; cursor: pointer;
+/* One line per session: a chevron slot (filled when it has subagents), its state square, name, a short mono detail
+   (the tool it runs, or what it asks for), and its age. The branch, folder and full text live in the tooltip. */
+.srow {
+  display: flex; align-items: center; gap: 7px; width: 100%; height: 26px; padding: 0 8px 0 6px; border: 0; border-radius: 5px;
+  background: none; color: var(--fg); text-align: left; cursor: pointer; white-space: nowrap;
 }
-.tile:hover { background: var(--hover); }
-.tile[aria-current="true"] { border-color: var(--fg); }
-.tile[data-state="waiting"] { border-color: var(--amber-line); }
-.tile[data-state="waiting"][aria-current="true"] { border-color: var(--amber); box-shadow: inset 0 0 0 1px var(--amber); }
-.tile[data-state="finished"], .tile[data-state="failed"] { background: transparent; }
-.tname { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tside { display: inline-flex; gap: 8px; align-items: center; font: 11.5px var(--mono); color: var(--fg-faint); white-space: nowrap; }
-.tline { grid-column: 2 / -1; min-width: 0; font-size: 12.5px; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tline .t { font: 500 11.5px var(--mono); color: var(--run); margin-right: 6px; }
+.srow:hover { background: var(--hover); }
+.srow[aria-current="true"] { box-shadow: inset 0 0 0 1px var(--fg); }
+.srow[data-state="waiting"] { background: var(--amber-dim); }
+.chev-slot { flex: none; width: 12px; height: 12px; display: grid; place-items: center; color: var(--fg-dim); }
+.tname { flex: 1; min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tdetail { flex: none; max-width: 88px; overflow: hidden; text-overflow: ellipsis; font: 11.5px var(--mono); color: var(--fg-dim); }
+.srow[data-state="waiting"] .tdetail { color: var(--amber); }
+.srow[data-state="stopping"] .tdetail { color: var(--stop); }
+.tage { flex: none; width: 26px; text-align: right; font: 11.5px var(--mono); color: var(--fg-dim); }
+.told { flex: none; font: 600 10.5px var(--mono); color: var(--amber); }
 /* Where it works: its branch, with a branch mark in a shared checkout and a folder mark in a worktree of its own. */
 :root {
   --i-branch: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6'%3E%3Ccircle cx='4.5' cy='3.5' r='1.7'/%3E%3Ccircle cx='4.5' cy='12.5' r='1.7'/%3E%3Ccircle cx='11.5' cy='4.5' r='1.7'/%3E%3Cpath d='M4.5 5.2v5.6M11.5 6.2c0 3.2-7 1.8-7 4.6'/%3E%3C/svg%3E");
   --i-tree: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linejoin='round'%3E%3Cpath d='M1.8 3.2h4.4l1.5 1.6h6.5v8H1.8z'/%3E%3C/svg%3E");
 }
-.twhere { grid-column: 2 / -1; min-width: 0; display: flex; align-items: center; gap: 5px; font: 11px var(--mono); color: var(--fg-faint); }
-.twhere > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.twhere::before, .where-b::before { content: ""; flex: none; width: 11px; height: 11px; background: currentColor; -webkit-mask: var(--i-branch) center / contain no-repeat; mask: var(--i-branch) center / contain no-repeat; }
-.twhere.wt::before, .where-b.wt::before { -webkit-mask-image: var(--i-tree); mask-image: var(--i-tree); }
-.tile[data-state="waiting"] .tline { color: var(--amber); }
-.tile[data-state="stopping"] .tline { color: var(--stop); }
 .qstop {
-  position: absolute; top: 8px; right: 8px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  position: absolute; top: 2px; right: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   min-width: 22px; height: 22px; padding: 0 6px; border: 1px solid var(--stop-line); border-radius: 6px; background: var(--raise);
   color: var(--stop); font-size: 12px; font-weight: 600; cursor: pointer; opacity: 0;
 }
@@ -208,7 +206,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .qstop.x::before { content: "\00d7"; width: auto; height: auto; background: none; font-size: 15px; line-height: 1; }
 .qstop.armed, .qstop.x.armed { background: var(--stop); border-color: var(--stop); color: var(--on-solid); opacity: 1; }
 .tile-wrap:hover .qstop, .tile-wrap:focus-within .qstop { opacity: 1; }
-.tile-wrap.can-act:hover .tside, .tile-wrap.can-act:focus-within .tside, .tile-wrap:has(.qstop.armed) .tside { visibility: hidden; }
+.tile-wrap.can-act:hover .tage, .tile-wrap.can-act:focus-within .tage, .tile-wrap:has(.qstop.armed) .tage { visibility: hidden; }
 
 /* ---------- the session panel ---------- */
 .drawer {
@@ -513,7 +511,7 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
   .stage > .drawer { position: absolute; inset: 0; margin: 0; width: auto; }
 }
 @media (max-width: 520px) { .pair { grid-template-columns: 1fr; } }
-@media (hover: none) { .qstop { opacity: 1; } .tile-wrap.can-act .tside { visibility: hidden; } }
+@media (hover: none) { .qstop { opacity: 1; } .tile-wrap.can-act .tage { visibility: hidden; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 </style>
 </head>
@@ -961,36 +959,49 @@ const listOf = (names, n = 3) => names.length > n ? `${names.slice(0, n).join(',
 /** Other live sessions working in the same checkout: they share its branch and its files, and one that switches the
  *  branch switches it for all of them. */
 const sharersOf = (s) => !s.git ? [] : (snap?.sessions ?? []).filter((o) => o !== s && o.git?.top === s.git.top && !['finished', 'failed'].includes(stateOf(o))).map(label);
-const tiles = new Map(); // sessionId → its tile
+/** The row's short mono detail and the long form for its tooltip: what it runs, or what it asks for. */
+function detailOf(s, st) {
+  const rs = reqsOf(s.sessionId);
+  if (st === 'stopping') return { text: 'stopping', full: 'Stopping at its next tool call' };
+  if (rs.length) {
+    const p = rs[0], name = p.toolName === 'ExitPlanMode' ? 'Plan' : p.toolName === 'AskUserQuestion' ? 'Asks' : p.toolName;
+    return { text: (p.agentId ? 'sub:' : '') + name + (rs.length > 1 ? ` +${rs.length - 1}` : ''), full: (p.agentId ? 'Its subagent: ' : '') + askText(p) };
+  }
+  if (st === 'waiting') return { text: 'terminal', full: textOf(lineOf(s)) };
+  if (st === 'busy') return { text: s.lastTool?.tool ?? '', full: s.lastTool ? `${s.lastTool.tool} ${s.lastTool.text}` : '' };
+  return { text: '', full: '' };
+}
+/** The tooltip: where it works, its folder, and what the row has no room for. */
+function tipOf(s, st) {
+  const w = whereOf(s.git), d = detailOf(s, st);
+  const more = d.full || (['busy', 'waiting', 'stopping'].includes(st) ? '' : textOf(lineOf(s)));
+  return [w?.long, s.workCwd ?? s.cwd, more].filter(Boolean).join('\n') || label(s);
+}
+const tiles = new Map(); // sessionId → its row
 function tile(s) {
   const id = s.sessionId;
   let t = tiles.get(id);
   if (!t) {
-    t = { glyph: el('span', { class: 'glyph', 'aria-hidden': 'true' }), name: el('span', { class: 'tname' }), subs: el('span'), age: el('span'), line: el('span', { class: 'tline' }),
-          on: el('span'), old: el('span', { class: 'told', text: 'restart' }) };
-    t.where = el('span', { class: 'twhere' }, t.on);
-    t.btn = el('button', { class: 'tile', type: 'button', onclick: () => { cancelAdvance(); open = open === id ? null : id; render(); } },
-      t.glyph, t.name, el('span', { class: 'tside' }, t.old, t.subs, t.age), t.line, t.where);
+    t = { chev: el('span', { class: 'chev-slot', 'aria-hidden': 'true' }), glyph: el('span', { class: 'glyph', 'aria-hidden': 'true' }), name: el('span', { class: 'tname' }),
+          detail: el('span', { class: 'tdetail' }), old: el('span', { class: 'told', text: '!' }), age: el('span', { class: 'tage' }) };
+    t.btn = el('button', { class: 'srow', type: 'button', onclick: () => { cancelAdvance(); open = open === id ? null : id; render(); } },
+      t.chev, t.glyph, t.name, t.detail, t.old, t.age);
     t.q = el('button', { class: 'qstop', type: 'button', onclick: () => t.act && confirmOr(t.key, t.act.run) });
-    t.wrap = el('div', { class: 'tile-wrap' }, t.btn, t.q);
+    t.wrap = el('div', { class: 'tile-wrap', 'data-sid': id }, t.btn, t.q);
     tiles.set(id, t);
   }
-  const st = stateOf(s), running = s.subagents.filter((a) => subState(s, a) === 'running').length;
+  const st = stateOf(s);
   setAttr(t.btn, 'data-state', st);
   setAttr(t.btn, 'aria-current', String(open === id));
-  const w = whereOf(s.git);
-  setAttr(t.btn, 'title', [w?.long, s.workCwd ?? s.cwd].filter(Boolean).join('\n') || label(s));
-  t.where.hidden = !w;
-  if (w) { t.where.classList.toggle('wt', Boolean(s.git.worktree)); setText(t.on, w.on); }
+  setAttr(t.btn, 'title', tipOf(s, st));
   setAttr(t.glyph, 'data-s', st);
   setText(t.name, label(s));
-  setText(t.subs, running ? `${running} sub${running > 1 ? 's' : ''}` : '');
+  const d = detailOf(s, st);
+  setText(t.detail, d.text);
+  t.detail.hidden = !d.text;
   t.old.hidden = !s.oldVersion;
-  setAttr(t.old, 'title', s.oldVersion ? oldWhy(s.oldVersion) : '');
-  t.subs.hidden = !running;
+  setAttr(t.old, 'title', s.oldVersion ? 'Restart: ' + oldWhy(s.oldVersion) : '');
   setText(t.age, s.startedAt ? ago(snap.now - s.startedAt) : '');
-  const parts = lineOf(s), text = textOf(parts);
-  if (t.lineText !== text) { t.lineText = text; t.line.replaceChildren(...parts); }
   t.act = tileAction(s, st);
   t.wrap.classList.toggle('can-act', Boolean(t.act));
   t.q.hidden = !t.act;
@@ -2246,7 +2257,7 @@ function edge(grip, pane, fixed, set) {
 }
 // The open session leaves the rest 480px; the rail leaves the open session 520px.
 edge($('d-grip'), $('drawer'), 'right', widthOf('acp.drawerWidth', '--drawer-user', () => [360, Math.max(360, innerWidth - 480)]));
-edge($('r-grip'), $('board'), 'left', widthOf('acp.railWidth', '--rail-user', () => [240, Math.max(240, Math.min(560, innerWidth - 520))]));
+edge($('r-grip'), $('board'), 'left', widthOf('acp.railWidth', '--rail-user', () => [220, Math.max(220, Math.min(560, innerWidth - 520))]));
 // The details column leaves the chat 480px of the panel.
 edge($('s-grip'), $('d-side'), 'right', widthOf('acp.sideWidth', '--side-user', () => [240, Math.max(240, Math.min(600, $('drawer').clientWidth - 480))]));
 
