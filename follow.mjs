@@ -20,10 +20,13 @@ export function createFollow(file, { onItems, onReset, pollMs = 1000 }) {
     watcher = null;
     if (stopped) return;
     try {
-      watcher = fs.watch(file, { persistent: false }, () => { check(); });
+      watcher = fs.watch(file, { persistent: false }, () => { look(); });
       watcher.on('error', () => { watcher?.close(); watcher = null; }); // the file went away: the poll carries on alone
     } catch { watcher = null; }
   }
+
+  /** `check`, from a watch or the poll: a read that fails is logged, and the next look tries again. */
+  function look() { check().catch((err) => console.error('follow:', err)); }
 
   /** Read what was appended since the last read; a read in progress makes this one more read after it. */
   async function check() {
@@ -79,7 +82,7 @@ export function createFollow(file, { onItems, onReset, pollMs = 1000 }) {
       const st = await fs.promises.stat(file);
       ino = st.ino; offset = st.size;
       watch();
-      timer = setInterval(check, pollMs);
+      timer = setInterval(look, pollMs);
       timer.unref();
     },
     /** Stop watching; nothing is read or called after this. */
