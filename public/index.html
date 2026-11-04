@@ -77,8 +77,12 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .banner.connect b { color: var(--fg); font-weight: 600; }
 .banner.connect .mono { font: 11.5px var(--mono); color: var(--fg-faint); }
 /* Sessions on a Claude Code version deleted under them: macOS can refuse them ~/Documents at any moment. */
-.banner.old { display: grid; gap: 4px; }
-.banner.old ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; color: var(--fg-dim); }
+.banner.old { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-height: 30px; padding-block: 4px; }
+.banner.old > .lead { flex: 1 1 auto; min-width: 0; }
+.banner.old .btn.small { height: 20px; padding: 0 7px; font-size: 11px; color: var(--amber); border-color: var(--amber-line); }
+.banner.old .btn.icon { border: 0; color: var(--amber); }
+.banner.old ul { display: none; flex-basis: 100%; gap: 4px; margin: 2px 0 4px; padding: 0; list-style: none; color: var(--fg-dim); }
+.banner.old.open ul { display: grid; }
 .banner.old li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .banner.old li b, .note.old b { color: var(--fg); font-weight: 600; }
 .note.old { display: grid; gap: 8px; justify-items: start; border-color: var(--amber-line); color: var(--fg-dim); }
@@ -129,6 +133,9 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .btn.danger.soft:hover { color: var(--fg); }
 .btn.danger.soft.armed { background: var(--stop); border-color: var(--stop); color: var(--on-solid); }
 .btn.quiet { border-color: transparent; color: var(--fg-dim); }
+.btn.icon { width: 24px; height: 24px; padding: 0; justify-content: center; color: var(--fg-dim); }
+.btn.icon svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.btn.icon:hover { color: var(--fg); }
 .btn kbd { font: 500 11.5px var(--sans); opacity: .55; }
 .btn.quiet:hover { color: var(--fg); }
 .btn.small { height: 24px; padding: 0 8px; font-size: 12px; }
@@ -560,8 +567,8 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
   <div class="counts" id="counts"></div>
   <span class="grow"></span>
   <span class="paused" id="paused" hidden>Paused: the terminal answers everything</span>
-  <button class="linkish" type="button" id="notify" hidden>Turn on desktop alerts</button>
-  <label class="switch" title="When off, requests go to the terminal only"><input type="checkbox" id="armed" checked><i></i>Answer prompts here</label>
+  <button class="btn icon" type="button" id="notify" aria-label="Turn on desktop alerts" title="Turn on desktop alerts" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg></button>
+  <label class="switch" title="When off, requests go to the terminal only"><input type="checkbox" id="armed" checked><i></i>Answering here</label>
   <div class="prof">
     <button class="prof-btn theme-btn" type="button" id="theme-btn" aria-haspopup="menu" aria-expanded="false"></button>
     <div class="prof-menu theme-menu" id="theme-menu" role="menu" aria-label="Theme" hidden></div>
@@ -1250,7 +1257,7 @@ function renderBoard(g, vis) {
   countsInto($('counts'), g);
 }
 function countsInto(node, g) {
-  node.replaceChildren(...COLS.map(([k, name]) => el('span', { class: k === 'waiting' && g[k].length ? 'hot' : '' }, el('b', { text: String(g[k].length) }), name.toLowerCase())));
+  node.replaceChildren(...COLS.filter(([k]) => g[k].length).map(([k, name]) => el('span', { class: k === 'waiting' ? 'hot' : '' }, el('b', { text: String(g[k].length) }), name.toLowerCase())));
 }
 
 // ---------- the session panel ----------
@@ -1267,11 +1274,16 @@ function restartHow(o) {
     : `Switch to the ${o.profile.label} profile, end it, then send it a message: it comes back on the installed version.` })];
 }
 /** Every profile's sessions on a deleted version: the one that loses access is often not on screen. */
+// One line until asked: "Show which" unfolds the list, × puts the banner away until the list changes.
+let oldOpen = false, oldDismissed = '';
 function renderOld(list) {
-  const b = $('old-ver');
-  b.hidden = !list.length;
-  patch(b, JSON.stringify([list, snap.profile?.id]), () => !list.length ? null : [
-    el('span', { text: `${list.length === 1 ? 'A session runs' : `${list.length} sessions run`} a Claude Code version the updater has deleted, so macOS can stop ${list.length === 1 ? 'it' : 'them'} reading ~/Documents at any moment. Restart ${list.length === 1 ? 'it' : 'them'} on the installed version:` }),
+  const b = $('old-ver'), key = list.map((o) => o.sessionId).sort().join(',');
+  b.hidden = !list.length || oldDismissed === key;
+  b.classList.toggle('open', oldOpen);
+  patch(b, JSON.stringify([list, snap.profile?.id, oldOpen]), () => !list.length ? null : [
+    el('span', { class: 'lead', text: `${list.length === 1 ? 'A session runs' : `${list.length} sessions run`} a Claude Code version the updater has deleted; restart ${list.length === 1 ? 'it' : 'them'} before macOS stops ${list.length === 1 ? 'it' : 'them'} reading ~/Documents.` }),
+    el('button', { class: 'btn small', type: 'button', text: oldOpen ? 'Hide' : 'Show which', 'aria-expanded': String(oldOpen), onclick: () => { oldOpen = !oldOpen; render(); } }),
+    el('button', { class: 'btn icon', type: 'button', 'aria-label': 'Dismiss', title: 'Put this away until the list changes', text: '×', onclick: () => { oldDismissed = key; render(); } }),
     el('ul', {}, ...list.map((o) => el('li', {}, el('b', { text: o.name || o.id || o.sessionId.slice(0, 8) }),
       el('span', { text: `${o.shown ? '' : `${o.profile.label} profile, `}Claude Code ${o.version}.` }), ...restartHow(o)))),
   ]);
