@@ -74,10 +74,14 @@ A session's tree is open while any of its subagents is `running` or `waiting`; i
 finishes. A manual toggle (chevron click, → or ←) wins until a new subagent starts in that session, which resets to the
 automatic rule. Folded or open state is page memory (a `Map` by session id), not persisted.
 
-The pointer rule applies to automatic changes only: while the pointer is over a session's row or its subagent rows,
-an automatic fold or unfold is deferred and applied on `pointerleave`; a chevron click or a key acts at once; a new
-subagent row appearing in an already-open tree is appended at once (an append under the pointer does not move the
-row under it, since rows are added below).
+The pointer rule applies to automatic changes only, and (amended after review, my call) to the whole rail: while
+the pointer is anywhere over the rail, no tree folds or unfolds by itself, because a tree above the pointer would
+shift the row under it. The deferred changes apply together when the pointer leaves the rail. A chevron click or a
+key acts at once. A new subagent row appearing in an already-open tree is appended at once.
+
+Arrow keys from the page body count as the rail's only while the last click was in the rail (amended after review):
+after a click into the conversation, the arrows scroll it, as they do anywhere else. ← with a subagent selected folds
+the tree and selects its session, so ↓ continues from there.
 
 ### Selection and keys (my call)
 

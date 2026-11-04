@@ -162,6 +162,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .col-h .btn.small { height: 20px; padding: 0 7px; font-size: 11px; text-transform: none; letter-spacing: 0; }
 .col[data-col="waiting"] .col-h { color: var(--amber); }
 .col-name { flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: 8px; padding: 0 0 0 12px; text-transform: inherit; letter-spacing: inherit; border: 0; background: none; font-weight: inherit; text-align: left; }
+.peek { text-transform: none; letter-spacing: 0; }
 .col-fold { cursor: pointer; }
 .col-fold:hover { color: var(--fg); }
 .col-fold:focus-visible { outline-offset: -2px; }
@@ -191,6 +192,9 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .srow[data-state="stopping"] .tdetail { color: var(--stop); }
 .tage { flex: none; width: 26px; text-align: right; font: 11.5px var(--mono); color: var(--fg-dim); }
 .told { flex: none; font: 600 10.5px var(--mono); color: var(--amber); }
+/* The drawer's branch line keeps its mark: a branch in a shared checkout, a folder in a worktree of its own. */
+.where-b::before { content: ""; flex: none; width: 11px; height: 11px; background: currentColor; -webkit-mask: var(--i-branch) center / contain no-repeat; mask: var(--i-branch) center / contain no-repeat; }
+.where-b.wt::before { -webkit-mask-image: var(--i-tree); mask-image: var(--i-tree); }
 .chev-slot svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; transition: transform .12s; }
 .chev-slot.open svg { transform: rotate(90deg); }
 @media (prefers-reduced-motion: reduce) { .chev-slot svg { transition: none; } }
@@ -1001,20 +1005,29 @@ function railRows() {
   return rows;
 }
 let followSoon = false; // the selection is moving by key: the follow waits 120 ms for the key to settle
+// Arrow keys from the page body count as the rail's only while the last click was in the rail: after a click into the
+// conversation, the arrows scroll it, as anywhere else.
+let railArmed = true;
+document.addEventListener('pointerdown', (e) => { railArmed = Boolean(e.target.closest?.('#board')); }, true);
 function moveSel(delta) {
   const rows = railRows();
   if (!rows.length) return;
-  const i = subFocus ? rows.findIndex((r) => r.kind === 'sub' && r.a.agentId === subFocus) : rows.findIndex((r) => r.kind === 'session' && r.s.sessionId === open);
+  let i = subFocus ? rows.findIndex((r) => r.kind === 'sub' && r.a.agentId === subFocus) : -1;
+  if (i < 0) i = rows.findIndex((r) => r.kind === 'session' && r.s.sessionId === open); // the subagent row is gone (folded): from its session
   const to = rows[i < 0 ? (delta > 0 ? 0 : rows.length - 1) : Math.max(0, Math.min(rows.length - 1, i + delta))];
-  followSoon = true;
   if (to.kind === 'sub') focusSub(to.s, to.a);
   else { cancelAdvance(); subFocus = null; open = to.s.sessionId; render(); }
+  followSoon = true;
+  clearTimeout(followTimer);
+  followTimer = setTimeout(() => { followSoon = false; if (open !== followed) followOpen(open); }, 120);
+  to.el.focus({ preventScroll: true });
   to.el.scrollIntoView({ block: 'nearest' });
 }
 function nextNeedsYou() {
   const ids = asking().filter((id) => { const s = sessionOf(id); return s && matchesQuery(s); });
   if (!ids.length) { toast('Nothing needs you.'); return; }
   cancelAdvance();
+  selectNow();
   subFocus = null;
   open = ids[(ids.indexOf(open) + 1) % ids.length];
   render();
@@ -1024,10 +1037,17 @@ function railKeys(e) {
   if (dlg.open || e.ctrlKey || e.metaKey || e.altKey) return;
   const t = e.target;
   if (t.closest?.('textarea, input, select, [contenteditable], [role=menu], [role=separator]')) return;
-  const arrow = e.key.startsWith('Arrow');
-  if (arrow && !(t === document.body || t === document.documentElement || t.closest?.('#board'))) return;
+  if (e.key === 'Escape' && railQuery) { e.preventDefault(); e.stopImmediatePropagation(); showFind(false); render(); return; }
+  const arrow = e.key.startsWith('Arrow'), onBody = t === document.body || t === document.documentElement;
+  if (arrow && !(t.closest?.('#board') || (onBody && railArmed))) return;
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); moveSel(e.key === 'ArrowDown' ? 1 : -1); }
-  else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { const s = sessionOf(open); if (s?.subagents.length) { e.preventDefault(); setTree(s, e.key === 'ArrowRight'); } }
+  else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+    const s = sessionOf(open);
+    if (!s?.subagents.length) return;
+    e.preventDefault();
+    if (e.key === 'ArrowLeft' && subFocus && s.subagents.some((a) => a.agentId === subFocus)) { subFocus = null; tiles.get(s.sessionId)?.btn.focus({ preventScroll: true }); }
+    setTree(s, e.key === 'ArrowRight');
+  }
   else if (e.key === 'n' && !e.shiftKey) { e.preventDefault(); nextNeedsYou(); }
   else if (e.key === '/') { e.preventDefault(); showFind(true); }
 }
@@ -1074,12 +1094,15 @@ function tipOf(s, st) {
 // ---- subagent trees: a session's subagents under its row. Open by itself while one runs or waits, folds 20 s after the
 // last one finishes; a chevron click or a key wins until a new subagent starts. Nothing folds or unfolds by itself while
 // the pointer is over that session's rows: the change waits for the pointer to leave.
-const trees = new Map(); // sessionId → { mode: 'auto'|'open'|'shut', shown, hover, pending, known: Set<agentId> }
+const trees = new Map(); // sessionId → { mode: 'auto'|'open'|'shut', shown, pending, known: Set<agentId> }
 const TREE_LINGER_MS = 20_000;
+// While the pointer is over the rail, no tree changes by itself: a tree above the pointer would shift the row under it.
+// The changes wait, and apply together when the pointer leaves.
+let railHover = false;
 const CHEV_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
 function treeOf(s) {
   let t = trees.get(s.sessionId);
-  if (!t) { t = { mode: 'auto', shown: false, hover: false, pending: null, known: new Set(), leave: 0 }; trees.set(s.sessionId, t); }
+  if (!t) { t = { mode: 'auto', shown: false, pending: null, known: new Set() }; trees.set(s.sessionId, t); }
   return t;
 }
 /** Whether the session's tree shows now, after the automatic rule, a manual choice and the pointer. */
@@ -1091,27 +1114,25 @@ function treeOpen(s) {
   const lastStop = Math.max(0, ...s.subagents.map((a) => a.stoppedAt ?? 0));
   const want = t.mode === 'auto' ? live || snap.now - lastStop < TREE_LINGER_MS : t.mode === 'open';
   if (want !== t.shown) {
-    if (t.mode === 'auto' && t.hover) { t.pending = want; return t.shown; }
+    if (t.mode === 'auto' && railHover) { t.pending = want; return t.shown; }
     t.shown = want; t.pending = null;
   }
   return t.shown;
 }
 function setTree(s, on) { const t = treeOf(s); t.mode = on ? 'open' : 'shut'; t.shown = on; t.pending = null; render(); }
-/** Moving between a row and its subagents fires leave then enter; a short wait tells that apart from leaving for good. */
-function hoverTree(s, on) {
-  const t = treeOf(s);
-  t.hover = on;
-  clearTimeout(t.leave);
-  if (!on && t.pending !== null) t.leave = setTimeout(() => { if (!t.hover && t.pending !== null) { t.shown = t.pending; t.pending = null; render(); } }, 120);
-}
+$('board').addEventListener('pointerenter', () => { railHover = true; });
+$('board').addEventListener('pointerleave', () => {
+  railHover = false;
+  let changed = false;
+  for (const t of trees.values()) if (t.pending !== null) { t.shown = t.pending; t.pending = null; changed = true; }
+  if (changed) render();
+});
 const subEls = new Map(); // agentId → its row under the session
 let subFocus = null;      // the subagent picked from the rail, marked in the details
 function subRow(s, a, last) {
   let b = subEls.get(a.agentId);
   if (!b) {
     b = el('button', { class: 'sub', type: 'button' }, el('span', { class: 'sd', 'aria-hidden': 'true' }), el('span', { class: 'sn' }), el('span', { class: 'sage' }));
-    b.onpointerenter = () => { const o = sessionOf(b.dataset.sid); if (o) hoverTree(o, true); };
-    b.onpointerleave = () => { const o = sessionOf(b.dataset.sid); if (o) hoverTree(o, false); };
     subEls.set(a.agentId, b);
   }
   const st = subState(s, a);
@@ -1120,12 +1141,14 @@ function subRow(s, a, last) {
   setAttr(b, 'data-state', st);
   b.classList.toggle('focus', subFocus === a.agentId);
   b.classList.toggle('last', last);
-  b.onclick = () => focusSub(s, a);
+  b.onclick = () => { selectNow(); focusSub(s, a); };
   setText(b.children[1], a.title || a.agentType);
   setText(b.children[2], st === 'running' ? ago(snap.now - a.startedAt) : st === 'waiting' ? 'asks you' : LABEL[st].toLowerCase());
   setAttr(b, 'title', a.lastTool ? `${a.lastTool.tool} ${a.lastTool.text}` : a.task ?? (a.title || a.agentType));
   return b;
 }
+/** A click or `n` picks a session outright: any pending key-driven follow delay is dropped. */
+function selectNow() { followSoon = false; clearTimeout(followTimer); }
 /** Open the session and mark this subagent in its details, unfolding the details column if it was folded away. */
 function focusSub(s, a) {
   cancelAdvance();
@@ -1142,12 +1165,10 @@ function tile(s) {
   if (!t) {
     t = { chev: el('span', { class: 'chev-slot', 'aria-hidden': 'true' }), glyph: el('span', { class: 'glyph', 'aria-hidden': 'true' }), name: el('span', { class: 'tname' }),
           detail: el('span', { class: 'tdetail' }), old: el('span', { class: 'told', text: '!' }), age: el('span', { class: 'tage' }) };
-    t.btn = el('button', { class: 'srow', type: 'button', onclick: () => { cancelAdvance(); subFocus = null; open = open === id ? null : id; render(); } },
+    t.btn = el('button', { class: 'srow', type: 'button', onclick: () => { cancelAdvance(); selectNow(); subFocus = null; open = open === id ? null : id; render(); } },
       t.chev, t.glyph, t.name, t.detail, t.old, t.age);
     t.q = el('button', { class: 'qstop', type: 'button', onclick: () => t.act && confirmOr(t.key, t.act.run) });
     t.wrap = el('div', { class: 'tile-wrap', 'data-sid': id }, t.btn, t.q);
-    t.wrap.onpointerenter = () => { const o = sessionOf(id); if (o) hoverTree(o, true); };
-    t.wrap.onpointerleave = () => { const o = sessionOf(id); if (o) hoverTree(o, false); };
     t.subRows = [];
     tiles.set(id, t);
   }
@@ -1890,10 +1911,8 @@ function render() {
   // At the start, and when the open one goes away, the top of Needs you (it has waited longest) takes the workspace.
   if (open === undefined || (open && !vis.some((s) => s.sessionId === open))) open = g.waiting[0]?.sessionId ?? null;
   if (launchedId) { const s = vis.find((x) => x.id === launchedId); if (s) { launchedId = null; open = s.sessionId; } }
-  if (open !== followed) {
-    if (followSoon) { clearTimeout(followTimer); followTimer = setTimeout(() => { followSoon = false; if (open !== followed) followOpen(open); }, 120); }
-    else followOpen(open);
-  }
+  if (open !== followed && !followSoon) followOpen(open); // moving by key, moveSel's own timer follows once the key settles
+  if (subFocus && !sessionOf(open)?.subagents.some((a) => a.agentId === subFocus)) subFocus = null;
   const live = new Set(snap.pending.map((p) => p.id));
   for (const [id, c] of cards) if (!live.has(id)) { c.el.remove(); cards.delete(id); }
   renderBoard(g, vis);
