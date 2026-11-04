@@ -560,7 +560,7 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
           <div class="d-col">
             <section class="sec" id="d-chat" hidden>
               <button class="linkish d-earlier" type="button" id="d-earlier" hidden>Show earlier</button>
-              <div class="thread" id="d-thread" aria-live="polite"></div>
+              <div class="thread" id="d-thread"></div>
             </section>
             <div class="chips" id="d-chips" hidden></div>
             <section class="sec needs" id="d-needs" hidden><h4 class="rule">Needs you <span class="n" id="d-needs-n"></span></h4><div class="cards" id="d-cards"></div></section>
@@ -1443,14 +1443,25 @@ function renderThread(s) {
   }
   shownFrom = { key: all[from]?.key ?? null, hidden: from };
   const rows = all.slice(from);
+  // A call still running has a clock only while the session works: one that never got its result (a session killed
+  // mid-call, read back later) shows no time rather than one that grows forever.
+  const st = stateOf(s), ticking = st === 'busy' || st === 'waiting';
+  const conts = rows.map((m, i) => { const before = rows[i - 1]; return m.who === 'claude' && before?.who === 'claude' && m.messageId != null && before.messageId === m.messageId; });
+  rows.forEach((m, i) => {
+    const sig = sigOf(m, conts[i], s);
+    if (!m.el || m._sig !== sig) { m.el = rowEl(m, conts[i], s); m._sig = sig; }
+    if (m.dur) setText(m.dur, m.who === 'tool' && m.state === 'running' ? (m.waiting ? 'waiting for you' : ticking ? took(Date.now() - m.at) : '')
+      : m.endedAt != null && m.at ? took(m.endedAt - m.at) : '');
+  });
+  // What is not in the window (rows scrolled past the cap, rebuilt rows' old elements) leaves first, so placing the
+  // rows below moves only what is new: a row kept where it was is never taken out and put back (its selection, an
+  // open output's scroll and a running glyph's animation stay as they are).
+  const inWindow = new Set(rows.filter((m, i) => !conts[i]).map((m) => m.el));
+  for (const n of [...box.childNodes]) if (!inWindow.has(n)) n.remove();
   let prev = null, wrap = null, inWrap = null;
   const closeWrap = () => { if (wrap) while (inWrap.nextSibling) inWrap.nextSibling.remove(); wrap = inWrap = null; };
   rows.forEach((m, i) => {
-    const before = rows[i - 1], cont = m.who === 'claude' && before?.who === 'claude' && m.messageId != null && before.messageId === m.messageId;
-    const sig = sigOf(m, cont, s);
-    if (!m.el || m._sig !== sig) { m.el = rowEl(m, cont, s); m._sig = sig; }
-    if (m.dur) setText(m.dur, m.who === 'tool' && m.state === 'running' ? (m.waiting ? 'waiting for you' : took(Date.now() - m.at))
-      : m.endedAt != null && m.at ? took(m.endedAt - m.at) : '');
+    const cont = conts[i];
     if (cont) {
       const at = inWrap.nextSibling;
       if (at !== m.el) wrap.insertBefore(m.el, at);
