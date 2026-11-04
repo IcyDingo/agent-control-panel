@@ -17,7 +17,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { execFile, spawn } from 'node:child_process';
 import { findRemoved } from './versions.mjs';
-import { readChat } from './history.mjs';
+import { readChat, summaryOf } from './history.mjs';
 import { UNTRUSTED, trustKey, isTrusted, trustScript } from './trust.mjs';
 import { prefsPath } from './cli.mjs';
 
@@ -168,10 +168,7 @@ function session(id) {
 }
 
 function summarize(tool, input = {}) {
-  const pick = input.command ?? input.file_path ?? input.notebook_path ?? input.pattern ?? input.url
-    ?? input.description ?? input.query ?? input.prompt
-    ?? Object.values(input).find((v) => typeof v === 'string') ?? '';
-  return { tool, text: String(pick).replace(/\s+/g, ' ').slice(0, 240), at: Date.now() };
+  return { ...summaryOf(tool, input), at: Date.now() };
 }
 
 const stopKey = (sessionId, agentId) => `${sessionId}:${agentId ?? 'main'}`;
@@ -687,7 +684,8 @@ async function history(body) {
   const file = transcriptFile(body?.sessionId);
   if (!file) return { ok: false, error: 'Its transcript is not in this profile.' };
   const limit = Number.isInteger(body?.limit) ? Math.min(2000, Math.max(20, body.limit)) : 60;
-  return { ok: true, ...(await readChat(file, { limit })) };
+  const before = Number.isInteger(body?.before) ? body.before : Infinity; // a byte offset: only what starts before it
+  return { ok: true, ...(await readChat(file, { limit, before })) };
 }
 const atPrompt = (s) => Boolean(s.inRoster && s.status === 'busy' && !isEnded(s)
   && !hasRunningSub(s) && turnIsOver(s.sessionId));
