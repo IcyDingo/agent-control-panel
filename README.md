@@ -184,7 +184,7 @@ token: when `gh` is missing or signed out, it says so once and shows nothing els
 
 - A repository is found from `origin` in its git config (github.com only); the panel never runs git
   in it, and calls `gh` with `-R github.com/<owner>/<repo>` from its own folder.
-- It shows open pull requests on the branches agents are on (not forks), the latest runs on the
+- It watches open pull requests on the branches agents are on (not forks), the latest runs on the
   default branch, and the last few merges. A repository section gets a CI pill, a session row a dot
   for its PR's checks, and Details a Pull request block with the checks, the failing ones by name,
   whether it can merge, and its review state.
