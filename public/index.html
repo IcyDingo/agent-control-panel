@@ -634,7 +634,7 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .gh-btn[data-c="passing"] svg { color: var(--ok); }
 .gh-btn[data-c="warn"] svg { color: var(--amber); }
 .gh-n { min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--r-pill); background: var(--stop); color: var(--on-solid); font: 600 11px/18px var(--mono); text-align: center; }
-.gh-side { flex: none; width: 400px; min-height: 0; overflow: auto; padding: 16px 20px 12px; border-radius: var(--r-3); background: var(--panel); outline: none; }
+.gh-side { order: 1; flex: none; width: 400px; min-height: 0; overflow: auto; padding: 16px 20px 12px; border-radius: var(--r-3); background: var(--panel); outline: none; }
 .gh-side .h-repo:first-of-type { padding-top: 10px; }
 .gh-pop-h .gh-sub { flex: 1; min-width: 0; font-size: 12px; color: var(--fg-dim); }
 .st-word[data-c="passing"] { background: var(--ok-fill); color: var(--ok); }
@@ -809,7 +809,7 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
   </section>
   <!-- GitHub, docked on the right: your open pull requests and the agents', each with its state. The top bar's button opens
        and closes it; it stays open until you close it. -->
-  <aside class="gh-side" id="gh-pop" tabindex="-1" aria-label="GitHub" hidden></aside>
+  <aside class="gh-side" id="gh-pop" tabindex="-1" aria-label="GitHub" hidden></aside><!-- order: 1 keeps it rightmost, after the session panel too -->
   <aside class="drawer" id="drawer" aria-label="Session" hidden>
     <div class="d-grip" id="d-grip" role="separator" aria-orientation="vertical" aria-label="Panel width" tabindex="0" title="Drag to resize. Double-click for the default width."></div>
     <!-- The session in three bands: its name and facts on top, the conversation scrolling in the middle, and what needs you,
