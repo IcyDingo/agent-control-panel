@@ -304,6 +304,14 @@ earlier** reads further back, and a compacted stretch shows as a note. It opens 
 and keeps it in view as more arrive, unless you scrolled up to read. When its last reply ends with a
 numbered or lettered list, each option shows as a chip that fills the box; add to it if you like.
 
+**Terminal** (beside **Chat**, for a background session Claude Code still lists) shows the session's own
+Claude Code screen: the panel runs `claude attach` in a pseudo-terminal (`pty-bridge.py`, Python's standard
+library) and draws it with xterm.js (vendored in `public/vendor/xterm`, MIT). Type into it as in a terminal:
+Esc, Shift+Tab, slash commands and its menus all work, and the session keeps running when you go back to
+**Chat**, switch session or close the panel. One terminal per session is shared by the pages that open it,
+and it lets go 15 seconds after the last one leaves. A session running in a terminal window of its own
+doesn't open here: macOS lets no other program type into it.
+
 **Enter** sends at once: the message leaves the box and shows in the chat as sending. If it doesn't
 go through, it goes back into the box (ahead of anything you typed since) and the panel says why.
 Shift+Enter starts a new line.
@@ -463,6 +471,9 @@ An endpoint that approves commands is worth protecting, even on localhost:
   through argv with no shell, and check every value first: the folder must exist, the model and
   permission mode come from a fixed list (no bypass-permissions), and names and agent types have
   a fixed character set.
+- The embedded terminal takes the same token and Origin for every keystroke, opens only for a background
+  session Claude Code lists, and only a page that opened it can type into it. Its library is served from
+  three fixed paths.
 - Ending a terminal session signals only a pid read fresh from `claude agents`, only when that
   process is still `claude`, and never the session the panel server itself runs in.
 - `claude` is started without the `CLAUDE*` variables of the session that started the server

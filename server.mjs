@@ -1326,6 +1326,7 @@ function switchProfile(body) {
   useProfile(p);
   overseer.use(overseerId(p));
   rosterSeeded = false;
+  for (const id of [...terms.keys()]) termEnd(id); // the other profile's sessions are not on the board
   rosterError = null;
   try { fs.mkdirSync(path.dirname(PREFS), { recursive: true }); fs.writeFileSync(PREFS, JSON.stringify({ profile: p.id }) + '\n'); } catch {}
   broadcast();
@@ -1533,6 +1534,7 @@ function leave(client, id) {
 /** A page that went away: its stream closed, or it never opened one. */
 function dropClient(client) {
   clientOpen.delete(client);
+  for (const id of [...terms.keys()]) termLeave(client, id);
   for (const [id, f] of follows) if (f.clients.has(client)) leave(client, id);
 }
 /** A profile switch: every follow stops, and each page that had a session open is told it is gone. */
@@ -1735,6 +1737,90 @@ const OVERSEER = {
   '/api/overseer/clear': () => overseer.clear(),
 };
 
+// ---------------------------------------------------------------- the embedded terminal: a background session's own screen
+
+// `claude attach <id>` in a pseudo-terminal (pty-bridge.py), shown in the page with xterm.js. One per session, shared by
+// the pages that have it open; it lets go a little after the last one leaves, and the session keeps running.
+const BRIDGE = fileURLToPath(new URL('./pty-bridge.py', import.meta.url));
+const TERM_KEEP = 256 * 1024;                                   // the newest output, replayed to a page that opens it
+const TERM_GRACE_MS = Number(process.env.ACP_TERM_GRACE_MS ?? 15_000);
+const terms = new Map(); // sessionId → { proc, clients: Set<clientId>, buf: Buffer[], size, out: Buffer[], flush, release }
+const frame = (kind, body) => { const b = Buffer.from(body); const h = Buffer.alloc(5); h.write(kind, 0, 'ascii'); h.writeUInt32BE(b.length, 1); return Buffer.concat([h, b]); };
+const termSize = (v, d) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.max(10, Math.min(n, 500)) : d; };
+/** Whether a session opens in the terminal: a background job Claude Code still lists, not stopped, not the panel's own. */
+function termable(s) {
+  if (!s || s.kind !== 'background' || !BG_ID.test(s.id ?? '') || !s.inRoster) return 'Only a background session that Claude Code still lists opens here. A terminal session lives in its own terminal window.';
+  if (['stopped', 'failed'].includes(s.state)) return 'It has stopped. Send it a message to start it again, then open its terminal.';
+  if (s.pid != null && hostPids.has(s.pid)) return 'The panel server runs inside this session, so it does not open here.';
+  return null;
+}
+function termOpen(body) {
+  const client = CLIENT.test(String(body?.client ?? '')) ? body.client : null;
+  if (!client || !clientRes.has(client)) return { ok: false, error: 'The page is not connected. Reload it and try again.' };
+  const s = sessions.get(body?.sessionId), why = termable(s);
+  if (why) return { ok: false, error: why };
+  let t = terms.get(s.sessionId);
+  const cols = termSize(body.cols, 100), rows = termSize(body.rows, 30);
+  if (!t) {
+    const cwd = s.cwd && fs.existsSync(s.cwd) ? s.cwd : os.homedir();
+    const proc = spawn('python3', [BRIDGE, String(cols), String(rows), '--', claudePath() ?? 'claude', 'attach', s.id],
+      { cwd, env: { ...childEnv, TERM: 'xterm-256color', COLORTERM: 'truecolor' }, stdio: ['pipe', 'pipe', 'pipe'] });
+    t = { proc, clients: new Set(), buf: [], size: 0, out: [], flush: null, release: null };
+    terms.set(s.sessionId, t);
+    const take = (d) => {
+      t.buf.push(d); t.size += d.length;
+      while (t.size > TERM_KEEP && t.buf.length > 1) t.size -= t.buf.shift().length;
+      // Output comes in many small writes: a page gets it in one message every 16 ms.
+      t.out.push(d);
+      t.flush ??= setTimeout(() => { t.flush = null; const data = Buffer.concat(t.out).toString('base64'); t.out = []; sendTo([...t.clients], 'term', { sessionId: s.sessionId, data }); }, 16);
+    };
+    proc.stdout.on('data', take);
+    proc.stderr.on('data', take);
+    proc.stdin.on('error', () => {}); // it may be gone before a last keystroke lands
+    const gone = () => {
+      if (terms.get(s.sessionId) !== t) return;
+      terms.delete(s.sessionId);
+      clearTimeout(t.flush); clearTimeout(t.release);
+      sendTo([...t.clients], 'term-exit', { sessionId: s.sessionId });
+    };
+    proc.on('exit', gone);
+    proc.on('error', (e) => { console.error('terminal:', e?.message ?? e); gone(); });
+  } else if (!t.proc.stdin.destroyed) t.proc.stdin.write(frame('r', `${cols} ${rows}`)); // a page joining redraws it at its size
+  clearTimeout(t.release); t.release = null;
+  t.clients.add(client);
+  return { ok: true, scrollback: Buffer.concat(t.buf).toString('base64') };
+}
+/** The terminal a page has open, or null. */
+function termOf(body) {
+  const t = terms.get(body?.sessionId);
+  return t && t.clients.has(body?.client) && !t.proc.stdin.destroyed ? t : null;
+}
+function termInput(body) {
+  const t = termOf(body), data = typeof body?.data === 'string' ? body.data : '';
+  if (!t) return { ok: false, error: 'That terminal is closed. Open it again.' };
+  if (!data || data.length > 65_536) return { ok: true };
+  t.proc.stdin.write(frame('d', data));
+  return { ok: true };
+}
+function termResize(body) {
+  const t = termOf(body);
+  if (t) t.proc.stdin.write(frame('r', `${termSize(body.cols, 100)} ${termSize(body.rows, 30)}`));
+  return { ok: true };
+}
+/** A page let go of a terminal; the last one leaving closes it after a grace, which hangs up `claude attach`. */
+function termLeave(client, sessionId) {
+  const t = terms.get(sessionId);
+  if (!t || !t.clients.delete(client) || t.clients.size) return;
+  clearTimeout(t.release);
+  t.release = setTimeout(() => { if (!t.clients.size) termEnd(sessionId); }, TERM_GRACE_MS);
+}
+function termEnd(sessionId) {
+  const t = terms.get(sessionId);
+  if (t) try { t.proc.stdin.end(); } catch {}
+}
+const termClose = (body) => { termLeave(body?.client, body?.sessionId); return { ok: true }; };
+
+// ---------------------------------------------------------------- snapshot + SSE
 // ---------------------------------------------------------------- snapshot + SSE
 
 function snapshot() {
@@ -1745,7 +1831,7 @@ function snapshot() {
       const here = ranCwd ?? hereCwd ?? s.cwd, place = gitPlace(here), git = placeOut(place);
       return {
       ...s, git, workCwd: here, gh: place ? github.forSession(place.common, place.branch) : null, elsewhere: (editTops ?? []).filter((t) => t !== git?.top).slice(0, 3).map((t) => placeOut(gitPlace(t))).filter(Boolean),
-      stopping: stops.has(stopKey(s.sessionId, null)), hostsPanel: hostPids.has(s.pid),
+      stopping: stops.has(stopKey(s.sessionId, null)), hostsPanel: hostPids.has(s.pid), termable: !termable(s),
       queued: inbox.get(s.sessionId) ?? [], working: isWorking(s),
       subagents: [...s.subagents.values()].map((a) => ({ ...a, stopping: !a.stoppedAt && stops.has(stopKey(s.sessionId, a.agentId)) })),
     }; }),
@@ -1821,6 +1907,14 @@ async function handle(req, res) {
     return send(res, 404, '');
   }
 
+  // The embedded terminal's library, vendored: these three files and nothing else under it.
+  const VENDOR = { '/vendor/xterm/xterm.js': 'text/javascript', '/vendor/xterm/addon-fit.js': 'text/javascript', '/vendor/xterm/xterm.css': 'text/css' };
+  if (req.method === 'GET' && Object.hasOwn(VENDOR, url.pathname)) {
+    let body;
+    try { body = fs.readFileSync(new URL('./public' + url.pathname, import.meta.url)); } catch { return send(res, 404, { error: 'not found' }); }
+    res.writeHead(200, { 'content-type': `${VENDOR[url.pathname]}; charset=utf-8`, 'cache-control': 'max-age=86400' });
+    return res.end(body);
+  }
   if (req.method === 'GET' && url.pathname === '/') {
     return send(res, 200, page().replace('__ACP_TOKEN__', TOKEN), 'text/html; charset=utf-8');
   }
@@ -1879,7 +1973,8 @@ async function handle(req, res) {
                       '/api/trust-terminal': openTrustTerminal,
                       '/api/github/refresh': () => { github.refresh(); return { ok: true, github: github.state() }; },
                       '/api/github/log': githubLog, '/api/github/hand': githubHand, ...OVERSEER,
-                      '/api/watcher/enabled': (b) => watcher.setEnabled(b?.on) };
+                      '/api/watcher/enabled': (b) => watcher.setEnabled(b?.on),
+                      '/api/term/open': termOpen, '/api/term/input': termInput, '/api/term/resize': termResize, '/api/term/close': termClose };
     if (Object.hasOwn(ACTIONS, url.pathname)) {
       let r;
       try { r = await ACTIONS[url.pathname](body); } catch (err) { r = { ok: false, error: String(err?.message ?? err).slice(0, 300) }; }
