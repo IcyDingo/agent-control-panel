@@ -19,6 +19,23 @@ Constraints kept from the repo's specs: Node standard library only, no build ste
 every new `/api` route is POST behind the per-start token, child processes by argv, git read-only, slow work off the
 request path, nothing new in the hub projection.
 
+## Amended 2026-11-12: built on the slim rail
+
+This design was written against `901d710`. Before it was built, the local main gained the slim-rail, live-session-view
+and clean-pass work and lost World, Hub and Space, and the owner chose to build on that. What changes:
+
+- **Rail.** The one-line session rows, subagent trees, keys and find stay. The state queues (Working, Idle) give way to
+  repository sections: Needs you, then one section per repository, then Other folders, then Finished. Repository
+  sections are ordered by name, not recent activity, so they hold still while agents work (the slim rail's anti-goal
+  about rows moving under the pointer). A row under Needs you names its repository, since it sits away from that
+  section. A repository header shows the folder it sits in and, with one checkout in use, that checkout and branch;
+  with two or more, a quiet label heads each checkout's rows. Interrupt all and End idle are per section.
+- **Look.** Applied to the clean-pass chrome: rows stay one line (30 px, up from 26 px) rather than becoming cards.
+  Section headers are sentence case. The rail is 300 px by default. A single profile hides the tab bar.
+- **World and Space.** Gone from main, so their checks are dropped.
+- **Server.** `askClaude`, `notifyOrder` and `world.mjs` no longer exist: the overseer gets its own headless
+  `claude -p` helper, and GitHub alerts their own `notify()`. Line numbers in the phases below refer to the old tree.
+
 ## Shape of the result
 
 ```
