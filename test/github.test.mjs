@@ -818,3 +818,13 @@ test('stop during a poll lets that poll finish but starts no other', async () =>
   await beat;
   assert.deepEqual([...new Set(h.calls.map((c) => slugIn(c.args)))], ['o/a']);
 });
+
+test('a check whose link is not https keeps its failure but loses the link', () => {
+  const r = rollup([
+    { __typename: 'StatusContext', context: 'evil', state: 'FAILURE', targetUrl: 'javascript:alert(1)', startedAt: '2026-01-01T00:00:00Z' },
+    { __typename: 'CheckRun', name: 'build', workflowName: 'CI', status: 'COMPLETED', conclusion: 'FAILURE', detailsUrl: 'https://github.com/o/n/actions/runs/1/job/2', completedAt: '2026-01-01T00:00:00Z' },
+  ]);
+  assert.equal(r.checks, 'failing');
+  assert.equal(r.failing.find((f) => f.name === 'evil').url, null);
+  assert.equal(r.failing.find((f) => f.name === 'build').url, 'https://github.com/o/n/actions/runs/1/job/2');
+});

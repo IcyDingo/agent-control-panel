@@ -111,7 +111,8 @@ export function rollup(contexts) {
     if (status) kind = ['FAILURE', 'ERROR'].includes(up(c.state)) ? 'fail' : ['PENDING', 'EXPECTED'].includes(up(c.state)) ? 'pending' : up(c.state) === 'SUCCESS' ? 'pass' : 'other';
     else if (up(c.status) !== 'COMPLETED') kind = 'pending';
     else kind = FAILED.has(up(c.conclusion)) ? 'fail' : up(c.conclusion) === 'SUCCESS' ? 'pass' : 'other';
-    const url = String((status ? c.targetUrl : c.detailsUrl) ?? ''), m = url.match(RUN_URL);
+    // Anyone who can post a commit status picks its link: only an https one is kept, as the page makes it clickable.
+    const raw = String((status ? c.targetUrl : c.detailsUrl) ?? ''), url = /^https:\/\//i.test(raw) ? raw : '', m = url.match(RUN_URL);
     latest.set(key, { at, kind, name, url: url || null, runId: m ? Number(m[1]) : null, jobId: m?.[2] ? Number(m[2]) : null,
                       doneAt: ms(c.completedAt) ?? ms(c.startedAt) });
   }

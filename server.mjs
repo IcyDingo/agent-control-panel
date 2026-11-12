@@ -343,6 +343,7 @@ async function pollRoster() {
   for (const s of sessions.values()) s.atPrompt = atPrompt(s);
   const tasks = [...sessions.values()].some((s) => s.atPrompt) ? await backgroundTasks() : new Map();
   for (const s of sessions.values()) s.bgTasks = s.atPrompt ? tasks.get(s.pid) ?? 0 : 0;
+  if (gen !== profileGen) return; // switched while it looked at background tasks: the new profile's first roster seeds it
   rosterSeeded = true;
   if (inbox.size) deliverQueued();
   // Gone from the roster = closed or removed: drop its last status so it can't still read "needs you".
@@ -1322,7 +1323,7 @@ function switchProfile(body) {
   for (const m of [inbox, sessions, stops, files, turns]) m.clear();
   for (const s of [dismissed, saidRead]) s.clear();
   useProfile(p);
-  overseer.use(p.id);
+  overseer.use(overseerId(p));
   rosterSeeded = false;
   rosterError = null;
   try { fs.mkdirSync(path.dirname(PREFS), { recursive: true }); fs.writeFileSync(PREFS, JSON.stringify({ profile: p.id }) + '\n'); } catch {}
@@ -1700,8 +1701,10 @@ const overseer = createOverseer({
   },
   onChange: () => broadcast(),
 });
-overseer.use(profile.id);
 onGithubEvent = (ev) => overseer.note(ev.type, { slug: ev.slug, text: ev.text });
+/** The overseer keeps one conversation per profile, by an id it accepts: the profile's own when it is plain, else one
+ *  made from its folder, so two accounts never share a conversation. */
+const overseerId = (p) => (/^(?!\.{1,2}$)[\w.-]{1,40}$/.test(p.id) ? p.id : 'p-' + crypto.createHash('sha256').update(p.dir).digest('hex').slice(0, 16));
 /** A line in the overseer's feed about a session. */
 const feed = (type, s, text) => { try { overseer.note(type, { sessionId: s?.sessionId, name: s ? labelOf(s) : undefined, text }); } catch {} };
 for (const sig of ['SIGTERM', 'SIGINT']) process.once(sig, () => { try { overseer.flush(); } catch {} process.exit(0); });
@@ -1898,6 +1901,7 @@ const looking = () => !DAEMON || clients.size > 0;
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`agent control panel → http://127.0.0.1:${PORT}`);
+  overseer.use(overseerId(profile)); // here, not at load: it broadcasts, and the broadcast's state is declared further down
   pollRoster().then(() => { if (looking()) checkVersions(); });
   setRosterPace(looking());
   setInterval(() => { if (looking()) checkVersions(); }, VERSIONS_MS);
