@@ -616,8 +616,8 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .pl.pr[data-c="running"] { background: var(--run-fill); color: var(--run); }
 .pl.pr[data-c="passing"] { background: var(--ok-fill); color: var(--ok); }
 .gh-fail { display: grid; gap: 4px; margin: 6px 0 0; padding: 0; list-style: none; font: 12px var(--mono); }
-.gh-fail a, .h-side a { color: inherit; text-decoration: none; }
-.gh-fail a:hover, .h-side a:hover { text-decoration: underline; text-underline-offset: 2px; }
+.gh-fail a { color: inherit; text-decoration: none; }
+.gh-fail a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .gh-fail li { color: var(--stop); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hand { display: grid; gap: 8px; margin-top: 12px; }
 .hand pre.block { max-height: 180px; margin: 0; font-size: 11.5px; }
@@ -702,10 +702,8 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .ov-act .row { margin-top: 2px; }
 .ov-act .lf-inline { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--fg-dim); }
 .ov-act .lf-inline input[type="text"] { flex: 1; min-width: 0; height: 30px; padding: 0 10px; border: 1px solid transparent; border-radius: var(--r-1); background: var(--code); font: 12.5px var(--mono); }
-/* Across everything: each repository's pull requests, default-branch runs and recent merges. */
-.h-side { flex: none; width: 320px; min-height: 0; overflow: auto; padding: 20px 20px 24px; border-left: 1px solid var(--line); }
-.h-side h3 { margin: 0 0 4px; font-size: 12.5px; font-weight: 600; color: var(--fg-dim); }
-.h-side .gh-hint, .gh-side .gh-hint { margin: 8px 0 0; color: var(--fg-dim); font-size: 12.5px; line-height: 1.5; }
+/* The GitHub panel's lists: each repository's pull requests and default-branch runs, with their states. */
+.gh-side .gh-hint { margin: 8px 0 0; color: var(--fg-dim); font-size: 12.5px; line-height: 1.5; }
 .h-repo { padding: 16px 0; }
 .h-repo + .h-repo { border-top: 1px solid var(--line); }
 .h-repo-h { display: flex; align-items: center; gap: 8px; min-width: 0; margin-bottom: 8px; font-weight: 600; font-size: 13px; }
@@ -729,8 +727,6 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .srow.ov .tname { font-weight: 600; }
 .srow.ov[data-busy="1"] .tdetail { color: var(--run); }
 .srow.ov[data-proposed="1"] .tdetail { color: var(--run); font-weight: 600; }
-@media (max-width: 1180px) { .h-side { width: 280px; } }
-@media (max-width: 1000px) { .home { flex-direction: column; overflow: auto; } .h-main { flex: none; min-height: 100%; } .h-side { width: auto; border-left: 0; border-top: 1px solid var(--line); overflow: visible; } }
 
 /* Narrow, the rail takes the width and the open session covers it. */
 @media (max-width: 860px) {
@@ -810,7 +806,6 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
         </div>
       </div>
     </div>
-    <aside class="h-side" id="h-side" aria-label="Across everything"></aside>
   </section>
   <!-- GitHub, docked on the right: your open pull requests and the agents', each with its state. The top bar's button opens
        and closes it; it stays open until you close it. -->
@@ -2523,15 +2518,8 @@ function renderHome(g) {
     if ($('h-model').value !== st.model) $('h-model').value = st.model;
   }
   syncSay();
-  // With the GitHub panel open on the right, the same list beside the chat would only repeat it.
-  $('h-side').hidden = !$('gh-pop').hidden;
-  if ($('h-side').hidden) return;
-  renderAcross();
 }
 /** Across everything: each watched repository's pull requests, default-branch runs and recent merges. */
-function renderAcross() {
-  patch($('h-side'), acrossSig(), () => acrossNodes(el('h3', { text: 'Across everything' })));
-}
 const acrossSig = () => JSON.stringify([snap.github, snap.sessions.map((s) => [s.sessionId, label(s)])]);
 // Checks still running after this long are called stuck; merges show for a day.
 const STUCK_MS = 30 * 60_000, MERGED_MS = 24 * 3_600_000;
@@ -2564,7 +2552,7 @@ function ghActive(r) {
   ];
   return items.sort((a, b) => GH_RANK[a.st] - GH_RANK[b.st]);
 }
-/** The list under a heading, shared by the overseer's side column and the GitHub panel: every open pull request of yours
+/** The GitHub panel's list under its heading: every open pull request of yours
  *  or on an agent's branch, default-branch runs that are failing or running, and what merged in the last day, each with
  *  its state in its colour, worst first. A repository with nothing to show drops out. */
 function acrossNodes(head) {
@@ -2591,7 +2579,7 @@ function acrossNodes(head) {
 /** Runs on a default branch that count for it: pushes and merges, not a fork's PR named main. */
 const mainRuns = (r) => r.runs.filter((x) => ['push', 'merge_group', 'schedule', 'workflow_dispatch'].includes(x.event) || !x.event);
 /** The GitHub button: a dot for the worst state across every watched repository, the number failing, and a dropdown
- *  with the same list as the overseer's side column. */
+ *  with the panel's list. */
 function renderGhBtn() {
   const gh = snap.github;
   $('gh-wrap').hidden = !gh || gh.gh === 'off';
