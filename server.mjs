@@ -183,7 +183,7 @@ function clearStops(sessionId) {
 
 /** Record a hook event. Returns the hook's reply: only an interrupted agent's PreToolUse gets one. */
 function onHookEvent(e) {
-  if (!e?.session_id) return null;
+  if (!e?.session_id || isOverseerCall(e.cwd)) return null;
   if (dismissed.has(e.session_id)) {
     if (e.hook_event_name === 'SessionEnd' || e.hook_event_name === 'Stop') return null;
     dismissed.delete(e.session_id); // it is running again
@@ -305,7 +305,7 @@ async function pollRoster() {
   rosterError = null;
   const seen = new Set();
   for (const r of list) {
-    if (!r.sessionId) continue;
+    if (!r.sessionId || isOverseerCall(r.cwd)) continue;
     const over = r.state === 'done' || r.state === 'failed' || r.state === 'stopped';
     if (dismissed.has(r.sessionId)) { if (over) continue; dismissed.delete(r.sessionId); }
     seen.add(r.sessionId);
@@ -1674,6 +1674,11 @@ function tellEffect(sessionId) {
 /** One headless, tool-less Claude Code call on the profile's own login, from an empty folder of its own. Hooks are off
  *  in its arguments, so it never shows on the board. Never rejects. */
 const overseerCwd = path.join(dataDir, 'overseer', 'cwd');
+/** The overseer's own calls run in its empty folder: Claude Code lists them, but they are not the user's sessions. */
+const isOverseerCall = (cwd) => typeof cwd === 'string' && (cwd === overseerCwd || cwd.startsWith(overseerCwd + path.sep)
+  || (overseerReal != null && (cwd === overseerReal || cwd.startsWith(overseerReal + path.sep))));
+let overseerReal = null;
+try { fs.mkdirSync(overseerCwd, { recursive: true, mode: 0o700 }); overseerReal = fs.realpathSync(overseerCwd); } catch {}
 function askModel(args, { timeout = 90_000, signal } = {}) {
   try { fs.mkdirSync(overseerCwd, { recursive: true, mode: 0o700 }); } catch {}
   return new Promise((resolve) => {

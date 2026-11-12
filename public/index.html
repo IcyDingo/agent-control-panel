@@ -294,10 +294,6 @@ button, input, textarea, select { font: inherit; color: inherit; }
 /* Beside the rail it sits flat, filling the rest of the width. */
 .stage > .drawer { position: relative; inset: auto; flex: 1; width: auto; min-width: 0; margin: 0; border: 0; border-radius: var(--r-3); box-shadow: none; }
 .stage .d-grip { display: none; }
-.ws-empty { flex: 1; min-width: 0; margin: 0; display: grid; place-content: center; justify-items: center; gap: 12px; padding: 24px; border-radius: var(--r-3); background: var(--panel); color: var(--fg-dim); text-align: center; }
-.ws-empty p { margin: 0; }
-.ws-empty b { color: var(--fg-dim); font-weight: 600; }
-.ws-empty .btn { background: var(--amber-fill); color: var(--amber); }
 /* Drag an edge to size its pane: the rail's right edge. Double-click puts it back. */
 .d-grip, .r-grip, .s-grip { position: absolute; top: 0; bottom: 0; z-index: 6; width: 8px; cursor: col-resize; touch-action: none; }
 .d-grip { left: 0; }
@@ -604,11 +600,114 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .toast { max-width: min(560px, calc(100vw - 32px)); padding: 10px 16px; border: 0; border-radius: var(--r-2); background: var(--fill-strong); color: var(--fg); font-size: 12.5px; box-shadow: 0 12px 28px -16px var(--shade); }
 .toast.bad { background: var(--raise); color: var(--stop); box-shadow: inset 0 0 0 1px var(--stop-line), 0 12px 28px -16px var(--shade); }
 
+/* ---------- GitHub marks: a repository's checks on its section, a session's PR on its row and in its place bar ---------- */
+.ci { flex: none; display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px 0 7px; border-radius: var(--r-pill); background: var(--fill); font: 500 11px var(--sans); color: var(--fg-dim); }
+.ci::before, .tci { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.ci[data-c="failing"] { background: var(--stop-fill); color: var(--stop); }
+.ci[data-c="running"] { background: var(--run-fill); color: var(--run); }
+.ci[data-c="passing"] { background: var(--ok-fill); color: var(--ok); }
+.ci[data-c="running"]::before, .tci[data-c="running"] { animation: blink 1.6s ease-in-out infinite; }
+.tci { display: inline-block; background: var(--fg-faint); }
+.tci[data-c="failing"] { background: var(--stop); }
+.tci[data-c="running"] { background: var(--run); }
+.tci[data-c="passing"] { background: var(--ok); }
+.pl.pr::before { display: none; }
+.pl.pr[data-c="failing"] { background: var(--stop-fill); color: var(--stop); }
+.pl.pr[data-c="running"] { background: var(--run-fill); color: var(--run); }
+.pl.pr[data-c="passing"] { background: var(--ok-fill); color: var(--ok); }
+.gh-fail { display: grid; gap: 4px; margin: 6px 0 0; padding: 0; list-style: none; font: 12px var(--mono); }
+.gh-fail a, .h-side a { color: inherit; text-decoration: none; }
+.gh-fail a:hover, .h-side a:hover { text-decoration: underline; text-underline-offset: 2px; }
+.gh-fail li { color: var(--stop); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hand { display: grid; gap: 8px; margin-top: 12px; }
+.hand pre.block { max-height: 180px; margin: 0; font-size: 11.5px; }
+.hand textarea.cmd { min-height: 6em; }
+.hand .row { margin-top: 0; }
+
+/* ---------- the overseer: the home view, beside the rail, with what GitHub shows in a column of its own ---------- */
+.home { flex: 1; min-width: 0; display: flex; overflow: hidden; background: var(--panel); border-radius: var(--r-3); }
+.h-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.h-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.h-head #h-tools { display: flex; gap: 6px; margin-left: auto; }
+.h-close { display: none; }
+/* Its mark: four sessions under one eye. */
+.ov-mark { flex: none; position: relative; width: 22px; height: 22px; border-radius: 7px; background: var(--fg); }
+.ov-mark::after { content: ""; position: absolute; inset: 7px; border-radius: 50%; background: var(--panel); box-shadow: 0 0 0 2px var(--panel); }
+.h-intro:empty { display: none; }
+.h-intro { margin: 8px 0 28px; }
+.h-intro h3 { margin: 0 0 8px; font-size: 22px; line-height: 1.25; font-weight: 600; letter-spacing: -0.02em; text-wrap: balance; }
+.h-intro p { max-width: 58ch; margin: 0; color: var(--fg-dim); font-size: 14px; line-height: 1.6; }
+#h-next:empty { display: none; }
+#h-next { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 24px; padding: 12px 16px; border-radius: var(--r-2); background: var(--amber-fill); color: var(--amber); font-size: 13px; font-weight: 550; }
+#h-next .btn { background: var(--amber-dim); color: var(--amber); }
+.msg.ov .m-who b { color: var(--fg); }
+.msg.ov.error .m-body { color: var(--stop); font-size: 13.5px; }
+/* A line from the feed: something that happened, quiet, between the turns. */
+.msg.feed { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; color: var(--fg-dim); }
+.msg.feed + .msg.feed, .msg.feed + .msg.tool, .msg.tool + .msg.feed { margin-top: -20px; }
+.msg.feed .fd { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--fg-faint); transform: translateY(-1px); }
+.msg.feed[data-t="needs-you"] .fd { background: var(--amber); }
+.msg.feed[data-t="started"] .fd, .msg.feed[data-t="launched"] .fd, .msg.feed[data-t="pr-opened"] .fd { background: var(--run); }
+.msg.feed[data-t="ci-failed"] .fd, .msg.feed[data-t="main-failed"] .fd, .msg.feed[data-t="failed"] .fd { background: var(--stop); }
+.msg.feed[data-t="ci-failed"], .msg.feed[data-t="main-failed"] { color: var(--stop); }
+.msg.feed[data-t="ci-recovered"] .fd, .msg.feed[data-t="main-recovered"] .fd, .msg.feed[data-t="pr-merged"] .fd, .msg.feed[data-t="done"] .fd, .msg.feed[data-t="finished"] .fd { background: var(--ok); }
+.msg.feed .ft { flex: none; margin-left: auto; font: 11.5px var(--mono); color: var(--fg-faint); }
+.msg.feed .fx { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* What it proposes: a card per action, the target and the exact words, which you can change before you run it. */
+.ov-acts { display: grid; gap: 10px; margin-top: 14px; }
+.ov-act { display: grid; gap: 8px; min-width: 0; padding: 14px 16px; border-radius: var(--r-2); background: var(--raise); box-shadow: 0 0 0 1px var(--line); }
+.ov-act[data-state="proposed"] { background: var(--run-fill); box-shadow: none; }
+.ov-act .a-head { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.ov-act .a-what { font-weight: 600; font-size: 13.5px; min-width: 0; overflow-wrap: anywhere; }
+.ov-act .a-why { color: var(--fg-dim); font-size: 12.5px; }
+.ov-act .a-how { color: var(--fg-dim); font-size: 12px; }
+.ov-act .a-how.warn { color: var(--amber); }
+.ov-act .a-text { margin: 0; white-space: pre-wrap; font-size: 13px; line-height: 1.55; }
+.ov-act textarea.cmd { font: 13px/1.55 var(--sans); }
+.ov-act .a-state { font-size: 12.5px; font-weight: 550; color: var(--fg-dim); }
+.ov-act[data-state="done"] .a-state { color: var(--ok); }
+.ov-act[data-state="failed"] .a-state, .ov-act[data-state="invalid"] .a-state { color: var(--stop); }
+.ov-act .row { margin-top: 2px; }
+.ov-act .lf-inline { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--fg-dim); }
+.ov-act .lf-inline input[type="text"] { flex: 1; min-width: 0; height: 30px; padding: 0 10px; border: 1px solid transparent; border-radius: var(--r-1); background: var(--code); font: 12.5px var(--mono); }
+/* Across everything: each repository's pull requests, default-branch runs and recent merges. */
+.h-side { flex: none; width: 320px; min-height: 0; overflow: auto; padding: 20px 20px 24px; border-left: 1px solid var(--line); }
+.h-side h3 { margin: 0 0 4px; font-size: 12.5px; font-weight: 600; color: var(--fg-dim); }
+.h-side .gh-hint { margin: 8px 0 0; color: var(--fg-dim); font-size: 12.5px; line-height: 1.5; }
+.h-repo { padding: 16px 0; }
+.h-repo + .h-repo { border-top: 1px solid var(--line); }
+.h-repo-h { display: flex; align-items: center; gap: 8px; min-width: 0; margin-bottom: 8px; font-weight: 600; font-size: 13px; }
+.h-repo-h a { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.h-repo-h .ci { margin-left: auto; }
+.h-sub { margin: 10px 0 4px; font-size: 11.5px; font-weight: 600; color: var(--fg-dim); }
+.h-li { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 26px; font-size: 12.5px; }
+.h-li .tci { background: var(--fg-faint); }
+.h-li .tci[data-c="failing"] { background: var(--stop); } .h-li .tci[data-c="running"] { background: var(--run); } .h-li .tci[data-c="passing"] { background: var(--ok); }
+.h-li .hn { flex: none; font: 12px var(--mono); color: var(--fg-dim); }
+.h-li .ht { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.h-li .hw { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11.5px var(--mono); color: var(--fg-dim); }
+.h-err { margin: 4px 0 0; color: var(--stop); font-size: 12px; }
+.h-none { margin: 4px 0 0; color: var(--fg-dim); font-size: 12.5px; }
+/* The overseer's own row, pinned at the top of the rail: it returns to the home view. */
+.srow.ov { height: 34px; margin: 0 8px 8px; width: calc(100% - 16px); padding-left: 10px; }
+.srow.ov .ov-mark { width: 14px; height: 14px; border-radius: 4px; }
+.srow.ov .ov-mark::after { inset: 4.5px; box-shadow: 0 0 0 1.5px var(--panel); background: var(--panel); }
+.srow.ov:hover .ov-mark::after { background: var(--hover); box-shadow: 0 0 0 1.5px var(--hover); }
+.srow.ov[aria-current="true"] .ov-mark::after { background: var(--fill-strong); box-shadow: 0 0 0 1.5px var(--fill-strong); }
+.srow.ov .tname { font-weight: 600; }
+.srow.ov[data-busy="1"] .tdetail { color: var(--run); }
+.srow.ov[data-proposed="1"] .tdetail { color: var(--run); font-weight: 600; }
+@media (max-width: 1180px) { .h-side { width: 280px; } }
+@media (max-width: 1000px) { .home { flex-direction: column; overflow: auto; } .h-main { flex: none; min-height: 100%; } .h-side { width: auto; border-left: 0; border-top: 1px solid var(--line); overflow: visible; } }
+
 /* Narrow, the rail takes the width and the open session covers it. */
 @media (max-width: 860px) {
   .stage { padding: 0; gap: 0; }
   .board { flex: 1; width: auto; border-radius: 0; }
-  .r-grip, .ws-empty { display: none; }
+  .r-grip { display: none; }
+  .home { display: none; }
+  body.home-open .stage > .home:not([hidden]) { display: flex; position: absolute; inset: 0; z-index: 5; border-radius: 0; flex-direction: column; overflow: auto; }
+  body.home-open .h-close { display: inline-flex; }
   .drawer { width: 100%; border-left: 0; }
   .stage > .drawer { position: absolute; inset: 0; margin: 0; width: auto; }
 }
@@ -643,7 +742,40 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 <main class="stage">
   <nav class="board" id="board" aria-label="Sessions"></nav>
   <div class="r-grip" id="r-grip" role="separator" aria-orientation="vertical" aria-label="Queue width" tabindex="0" title="Drag to resize. Double-click for the default width."></div>
-  <div class="ws-empty" id="empty" hidden></div>
+  <!-- With no session open: the overseer, one chat that knows every session and proposes what to do, with what GitHub
+       shows for the agents' repositories beside it. -->
+  <section class="home" id="home" aria-label="Overseer" hidden>
+    <div class="h-main">
+      <div class="d-top-band"><div class="d-col h-head">
+        <span class="ov-mark" aria-hidden="true"></span><h2 class="d-name">Overseer</h2>
+        <span class="d-meta" id="h-meta"></span>
+        <span id="h-tools"></span>
+        <button class="btn icon h-close" type="button" id="h-close" aria-label="Back to the sessions" title="Back to the sessions"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div></div>
+      <div class="d-scroll" id="h-scroll">
+        <div class="d-col">
+          <div id="h-next"></div>
+          <div class="h-intro" id="h-intro"></div>
+          <div class="thread" id="h-thread"></div>
+          <div class="chips" id="h-chips"></div>
+        </div>
+      </div>
+      <div class="d-foot">
+        <div class="d-col">
+          <div class="d-now" id="h-busy" hidden></div>
+          <div class="composer">
+            <textarea id="h-say" rows="2" placeholder="Ask about your agents, or say what you want done" aria-label="Your message to the overseer"></textarea>
+            <div class="c-bar">
+              <select class="c-mode" id="h-model" aria-label="The overseer's model" title="The model the overseer answers with"></select>
+              <span class="grow"></span>
+              <button class="btn primary small" type="button" id="h-send" disabled title="It reads your sessions and answers. Anything it proposes waits for your click.">Send</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <aside class="h-side" id="h-side" aria-label="Across everything"></aside>
+  </section>
   <aside class="drawer" id="drawer" aria-label="Session" hidden>
     <div class="d-grip" id="d-grip" role="separator" aria-orientation="vertical" aria-label="Panel width" tabindex="0" title="Drag to resize. Double-click for the default width."></div>
     <!-- The session in three bands: its name and facts on top, the conversation scrolling in the middle, and what needs you,
@@ -695,6 +827,7 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
         <button class="d-side-tab" type="button" id="d-side-tab" aria-expanded="true"><span>Details</span> <span class="n" id="d-side-n"></span></button>
         <div class="d-side-body" id="d-side-body">
           <div class="side-sec" id="d-info"></div>
+          <div class="side-sec" id="d-gh"></div>
           <div class="side-sec" id="d-subs"></div>
           <div class="side-acts" id="d-acts"></div>
         </div>
@@ -780,6 +913,7 @@ const HINT = {
   idle: 'Ends every idle background session. Terminal sessions stay open: end those one at a time, in case you are typing in one.',
   clear: 'Removes every finished session from the list. Transcripts are kept, and a worktree with unsaved work keeps its session.',
   sub: 'It stops at its next tool call. Its session carries on without it.',
+  ovclear: 'Clears this conversation with the overseer. The feed of what happened stays.',
 };
 const SETTLED = {
   allow: 'Allowed from the panel', deny: 'Denied from the panel', answer: 'Answered from the panel',
@@ -1279,9 +1413,9 @@ function tile(s) {
   let t = tiles.get(id);
   if (!t) {
     t = { chev: el('span', { class: 'chev-slot', 'aria-hidden': 'true' }), glyph: el('span', { class: 'glyph', 'aria-hidden': 'true' }), name: el('span', { class: 'tname' }),
-          repo: el('span', { class: 'trepo' }), detail: el('span', { class: 'tdetail' }), old: el('span', { class: 'told', text: '!' }), age: el('span', { class: 'tage' }) };
+          ci: el('span', { class: 'tci', hidden: true }), repo: el('span', { class: 'trepo' }), detail: el('span', { class: 'tdetail' }), old: el('span', { class: 'told', text: '!' }), age: el('span', { class: 'tage' }) };
     t.btn = el('button', { class: 'srow', type: 'button', onclick: () => { cancelAdvance(); selectNow(); subFocus = null; open = open === id ? null : id; render(); } },
-      t.chev, t.glyph, t.name, t.repo, t.detail, t.old, t.age);
+      t.chev, t.glyph, t.name, t.ci, t.repo, t.detail, t.old, t.age);
     t.q = el('button', { class: 'qstop', type: 'button', onclick: () => t.act && confirmOr(t.key, t.act.run) });
     t.wrap = el('div', { class: 'tile-wrap', 'data-sid': id }, t.btn, t.q);
     t.subRows = [];
@@ -1302,6 +1436,9 @@ function tile(s) {
   // Under Needs you a row is away from its repository's section, so it names the repository.
   const away = st === 'waiting' && repoOf(s.git);
   setText(t.repo, away || '');
+  const ci = ciOf(s);
+  t.ci.hidden = !ci;
+  if (ci) { setAttr(t.ci, 'data-c', ci); setAttr(t.ci, 'title', `Pull request #${s.gh.pr.number}: ${CHECKS[ci]}`); }
   t.repo.hidden = !away;
   const d = detailOf(s, st);
   setText(t.detail, d.text);
@@ -1356,6 +1493,9 @@ function renderBoard(g, vis) {
       setText(c.peek, rows[0] ? label(rows[0]) : '');
     }
     setAttr(c.sec, 'aria-label', sec.kind === 'repo' ? `Repository ${sec.title}` : sec.title);
+    const ci = sec.kind === 'repo' ? ciSum(vis.filter((s) => s.git?.repo === sec.repo)) : { state: null };
+    c.ci.hidden = !ci.state;
+    if (ci.state) { setAttr(c.ci, 'data-c', ci.state); setText(c.ci, `CI ${ci.state}`); setAttr(c.ci, 'title', ci.title); }
     // A repository's folder under its name, with its branch when only one checkout of it is in use.
     const tops = sec.kind === 'repo' ? [...new Set(sec.list.map((s) => s.git.top))] : [];
     c.path.hidden = sec.kind !== 'repo';
@@ -1388,7 +1528,7 @@ function renderBoard(g, vis) {
     while (c.body.children.length > want.length) c.body.lastChild.remove();
   });
   // The sections in order, after the find field; the empty note and the keys strip close the rail.
-  const order = [railFind, ...shownSecs.map((c) => c.sec), ...(vis.length ? [] : [boardEmpty]), $('rail-keys')];
+  const order = [railFind, ovRow, ...shownSecs.map((c) => c.sec), ...(vis.length ? [] : [boardEmpty]), $('rail-keys')];
   order.forEach((n, j) => { if (board.children[j] !== n) board.insertBefore(n, board.children[j] ?? null); });
   while (board.children.length > order.length) board.children[order.length].remove();
   const keepSecs = new Set(list.map((x) => x.key));
@@ -1434,15 +1574,6 @@ function renderOld(list) {
       el('span', { text: `${o.shown ? '' : `${o.profile.label} profile, `}Claude Code ${o.version}.` }), ...restartHow(o)))),
   ]);
 }
-/** The workspace with nothing open: you closed it. It offers the top of Needs you, the one that has waited longest. */
-function renderEmpty(waiting) {
-  const e = $('empty'), next = waiting[0], n = waiting.length;
-  e.hidden = !$('drawer').hidden;
-  if (!e.hidden) patch(e, next ? `${next.sessionId}:${n}:${label(next)}` : '', () => next ? [
-    el('p', {}, el('b', { text: 'Nothing open.' }), ` ${n === 1 ? 'One session needs' : n + ' sessions need'} you.`),
-    el('button', { class: 'btn', type: 'button', id: 'empty-next', onclick: () => { cancelAdvance(); open = next.sessionId; render(); } }, 'Open ' + label(next)),
-  ] : [el('p', {}, el('b', { text: 'Nothing open.' })), el('p', { text: 'Pick a session on the left and it opens here.' })]);
-}
 const subNows = new Map(); // agentId → its "now" line in the subagent tree
 function renderDrawer(vis) {
   const d = $('drawer');
@@ -1465,7 +1596,7 @@ function renderDrawer(vis) {
   const where = whereOf(s.git), sharers = sharersOf(s);
   const elsewhere = (s.elsewhere ?? []).map((g) => elsewhereOf(g, s.git)), here = s.workCwd ?? s.cwd;
   const stateWord = s.leftRosterAt ? 'Closed' : s.state === 'stopped' ? 'Ended' : LABEL[st];
-  patch($('d-head'), JSON.stringify([s.sessionId, st, label(s), s.cwd, here, s.kind, s.inRoster, Boolean(s.leftRosterAt), s.state, noteText, s.hostsPanel, s.mode, s.git, sharers, elsewhere, s.oldVersion, snap.profile?.command, wideSession]), () => [
+  patch($('d-head'), JSON.stringify([s.sessionId, st, label(s), s.cwd, here, s.kind, s.inRoster, Boolean(s.leftRosterAt), s.state, noteText, s.hostsPanel, s.mode, s.git, s.gh, sharers, elsewhere, s.oldVersion, snap.profile?.command, wideSession]), () => [
     el('div', { class: 'd-top' }, glyph(st), el('h2', { class: 'd-name', text: label(s), title: label(s) }),
       el('span', { class: 'd-meta', title: where ? where.long : null },
         el('span', { class: 'st', 'data-s': st, text: stateWord }), ' · ', KIND[s.kind]?.replace(' session', '') || 'Headless',
@@ -1521,6 +1652,7 @@ function renderDrawer(vis) {
     armedHere ? el('p', { class: 'hint', text: HINT[armedHere.split(':')[0]] + (/^(end|close):/.test(armedHere) ? tasksStop(s) : '') }) : null,
   ]);
 
+  renderGh(s);
   // The tree's buttons only rebuild when its shape changes; each subagent's "now" line updates on its own.
   const subArmed = armed?.key.startsWith(`sub:${s.sessionId}:`) ? armed.key : null;
   const shape = s.subagents.map((a) => [a.agentId, subState(s, a), a.title, a.agentType, Boolean(a.task)]);
@@ -1545,6 +1677,9 @@ function placeBar(s, here) {
       el('span', { class: 'pl ' + (g.worktree ? 'wt' : 'main'), title: g.worktree ? `Its own worktree: ${g.top}` : `The main checkout: ${g.top}`, text: g.worktree ?? 'main checkout' }),
       el('span', { class: 'pl br', title: w.long, text: w.on })]
       : here ? el('span', { class: 'pl dir', title: 'Not in a git repository', text: base(here) || here }) : null,
+    s.gh?.pr ? el('a', { class: 'pl pr', 'data-c': s.gh.pr.checks, href: s.gh.pr.url, target: '_blank', rel: 'noopener',
+      title: `Pull request #${s.gh.pr.number}${s.gh.pr.draft ? ', a draft' : ''}: ${CHECKS[s.gh.pr.checks]}. Opens on GitHub.`, text: `#${s.gh.pr.number} · ${CHECKS[s.gh.pr.checks]}` })
+      : s.gh?.main === 'failing' ? el('a', { class: 'pl pr', 'data-c': 'failing', href: s.gh.failed?.url ?? s.gh.url, target: '_blank', rel: 'noopener', title: 'The default branch’s latest run failed. Opens on GitHub.', text: 'default branch failing' }) : null,
     here ? el('button', { class: 'pl-path', type: 'button', title: 'Copy this folder’s path', text: '\u200e' + tilde(here), onclick: copy }) : null);
 }
 function nowLine(s, st, rs) {
@@ -2099,6 +2234,286 @@ function cancelAdvance() {
   advance = null;
 }
 
+// ---------- GitHub: checks on the rail, the PR in the place bar and Details, a failing log handed to its agent ----------
+/** The worst of some check states: failing, then running, then passing. Null when none is known. */
+const worst = (xs) => (xs.includes('failing') ? 'failing' : xs.includes('running') ? 'running' : xs.includes('passing') ? 'passing' : null);
+const ghRepo = (slug) => snap?.github?.repos?.find((r) => r.slug === slug) ?? null;
+const CHECKS = { failing: 'checks failing', running: 'checks running', passing: 'checks passing', none: 'no checks' };
+const MERGE = { CLEAN: 'Ready to merge', HAS_HOOKS: 'Ready to merge', UNSTABLE: 'Mergeable, with checks failing', BLOCKED: 'Blocked by a rule or review',
+  BEHIND: 'Behind its base branch', DIRTY: 'Has conflicts with its base', DRAFT: 'A draft', UNKNOWN: 'Not worked out yet by GitHub' };
+const REVIEW = { APPROVED: 'Approved', CHANGES_REQUESTED: 'Changes requested', REVIEW_REQUIRED: 'Needs a review' };
+/** A session's PR checks, for the dot on its row: failing, running or passing. */
+const ciOf = (s) => (s.gh?.pr && s.gh.pr.checks !== 'none' ? s.gh.pr.checks : null);
+/** What the dot on a repository's section sums up, in words for its tooltip. */
+function ciSum(list) {
+  const parts = [], states = [];
+  for (const s of list) {
+    if (!s.gh) continue;
+    if (s.gh.pr && s.gh.pr.checks !== 'none') { states.push(s.gh.pr.checks); parts.push(`#${s.gh.pr.number} (${label(s)}): ${CHECKS[s.gh.pr.checks]}`); }
+  }
+  const main = list.map((s) => s.gh?.main).filter(Boolean);
+  if (main.length) { states.push(main[0]); parts.push(`Default branch: ${main[0]}`); }
+  return { state: worst(states), title: [...new Set(parts)].join('\n') };
+}
+/** The hand-over in progress: { sessionId, slug, runId, jobId, loading, log, text, error, sending }. */
+let handing = null;
+async function startHand(s) {
+  const f = s.gh?.failed;
+  if (!f) return;
+  handing = { sessionId: s.sessionId, slug: s.gh.slug, runId: f.runId, jobId: f.jobId, loading: true };
+  render();
+  const r = await api('/api/github/log', { slug: s.gh.slug, runId: f.runId, jobId: f.jobId });
+  if (handing?.sessionId !== s.sessionId) return;
+  Object.assign(handing, { loading: false, error: r.ok ? null : r.error || 'The log did not load.', url: r.url ?? f.url, log: r.text ?? '', text: r.message ?? '', truncated: r.truncated });
+  render();
+}
+async function sendHand(s) {
+  const h = handing;
+  if (!h || h.sending || !h.text?.trim()) return;
+  h.sending = true;
+  render();
+  const r = await api('/api/github/hand', { slug: h.slug, runId: h.runId, jobId: h.jobId, sessionId: s.sessionId, text: h.text });
+  h.sending = false;
+  if (!r.ok) { toast(r.error || 'It was not sent.', true); render(); return; }
+  handing = null;
+  note(s.sessionId, r.queued ? 'The failing log waits until it is done.' : r.sent ? 'Sent the failing log. It reads it at its next step.' : 'Sent the failing log. It carries on in the background with it.');
+}
+/** What sending it a message does now, in the reply box's words. */
+function sendHow(s) {
+  const st = stateOf(s);
+  if (bgLive(s)) return s.working ? 'It reads this at its next step.' : 'It carries on with this.';
+  if (willQueue(s, st)) return 'It is working: this waits until it is done, then Claude closes in its terminal and carries on in the background with it.';
+  if (s.kind === 'interactive' && s.inRoster && !isOver(s)) return 'Claude closes in its terminal and carries on in the background with this.';
+  return 'It starts again in the background with this as its next prompt.';
+}
+function renderGh(s) {
+  const g = s.gh, repo = g && ghRepo(g.slug), pr = g?.pr && repo?.prs.find((p) => p.number === g.pr.number);
+  const h = handing?.sessionId === s.sessionId ? handing : null;
+  patch($('d-gh'), JSON.stringify([s.sessionId, g, pr, h && { ...h, text: null }, snap.github?.gh]), () => {
+    if (!g) return null;
+    const kv = [];
+    if (g.pr) {
+      const c = pr?.counts;
+      kv.push(el('dt', { text: 'Checks' }), el('dd', {}, el('span', { class: 'tci', 'data-c': g.pr.checks }), ' ',
+        c ? [c.fail && `${c.fail} failing`, c.pending && `${c.pending} running`, c.pass && `${c.pass} passing`].filter(Boolean).join(', ') || 'None' : CHECKS[g.pr.checks],
+        pr?.failing?.length ? el('ul', { class: 'gh-fail' }, ...pr.failing.map((f) => el('li', {}, f.url ? el('a', { href: f.url, target: '_blank', rel: 'noopener', text: f.name }) : f.name))) : null));
+      kv.push(el('dt', { text: 'Merge' }), el('dd', { text: g.pr.draft ? 'A draft' : MERGE[g.pr.mergeState] ?? (g.pr.mergeState || 'Not known') }));
+      if (g.pr.review) kv.push(el('dt', { text: 'Review' }), el('dd', { text: REVIEW[g.pr.review] ?? g.pr.review }));
+    }
+    if (g.main) kv.push(el('dt', { text: repo?.defaultBranch ?? 'Default' }), el('dd', {}, el('span', { class: 'tci', 'data-c': g.main }), ` Latest runs ${g.main}`));
+    const f = g.failed;
+    return el('section', { class: 'sec' },
+      el('h4', { class: 'rule' }, g.pr ? el('a', { href: g.pr.url, target: '_blank', rel: 'noopener', class: 'linkish', text: `Pull request #${g.pr.number}` }) : 'GitHub',
+        el('span', { class: 'n', text: g.slug })),
+      pr?.title ? el('p', { class: 'quiet', style: 'margin: -4px 0 10px', text: pr.title }) : null,
+      kv.length ? el('dl', { class: 'kv' }, ...kv) : quiet('No pull request for this branch yet.'),
+      f && !h ? el('div', { class: 'row' }, el('button', { class: 'btn small', type: 'button', title: `Shows the failing part of ${f.workflow}'s log, and the exact message, before anything is sent.`,
+        onclick: () => startHand(s) }, `Send the failing log to ${label(s)}`)) : null,
+      h ? el('div', { class: 'hand' },
+        h.loading ? quiet('Fetching the failing log…') : h.error ? [el('p', { class: 'err', text: h.error }), h.url ? el('a', { class: 'linkish', href: h.url, target: '_blank', rel: 'noopener', text: 'Open it on GitHub' }) : null] : [
+          el('span', { class: 'quiet', text: `This goes to ${label(s)}${h.truncated ? ', the log shortened to its failing steps' : ''}. Change it as you like.` }),
+          (() => { const ta = el('textarea', { class: 'cmd', 'aria-label': 'The message with the failing log', spellcheck: 'false' }); ta.value = h.text; ta.oninput = () => { h.text = ta.value; }; requestAnimationFrame(() => fit(ta)); return ta; })(),
+          el('span', { class: 'quiet', text: sendHow(s) })],
+        el('div', { class: 'row' },
+          !h.loading && !h.error ? el('button', { class: 'btn primary small', type: 'button', disabled: h.sending, onclick: () => sendHand(s), text: h.sending ? 'Sending…' : `Send to ${label(s)}` }) : null,
+          el('button', { class: 'btn quiet small', type: 'button', text: 'Cancel', onclick: () => { handing = null; render(); } }))) : null);
+  });
+}
+
+// ---------- the overseer: the home view, one chat over every session, its proposals confirmed one click at a time ----------
+const ov = { rev: -1, feedSeq: -1, turns: [], feed: [], more: false, tBusy: false, fBusy: false, profile: null };
+let homeOpen = false; // a narrow window shows the home view only when asked for
+const ovEdits = new Map(); // action id → what you changed in its card before running it
+/** Fetch the turns and the feed when the snapshot says they changed. They stay out of the snapshot, which is resent whole. */
+async function syncOverseer() {
+  const st = snap?.overseer;
+  if (!st) return;
+  if (ov.profile !== snap.profile?.id) { Object.assign(ov, { rev: -1, feedSeq: -1, turns: [], feed: [], profile: snap.profile?.id }); ovEdits.clear(); }
+  if (st.rev !== ov.rev && !ov.tBusy) {
+    ov.tBusy = true;
+    const r = await api('/api/overseer/turns', { limit: 60 });
+    ov.tBusy = false;
+    if (r.ok) { ov.turns = r.turns; ov.more = r.more; ov.rev = r.rev; render(); }
+    else ov.rev = st.rev;
+  }
+  if (st.feedSeq !== ov.feedSeq && !ov.fBusy) {
+    ov.fBusy = true;
+    const restart = st.feedSeq < ov.feedSeq;
+    const r = await api('/api/overseer/feed', { after: restart ? 0 : Math.max(0, ov.feedSeq) });
+    ov.fBusy = false;
+    if (r.ok) { ov.feed = [...(restart ? [] : ov.feed), ...r.events].slice(-200); ov.feedSeq = r.seq; render(); }
+    else ov.feedSeq = st.feedSeq;
+  }
+}
+const ovRow = el('button', { class: 'srow ov', type: 'button', title: 'The overseer: ask about your agents, and confirm what it proposes',
+  onclick: () => { cancelAdvance(); selectNow(); subFocus = null; open = null; homeOpen = true; render(); $('h-say').focus({ preventScroll: true }); } },
+  el('span', { class: 'chev-slot', 'aria-hidden': 'true' }), el('span', { class: 'ov-mark', 'aria-hidden': 'true' }), el('span', { class: 'tname', text: 'Overseer' }), el('span', { class: 'tdetail' }));
+function renderOvRow() {
+  const st = snap.overseer, n = st?.proposed ?? 0;
+  setAttr(ovRow, 'aria-current', String(open === null));
+  setAttr(ovRow, 'data-busy', st?.busy ? '1' : '0');
+  setAttr(ovRow, 'data-proposed', n ? '1' : '0');
+  setText(ovRow.lastChild, st?.busy ? (st.busy.phase === 'looking' ? 'reading' : 'thinking') : n ? `${n} to confirm` : '');
+}
+/** A short time of day, or a date when it is not today. */
+function clock(at) {
+  const d = new Date(at), today = new Date().toDateString() === d.toDateString();
+  return today ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+const sessionByShort = (id) => snap.sessions.find((s) => s.sessionId === id);
+/** One proposal: what it does, to whom, the exact words, and Run or Decline while it waits. */
+function actCard(t, a) {
+  const live = a.state === 'proposed' && !a.expired, s = a.sessionId ? sessionByShort(a.sessionId) : null, who = a.target || (s && label(s)) || 'a session';
+  const what = a.type === 'tell' ? `Tell ${who}` : a.type === 'launch' ? `Start a session in ${a.target || a.cwd}` : a.type === 'interrupt' ? `Interrupt ${who}` : a.type;
+  const edit = ovEdits.get(a.id) ?? {};
+  const field = (key, value, rows) => {
+    const ta = el('textarea', { class: 'cmd', rows: rows ?? 3, 'aria-label': key === 'prompt' ? 'Its task' : 'The message', spellcheck: 'true' });
+    ta.value = edit[key] ?? value ?? '';
+    ta.oninput = () => { ovEdits.set(a.id, { ...ovEdits.get(a.id), [key]: ta.value }); ta.classList.toggle('edited', ta.value !== (value ?? '')); };
+    requestAnimationFrame(() => fit(ta));
+    return ta;
+  };
+  const HOW = { send: ['It reads this at its next step.', false], queue: ['It is working, so this waits until it is done.', false],
+    restart: [s?.kind === 'interactive' && s.inRoster ? 'Sending closes Claude in its terminal; it carries on in the background with this.' : 'It restarts in the background with this as its next prompt.', true] };
+  const how = a.type === 'tell' && live ? HOW[a.how] : null;
+  const RUN = { tell: 'Send', launch: 'Start it', interrupt: 'Interrupt' };
+  const STATE = { running: 'Running…', declined: 'Declined', done: a.result || 'Done', failed: a.result || 'It failed', invalid: a.result || 'It cannot run' };
+  return el('div', { class: 'ov-act', 'data-state': live ? 'proposed' : a.state },
+    el('div', { class: 'a-head' }, el('span', { class: 'a-what', text: what })),
+    a.why ? el('div', { class: 'a-why', text: a.why }) : null,
+    a.type === 'tell' ? (live ? field('text', a.text) : el('p', { class: 'a-text', text: a.text ?? '' })) : null,
+    a.type === 'launch' ? (live ? [field('prompt', a.prompt, 4),
+      el('label', { class: 'lf-inline' }, 'Name', (() => { const i = el('input', { type: 'text', maxlength: '60', spellcheck: 'false' }); i.value = edit.name ?? a.name ?? ''; i.oninput = () => ovEdits.set(a.id, { ...ovEdits.get(a.id), name: i.value }); return i; })(),
+        el('label', { class: 'switch' }, (() => { const c = el('input', { type: 'checkbox' }); c.checked = edit.worktree ?? Boolean(a.worktree); c.onchange = () => ovEdits.set(a.id, { ...ovEdits.get(a.id), worktree: c.checked }); return c; })(), el('i'), 'Own worktree'))]
+      : el('p', { class: 'a-text', text: a.prompt ?? '' })) : null,
+    how ? el('div', { class: 'a-how' + (how[1] ? ' warn' : ''), text: how[0] }) : null,
+    live ? el('div', { class: 'row' },
+      el('button', { class: 'btn primary small', type: 'button', text: RUN[a.type] ?? 'Run', onclick: (e) => actOn(t, a, 'run', e.currentTarget) }),
+      el('button', { class: 'btn quiet small', type: 'button', text: 'Decline', onclick: (e) => actOn(t, a, 'decline', e.currentTarget) }))
+      : el('div', { class: 'a-state', text: a.expired && a.state === 'proposed' ? 'Expired: a proposal waits an hour at most.' : STATE[a.state] ?? a.state }));
+}
+async function actOn(t, a, decision, btn) {
+  if (btn) btn.disabled = true;
+  const e = ovEdits.get(a.id), edit = !e ? undefined : a.type === 'tell' ? { text: e.text ?? a.text } : { prompt: e.prompt ?? a.prompt, name: e.name ?? a.name, worktree: e.worktree ?? a.worktree };
+  const r = await api('/api/overseer/act', { turnId: t.id, actionId: a.id, decision, edit });
+  if (btn) btn.disabled = false;
+  if (!r.ok) { toast(r.error || 'It did not run.', true); return; }
+  ovEdits.delete(a.id);
+  if (r.action?.type === 'launch' && r.action.state === 'done') { const id = /\((\w+)\)/.exec(r.action.result ?? '')?.[1]; if (id) launchedId = id; }
+}
+const ovNodes = new Map(); // thread key → { sig, node }
+/** The thread: your messages, its answers with their proposals, and feed lines, in time order. Each item is rebuilt
+ *  only when it changes, so a card you are editing survives a new feed line. */
+function renderOvThread() {
+  const first = ov.turns[0]?.at ?? 0;
+  const items = [
+    ...ov.turns.map((t) => ({ at: t.at, key: t.id, sig: JSON.stringify(t), build: () => turnEl(t) })),
+    ...ov.feed.filter((f) => f.at >= first || !ov.turns.length).slice(-40).map((f) => ({ at: f.at, key: 'f' + f.seq, sig: f.text, build: () => feedEl(f) })),
+  ].sort((a, b) => a.at - b.at || (a.key < b.key ? -1 : 1));
+  const box = $('h-thread'), want = [];
+  for (const it of items) {
+    let n = ovNodes.get(it.key);
+    if (!n || n.sig !== it.sig) { n = { sig: it.sig, node: it.build() }; ovNodes.set(it.key, n); }
+    want.push(n.node);
+  }
+  const keep = new Set(items.map((i) => i.key));
+  for (const k of ovNodes.keys()) if (!keep.has(k)) ovNodes.delete(k);
+  const atEnd = $('h-scroll').scrollHeight - $('h-scroll').scrollTop - $('h-scroll').clientHeight < 40;
+  want.forEach((n, i) => { if (box.children[i] !== n) box.insertBefore(n, box.children[i] ?? null); });
+  while (box.children.length > want.length) box.lastChild.remove();
+  if (atEnd || ovPin) { $('h-scroll').scrollTop = $('h-scroll').scrollHeight; ovPin = false; }
+}
+let ovPin = true;
+function turnEl(t) {
+  if (t.who === 'you') return el('div', { class: 'msg you', title: new Date(t.at).toLocaleString() }, el('div', { class: 'm-body', text: t.text }));
+  const looked = t.looked?.length ? ` · read ${t.looked.map((l) => l.name).join(', ')}` : '';
+  return el('div', { class: 'msg claude ov' + (t.error ? ' error' : ''), title: new Date(t.at).toLocaleString() },
+    el('div', { class: 'm-who' }, el('b', { text: 'Overseer' }), `${t.model ?? ''}${t.ms ? ` · ${(t.ms / 1000).toFixed(1)} s` : ''}${looked}`),
+    el('div', { class: 'm-body' }, t.error ? t.error : md(t.text)),
+    t.actions?.length ? el('div', { class: 'ov-acts' }, ...t.actions.map((a) => actCard(t, a))) : null);
+}
+function feedEl(f) {
+  return el('div', { class: 'msg feed', 'data-t': f.type, title: new Date(f.at).toLocaleString() },
+    el('span', { class: 'fd', 'aria-hidden': 'true' }), el('span', { class: 'fx', text: f.text }), el('span', { class: 'ft', text: clock(f.at) }));
+}
+const STARTERS = ['What needs me right now?', 'What is everyone doing?', 'Is anything failing on GitHub?'];
+async function sayOverseer(text) {
+  text = text.trim();
+  if (!text) return;
+  const ta = $('h-say');
+  ta.value = ''; fit(ta); syncSay();
+  ovPin = true;
+  const r = await api('/api/overseer/say', { text });
+  if (!r.ok) { ta.value = ta.value ? `${text}\n${ta.value}` : text; fit(ta); syncSay(); toast(r.error || 'It did not go through.', true); }
+}
+function syncSay() { $('h-send').disabled = !$('h-say').value.trim() || Boolean(snap?.overseer?.busy); }
+$('h-say').addEventListener('input', () => { fit($('h-say')); syncSay(); });
+$('h-say').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); if (!$('h-send').disabled) sayOverseer($('h-say').value); } });
+$('h-send').onclick = () => sayOverseer($('h-say').value);
+$('h-model').onchange = async () => { const r = await api('/api/overseer/model', { model: $('h-model').value }); if (!r.ok) toast(r.error || 'The model did not change.', true); };
+$('h-close').onclick = () => { homeOpen = false; render(); };
+const MODEL_NAMES = { haiku: 'Haiku', sonnet: 'Sonnet', opus: 'Opus', fable: 'Fable' };
+function renderHome(g) {
+  const home = $('home'), st = snap.overseer;
+  if (open) homeOpen = false; // a session opened: closing it goes back to the rail on a narrow window
+  home.hidden = !$('drawer').hidden;
+  document.body.classList.toggle('home-open', homeOpen && !home.hidden);
+  renderOvRow();
+  if (home.hidden) return;
+  syncOverseer();
+  // Someone waits: the one that has waited longest, one click away.
+  const next = g.waiting[0], n = g.waiting.length;
+  patch($('h-next'), next ? `${next.sessionId}:${n}:${label(next)}` : '', () => next ? [
+    el('span', { text: `${n === 1 ? 'One session needs' : n + ' sessions need'} you.` }),
+    el('button', { class: 'btn small', type: 'button', onclick: () => { cancelAdvance(); open = next.sessionId; render(); } }, 'Open ' + label(next))] : null);
+  const busy = st?.busy;
+  setText($('h-meta'), st ? `${MODEL_NAMES[st.model] ?? st.model} · proposes, you confirm` : '');
+  patch($('h-tools'), JSON.stringify([ov.turns.length > 0, armed?.key === 'ovclear:']), () => ov.turns.length ? armBtn('ovclear:', 'Clear', 'Confirm clear', async () => {
+    const r = await api('/api/overseer/clear', {}); if (!r.ok) toast(r.error || 'It was not cleared.', true); ovNodes.clear(); }, 'soft small') : null);
+  patch($('h-intro'), String(ov.turns.length > 0), () => ov.turns.length ? null : [
+    el('h3', { text: 'Ask about everything at once.' }),
+    el('p', { text: 'The overseer reads every session on this board, its repository and branch, what it asks you, and what GitHub shows for its pull request. It can propose a message to an agent, a new session or an interrupt, and nothing runs until you click.' })]);
+  patch($('h-chips'), String(ov.turns.length > 0 || Boolean(busy)), () => ov.turns.length || busy ? null
+    : STARTERS.map((q) => el('button', { class: 'chip', type: 'button', text: q, onclick: () => sayOverseer(q) })));
+  renderOvThread();
+  $('h-busy').hidden = !busy;
+  if (busy) patch($('h-busy'), JSON.stringify([busy.phase, Math.floor((snap.now - busy.since) / 1000)]), () => [
+    el('span', { class: 'tag', 'data-s': 'busy' }, glyph('busy'), busy.phase === 'looking' ? 'Reading transcripts' : 'Thinking'),
+    el('span', { class: 'quiet', text: ago(snap.now - busy.since) }), el('span', { class: 'grow' }),
+    el('button', { class: 'btn quiet small', type: 'button', text: 'Stop', onclick: () => api('/api/overseer/stop', {}) })]);
+  if (st) {
+    patch($('h-model'), JSON.stringify(st.models), () => (st.models ?? []).map((m) => el('option', { value: m, text: MODEL_NAMES[m] ?? m })));
+    if ($('h-model').value !== st.model) $('h-model').value = st.model;
+  }
+  syncSay();
+  renderAcross();
+}
+/** Across everything: each watched repository's pull requests, default-branch runs and recent merges. */
+function renderAcross() {
+  const gh = snap.github, names = new Map(snap.sessions.map((s) => [s.sessionId, label(s)]));
+  patch($('h-side'), JSON.stringify([gh, [...names]]), () => {
+    const head = el('h3', { text: 'Across everything' });
+    if (!gh || gh.gh === 'off') return [head, el('p', { class: 'gh-hint', text: 'GitHub is turned off for this panel (ACP_GITHUB=off).' })];
+    const hint = gh.hint ? el('p', { class: 'gh-hint', text: gh.hint }) : null;
+    if (!gh.repos.length) return [head, hint ?? el('p', { class: 'gh-hint', text: gh.gh === 'unknown' ? 'Looking at GitHub…' : 'No agent works in a GitHub repository right now.' })];
+    const who = (ids) => (ids ?? []).map((id) => names.get(id)).filter(Boolean).join(', ');
+    return [head, hint, ...gh.repos.map((r) => {
+      const main = worst(r.runs.filter((x) => ['push', 'merge_group', 'schedule', 'workflow_dispatch'].includes(x.event) || !x.event).map((x) => x.state));
+      return el('section', { class: 'h-repo' },
+        el('div', { class: 'h-repo-h' }, el('a', { href: r.url, target: '_blank', rel: 'noopener', text: r.slug, title: r.slug }),
+          main ? el('span', { class: 'ci', 'data-c': main, text: `${r.defaultBranch ?? 'main'} ${main}` }) : null),
+        r.error ? el('p', { class: 'h-err', text: r.error.text }) : null,
+        r.prs.length ? [el('div', { class: 'h-sub', text: 'Pull requests' }), ...r.prs.map((p) => el('a', { class: 'h-li', href: p.url, target: '_blank', rel: 'noopener', title: `${p.title}\n${CHECKS[p.checks]}${p.draft ? ', draft' : ''}` },
+          el('span', { class: 'tci', 'data-c': p.checks }), el('span', { class: 'hn', text: '#' + p.number }), el('span', { class: 'ht', text: p.title }), el('span', { class: 'hw', text: who(p.sessions) })))] : null,
+        r.runs.length ? [el('div', { class: 'h-sub', text: `On ${r.defaultBranch ?? 'the default branch'}` }), ...r.runs.slice(0, 5).map((x) => el('a', { class: 'h-li', href: x.url, target: '_blank', rel: 'noopener', title: `${x.workflow}: ${x.title}` },
+          el('span', { class: 'tci', 'data-c': x.state }), el('span', { class: 'ht', text: x.workflow }), el('span', { class: 'hw', text: x.pr ? `#${x.pr}` : ago(snap.now - x.at) })))] : null,
+        r.merged.length ? [el('div', { class: 'h-sub', text: 'Recently merged' }), ...r.merged.slice(0, 3).map((m) => el('a', { class: 'h-li', href: m.url, target: '_blank', rel: 'noopener', title: m.title },
+          el('span', { class: 'hn', text: '#' + m.number }), el('span', { class: 'ht', text: m.title }), el('span', { class: 'hw', text: ago(snap.now - m.mergedAt) })))] : null,
+        !r.prs.length && !r.runs.length && !r.merged.length && !r.error ? el('p', { class: 'h-none', text: r.checkedAt ? 'Nothing open on the agents’ branches.' : 'Looking…' }) : null);
+    })];
+  });
+}
+
 // ---------- render ----------
 /** A 24-viewBox stroke icon from one path, for .btn.icon. */
 function svgIcon(d) {
@@ -2124,7 +2539,7 @@ function render() {
   for (const [id, c] of cards) if (!live.has(id)) { c.el.remove(); cards.delete(id); }
   renderBoard(g, vis);
   renderDrawer(vis);
-  renderEmpty(g.waiting);
+  renderHome(g);
   renderOld(snap.oldVersions ?? []);
   document.title = snap.pending.length ? `(${snap.pending.length}) Agent panel` : 'Agent panel';
   // A two-click control keeps the keyboard focus through a redraw.
