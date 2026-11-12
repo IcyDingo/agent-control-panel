@@ -1588,7 +1588,7 @@ const dataDir = path.dirname(PREFS);
 try { fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 }); } catch {}
 const github = createGithub({
   file: path.join(dataDir, 'github.json'), run, read: small, ghPath, cwd: dataDir, env: baseEnv,
-  off: process.env.ACP_GITHUB === 'off',
+  off: process.env.ACP_GITHUB === 'off', mine: true, // your own open pull requests too, in any repository
   // Every session on the board, a finished background job waiting on its checks included.
   targets: () => [...sessions.values()].filter((s) => s.inRoster || !isEnded(s)).map((s) => {
     const p = placeOf(s);

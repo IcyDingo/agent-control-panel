@@ -343,7 +343,7 @@ test('only branches agents are on are kept, and pull requests from forks are dro
   assert.deepEqual(prs.map((p) => p.number), [7]);
   assert.deepEqual(prs[0], {
     number: 7, title: 'Fix the login', url: 'https://github.com/someone/demo/pull/7', branch: 'fix/login', sha: 'aaa111', draft: false,
-    checks: 'passing', counts: { pass: 1, fail: 0, pending: 0 }, failing: [], mergeable: 'MERGEABLE', mergeState: 'CLEAN', review: null, runningSince: null,
+    checks: 'passing', counts: { pass: 1, fail: 0, pending: 0 }, failing: [], mergeable: 'MERGEABLE', mergeState: 'CLEAN', review: null, runningSince: null, mine: false,
     updatedAt: T0 - MIN, sessions: ['S1'],
   });
   assert.deepEqual(h.events, [], 'pull requests already open at the first poll are not news');
@@ -838,4 +838,49 @@ test('a pull request still running says since when its oldest running check star
   assert.equal(r.checks, 'running');
   assert.equal(r.runningSince, Date.parse('2026-01-01T10:00:00Z'));
   assert.equal(rollup([{ __typename: 'CheckRun', name: 'b', status: 'COMPLETED', conclusion: 'SUCCESS', startedAt: '2026-01-01T10:00:00Z' }]).runningSince, null);
+});
+
+// ---------------------------------------------------------------- your own pull requests, with `mine`
+const searchHit = (slug, number, login = 'me-user') => ({ repository: { name: slug.split('/')[1], nameWithOwner: slug }, number, author: { login } });
+
+test('with mine, your open pull requests are found by one search and their repositories watched, with no agent there', async () => {
+  const h = harness({ targets: [], mine: true, world: { hook: (args) => {
+    if (args[0] === 'search') return ok([searchHit('acme/site', 64), searchHit('acme/site', 65), searchHit('bad/../x', 1)]);
+    if (args[0] === 'pr' && args.includes('open')) return ok([pr({ number: 64, headRefName: 'feat/ai', author: { login: 'me-user' } }),
+      pr({ number: 70, headRefName: 'theirs', author: { login: 'someone-else' } })]);
+    return null;
+  } } });
+  await h.tick();
+  const st = h.gh.state();
+  assert.equal(st.repos.length, 1);
+  assert.equal(st.repos[0].slug, 'acme/site');
+  assert.equal(st.repos[0].mineOnly, true);
+  assert.deepEqual(st.repos[0].prs.map((p) => [p.number, p.mine]), [[64, true]]);
+  assert.ok(!h.kinds().includes('run list'), 'no default-branch runs for a repository only your pull requests are in');
+  const search = h.calls.find((c) => c.args[0] === 'search');
+  assert.deepEqual(search.args, ['search', 'prs', '--author', '@me', '--state', 'open', '--limit', '100', '--json', 'repository,number,author']);
+  assert.equal(search.opts.cwd, DATA);
+});
+
+test('with mine, the search is asked every three minutes while watched, and your PR in an agent repository is kept off its branch', async () => {
+  const repo = checkout({ slug: 'someone/demo' });
+  let searches = 0;
+  const h = harness({ repo, mine: true, world: { hook: (args) => {
+    if (args[0] === 'search') { searches++; return ok([searchHit('someone/demo', 9)]); }
+    if (args[0] === 'pr' && args.includes('open')) return ok([pr(), pr({ number: 9, headRefName: 'my/other', author: { login: 'me-user' } })]);
+    return null;
+  } } });
+  await h.tick();
+  assert.deepEqual(h.gh.state().repos[0].prs.map((p) => [p.number, p.mine]), [[7, false], [9, true]]);
+  assert.equal(h.gh.state().repos[0].mineOnly, false);
+  h.advance(2 * MIN); await h.tick();
+  assert.equal(searches, 1);
+  h.advance(MIN + SEC); await h.tick();
+  assert.equal(searches, 2);
+});
+
+test('without mine, nothing is searched', async () => {
+  const h = harness({});
+  await h.tick();
+  assert.ok(!h.calls.some((c) => c.args[0] === 'search'));
 });

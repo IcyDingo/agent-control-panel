@@ -184,8 +184,12 @@ token: when `gh` is missing or signed out, it says so once and shows nothing els
 
 - A repository is found from `origin` in its git config (github.com only); the panel never runs git
   in it, and calls `gh` with `-R github.com/<owner>/<repo>` from its own folder.
-- It watches open pull requests on the branches agents are on (not forks), the latest runs on the
-  default branch, and the last few merges. A repository section gets a CI pill, a session row a dot
+- It watches open pull requests on the branches agents are on, and every open pull request of yours in
+  any repository (one `gh search prs --author @me` every few minutes), the latest runs on the default
+  branch, and the last few merges.
+- **GitHub** in the top bar opens a panel on the right listing them, each with its state in its colour:
+  failing, stuck (checks running over 30 minutes), running, ready or passing, open, draft, and merged
+  in the last day. Its count and colour say the worst of them; it stays open until you close it. A repository section gets a CI pill, a session row a dot
   for its PR's checks, and Details a Pull request block with the checks, the failing ones by name,
   whether it can merge, and its review state.
 - It polls each repository every minute while a page is open, every 20 seconds while something

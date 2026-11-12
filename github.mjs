@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 const MIN = 60_000;
 const FRESH_MS = 15 * MIN;   // a failure first seen after a start still notifies if it is this recent
 const MAX_REPOS = 6;         // the most recently active repositories are watched; the rest are counted
+const MAX_MINE = 8;          // and, with `mine`, up to this many more where only your own pull requests are open
 const SEEN_MAX = 300;        // failures already told about, kept across restarts
 const OPEN_LIMIT = 50;
 /** What a run on the default branch can be started by. A fork's pull request from a branch of the same name is not one. */
@@ -237,7 +238,7 @@ const worst = (states) => (states.includes('failing') ? 'failing' : states.inclu
  */
 export function createGithub({
   file, run, read, ghPath = () => 'gh', targets = () => [], notify = () => {}, onEvent = () => {}, onChange = () => {},
-  cwd, env = process.env, now = Date.now, log = (m) => console.error(m), off = false,
+  cwd, env = process.env, now = Date.now, log = (m) => console.error(m), off = false, mine = false,
 } = {}) {
   const ghEnv = { ...env, GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1', NO_COLOR: '1' };
   const repos = new Map();     // slug → what the last poll found
@@ -248,6 +249,8 @@ export function createGithub({
   let bin = null, binAt = -Infinity, authAt = -Infinity, refreshedAt = -Infinity;
   let polling = false, stopped = false, lastWatched = false, seenDirty = false, dirty = false;
   let more = 0, order = [], cached = null;
+  // With `mine`: your own open pull requests across GitHub, by repository, from one search every few minutes, and your login.
+  let mineMap = new Map(), mineAt = -Infinity, me = null;
 
   if (file && !off) {
     try {
@@ -317,10 +320,15 @@ export function createGithub({
       }
     }
     const all = [...groups.values()].sort((a, b) => b.at - a.at || a.slug.localeCompare(b.slug));
-    const keep = all.slice(0, MAX_REPOS), names = keep.map((g) => g.slug);
+    const keep = all.slice(0, MAX_REPOS);
+    // Then the repositories where your own pull requests are open and no agent works.
+    if (mine) keep.push(...[...mineMap.keys()].filter((slug) => !keep.some((g) => g.slug === slug)).sort().slice(0, MAX_MINE)
+      .map((slug) => groups.get(slug) ?? { slug, commons: new Set(), branches: new Map(), at: 0, mineOnly: true }));
+    const names = keep.map((g) => g.slug);
     for (const slug of [...repos.keys()]) if (!names.includes(slug)) repos.delete(slug);
     for (const slug of names) if (!repos.has(slug)) repos.set(slug, newRepo(slug));
-    if (names.join('\n') !== order.join('\n') || more !== all.length - keep.length) { order = names; more = all.length - keep.length; touch(); }
+    const over = Math.max(0, all.length - MAX_REPOS);
+    if (names.join('\n') !== order.join('\n') || more !== over) { order = names; more = over; touch(); }
     return keep;
   }
 
@@ -336,8 +344,8 @@ export function createGithub({
     lastWatched = watched;
     try {
       // It runs off a timer: whatever goes wrong is logged, never thrown at the caller.
-      const groups = track();
-      if (!groups.length || polling) return;
+      let groups = track();
+      if (polling || (!groups.length && !mine)) return;
       const t = now();
       if (!bin) {
         if (status === 'missing' && t - binAt < 10 * MIN) return;
@@ -348,6 +356,7 @@ export function createGithub({
       if (status === 'signed-out' && t - authAt < 5 * MIN) return;
       polling = true;
       try {
+        if (mine) { await findMine(watched); groups = track(); }
         for (const g of groups) {
           if (stopped) break;
           const repo = repos.get(g.slug);
@@ -366,6 +375,31 @@ export function createGithub({
     } finally {
       if (dirty) { dirty = false; tell(onChange); }
     }
+  }
+
+  /** Your own open pull requests across GitHub, from one search: every 3 minutes while a page is open, else every 15. */
+  async function findMine(watched) {
+    const t = now();
+    if (t - mineAt < (watched ? 3 * MIN : 15 * MIN)) return;
+    mineAt = t;
+    const r = await ghJson(['search', 'prs', '--author', '@me', '--state', 'open', '--limit', '100', '--json', 'repository,number,author']);
+    if (r.bad) {
+      if (r.bad.kind === 'missing') { bin = null; binAt = now(); setStatus('missing'); }
+      else if (r.bad.kind === 'signed-out') { authAt = now(); setStatus('signed-out'); }
+      return; // anything else: keep what the last search found, and ask again on the next round
+    }
+    if (!Array.isArray(r.data)) return;
+    const next = new Map();
+    for (const p of r.data) {
+      const slug = String(p?.repository?.nameWithOwner ?? ''), [o, n, extra] = slug.split('/');
+      if (extra !== undefined || !OWNER.test(o ?? '') || !NAME.test(n ?? '') || n === '.' || n === '..' || !Number.isInteger(p.number)) continue;
+      if (!me && typeof p.author?.login === 'string') me = p.author.login;
+      if (!next.has(slug)) next.set(slug, new Set());
+      next.get(slug).add(p.number);
+    }
+    const sig = (m) => [...m].map(([k, v]) => `${k}:${[...v].sort().join(',')}`).sort().join(' ');
+    if (sig(next) !== sig(mineMap)) touch();
+    mineMap = next;
   }
 
   function failed(repo, bad) {
@@ -404,8 +438,9 @@ export function createGithub({
     }
     const [open, runs] = await Promise.all([
       ghJson(['pr', 'list', '-R', R, '--state', 'open', '--limit', String(OPEN_LIMIT), '--json',
-        'number,title,url,isDraft,headRefName,headRefOid,baseRefName,isCrossRepository,mergeable,mergeStateStatus,reviewDecision,statusCheckRollup,updatedAt']),
-      repo.defaultBranch ? ghJson(['run', 'list', '-R', R, '--branch', repo.defaultBranch, '--limit', '30', '--json',
+        'number,title,url,isDraft,headRefName,headRefOid,baseRefName,isCrossRepository,mergeable,mergeStateStatus,reviewDecision,statusCheckRollup,updatedAt' + (mine ? ',author' : '')]),
+      // A repository watched only for your pull requests has no agent on its default branch: its runs are not asked for.
+      repo.defaultBranch && !g.mineOnly ? ghJson(['run', 'list', '-R', R, '--branch', repo.defaultBranch, '--limit', '30', '--json',
         'databaseId,workflowName,displayTitle,status,conclusion,headBranch,headSha,event,url,createdAt,updatedAt,attempt']) : { data: [] },
     ]);
     const bad = open.bad ?? runs.bad ?? (Array.isArray(open.data) && Array.isArray(runs.data) ? null
@@ -416,15 +451,17 @@ export function createGithub({
     const t = now(), alerts = [], events = [], info = new Map();
     const main = repo.defaultBranch;
 
-    // Pull requests of the branches agents are on. One from a fork is somebody else's branch of the same name.
-    const prs = [], seenOpen = new Set(open.data.map((p) => p.number));
+    // Pull requests of the branches agents are on, and with `mine` your own. One from a fork is somebody else's branch of
+    // the same name, unless it is yours.
+    const prs = [], seenOpen = new Set(open.data.map((p) => p.number)), myNums = mineMap.get(slug) ?? new Set();
     for (const p of open.data) {
-      if (p.isCrossRepository || !g.branches.has(p.headRefName)) continue;
-      const roll = rollup(p.statusCheckRollup), sessions = g.branches.get(p.headRefName);
+      const agent = !p.isCrossRepository && g.branches.has(p.headRefName), own = mine && (myNums.has(p.number) || (me != null && p.author?.login === me));
+      if (!agent && !own) continue;
+      const roll = rollup(p.statusCheckRollup), sessions = agent ? g.branches.get(p.headRefName) : [];
       const pr = { number: p.number, title: clip(p.title, 120), url: p.url, branch: p.headRefName, sha: p.headRefOid, draft: Boolean(p.isDraft),
                    checks: roll.checks, counts: roll.counts, failing: roll.failing.slice(0, 5), mergeable: p.mergeable ?? null,
                    mergeState: p.mergeStateStatus ?? null, review: p.reviewDecision || null, updatedAt: ms(p.updatedAt),
-                   runningSince: roll.runningSince, sessions };
+                   runningSince: roll.runningSince, mine: Boolean(own), sessions };
       prs.push(pr);
       const was = repo.known.get(pr.number), key = `${slug}#pr${pr.number}@${pr.sha}`;
       const ev = (type, text, extra = {}) => events.push({ type, slug, text, branch: pr.branch, pr: pr.number, url: pr.url, sessions, ...extra });
@@ -441,17 +478,18 @@ export function createGithub({
         if (was?.checks === 'failing') ev('ci-recovered', `Checks pass again on #${pr.number} (${pr.branch}) in ${slug}.`);
       }
       // While a re-run is going it is still the failure it was: only passing clears that.
-      repo.known.set(pr.number, { branch: pr.branch, url: pr.url, sessions, checks: pr.checks === 'running' && was?.checks === 'failing' ? 'failing' : pr.checks });
+      repo.known.set(pr.number, { branch: pr.branch, url: pr.url, sessions, mine: pr.mine, checks: pr.checks === 'running' && was?.checks === 'failing' ? 'failing' : pr.checks });
       for (const f of pr.failing) if (f.runId) info.set(String(f.runId), { workflow: f.name, branch: pr.branch, pr: pr.number, url: f.url ?? pr.url, on: 'pr', jobId: f.jobId });
     }
 
     // Ones we followed that are no longer open were merged or closed: the merged list says which.
     const gone = open.data.length < OPEN_LIMIT ? [...repo.known.keys()].filter((n) => !seenOpen.has(n)) : [];
-    for (const [n, k] of repo.known) if (seenOpen.has(n) && !g.branches.has(k.branch)) repo.known.delete(n); // its agent moved on
+    for (const [n, k] of repo.known) if (seenOpen.has(n) && !g.branches.has(k.branch) && !k.mine) repo.known.delete(n); // its agent moved on
     if (repo.polls % 5 === 0 || gone.length) {
-      const m = await ghJson(['pr', 'list', '-R', R, '--state', 'merged', '--limit', '15', '--json', 'number,title,url,headRefName,baseRefName,mergedAt,mergeCommit']);
+      const m = await ghJson(['pr', 'list', '-R', R, '--state', 'merged', '--limit', '15', '--json', 'number,title,url,headRefName,baseRefName,mergedAt,mergeCommit' + (mine ? ',author' : '')]);
       if (!m.bad && Array.isArray(m.data)) {
-        repo.mergedAll = m.data.map((p) => ({ number: p.number, title: clip(p.title, 120), url: p.url, branch: p.headRefName, mergedAt: ms(p.mergedAt), sha: p.mergeCommit?.oid ?? null }))
+        repo.mergedAll = m.data.map((p) => ({ number: p.number, title: clip(p.title, 120), url: p.url, branch: p.headRefName, mergedAt: ms(p.mergedAt), sha: p.mergeCommit?.oid ?? null,
+                                              mine: me != null && p.author?.login === me }))
           .sort((a, b) => (b.mergedAt ?? 0) - (a.mergedAt ?? 0));
         for (const n of gone) {
           const k = repo.known.get(n), merged = repo.mergedAll.some((p) => p.number === n);
@@ -496,7 +534,7 @@ export function createGithub({
       prs, runs: shown, merged: repo.mergedAll.slice(0, 5), byBranch: new Map(prs.map((p) => [p.branch, p])), info,
       main: worst((merges.length ? merges : shown).map((r) => r.state)),
       running: prs.some((p) => p.checks === 'running') || shown.some((r) => r.state === 'running'),
-      error: null, errorUntil: 0, backoff: 0, lastAt: t, checkedAt: t, baselined: true, polls: repo.polls + 1,
+      error: null, errorUntil: 0, backoff: 0, lastAt: t, checkedAt: t, baselined: true, polls: repo.polls + 1, mineOnly: Boolean(g.mineOnly),
     });
     for (const a of alerts.slice(0, 3)) tell(notify, TITLE, a);
     if (alerts.length > 3) tell(notify, TITLE, `${alerts.length - 3} more ${alerts.length - 3 === 1 ? 'check' : 'checks'} failed in ${slug}.`);
@@ -519,7 +557,7 @@ export function createGithub({
     return cached = {
       gh: status, hint: HINTS[status] ?? null, more,
       repos: order.map((slug) => repos.get(slug)).filter(Boolean).map((r) => ({
-        slug: r.slug, url: r.url, defaultBranch: r.defaultBranch, checkedAt: r.checkedAt, error: r.error, prs: r.prs,
+        slug: r.slug, url: r.url, defaultBranch: r.defaultBranch, checkedAt: r.checkedAt, error: r.error, prs: r.prs, mineOnly: Boolean(r.mineOnly),
         runs: r.runs.map(({ id, attempt, workflow, title, state, event, sha, url, at, started, pr, sessions }) => ({ id, attempt, workflow, title, state, event, sha, url, at, started, pr, sessions })),
         merged: r.merged,
       })),
