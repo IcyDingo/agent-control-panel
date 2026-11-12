@@ -170,8 +170,8 @@ left to their terminals.
 ## The rail
 
 Needs you comes first. Below it, every other live session sits under the repository it works in, in
-name order so the sections hold still while agents work: the header names the repository, the folder
-it sits in, and, when one checkout of it is in use, that checkout and its branch. With two or more
+name order so the sections hold still while agents work: the header names the repository (its folder
+is in the tooltip) and, when one checkout of it is in use, that checkout and its branch. With two or more
 checkouts in use (the main one and worktrees), a quiet label heads each checkout's sessions. Sessions
 outside any repository are under Other folders, and ended ones under Finished. A session under Needs
 you names its repository on its row. The open session's header shows its repository, checkout and

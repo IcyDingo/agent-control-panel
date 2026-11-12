@@ -1535,16 +1535,14 @@ function renderBoard(g, vis) {
     const ci = sec.kind === 'repo' ? ciSum(vis.filter((s) => s.git?.repo === sec.repo)) : { state: null };
     c.ci.hidden = !ci.state;
     if (ci.state) { setAttr(c.ci, 'data-c', ci.state); setText(c.ci, `CI ${ci.state}`); setAttr(c.ci, 'title', ci.title); }
-    // A repository's folder under its name, with its branch when only one checkout of it is in use.
+    // Under a repository's name, the checkout and branch when only one checkout of it is in use. Its folder is in the
+    // name's tooltip and in the open session's place bar, so the rail stays clean.
     const tops = sec.kind === 'repo' ? [...new Set(sec.list.map((s) => s.git.top))] : [];
-    c.path.hidden = sec.kind !== 'repo';
-    if (sec.kind === 'repo') {
-      const one = tops.length === 1 ? sec.list[0].git : null;
-      // The name is the folder's own: the line shows where it sits, then the checkout and branch in use.
-      patch(c.path, JSON.stringify([sec.repo, one?.worktree, one?.branch, one?.commit]), () => [el('span', { text: tilde(sec.repo.replace(/\/[^/]+\/?$/, '')) || '/' }),
-        one ? el('span', { class: 'br' + (one.worktree ? ' wt' : '') }, el('span', { text: (one.worktree ? `${one.worktree} · ` : '') + (one.branch ?? `detached ${one.commit ?? ''}`) })) : null]);
-      setAttr(c.path, 'title', sec.repo);
-    }
+    const one = tops.length === 1 ? sec.list[0].git : null;
+    c.path.hidden = !one;
+    if (one) patch(c.path, JSON.stringify([one.worktree, one.branch, one.commit]), () =>
+      el('span', { class: 'br' + (one.worktree ? ' wt' : '') }, el('span', { text: (one.worktree ? `${one.worktree} · ` : '') + (one.branch ?? `detached ${one.commit ?? ''}`) })));
+    setAttr(c.head, 'title', sec.kind === 'repo' ? tilde(sec.repo) : '');
     const bs = bulksOf(sec), armedB = bs.find((b) => armed?.key === b.key);
     patch(c.tools, JSON.stringify(bs.map((b) => [b.key, b.text, b.armed, armed?.key === b.key])), () => bs.map((b) => el('button', {
       class: 'btn danger soft small' + (armed?.key === b.key ? ' armed' : ''), type: 'button', 'data-key': b.key, title: hintOf(b.key),
