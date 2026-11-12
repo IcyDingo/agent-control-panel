@@ -557,6 +557,18 @@ textarea.field { flex-basis: 100%; height: auto; min-height: 3.4em; padding: 6px
 @keyframes count { from { transform: scaleX(0); } }
 .advance .linkish { margin-left: auto; color: var(--fg-dim); }
 
+/* Chat or Terminal, for a background session; the terminal fills the place of the conversation and its box. */
+.vtabs { flex: none; display: inline-flex; gap: 2px; padding: 3px; border-radius: var(--r-pill); background: var(--fill); }
+.vtabs button { height: 24px; padding: 0 11px; border: 0; border-radius: var(--r-pill); background: none; color: var(--fg-dim); font-size: 12px; font-weight: 500; cursor: pointer; }
+.vtabs button:hover { color: var(--fg); }
+.vtabs button[aria-selected="true"] { background: var(--raise); color: var(--fg); box-shadow: 0 1px 2px var(--shade); }
+.drawer.term-on .d-scroll, .drawer.term-on .d-foot { display: none; }
+.d-term { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 12px 12px 12px 20px; }
+.d-term > .quiet, .d-term > .err { margin: 8px 12px; }
+.d-term-host { flex: 1; min-width: 0; min-height: 0; }
+.d-term-host .xterm { height: 100%; }
+.d-term-host .xterm-viewport { background: transparent !important; }
+.d-term-end { position: absolute; right: 24px; bottom: 20px; }
 /* ---------- the launcher ---------- */
 dialog.launcher { width: min(580px, calc(100vw - 32px)); padding: 0; border: 0; border-radius: var(--r-3); background: var(--panel); color: var(--fg); box-shadow: 0 30px 80px -30px var(--shade); }
 dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
@@ -819,6 +831,8 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
     <div class="d-cols">
       <div class="d-main">
         <div class="d-top-band"><div class="d-col" id="d-head"></div></div>
+        <!-- Its own Claude Code screen, for a background session: claude attach, typed into here. -->
+        <div class="d-term" id="d-term" hidden></div>
         <div class="d-scroll" id="d-scroll">
           <div class="d-col">
             <section class="sec" id="d-chat" hidden>
@@ -1027,9 +1041,11 @@ function connect() {
   const es = new EventSource('/events?t=' + encodeURIComponent(TOKEN) + '&c=' + CLIENT);
   const conn = $('conn');
   // The server forgets what a page follows when its stream closes: a stream that opens again asks for it again.
-  es.onopen = () => { conn.classList.remove('down'); conn.textContent = 'Live'; if (followed) followOpen(followed); loadProfiles(); };
+  es.onopen = () => { conn.classList.remove('down'); conn.textContent = 'Live'; if (followed) followOpen(followed); loadProfiles(); if (termView) reopenTerm(); };
   es.addEventListener('thread', (m) => { const d = JSON.parse(m.data); applyThread(d.sessionId, d.events); });
   // Its transcript was cut or replaced, or the profile switched: what the page holds is gone, so it asks again.
+  es.addEventListener('term', (m) => { const d = JSON.parse(m.data); if (termView?.sessionId === d.sessionId) termWrite(termView, b64bytes(d.data)); });
+  es.addEventListener('term-exit', (m) => { const d = JSON.parse(m.data); if (termView?.sessionId === d.sessionId) termEnded(termView); });
   es.addEventListener('thread-reset', (m) => { const { sessionId } = JSON.parse(m.data); if (sessionId === followed) { threads.delete(sessionId); followOpen(sessionId); } });
   es.onerror = () => {
     conn.classList.add('down');
@@ -1611,7 +1627,7 @@ function renderDrawer(vis) {
   const d = $('drawer');
   const s = open ? vis.find((x) => x.sessionId === open) : null;
   d.hidden = !s;
-  if (!s) { saveDraft(); drawerWas = null; return; }
+  if (!s) { saveDraft(); drawerWas = null; if (termView) closeTerm(); return; }
   if (drawerWas !== s.sessionId) {
     saveDraft();
     d.classList.remove('enter');
@@ -1628,12 +1644,19 @@ function renderDrawer(vis) {
   const where = whereOf(s.git), sharers = sharersOf(s);
   const elsewhere = (s.elsewhere ?? []).map((g) => elsewhereOf(g, s.git)), here = s.workCwd ?? s.cwd;
   const stateWord = s.leftRosterAt ? 'Closed' : s.state === 'stopped' ? 'Ended' : LABEL[st];
-  patch($('d-head'), JSON.stringify([s.sessionId, st, label(s), s.cwd, here, s.kind, s.inRoster, Boolean(s.leftRosterAt), s.state, noteText, s.hostsPanel, s.mode, s.git, s.gh, sharers, elsewhere, s.oldVersion, snap.profile?.command, wideSession]), () => [
+  const termOn = Boolean(s.termable) && termWant.has(s.sessionId);
+  d.classList.toggle('term-on', termOn);
+  $('d-term').hidden = !termOn;
+  if (termOn) openTerm(s); else if (termView) closeTerm();
+  patch($('d-head'), JSON.stringify([s.sessionId, st, label(s), s.cwd, here, s.kind, s.inRoster, Boolean(s.leftRosterAt), s.state, noteText, s.hostsPanel, s.mode, s.git, s.gh, sharers, elsewhere, s.oldVersion, snap.profile?.command, wideSession, s.termable, termOn]), () => [
     el('div', { class: 'd-top' }, glyph(st), el('h2', { class: 'd-name', text: label(s), title: label(s) }),
       el('span', { class: 'd-meta', title: where ? where.long : null },
         el('span', { class: 'st', 'data-s': st, text: stateWord }), ' · ', KIND[s.kind]?.replace(' session', '') || 'Headless',
         s.mode ? [' · ', el('span', { class: s.mode === 'bypassPermissions' ? 'bypass' : '', title: 'Its permission mode', text: modeOf(s.mode) })] : null,
         el('span', { class: 'age' })),
+      s.termable ? el('div', { class: 'vtabs', role: 'tablist', 'aria-label': 'How to show it' },
+        el('button', { type: 'button', role: 'tab', 'aria-selected': String(!termOn), title: 'Its conversation, with the box to reply', onclick: () => { termWant.delete(s.sessionId); render(); } }, 'Chat'),
+        el('button', { type: 'button', role: 'tab', 'aria-selected': String(termOn), title: 'Its own Claude Code screen: type into it as in claude attach', onclick: () => { termWant.add(s.sessionId); render(); } }, 'Terminal')) : null,
       el('button', { class: 'btn icon d-expand', type: 'button', 'aria-pressed': String(wideSession), 'aria-label': wideSession ? 'Collapse' : 'Expand',
         title: wideSession ? 'Show the board beside it again' : 'Give it the whole window', onclick: () => setLayout('wideSession', !wideSession) },
         svgIcon(wideSession ? 'M10 4H4v6M14 20h6v-6M4 4l7 7M20 20l-7-7' : 'M4 10V4h6M20 14v6h-6M20 4l-7 7M4 20l7-7')),
@@ -1729,6 +1752,105 @@ function nowLine(s, st, rs) {
   if (s.continuedAs) return quiet(`Ended. Its conversation carries on as ${snap?.sessions.find((x) => x.id === s.continuedAs.id)?.name || s.continuedAs.id}. This record keeps its worktree.`);
   if (s.state === 'stopped') return quiet(`Ended. Its conversation is kept${s.id ? `: claude attach ${s.id} reopens it` : ''}.`);
   return quiet('Finished');
+}
+
+// ---------- the embedded terminal: a background session's own Claude Code screen, typed into here ----------
+// The server runs `claude attach` in a pseudo-terminal; its output comes on this page's stream, keystrokes go back as
+// POSTs. The library (xterm.js, vendored) loads the first time a terminal opens.
+const termWant = new Set(); // sessions whose Terminal view is picked
+let termView = null;        // { sessionId, term, fit, ro, queue, sending, closed, pending }
+let xtermLoad = null;
+const loadScript = (src) => new Promise((ok, bad) => document.head.append(el('script', { src, onload: ok, onerror: () => bad(new Error(src)) })));
+function loadXterm() {
+  if (!xtermLoad) {
+    document.head.append(el('link', { rel: 'stylesheet', href: '/vendor/xterm/xterm.css' }));
+    xtermLoad = loadScript('/vendor/xterm/xterm.js').then(() => loadScript('/vendor/xterm/addon-fit.js'));
+    xtermLoad.catch(() => { xtermLoad = null; });
+  }
+  return xtermLoad;
+}
+const b64bytes = (b) => Uint8Array.from(atob(b), (c) => c.charCodeAt(0));
+const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+/** Its colours from the page's: the panel behind, the text on it, and an ANSI set that reads on either. */
+function termTheme() {
+  const light = cssVar('color-scheme') === 'light';
+  const ansi = light
+    ? { black: '#24292f', red: '#cf222e', green: '#116329', yellow: '#7d4e00', blue: '#0969da', magenta: '#8250df', cyan: '#1b7c83', white: '#6e7781',
+        brightBlack: '#57606a', brightRed: '#a40e26', brightGreen: '#1a7f37', brightYellow: '#633c01', brightBlue: '#218bff', brightMagenta: '#a475f9', brightCyan: '#3192aa', brightWhite: '#8c959f' }
+    : { black: '#484f58', red: '#ff7b72', green: '#3fb950', yellow: '#d29922', blue: '#58a6ff', magenta: '#bc8cff', cyan: '#39c5cf', white: '#b1bac4',
+        brightBlack: '#6e7681', brightRed: '#ffa198', brightGreen: '#56d364', brightYellow: '#e3b341', brightBlue: '#79c0ff', brightMagenta: '#d2a8ff', brightCyan: '#56d4dd', brightWhite: '#f0f6fc' };
+  return { background: cssVar('--panel'), foreground: cssVar('--fg'), cursor: cssVar('--fg'), cursorAccent: cssVar('--panel'), selectionBackground: cssVar('--fill-strong'), ...ansi };
+}
+function termWrite(view, bytes) { if (view.term) view.term.write(bytes); else view.pending.push(bytes); }
+async function openTerm(s) {
+  if (termView?.sessionId === s.sessionId) return;
+  closeTerm();
+  const view = termView = { sessionId: s.sessionId, closed: false, queue: '', sending: false, pending: [] };
+  const box = $('d-term');
+  box.replaceChildren(quiet('Opening its terminal…'));
+  try { await loadXterm(); } catch { if (termView === view) box.replaceChildren(el('p', { class: 'err', text: 'The terminal did not load. Reload the page and try again.' })); return; }
+  if (termView !== view) return;
+  const term = new Terminal({ fontFamily: cssVar('--mono'), fontSize: 13, lineHeight: 1.15, cursorBlink: true, scrollback: 5000, macOptionIsMeta: true, theme: termTheme() });
+  const fit = new FitAddon.FitAddon();
+  term.loadAddon(fit);
+  const host = el('div', { class: 'd-term-host' });
+  box.replaceChildren(host);
+  term.open(host);
+  fit.fit();
+  Object.assign(view, { term, fit });
+  const r = await api('/api/term/open', { client: CLIENT, sessionId: s.sessionId, cols: term.cols, rows: term.rows });
+  if (termView !== view) { if (r.ok) api('/api/term/close', { client: CLIENT, sessionId: s.sessionId }); return; }
+  if (!r.ok) { term.write(`\r\n  ${r.error}\r\n`); view.closed = true; return; }
+  if (r.scrollback) term.write(b64bytes(r.scrollback));
+  for (const b of view.pending) term.write(b);
+  view.pending = [];
+  term.onData((d) => { view.queue += d; pumpTerm(view); });
+  view.ro = new ResizeObserver(() => {
+    clearTimeout(view.rt);
+    view.rt = setTimeout(() => {
+      if (termView !== view || !host.isConnected || !host.clientWidth) return;
+      fit.fit();
+      api('/api/term/resize', { client: CLIENT, sessionId: view.sessionId, cols: term.cols, rows: term.rows });
+    }, 80);
+  });
+  view.ro.observe(host);
+  term.focus();
+}
+/** Keystrokes go in order, one POST at a time, what was typed meanwhile in the next. */
+async function pumpTerm(view) {
+  if (view.sending || view.closed) return;
+  view.sending = true;
+  while (view.queue && termView === view && !view.closed) {
+    const data = view.queue;
+    view.queue = '';
+    const r = await api('/api/term/input', { client: CLIENT, sessionId: view.sessionId, data });
+    if (!r.ok) { termEnded(view, r.error); break; }
+  }
+  view.sending = false;
+}
+function termEnded(view, why) {
+  if (view.closed) return;
+  view.closed = true;
+  view.term?.write(`\r\n\r\n  ${why || 'Its terminal closed. The session keeps running.'}\r\n`);
+  $('d-term').append(el('div', { class: 'd-term-end' }, el('button', { class: 'btn small', type: 'button', text: 'Open it again', onclick: () => reopenTerm() })));
+}
+function closeTerm() {
+  const v = termView;
+  if (!v) return;
+  termView = null;
+  clearTimeout(v.rt);
+  v.ro?.disconnect();
+  try { v.term?.dispose(); } catch {}
+  if (!v.closed) api('/api/term/close', { client: CLIENT, sessionId: v.sessionId });
+  $('d-term').replaceChildren();
+}
+/** The stream came back (the server forgot this page) or it ended: open it afresh. */
+function reopenTerm() {
+  const id = termView?.sessionId;
+  if (!id) return;
+  closeTerm();
+  const s = sessionOf(id);
+  if (s?.termable && termWant.has(id) && open === id) openTerm(s);
 }
 
 // ---------- replying: a session that stopped to ask you something in words ----------
@@ -3101,6 +3223,7 @@ function applyTheme() {
   $('theme-btn').dataset.shows = theme;
   setAttr($('theme-btn'), 'aria-label', `Theme: ${name}`);
   setAttr($('theme-btn'), 'title', `Theme: ${name}`);
+  if (termView?.term) termView.term.options.theme = termTheme();
   // The app's title bar follows the page.
   try { window.webkit?.messageHandlers?.theme?.postMessage(theme === 'system' ? (macDark.matches ? 'dark' : 'light') : theme); } catch {}
 }
