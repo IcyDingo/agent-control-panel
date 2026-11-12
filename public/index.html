@@ -207,7 +207,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .col-path .br > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .col-path .br::before { content: ""; flex: none; width: 11px; height: 11px; background: currentColor; -webkit-mask: var(--i-branch) center / contain no-repeat; mask: var(--i-branch) center / contain no-repeat; }
 .col-path .br.wt::before { -webkit-mask-image: var(--i-tree); mask-image: var(--i-tree); }
-.col-body { padding: 0 8px; display: grid; gap: 2px; align-content: start; }
+.col-body { padding: 0 8px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; align-content: start; } /* rows fit the rail: a long name shrinks, never the time */
 .col-empty { margin: 2px 8px 4px; color: var(--fg-dim); font-size: 12.5px; }
 .col-hint { margin: 0 8px 4px; }
 .board-empty { margin: 10px 16px; color: var(--fg-dim); font-size: 13px; }
@@ -219,7 +219,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .ck span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ck .br { flex: none; max-width: 60%; color: var(--fg-faint); }
 
-.tile-wrap { position: relative; }
+.tile-wrap { position: relative; min-width: 0; }
 /* One line per session: a chevron slot (filled when it has subagents), its state light, name, a short mono detail
    (the tool it runs, or what it asks for), and its age. The branch, folder and full text live in the tooltip. */
 .srow {
@@ -634,8 +634,13 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .gh-btn[data-c="passing"] svg { color: var(--ok); }
 .gh-btn[data-c="warn"] svg { color: var(--amber); }
 .gh-n { min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--r-pill); background: var(--stop); color: var(--on-solid); font: 600 11px/18px var(--mono); text-align: center; }
-.gh-pop { position: fixed; z-index: 60; width: min(380px, calc(100vw - 16px)); max-height: min(70vh, 640px); overflow: auto; padding: 14px 18px 8px;
-  border: 1px solid var(--line); border-radius: var(--r-2); background: var(--raise); box-shadow: 0 18px 40px -20px var(--shade); outline: none; }
+.gh-side { flex: none; width: 400px; min-height: 0; overflow: auto; padding: 16px 20px 12px; border-radius: var(--r-3); background: var(--panel); outline: none; }
+.gh-side .h-repo:first-of-type { padding-top: 10px; }
+.gh-pop-h .gh-sub { flex: 1; min-width: 0; font-size: 12px; color: var(--fg-dim); }
+.st-word[data-c="passing"] { background: var(--ok-fill); color: var(--ok); }
+.tci[data-c="open"], .tci[data-c="draft"], .h-li .tci[data-c="open"], .h-li .tci[data-c="draft"] { background: var(--fg-faint); }
+.h-li .tci[data-c="passing"] { background: var(--ok); }
+@media (max-width: 1180px) { .gh-side { width: 340px; } }
 .gh-pop-h { display: flex; align-items: center; gap: 8px; }
 /* Each item's state in its colour: failing red, stuck amber, running blue, merged purple. */
 .st-word { flex: none; height: 20px; padding: 0 8px; border-radius: var(--r-pill); background: var(--fill); font: 500 11px/20px var(--mono); color: var(--fg-dim); white-space: nowrap; }
@@ -647,10 +652,9 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .tci[data-c="merged"], .h-li .tci[data-c="merged"] { background: var(--merged); }
 .h-li[data-c="merged"] .hn { color: var(--merged); }
 .gh-pop-h h3 { margin: 0; font-size: 13px; font-weight: 600; color: var(--fg); }
-.gh-pop-h .btn { margin-left: auto; }
-.gh-pop .h-repo:last-child { padding-bottom: 8px; }
-.gh-pop a { color: inherit; text-decoration: none; }
-.gh-pop a:hover { text-decoration: underline; text-underline-offset: 2px; }
+.gh-side .h-repo:last-child { padding-bottom: 8px; }
+.gh-side a { color: inherit; text-decoration: none; }
+.gh-side a:hover { text-decoration: underline; text-underline-offset: 2px; }
 
 /* ---------- the overseer: the home view, beside the rail, with what GitHub shows in a column of its own ---------- */
 .home { flex: 1; min-width: 0; display: flex; overflow: hidden; background: var(--panel); border-radius: var(--r-3); }
@@ -701,7 +705,7 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 /* Across everything: each repository's pull requests, default-branch runs and recent merges. */
 .h-side { flex: none; width: 320px; min-height: 0; overflow: auto; padding: 20px 20px 24px; border-left: 1px solid var(--line); }
 .h-side h3 { margin: 0 0 4px; font-size: 12.5px; font-weight: 600; color: var(--fg-dim); }
-.h-side .gh-hint, .gh-pop .gh-hint { margin: 8px 0 0; color: var(--fg-dim); font-size: 12.5px; line-height: 1.5; }
+.h-side .gh-hint, .gh-side .gh-hint { margin: 8px 0 0; color: var(--fg-dim); font-size: 12.5px; line-height: 1.5; }
 .h-repo { padding: 16px 0; }
 .h-repo + .h-repo { border-top: 1px solid var(--line); }
 .h-repo-h { display: flex; align-items: center; gap: 8px; min-width: 0; margin-bottom: 8px; font-weight: 600; font-size: 13px; }
@@ -736,6 +740,7 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
   .home { display: none; }
   body.home-open .stage > .home:not([hidden]) { display: flex; position: absolute; inset: 0; z-index: 5; border-radius: 0; flex-direction: column; overflow: auto; }
   body.home-open .h-close { display: inline-flex; }
+  .stage > .gh-side:not([hidden]) { position: absolute; inset: 0; z-index: 7; width: auto; border-radius: 0; }
   .drawer { width: 100%; border-left: 0; }
   .stage > .drawer { position: absolute; inset: 0; margin: 0; width: auto; }
 }
@@ -753,8 +758,7 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
   <span class="grow"></span>
   <span class="paused" id="paused" hidden>Paused: the terminal answers everything</span>
   <div class="gh-wrap" id="gh-wrap" hidden>
-    <button class="btn gh-btn" type="button" id="gh-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="gh-pop"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="18" r="2.2"/><path d="M6 8.2v7.6M18 15.8V10a3 3 0 0 0-3-3h-4"/><path d="M13 4.6 10.6 7 13 9.4"/></svg>GitHub<span class="gh-n" id="gh-n" hidden></span></button>
-    <div class="gh-pop" id="gh-pop" tabindex="-1" role="dialog" aria-label="GitHub across your agents' repositories" hidden></div>
+    <button class="btn gh-btn" type="button" id="gh-btn" aria-expanded="false" aria-controls="gh-pop"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="18" r="2.2"/><path d="M6 8.2v7.6M18 15.8V10a3 3 0 0 0-3-3h-4"/><path d="M13 4.6 10.6 7 13 9.4"/></svg>GitHub<span class="gh-n" id="gh-n" hidden></span></button>
   </div>
   <button class="btn icon" type="button" id="notify" aria-label="Turn on desktop alerts" title="Turn on desktop alerts" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg></button>
   <label class="switch" title="When off, requests go to the terminal only"><input type="checkbox" id="armed" checked><i></i>Answering here</label>
@@ -808,6 +812,9 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
     </div>
     <aside class="h-side" id="h-side" aria-label="Across everything"></aside>
   </section>
+  <!-- GitHub, docked on the right: your open pull requests and the agents', each with its state. The top bar's button opens
+       and closes it; it stays open until you close it. -->
+  <aside class="gh-side" id="gh-pop" tabindex="-1" aria-label="GitHub" hidden></aside>
   <aside class="drawer" id="drawer" aria-label="Session" hidden>
     <div class="d-grip" id="d-grip" role="separator" aria-orientation="vertical" aria-label="Panel width" tabindex="0" title="Drag to resize. Double-click for the default width."></div>
     <!-- The session in three bands: its name and facts on top, the conversation scrolling in the middle, and what needs you,
@@ -1528,16 +1535,14 @@ function renderBoard(g, vis) {
     const ci = sec.kind === 'repo' ? ciSum(vis.filter((s) => s.git?.repo === sec.repo)) : { state: null };
     c.ci.hidden = !ci.state;
     if (ci.state) { setAttr(c.ci, 'data-c', ci.state); setText(c.ci, `CI ${ci.state}`); setAttr(c.ci, 'title', ci.title); }
-    // A repository's folder under its name, with its branch when only one checkout of it is in use.
+    // Under a repository's name, the checkout and branch when only one checkout of it is in use. Its folder is in the
+    // name's tooltip and in the open session's place bar, so the rail stays clean.
     const tops = sec.kind === 'repo' ? [...new Set(sec.list.map((s) => s.git.top))] : [];
-    c.path.hidden = sec.kind !== 'repo';
-    if (sec.kind === 'repo') {
-      const one = tops.length === 1 ? sec.list[0].git : null;
-      // The name is the folder's own: the line shows where it sits, then the checkout and branch in use.
-      patch(c.path, JSON.stringify([sec.repo, one?.worktree, one?.branch, one?.commit]), () => [el('span', { text: tilde(sec.repo.replace(/\/[^/]+\/?$/, '')) || '/' }),
-        one ? el('span', { class: 'br' + (one.worktree ? ' wt' : '') }, el('span', { text: (one.worktree ? `${one.worktree} · ` : '') + (one.branch ?? `detached ${one.commit ?? ''}`) })) : null]);
-      setAttr(c.path, 'title', sec.repo);
-    }
+    const one = tops.length === 1 ? sec.list[0].git : null;
+    c.path.hidden = !one;
+    if (one) patch(c.path, JSON.stringify([one.worktree, one.branch, one.commit]), () =>
+      el('span', { class: 'br' + (one.worktree ? ' wt' : '') }, el('span', { text: (one.worktree ? `${one.worktree} · ` : '') + (one.branch ?? `detached ${one.commit ?? ''}`) })));
+    setAttr(c.head, 'title', sec.kind === 'repo' ? tilde(sec.repo) : '');
     const bs = bulksOf(sec), armedB = bs.find((b) => armed?.key === b.key);
     patch(c.tools, JSON.stringify(bs.map((b) => [b.key, b.text, b.armed, armed?.key === b.key])), () => bs.map((b) => el('button', {
       class: 'btn danger soft small' + (armed?.key === b.key ? ' armed' : ''), type: 'button', 'data-key': b.key, title: hintOf(b.key),
@@ -2518,6 +2523,9 @@ function renderHome(g) {
     if ($('h-model').value !== st.model) $('h-model').value = st.model;
   }
   syncSay();
+  // With the GitHub panel open on the right, the same list beside the chat would only repeat it.
+  $('h-side').hidden = !$('gh-pop').hidden;
+  if ($('h-side').hidden) return;
   renderAcross();
 }
 /** Across everything: each watched repository's pull requests, default-branch runs and recent merges. */
@@ -2527,7 +2535,7 @@ function renderAcross() {
 const acrossSig = () => JSON.stringify([snap.github, snap.sessions.map((s) => [s.sessionId, label(s)])]);
 // Checks still running after this long are called stuck; merges show for a day.
 const STUCK_MS = 30 * 60_000, MERGED_MS = 24 * 3_600_000;
-const GH_RANK = { failing: 0, stuck: 1, running: 2, merged: 3 };
+const GH_RANK = { failing: 0, stuck: 1, running: 2, passing: 3, open: 4, draft: 5, merged: 6 };
 /** A pull request's or run's state as the list shows it: failing, stuck, running or merged, with how long, or null when
  *  there is nothing to see (passing, no checks). */
 function ghItemState(checks, since) {
@@ -2536,21 +2544,29 @@ function ghItemState(checks, since) {
   const long = since ? snap.now - since : 0;
   return long > STUCK_MS ? { st: 'stuck', word: `stuck ${ago(long)}` } : { st: 'running', word: since ? `running ${ago(long)}` : 'running' };
 }
+/** An open pull request's state: failing, stuck or running from its checks, else draft, ready or passing, else open. */
+function ghPrState(p) {
+  const s = ghItemState(p.checks, p.runningSince);
+  if (s) return s;
+  if (p.draft) return { st: 'draft', word: 'draft' };
+  if (p.checks === 'passing') return { st: 'passing', word: ['CLEAN', 'HAS_HOOKS'].includes(p.mergeState) ? 'ready' : 'passing' };
+  return { st: 'open', word: 'open' };
+}
 /** What the GitHub list shows for one repository, worst first. */
 function ghActive(r) {
   const items = [
-    ...r.prs.map((p) => ({ p, s: ghItemState(p.checks, p.runningSince) })).filter((x) => x.s).map(({ p, s }) => ({ kind: 'pr', ...s, n: '#' + p.number, title: p.title, url: p.url,
-      tip: `${p.title}\n${s.st === 'failing' && p.failing?.length ? 'Failing: ' + p.failing.map((f) => f.name).join(', ') : s.st === 'stuck' ? 'Its checks have run for more than 30 minutes.' : CHECKS[p.checks]}`, sessions: p.sessions })),
+    ...r.prs.map((p) => ({ p, s: ghPrState(p) })).map(({ p, s }) => ({ kind: 'pr', ...s, n: '#' + p.number, title: p.title, url: p.url,
+      tip: `${p.title}\n${p.branch}${p.mine ? ', yours' : ''}\n${s.st === 'failing' && p.failing?.length ? 'Failing: ' + p.failing.map((f) => f.name).join(', ') : s.st === 'stuck' ? 'Its checks have run for more than 30 minutes.' : CHECKS[p.checks]}${p.mergeState ? ` · ${MERGE[p.mergeState] ?? p.mergeState}` : ''}`, sessions: p.sessions })),
     ...mainRuns(r).map((x) => ({ x, s: ghItemState(x.state, x.started) })).filter((y) => y.s).map(({ x, s }) => ({ kind: 'run', ...s, n: r.defaultBranch ?? 'main', title: x.workflow, url: x.url,
       tip: `${x.workflow} on ${r.defaultBranch ?? 'the default branch'}${x.pr ? `, after #${x.pr}` : ''}: ${x.title}`, sessions: x.sessions })),
-    ...r.merged.filter((m) => m.mergedAt && snap.now - m.mergedAt < MERGED_MS).map((m) => ({ kind: 'pr', st: 'merged', word: `merged ${ago(snap.now - m.mergedAt)} ago`,
+    ...r.merged.filter((m) => m.mergedAt && snap.now - m.mergedAt < MERGED_MS && (!r.mineOnly || m.mine)).map((m) => ({ kind: 'pr', st: 'merged', word: `merged ${ago(snap.now - m.mergedAt)} ago`,
       n: '#' + m.number, title: m.title, url: m.url, tip: `${m.title}\nMerged into ${r.defaultBranch ?? 'the default branch'}`, sessions: [] })),
   ];
   return items.sort((a, b) => GH_RANK[a.st] - GH_RANK[b.st]);
 }
-/** The list under a heading, shared by the overseer's side column and the GitHub button's dropdown: pull requests and
- *  default-branch runs that are failing, stuck or running, and what merged in the last day, each with its state in its
- *  colour. Passing ones are left out; a repository with nothing to show drops out too. */
+/** The list under a heading, shared by the overseer's side column and the GitHub panel: every open pull request of yours
+ *  or on an agent's branch, default-branch runs that are failing or running, and what merged in the last day, each with
+ *  its state in its colour, worst first. A repository with nothing to show drops out. */
 function acrossNodes(head) {
   const gh = snap.github, names = new Map(snap.sessions.map((s) => [s.sessionId, label(s)]));
   if (!gh || gh.gh === 'off') return [head, el('p', { class: 'gh-hint', text: 'GitHub is turned off for this panel (ACP_GITHUB=off).' })];
@@ -2562,7 +2578,7 @@ function acrossNodes(head) {
   if (!active.length) {
     const open = gh.repos.reduce((n, r) => n + r.prs.length, 0), checked = gh.repos.some((r) => r.checkedAt);
     return [head, hint, el('p', { class: 'h-none', text: !checked ? 'Looking at GitHub…'
-      : `Nothing failing, running or merged today across ${gh.repos.length} ${gh.repos.length === 1 ? 'repository' : 'repositories'}${open ? `; ${open} open pull request${open === 1 ? '' : 's'}, all quiet` : ''}.` })];
+      : `No open pull requests, and nothing running or merged today across ${gh.repos.length} ${gh.repos.length === 1 ? 'repository' : 'repositories'}.` })];
   }
   return [head, hint, ...active.map(({ r, items }) => el('section', { class: 'h-repo' },
     el('div', { class: 'h-repo-h' }, el('a', { href: r.url, target: '_blank', rel: 'noopener', text: r.slug, title: r.slug })),
@@ -2588,28 +2604,28 @@ function renderGhBtn() {
   $('gh-n').hidden = !failing;
   setText($('gh-n'), String(failing));
   setAttr($('gh-btn'), 'title', gh.hint ?? (failing ? `${failing} failing on GitHub` : stuck ? 'Checks have run for more than 30 minutes on GitHub' : state === 'running' ? 'Checks are running on GitHub' : `GitHub: ${gh.repos.length} ${gh.repos.length === 1 ? 'repository' : 'repositories'} watched`));
+  const open = prs.length;
   if (!$('gh-pop').hidden) patch($('gh-pop'), acrossSig() + ghRefreshing, () => acrossNodes(el('div', { class: 'gh-pop-h' }, el('h3', { text: 'GitHub' }),
+    el('span', { class: 'gh-sub', text: open ? `${open} open pull request${open === 1 ? '' : 's'}` : '' }),
     el('button', { class: 'btn quiet small', type: 'button', disabled: ghRefreshing, text: ghRefreshing ? 'Refreshing…' : 'Refresh', title: 'Ask GitHub again now',
-      onclick: async () => { ghRefreshing = true; render(); await api('/api/github/refresh', {}); setTimeout(() => { ghRefreshing = false; render(); }, 1500); } }))));
+      onclick: async () => { ghRefreshing = true; render(); await api('/api/github/refresh', {}); setTimeout(() => { ghRefreshing = false; render(); }, 1500); } }),
+    el('button', { class: 'btn icon', type: 'button', 'aria-label': 'Close GitHub', title: 'Close (Esc)', onclick: () => { showGhPop(false); $('gh-btn').focus(); } }, svgIcon('M6 6l12 12M18 6L6 18')))));
 }
 let ghRefreshing = false;
+/** Opens or closes the GitHub panel on the right. It stays as you leave it, across reloads. */
 function showGhPop(on) {
   const pop = $('gh-pop');
+  pref('acp.ghSide', on ? '1' : '0');
   if (on === !pop.hidden) return;
-  if (on) { // fixed under the button, right edges lined up, so the top bar's wrapping never clips it
-    const r = $('gh-btn').getBoundingClientRect();
-    pop.style.top = (r.bottom + 6) + 'px';
-    pop.style.right = Math.max(8, innerWidth - r.right) + 'px';
-    pop._sig = null;
-  }
   pop.hidden = !on;
+  if (on) pop._sig = null;
   setAttr($('gh-btn'), 'aria-expanded', String(on));
-  if (on) { renderGhBtn(); pop.focus({ preventScroll: true }); }
+  if (snap) render();
+  if (on) pop.focus({ preventScroll: true });
 }
 $('gh-btn').onclick = () => showGhPop($('gh-pop').hidden);
-document.addEventListener('pointerdown', (e) => { if (!$('gh-pop').hidden && !e.target.closest('#gh-wrap')) showGhPop(false); }, true);
-$('gh-pop').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); showGhPop(false); $('gh-btn').focus(); } });
-addEventListener('resize', () => showGhPop(false));
+$('gh-pop').addEventListener('keydown', (e) => { if (e.key === 'Escape' && !e.target.closest('textarea, input, select')) { e.preventDefault(); e.stopPropagation(); showGhPop(false); $('gh-btn').focus(); } });
+if (pref('acp.ghSide') === '1') { $('gh-pop').hidden = false; setAttr($('gh-btn'), 'aria-expanded', 'true'); }
 
 // ---------- render ----------
 /** A 24-viewBox stroke icon from one path, for .btn.icon. */
