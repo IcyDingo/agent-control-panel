@@ -343,7 +343,7 @@ test('only branches agents are on are kept, and pull requests from forks are dro
   assert.deepEqual(prs.map((p) => p.number), [7]);
   assert.deepEqual(prs[0], {
     number: 7, title: 'Fix the login', url: 'https://github.com/someone/demo/pull/7', branch: 'fix/login', sha: 'aaa111', draft: false,
-    checks: 'passing', counts: { pass: 1, fail: 0, pending: 0 }, failing: [], mergeable: 'MERGEABLE', mergeState: 'CLEAN', review: null,
+    checks: 'passing', counts: { pass: 1, fail: 0, pending: 0 }, failing: [], mergeable: 'MERGEABLE', mergeState: 'CLEAN', review: null, runningSince: null,
     updatedAt: T0 - MIN, sessions: ['S1'],
   });
   assert.deepEqual(h.events, [], 'pull requests already open at the first poll are not news');
@@ -827,4 +827,15 @@ test('a check whose link is not https keeps its failure but loses the link', () 
   assert.equal(r.checks, 'failing');
   assert.equal(r.failing.find((f) => f.name === 'evil').url, null);
   assert.equal(r.failing.find((f) => f.name === 'build').url, 'https://github.com/o/n/actions/runs/1/job/2');
+});
+
+test('a pull request still running says since when its oldest running check started', () => {
+  const r = rollup([
+    { __typename: 'CheckRun', name: 'lint', workflowName: 'CI', status: 'IN_PROGRESS', startedAt: '2026-01-01T10:05:00Z' },
+    { __typename: 'CheckRun', name: 'build', workflowName: 'CI', status: 'QUEUED', startedAt: '2026-01-01T10:00:00Z' },
+    { __typename: 'CheckRun', name: 'docs', workflowName: 'CI', status: 'COMPLETED', conclusion: 'SUCCESS', startedAt: '2026-01-01T09:00:00Z', completedAt: '2026-01-01T09:01:00Z' },
+  ]);
+  assert.equal(r.checks, 'running');
+  assert.equal(r.runningSince, Date.parse('2026-01-01T10:00:00Z'));
+  assert.equal(rollup([{ __typename: 'CheckRun', name: 'b', status: 'COMPLETED', conclusion: 'SUCCESS', startedAt: '2026-01-01T10:00:00Z' }]).runningSince, null);
 });

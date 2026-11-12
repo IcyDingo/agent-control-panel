@@ -23,7 +23,7 @@ catch { document.documentElement.dataset.theme = 'dark'; }
   --fg: #e4e8ee; --fg-dim: #8f99a7; --fg-faint: #606976;
   --amber: #e3ab3e; --amber-dim: rgba(227, 171, 62, .1); --amber-line: rgba(227, 171, 62, .42); --amber-fill: rgba(227, 171, 62, .13);
   --run: #7ea6e6; --run-dim: rgba(126, 166, 230, .12); --run-fill: rgba(126, 166, 230, .14);
-  --ok: #55b985; --ok-solid: #2c8a59; --ok-fill: rgba(85, 185, 133, .13); --stop: #e8634f; --stop-line: rgba(232, 99, 79, .5); --stop-fill: rgba(232, 99, 79, .14);
+  --ok: #55b985; --ok-solid: #2c8a59; --ok-fill: rgba(85, 185, 133, .13); --merged: #a98af0; --merged-fill: rgba(169, 138, 240, .15); --stop: #e8634f; --stop-line: rgba(232, 99, 79, .5); --stop-fill: rgba(232, 99, 79, .14);
   --del: rgba(232, 99, 79, .12); --add: rgba(85, 185, 133, .12);
   --shade: rgba(0, 0, 0, .55); --on-solid: #ffffff;
   --r-1: 8px; --r-2: 12px; --r-3: 16px; --r-pill: 999px;
@@ -36,7 +36,7 @@ catch { document.documentElement.dataset.theme = 'dark'; }
   :root:not([data-theme="dark"]) {
     --bg: #eceef1; --panel: #f8f9fa; --raise: #ffffff; --hover: #eceff2; --code: #f1f3f5; --fill: #edf0f3; --fill-strong: #e0e4e9; --line: #e0e3e8; --line-strong: #c8cdd4;
     --fg: #111418; --fg-dim: #56606c; --fg-faint: #8a919c; --amber: #9a6500; --amber-dim: rgba(154, 101, 0, .07); --amber-line: rgba(154, 101, 0, .38); --amber-fill: rgba(196, 135, 20, .12);
-    --run: #2c5cae; --run-dim: rgba(44, 92, 174, .08); --run-fill: rgba(44, 92, 174, .1); --ok: #1e7a4b; --ok-solid: #1e7a4b; --ok-fill: rgba(30, 122, 75, .1);
+    --run: #2c5cae; --run-dim: rgba(44, 92, 174, .08); --run-fill: rgba(44, 92, 174, .1); --ok: #1e7a4b; --ok-solid: #1e7a4b; --ok-fill: rgba(30, 122, 75, .1); --merged: #7a4fd6; --merged-fill: rgba(122, 79, 214, .1);
     --stop: #bf3d2b; --stop-line: rgba(191, 61, 43, .45); --stop-fill: rgba(191, 61, 43, .1);
     --del: rgba(191, 61, 43, .08); --add: rgba(30, 122, 75, .08); --shade: rgba(17, 20, 24, .14); color-scheme: light;
   }
@@ -44,7 +44,7 @@ catch { document.documentElement.dataset.theme = 'dark'; }
 :root[data-theme="light"] {
   --bg: #eceef1; --panel: #f8f9fa; --raise: #ffffff; --hover: #eceff2; --code: #f1f3f5; --fill: #edf0f3; --fill-strong: #e0e4e9; --line: #e0e3e8; --line-strong: #c8cdd4;
   --fg: #111418; --fg-dim: #56606c; --fg-faint: #8a919c; --amber: #9a6500; --amber-dim: rgba(154, 101, 0, .07); --amber-line: rgba(154, 101, 0, .38); --amber-fill: rgba(196, 135, 20, .12);
-  --run: #2c5cae; --run-dim: rgba(44, 92, 174, .08); --run-fill: rgba(44, 92, 174, .1); --ok: #1e7a4b; --ok-solid: #1e7a4b; --ok-fill: rgba(30, 122, 75, .1);
+  --run: #2c5cae; --run-dim: rgba(44, 92, 174, .08); --run-fill: rgba(44, 92, 174, .1); --ok: #1e7a4b; --ok-solid: #1e7a4b; --ok-fill: rgba(30, 122, 75, .1); --merged: #7a4fd6; --merged-fill: rgba(122, 79, 214, .1);
   --stop: #bf3d2b; --stop-line: rgba(191, 61, 43, .45); --stop-fill: rgba(191, 61, 43, .1);
   --del: rgba(191, 61, 43, .08); --add: rgba(30, 122, 75, .08); --shade: rgba(17, 20, 24, .14); color-scheme: light;
 }
@@ -637,6 +637,15 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .gh-pop { position: fixed; z-index: 60; width: min(380px, calc(100vw - 16px)); max-height: min(70vh, 640px); overflow: auto; padding: 14px 18px 8px;
   border: 1px solid var(--line); border-radius: var(--r-2); background: var(--raise); box-shadow: 0 18px 40px -20px var(--shade); outline: none; }
 .gh-pop-h { display: flex; align-items: center; gap: 8px; }
+/* Each item's state in its colour: failing red, stuck amber, running blue, merged purple. */
+.st-word { flex: none; height: 20px; padding: 0 8px; border-radius: var(--r-pill); background: var(--fill); font: 500 11px/20px var(--mono); color: var(--fg-dim); white-space: nowrap; }
+.st-word[data-c="failing"] { background: var(--stop-fill); color: var(--stop); }
+.st-word[data-c="stuck"] { background: var(--amber-fill); color: var(--amber); }
+.st-word[data-c="running"] { background: var(--run-fill); color: var(--run); }
+.st-word[data-c="merged"] { background: var(--merged-fill); color: var(--merged); }
+.tci[data-c="stuck"], .h-li .tci[data-c="stuck"] { background: var(--amber); }
+.tci[data-c="merged"], .h-li .tci[data-c="merged"] { background: var(--merged); }
+.h-li[data-c="merged"] .hn { color: var(--merged); }
 .gh-pop-h h3 { margin: 0; font-size: 13px; font-weight: 600; color: var(--fg); }
 .gh-pop-h .btn { margin-left: auto; }
 .gh-pop .h-repo:last-child { padding-bottom: 8px; }
@@ -2516,32 +2525,51 @@ function renderAcross() {
   patch($('h-side'), acrossSig(), () => acrossNodes(el('h3', { text: 'Across everything' })));
 }
 const acrossSig = () => JSON.stringify([snap.github, snap.sessions.map((s) => [s.sessionId, label(s)])]);
-/** The list under a heading, shared by the overseer's side column and the GitHub button's dropdown: only what needs an
- *  eye, the pull requests and default-branch runs that are failing or still running, failures first. Passing ones and
- *  merges are left out; a repository with nothing failing or running drops out too. */
+// Checks still running after this long are called stuck; merges show for a day.
+const STUCK_MS = 30 * 60_000, MERGED_MS = 24 * 3_600_000;
+const GH_RANK = { failing: 0, stuck: 1, running: 2, merged: 3 };
+/** A pull request's or run's state as the list shows it: failing, stuck, running or merged, with how long, or null when
+ *  there is nothing to see (passing, no checks). */
+function ghItemState(checks, since) {
+  if (checks === 'failing') return { st: 'failing', word: 'failing' };
+  if (checks !== 'running') return null;
+  const long = since ? snap.now - since : 0;
+  return long > STUCK_MS ? { st: 'stuck', word: `stuck ${ago(long)}` } : { st: 'running', word: since ? `running ${ago(long)}` : 'running' };
+}
+/** What the GitHub list shows for one repository, worst first. */
+function ghActive(r) {
+  const items = [
+    ...r.prs.map((p) => ({ p, s: ghItemState(p.checks, p.runningSince) })).filter((x) => x.s).map(({ p, s }) => ({ kind: 'pr', ...s, n: '#' + p.number, title: p.title, url: p.url,
+      tip: `${p.title}\n${s.st === 'failing' && p.failing?.length ? 'Failing: ' + p.failing.map((f) => f.name).join(', ') : s.st === 'stuck' ? 'Its checks have run for more than 30 minutes.' : CHECKS[p.checks]}`, sessions: p.sessions })),
+    ...mainRuns(r).map((x) => ({ x, s: ghItemState(x.state, x.started) })).filter((y) => y.s).map(({ x, s }) => ({ kind: 'run', ...s, n: r.defaultBranch ?? 'main', title: x.workflow, url: x.url,
+      tip: `${x.workflow} on ${r.defaultBranch ?? 'the default branch'}${x.pr ? `, after #${x.pr}` : ''}: ${x.title}`, sessions: x.sessions })),
+    ...r.merged.filter((m) => m.mergedAt && snap.now - m.mergedAt < MERGED_MS).map((m) => ({ kind: 'pr', st: 'merged', word: `merged ${ago(snap.now - m.mergedAt)} ago`,
+      n: '#' + m.number, title: m.title, url: m.url, tip: `${m.title}\nMerged into ${r.defaultBranch ?? 'the default branch'}`, sessions: [] })),
+  ];
+  return items.sort((a, b) => GH_RANK[a.st] - GH_RANK[b.st]);
+}
+/** The list under a heading, shared by the overseer's side column and the GitHub button's dropdown: pull requests and
+ *  default-branch runs that are failing, stuck or running, and what merged in the last day, each with its state in its
+ *  colour. Passing ones are left out; a repository with nothing to show drops out too. */
 function acrossNodes(head) {
   const gh = snap.github, names = new Map(snap.sessions.map((s) => [s.sessionId, label(s)]));
   if (!gh || gh.gh === 'off') return [head, el('p', { class: 'gh-hint', text: 'GitHub is turned off for this panel (ACP_GITHUB=off).' })];
   const hint = gh.hint ? el('p', { class: 'gh-hint', text: gh.hint }) : null;
   if (!gh.repos.length) return [head, hint ?? el('p', { class: 'gh-hint', text: gh.gh === 'unknown' ? 'Looking at GitHub…' : 'No agent works in a GitHub repository right now.' })];
   const who = (ids) => (ids ?? []).map((id) => names.get(id)).filter(Boolean).join(', ');
-  const RANK = { failing: 0, running: 1 }, live = (st) => st in RANK, byState = (a, b) => RANK[a] - RANK[b];
-  const active = gh.repos.map((r) => ({ r, prs: r.prs.filter((p) => live(p.checks)).sort((a, b) => byState(a.checks, b.checks)),
-    runs: mainRuns(r).filter((x) => live(x.state)).sort((a, b) => byState(a.state, b.state)) }))
-    .filter((x) => x.prs.length || x.runs.length || x.r.error)
-    .sort((a, b) => Math.min(...[...a.prs.map((p) => RANK[p.checks]), ...a.runs.map((x) => RANK[x.state]), 2]) - Math.min(...[...b.prs.map((p) => RANK[p.checks]), ...b.runs.map((x) => RANK[x.state]), 2]));
+  const active = gh.repos.map((r) => ({ r, items: ghActive(r) })).filter((x) => x.items.length || x.r.error)
+    .sort((a, b) => (GH_RANK[a.items[0]?.st] ?? 4) - (GH_RANK[b.items[0]?.st] ?? 4));
   if (!active.length) {
     const open = gh.repos.reduce((n, r) => n + r.prs.length, 0), checked = gh.repos.some((r) => r.checkedAt);
     return [head, hint, el('p', { class: 'h-none', text: !checked ? 'Looking at GitHub…'
-      : `Nothing failing or running across ${gh.repos.length} ${gh.repos.length === 1 ? 'repository' : 'repositories'}${open ? `; ${open} open pull request${open === 1 ? '' : 's'}, all quiet` : ''}.` })];
+      : `Nothing failing, running or merged today across ${gh.repos.length} ${gh.repos.length === 1 ? 'repository' : 'repositories'}${open ? `; ${open} open pull request${open === 1 ? '' : 's'}, all quiet` : ''}.` })];
   }
-  return [head, hint, ...active.map(({ r, prs, runs }) => el('section', { class: 'h-repo' },
+  return [head, hint, ...active.map(({ r, items }) => el('section', { class: 'h-repo' },
     el('div', { class: 'h-repo-h' }, el('a', { href: r.url, target: '_blank', rel: 'noopener', text: r.slug, title: r.slug })),
     r.error ? el('p', { class: 'h-err', text: r.error.text }) : null,
-    ...prs.map((p) => el('a', { class: 'h-li', href: p.url, target: '_blank', rel: 'noopener', title: `${p.title}\n${CHECKS[p.checks]}${p.failing?.length ? ': ' + p.failing.map((f) => f.name).join(', ') : ''}` },
-      el('span', { class: 'tci', 'data-c': p.checks }), el('span', { class: 'hn', text: '#' + p.number }), el('span', { class: 'ht', text: p.title }), el('span', { class: 'hw', text: who(p.sessions) }))),
-    ...runs.map((x) => el('a', { class: 'h-li', href: x.url, target: '_blank', rel: 'noopener', title: `${x.workflow} on ${r.defaultBranch ?? 'the default branch'}: ${x.title}` },
-      el('span', { class: 'tci', 'data-c': x.state }), el('span', { class: 'hn', text: r.defaultBranch ?? 'main' }), el('span', { class: 'ht', text: x.workflow }), el('span', { class: 'hw', text: x.pr ? `after #${x.pr}` : ago(snap.now - x.at) }))),
+    ...items.map((it) => el('a', { class: 'h-li', 'data-c': it.st, href: it.url, target: '_blank', rel: 'noopener', title: it.tip + (who(it.sessions) ? `\n${who(it.sessions)}` : '') },
+      el('span', { class: 'tci', 'data-c': it.st }), el('span', { class: 'hn', text: it.n }), el('span', { class: 'ht', text: it.title }),
+      el('span', { class: 'st-word', 'data-c': it.st, text: it.word }))),
   ))];
 }
 /** Runs on a default branch that count for it: pushes and merges, not a fork's PR named main. */
@@ -2552,13 +2580,14 @@ function renderGhBtn() {
   const gh = snap.github;
   $('gh-wrap').hidden = !gh || gh.gh === 'off';
   if ($('gh-wrap').hidden) { showGhPop(false); return; }
-  const prs = gh.repos.flatMap((r) => r.prs), runs = gh.repos.flatMap(mainRuns);
+  const prs = gh.repos.flatMap((r) => r.prs), runs = gh.repos.flatMap(mainRuns), items = gh.repos.flatMap(ghActive);
   const failing = prs.filter((p) => p.checks === 'failing').length + runs.filter((x) => x.state === 'failing').length;
-  const state = gh.gh !== 'ok' && gh.gh !== 'unknown' ? 'warn' : worst([...prs.map((p) => p.checks), ...runs.map((x) => x.state)]);
+  const stuck = items.some((it) => it.st === 'stuck');
+  const state = gh.gh !== 'ok' && gh.gh !== 'unknown' ? 'warn' : failing ? 'failing' : stuck ? 'warn' : worst([...prs.map((p) => p.checks), ...runs.map((x) => x.state)]);
   setAttr($('gh-btn'), 'data-c', state ?? 'none');
   $('gh-n').hidden = !failing;
   setText($('gh-n'), String(failing));
-  setAttr($('gh-btn'), 'title', gh.hint ?? (failing ? `${failing} failing on GitHub` : state === 'running' ? 'Checks are running on GitHub' : `GitHub: ${gh.repos.length} ${gh.repos.length === 1 ? 'repository' : 'repositories'} watched`));
+  setAttr($('gh-btn'), 'title', gh.hint ?? (failing ? `${failing} failing on GitHub` : stuck ? 'Checks have run for more than 30 minutes on GitHub' : state === 'running' ? 'Checks are running on GitHub' : `GitHub: ${gh.repos.length} ${gh.repos.length === 1 ? 'repository' : 'repositories'} watched`));
   if (!$('gh-pop').hidden) patch($('gh-pop'), acrossSig() + ghRefreshing, () => acrossNodes(el('div', { class: 'gh-pop-h' }, el('h3', { text: 'GitHub' }),
     el('button', { class: 'btn quiet small', type: 'button', disabled: ghRefreshing, text: ghRefreshing ? 'Refreshing…' : 'Refresh', title: 'Ask GitHub again now',
       onclick: async () => { ghRefreshing = true; render(); await api('/api/github/refresh', {}); setTimeout(() => { ghRefreshing = false; render(); }, 1500); } }))));
