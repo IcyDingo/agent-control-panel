@@ -16,31 +16,18 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { execFile, spawn } from 'node:child_process';
-import { createWorld, claudeArgs, readAnswer } from './world.mjs';
 import { findRemoved } from './versions.mjs';
-import { readChat } from './history.mjs';
+import { readChat, summaryOf } from './history.mjs';
+import { createFollow } from './follow.mjs';
+import { createThread } from './thread.mjs';
 import { UNTRUSTED, trustKey, isTrusted, trustScript } from './trust.mjs';
 import { prefsPath } from './cli.mjs';
-import { createHub } from './hub.mjs';
-import { createHubSync } from './hub-sync.mjs';
-import { createHubOrders } from './hub-orders.mjs';
-import { admit, takeBuild } from './web-orders.mjs';
-import { workerOf, markStarted, rolledBack, checkForUpdate, recordCheck, lastCheck } from './update.mjs';
-import { checkClone, updateClone, appFor } from './clone-update.mjs';
 
 // `node server.mjs <command>` runs the CLI (cli.mjs) and never starts the server.
 if (process.argv.length > 2) { const { main } = await import('./cli.mjs'); process.exit(await main(process.argv.slice(2))); }
 
 const PORT = Number(process.env.ACP_PORT ?? 4747);
 const DAEMON = process.env.ACP_DAEMON === '1';
-// Run from an installed worker (`worker/<sha>/`), this is that version; from a clone of the repo it is null.
-const WORKER = workerOf(path.dirname(fileURLToPath(import.meta.url)));
-// The first update check waits ten minutes, so a login or a restart is not slowed by a download; then once a day,
-// looked at every hour.
-const UPDATE_FIRST_MS = 600_000, UPDATE_MS = 86_400_000, UPDATE_TICK_MS = 3_600_000;
-// Run from a clone, the panel only says when the hub has a newer release: a minute after start, then every 6 hours.
-const APP_UPDATE_FIRST_MS = 60_000, APP_UPDATE_MS = 6 * 3_600_000;
-const REPO = path.dirname(fileURLToPath(import.meta.url));
 const RETRY_MS = Number(process.env.ACP_RETRY_MS ?? 5000);
 const ROSTER_MS = 3000;
 // A background service must not cost battery while nobody looks: under ACP_DAEMON with no page connected, the roster
@@ -183,10 +170,7 @@ function session(id) {
 }
 
 function summarize(tool, input = {}) {
-  const pick = input.command ?? input.file_path ?? input.notebook_path ?? input.pattern ?? input.url
-    ?? input.description ?? input.query ?? input.prompt
-    ?? Object.values(input).find((v) => typeof v === 'string') ?? '';
-  return { tool, text: String(pick).replace(/\s+/g, ' ').slice(0, 240), at: Date.now() };
+  return { ...summaryOf(tool, input), at: Date.now() };
 }
 
 const stopKey = (sessionId, agentId) => `${sessionId}:${agentId ?? 'main'}`;
@@ -197,7 +181,7 @@ function clearStops(sessionId) {
 
 /** Record a hook event. Returns the hook's reply: only an interrupted agent's PreToolUse gets one. */
 function onHookEvent(e) {
-  if (!e?.session_id || quietIds.has(e.session_id)) return null;
+  if (!e?.session_id) return null;
   if (dismissed.has(e.session_id)) {
     if (e.hook_event_name === 'SessionEnd' || e.hook_event_name === 'Stop') return null;
     dismissed.delete(e.session_id); // it is running again
@@ -284,6 +268,9 @@ function onHookEvent(e) {
       clearStops(e.session_id);
       break;
   }
+  // The session's Chat: a call starting makes its thread, so a page that opens the session mid-turn sees its state.
+  try { (e.hook_event_name === 'PreToolUse' && !e.agent_id ? threadOf(e.session_id) : threads.get(e.session_id))?.hook(e); }
+  catch (err) { console.error('thread:', err?.message ?? err); }
   broadcast();
   return reply;
 }
@@ -313,7 +300,7 @@ async function pollRoster() {
   rosterError = null;
   const seen = new Set();
   for (const r of list) {
-    if (!r.sessionId || quietIds.has(r.sessionId)) continue;
+    if (!r.sessionId) continue;
     const over = r.state === 'done' || r.state === 'failed' || r.state === 'stopped';
     if (dismissed.has(r.sessionId)) { if (over) continue; dismissed.delete(r.sessionId); }
     seen.add(r.sessionId);
@@ -377,6 +364,9 @@ function prune() {
     const stale = s.leftRosterAt ? now - s.leftRosterAt > 600_000 : now - s.lastEventAt > 3600_000;
     if (!s.inRoster && stale && ![...pending.values()].some((p) => p.sessionId === id)) sessions.delete(id);
   }
+  // A thread nobody follows keeps only its hook state (a session's calls would otherwise pile up as rows), and goes
+  // with its session.
+  for (const [id, t] of threads) if (!follows.has(id)) { if (sessions.has(id)) t.reset(); else threads.delete(id); }
 }
 
 // ---------------------------------------------------------------- held permission requests
@@ -386,14 +376,19 @@ function prune() {
 function holdPermission(e, res) {
   const id = crypto.randomUUID(), profileDir = profileDirOf(e);
   const p = { id, sessionId: e.session_id, agentId: e.agent_id ?? null, agentType: e.agent_type ?? null,
-              toolName: e.tool_name, toolInput: e.tool_input ?? {}, suggestions: e.permission_suggestions ?? [],
+              toolName: e.tool_name, toolInput: e.tool_input ?? {}, toolUseId: e.tool_use_id ?? null, suggestions: e.permission_suggestions ?? [],
               cwd: e.cwd ?? null, permissionMode: e.permission_mode ?? null, createdAt: Date.now(),
               deadline: Date.now() + HOLD_MS, profileDir, res, timer: null };
   p.timer = setTimeout(() => settle(id, null, 'expired'), HOLD_MS);
   // The hook timed out or its session went away. (A terminal answer does NOT close it: see pollRoster.)
   res.on('close', () => { if (pending.has(id)) settle(id, null, 'closed by Claude Code'); });
   pending.set(id, p);
-  if (e.session_id && profileDir === configDir) session(e.session_id).lastEventAt = Date.now();
+  if (e.session_id && profileDir === configDir) {
+    session(e.session_id).lastEventAt = Date.now();
+    // A subagent's call is not in this thread.
+    try { if (!e.agent_id) threadOf(e.session_id).request(e, { waiting: true }); }
+    catch (err) { console.error('thread:', err?.message ?? err); }
+  }
   broadcast({ type: 'new-request', id });
 }
 /** The held requests of the profile on the board. */
@@ -409,6 +404,9 @@ function settle(id, decision, why) {
     p.res.writeHead(200, { 'content-type': 'application/json' });
     p.res.end(decision ? JSON.stringify({ hookSpecificOutput: { hookEventName: 'PermissionRequest', decision } }) : '');
   }
+  // Also runs from timers (HOLD_MS, the last page closing), where a throw would stop the server.
+  try { if (!p.agentId) threads.get(p.sessionId)?.request({ tool_use_id: p.toolUseId, tool_name: p.toolName, tool_input: p.toolInput }, { why }); }
+  catch (err) { console.error('thread:', err?.message ?? err); }
   broadcast({ type: 'settled', id, why });
   return true;
 }
@@ -702,7 +700,8 @@ async function history(body) {
   const file = transcriptFile(body?.sessionId);
   if (!file) return { ok: false, error: 'Its transcript is not in this profile.' };
   const limit = Number.isInteger(body?.limit) ? Math.min(2000, Math.max(20, body.limit)) : 60;
-  return { ok: true, ...(await readChat(file, { limit })) };
+  const before = Number.isInteger(body?.before) ? body.before : Infinity; // a byte offset: only what starts before it
+  return { ok: true, ...(await readChat(file, { limit, before })) };
 }
 const atPrompt = (s) => Boolean(s.inRoster && s.status === 'busy' && !isEnded(s)
   && !hasRunningSub(s) && turnIsOver(s.sessionId));
@@ -1305,6 +1304,7 @@ function switchProfile(body) {
   if (p.dir === profile.dir) return { ok: true };
   const queued = [...inbox.values()].reduce((n, q) => n + q.length, 0);
   if (queued && body.force !== true) return { ok: false, confirm: true, queued };
+  dropFollows();
   for (const m of [inbox, sessions, stops, files, turns]) m.clear();
   for (const s of [dismissed, saidRead]) s.clear();
   useProfile(p);
@@ -1367,215 +1367,6 @@ async function pickFolder(body) {
   return { ok: true, path: tilde(r.stdout.trim().replace(/(.)\/$/, '$1')) };
 }
 
-// ---------------------------------------------------------------- world
-
-// One World for this Mac, fed by every profile's sessions, kept beside the prefs (so a second panel with its own
-// ACP_PREFS has its own). It counts tokens every minute and commits every fifth time; a scan never overlaps another.
-const world = createWorld({ file: path.join(path.dirname(PREFS), 'world', 'world.json'), configDirs: () => listProfiles().map((p) => p.dir),
-  gitPlace, run: (...a) => run(...a) });
-const WORLD_MS = 60_000;
-let worldScans = 0, worldScanning = false;
-async function scanWorld(git) {
-  if (!world.started() || worldScanning) return;
-  worldScanning = true;
-  const before = worldSummary().earned;
-  try { await world.scan({ git }); } catch (err) { console.error('world scan failed:', err?.message ?? err); }
-  finally { worldScanning = false; }
-  if (worldSummary().earned !== before) broadcast();
-  hubSync.schedule(); // after every scan, not only a changed one: the half-hour heartbeat is judged when this is called
-}
-/** World's numbers for the page. Nothing in them may take the panel down. */
-function worldSummary() {
-  try { return world.summary(); } catch (err) { console.error('world summary failed:', err?.message ?? err); return { started: false }; }
-}
-function openWorld() {
-  world.open();
-  scanWorld(true);
-  hubSync.schedule({ urgent: true });
-  return { ok: true, world: worldSummary() };
-}
-/** Spend World's credit: push the frontier (from Home or a colony), or send a rocket (world.mjs decides the price and
- *  whether it can). */
-function buyInWorld(body) {
-  const r = world.buy({ kind: body?.kind, ang: body?.ang, from: body?.from, planet: body?.planet, name: body?.name });
-  if (!r.ok) return r;
-  broadcast();
-  hubSync.schedule({ urgent: true });
-  return { ok: true, world: worldSummary() };
-}
-/** Where the hub says a probe toward `ang` goes, `skip` being what this account found or has on the way (world.probe's
- *  `find`). */
-async function findProbeTarget(ang, skip) {
-  const r = await hub.request('POST', '/api/me/probe', { body: { ang, skip } });
-  if (r.ok && r.body.target) return { ok: true, target: r.body.target };
-  return r.status === 404 && r.body.none ? { ok: false, none: true } : { ok: false, error: r.body.error ?? 'The hub could not be reached.' };
-}
-/** This account's spot in the Universe, or null signed out. */
-function mySpot() {
-  const a = hub.status().account;
-  return a ? { x: a.x, y: a.y } : null;
-}
-/** Send a probe: the hub aims it, World pays for it. */
-async function probeInWorld(body) {
-  const r = await world.probe({ ang: body?.ang, me: mySpot(), find: findProbeTarget });
-  if (!r.ok) return r;
-  broadcast();
-  hubSync.schedule({ urgent: true });
-  return { ok: true, caption: 'a probe is on its way', world: worldSummary() };
-}
-/** Whether a probe would find anyone now (the Probe card asks before its button can be pressed); nothing is bought. */
-async function probeReady() {
-  const me = mySpot();
-  if (!me || !world.started()) return { ok: true, ready: false };
-  const skip = (worldSummary().probes ?? []).filter((q) => q.by?.x === me.x && q.by?.y === me.y).map((q) => q.to);
-  const r = await findProbeTarget(0, skip);
-  return { ok: true, ready: r.ok, none: Boolean(r.none) };
-}
-/** The names of the galaxies at these spots (the ones this account's probes found), from the hub; none signed out. */
-async function foundGalaxies(body) {
-  const at = Array.isArray(body?.at) ? body.at.filter((c) => Number.isInteger(c?.x) && Number.isInteger(c?.y)).slice(0, 64) : [];
-  if (!at.length || !hub.status().loggedIn) return { ok: true, galaxies: [] };
-  const r = await hub.request('GET', `/api/systems/named?at=${at.map((c) => `${c.x},${c.y}`).join(';')}`);
-  // No answer is not "no one": the page keeps what it drew and asks again.
-  return r.ok && Array.isArray(r.body?.galaxies) ? { ok: true, galaxies: r.body.galaxies } : { ok: false, error: 'The hub could not be reached.' };
-}
-// The Claude calls behind Build it. `claude agents` lists one while it runs, so the roster and the hooks skip these.
-const quietIds = new Set();
-/** Ask Claude (under the profile the board shows) to turn a description into pieces World can draw. */
-async function askClaude(prompt) {
-  const id = crypto.randomUUID(), cwd = path.join(path.dirname(PREFS), 'world', 'build');
-  quietIds.add(id);
-  try {
-    fs.mkdirSync(cwd, { recursive: true });
-    const r = await new Promise((resolve) => {
-      const child = execFile('claude', claudeArgs(id, prompt), { cwd, env: childEnv, timeout: 120_000, maxBuffer: 4_000_000 },
-        (err, stdout, stderr) => resolve({ err, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') }));
-      child.stdin?.end(); // left open, `claude -p` waits for more input first
-    });
-    return readAnswer(r);
-  } finally { setTimeout(() => quietIds.delete(id), 120_000); } // until the roster has seen it go
-}
-let building = false; // a Build it is waiting on Claude; the hub's site shows it
-async function buildInWorld(body, ask = askClaude) {
-  building = true;
-  hubSync.schedule({ urgent: true });
-  try {
-    const r = await world.build({ on: body?.on, description: body?.description, ask });
-    if (!r.ok) return r;
-    broadcast();
-    return { ok: true, caption: r.purchase.caption, world: worldSummary() };
-  } finally {
-    building = false;
-    hubSync.schedule({ urgent: true }); // the purchase, if there was one, and the end of "building"
-  }
-}
-
-// ---------------------------------------------------------------- hub
-
-// The hosted hub (hub.mjs): signing in, keeping it in step with World (hub-sync.mjs) and running the orders placed on
-// its site (hub-orders.mjs). Signed out, none of this makes a request. The credentials live in hub.json beside the prefs.
-const hub = createHub({ file: path.join(path.dirname(PREFS), 'hub.json') });
-/** What only the owner sees on the hub: the balance, the prices, today and whether a build is under way. Null until World starts. */
-function ownerStatus() {
-  const w = worldSummary();
-  if (!w.started) return null;
-  return {
-    balance: w.balance, prices: { frontier: w.prices.frontier, rocket: w.prices.rocket, build: w.prices.build, probe: w.prices.probe },
-    // multiplier is gone from the credit, but a hub from before requires it, so a Mac that updates first still reports.
-    today: { credit: w.today.credit, commits: w.today.commits, added: w.today.added, removed: w.today.removed, tokens: w.today.tokens,
-      active: w.today.active, multiplier: 1 },
-    home: { xp: w.home.xp, today: w.home.today }, building,
-    mac: { name: os.hostname().slice(0, 40), online: true }, // the hub refuses a longer name
-  };
-}
-const hubSync = createHubSync({ hub, projection: () => (world.started() ? worldSummary() : null), status: ownerStatus });
-// What the website may make this Mac do (web-orders.mjs): off, or a kind it doesn't know, is refused before anything
-// runs, and a build asks Claude only while the day's cap allows.
-const WEB_ORDERS = path.join(path.dirname(PREFS), 'web-orders.json');
-const ORDER_WORDS = { frontier: 'Push', rocket: 'Rocket', build: 'Build', probe: 'Probe' };
-/** A macOS notification for every website order this Mac ran or refused, so one the owner didn't place is seen at once.
- *  The text goes in as an argument, never into the script. */
-function notifyOrder(order, r) {
-  if (process.platform !== 'darwin') return;
-  const what = ORDER_WORDS[order?.kind] ?? 'An order';
-  const text = (r.ok ? `${what} done${r.caption ? `: ${r.caption}` : '.'}` : `${what} not done: ${r.error ?? 'it failed.'}`).slice(0, 240);
-  run('osascript', ['-e', 'on run argv', '-e', 'display notification (item 2 of argv) with title (item 1 of argv)', '-e', 'end run',
-    'Agent Panel · ordered on the website', text], { timeout: 10_000 });
-}
-/** An order from the hub's site, run like the panel's own buttons; only the outcome goes back. */
-async function runOrder(order) {
-  const refused = admit(WEB_ORDERS, order);
-  let r;
-  if (refused) r = { ok: false, error: refused };
-  else if (order.kind === 'build') {
-    r = await buildInWorld(order, (prompt) => { const capped = takeBuild(WEB_ORDERS); return capped ? { ok: false, error: capped } : askClaude(prompt); });
-  } else r = order.kind === 'probe' ? await probeInWorld(order) : buyInWorld(order);
-  notifyOrder(order, r);
-  return { ok: r.ok, error: r.error, caption: r.caption };
-}
-// Each time the stream (re)connects, the account is asked for again: a handle changed on the site moves "Your page".
-const hubOrders = createHubOrders({
-  hub, execute: runOrder,
-  onDone: () => { hubSync.schedule({ urgent: true }); broadcast(); },
-  onOpen: () => hub.refreshAccount().then((changed) => { if (changed) broadcast(); }),
-});
-/** The hub as the page sees it (never the token). */
-function hubInfo() {
-  const { url, loggedIn, account, pending } = hub.status();
-  return { url, loggedIn, account, pending, sync: hubSync.state(), orders: hubOrders.state() };
-}
-
-// A sign-in started from the page is finished here: poll at the hub's pace (it may grow it, so it is read every round)
-// until the hub says yes, no or never. One loop at a time; a cancel (or the code running out) ends it. A poll that
-// fails (the hub is restarting, the network blinked) is tried again while the code is still live, and a panel that
-// restarts mid-sign-in picks the code up again from hub.json at start.
-let loginTimer = null, loginRun = 0, loginActive = false;
-function stopLoginLoop() { clearTimeout(loginTimer); loginRun++; loginActive = false; }
-function startLoginLoop() {
-  if (loginActive) return;
-  loginActive = true;
-  const run = ++loginRun;
-  const round = () => {
-    const pending = hub.status().pending;
-    if (!pending) { loginActive = false; broadcast(); return; }
-    loginTimer = setTimeout(async () => {
-      const outcome = await hub.pollDeviceLogin();
-      if (run !== loginRun) return;
-      if (outcome === 'pending' || (outcome === 'error' && hub.status().pending)) return round();
-      loginActive = false;
-      if (outcome === 'ok') { hubOrders.start(); hubSync.schedule({ urgent: true }); }
-      broadcast();
-    }, pending.interval * 1000);
-  };
-  round();
-}
-async function hubLoginStart() {
-  const live = hub.status().pending;
-  if (loginActive && live) return { ok: true, userCode: live.userCode, verificationUri: live.verificationUri, expiresAt: live.expiresAt };
-  const r = await hub.startDeviceLogin();
-  if (!r.ok) return r;
-  startLoginLoop();
-  broadcast();
-  return { ok: true, userCode: r.userCode, verificationUri: r.verificationUri, expiresAt: r.expiresAt };
-}
-function hubLoginCancel() {
-  stopLoginLoop();
-  const r = hub.cancelDeviceLogin();
-  broadcast();
-  return { ok: r };
-}
-async function hubLogout() {
-  stopLoginLoop();
-  hubOrders.stop();
-  const r = await hub.logout();
-  broadcast();
-  return r;
-}
-async function hubSyncNow() {
-  await hubSync.flush();
-  return { ok: true, sync: hubSync.state() };
-}
-
 // ---------------------------------------------------------------- deleted versions
 
 // Every profile's running sessions, checked each minute for a Claude Code version deleted under them (versions.mjs):
@@ -1612,14 +1403,163 @@ async function checkVersions() {
   finally { checkingVersions = false; }
 }
 
+// ---------------------------------------------------------------- live thread
+// The open session's Chat is live. Its transcript is followed from the end (follow.mjs), what the hooks say is merged
+// into it (thread.mjs), and every change goes to each page that has the session open, as an `event: thread` message on
+// that page's /events stream. A page names itself with `c=` and says which session it has open with /api/follow (one
+// at a time); however many pages open a session, its transcript has one follow, which stops RECONNECT_MS after the last
+// of them has left. A session with no transcript yet (one just launched) is looked for every second until it has one.
+
+const FOLLOW_RETRY_MS = 1000;
+const CLIENT = /^[\w-]{1,64}$/;
+/** sessionId → its thread. Made by the session's first PreToolUse or follow. */
+const threads = new Map();
+/** sessionId → { follow, clients: Set<clientId>, hush: clients whose /api/follow reply is still coming, ... } */
+const follows = new Map();
+/** clientId → the session that page has open. */
+const clientOpen = new Map();
+/** clientId → that page's /events response. */
+const clientRes = new Map();
+
+/** What a page gets of a row or an update: all but the call's input, which only the thread keys by. A copy: the
+ *  thread's own objects are never changed. */
+function bare(x) {
+  if (x.who === 'update') { const { input, ...patch } = x.patch; return { ...x, patch }; }
+  const { input, ...rest } = x;
+  return rest;
+}
+function sendTo(ids, name, data) {
+  const msg = `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const c of ids) { const res = clientRes.get(c); if (res && !res.writableEnded && !res.destroyed) res.write(msg); }
+}
+
+function threadOf(sessionId) {
+  let t = threads.get(sessionId);
+  if (!t) {
+    // Changes go to the pages that follow it, except one still waiting for its /api/follow reply: that carries them.
+    t = createThread({ emit: (events) => {
+      const f = follows.get(sessionId);
+      const to = f ? [...f.clients].filter((c) => !f.hush.has(c)) : [];
+      if (to.length) sendTo(to, 'thread', { sessionId, events: events.map(bare) });
+    } });
+    threads.set(sessionId, t);
+  }
+  return t;
+}
+
+/** Start following a session's transcript, if it has one now. The follow opens first, at the file's end, and what lies
+ *  before that offset is read back into the thread, so no line lands in neither and none in both; lines the follow
+ *  reads meanwhile go in after it. Resolves whether it is live, and never rejects: an open that fails is logged and
+ *  forgotten, so the next /api/follow or retry tries again. */
+function openFollow(f) {
+  if (f.ready) return f.ready;
+  const file = transcriptFile(f.sessionId);
+  if (!file) return Promise.resolve(false);
+  const id = f.sessionId, t = threadOf(id);
+  let follow = null;
+  const ready = (async () => {
+    let early = [];
+    follow = createFollow(file, {
+      onItems: (items) => { try { if (early) early.push(...items); else t.addItems(items); } catch (err) { console.error('follow:', err?.message ?? err); } },
+      // Shrunk or replaced: what the pages have is gone, and they ask again.
+      onReset: () => { try { if (early) early = []; t.reset(); sendTo(f.clients, 'thread-reset', { sessionId: id }); } catch (err) { console.error('follow:', err?.message ?? err); } },
+    });
+    await follow.start(); // rejects if it is gone again since it was found
+    if (f.stopped) { follow.stop(); return false; }
+    f.follow = follow;
+    try {
+      const { items, more } = await readChat(file, { limit: f.limit, before: follow.offset() });
+      if (f.stopped) return false;
+      f.more = more;
+      t.addItems(items);
+    } catch (err) { console.error('follow: reading back', err?.message ?? err); }
+    const late = early;
+    early = null;
+    try { if (late.length) t.addItems(late); } catch (err) { console.error('follow:', err?.message ?? err); }
+    return true;
+  })().catch((err) => { // runs after `f.ready = ready` below, even for a throw before the first await
+    console.error('follow:', err?.message ?? err);
+    follow?.stop();
+    if (f.follow === follow) f.follow = null;
+    if (f.ready === ready) f.ready = null;
+    return false;
+  });
+  return (f.ready = ready);
+}
+/** Look for a pending follow's transcript again in a second, until it is found or nobody follows it. */
+function retryFollow(f) {
+  if (f.retry || f.stopped) return;
+  f.retry = setTimeout(async () => {
+    f.retry = null;
+    if (f.stopped) return;
+    try { if (!(await openFollow(f))) retryFollow(f); } catch (err) { console.error('follow:', err?.message ?? err); }
+  }, FOLLOW_RETRY_MS);
+}
+function stopFollow(f) {
+  f.stopped = true;
+  f.follow?.stop();
+  clearTimeout(f.retry);
+  clearTimeout(f.release);
+  if (follows.get(f.sessionId) === f) follows.delete(f.sessionId);
+  threads.get(f.sessionId)?.reset(); // its rows are read back when it is opened again; its hook state stays
+}
+/** A page no longer has session `id` open. Its follow stops RECONNECT_MS after it has nobody left. */
+function leave(client, id) {
+  const f = follows.get(id);
+  if (!f) return;
+  f.clients.delete(client);
+  f.hush.delete(client);
+  if (f.clients.size || f.release) return;
+  f.release = setTimeout(() => { f.release = null; if (!f.clients.size) stopFollow(f); }, RECONNECT_MS);
+}
+/** A page that went away: its stream closed, or it never opened one. */
+function dropClient(client) {
+  clientOpen.delete(client);
+  for (const [id, f] of follows) if (f.clients.has(client)) leave(client, id);
+}
+/** A profile switch: every follow stops, and each page that had a session open is told it is gone. */
+function dropFollows() {
+  for (const f of [...follows.values()]) {
+    const to = [...f.clients];
+    stopFollow(f);
+    sendTo(to, 'thread-reset', { sessionId: f.sessionId });
+  }
+  clientOpen.clear();
+  threads.clear();
+}
+
+/** `{ client, sessionId | null, limit }`: page `client` has that session open (null: none). Its thread so far, and
+ *  whether there is more before it; `pending` while the session has no transcript, whose rows then come as events. */
+async function followSession(body) {
+  const client = body?.client, id = body?.sessionId ?? null;
+  if (typeof client !== 'string' || !CLIENT.test(client)) return { ok: false, error: 'Which page is this?' };
+  if (id !== null && (typeof id !== 'string' || !UUID.test(id))) return { ok: false, error: 'There is no such session.' };
+  const limit = Number.isInteger(body.limit) ? Math.min(2000, Math.max(1, body.limit)) : 60;
+  const was = clientOpen.get(client);
+  if (was && was !== id) leave(client, was);
+  if (id === null) { clientOpen.delete(client); return { ok: true, items: [], more: false }; }
+  clientOpen.set(client, id);
+  // A page that asks before its stream is up gets the grace a reload does; one that never opens a stream is let go.
+  if (!clientRes.has(client)) setTimeout(() => { if (!clientRes.has(client)) dropClient(client); }, RECONNECT_MS);
+  let f = follows.get(id);
+  if (!f) follows.set(id, f = { sessionId: id, clients: new Set(), hush: new Set(), follow: null, ready: null, more: false, limit,
+                                retry: null, release: null, stopped: false });
+  clearTimeout(f.release);
+  f.release = null;
+  f.clients.add(client);
+  f.hush.add(client);
+  const live = await openFollow(f);
+  f.hush.delete(client);
+  if (!live) { retryFollow(f); return { ok: true, items: [], more: false, pending: true }; }
+  return { ok: true, items: threadOf(id).items().map(bare), more: f.more };
+}
+
 // ---------------------------------------------------------------- snapshot + SSE
 
 function snapshot() {
   const now = Date.now();
   return {
-    now, armed, rosterError, port: PORT, profile: profileInfo, world: worldSummary(), hub: hubInfo(), oldVersions,
-    version: WORKER?.sha ?? null, rolledBack: WORKER ? rolledBack(WORKER.dir) : null, lastCheck: WORKER ? lastCheck(WORKER.dir) : null,
-    appUpdate,
+    now, armed, rosterError, port: PORT, profile: profileInfo, oldVersions,
     sessions: [...sessions.values()].map(({ spawns, hereCwd, rosterCwd, ranCwd, editTops, ...s }) => {
       const here = ranCwd ?? hereCwd ?? s.cwd, git = placeOut(gitPlace(here));
       return {
@@ -1633,18 +1573,20 @@ function snapshot() {
   };
 }
 
+// Changes close together go out as one snapshot, which carries every event since the last one (two requests held in
+// the same moment are two `new-request`s, not the second alone).
 let queued = false;
-let lastEvent = null;
+let events = [];
 function broadcast(event) {
-  if (event) lastEvent = event;
+  if (event) events.push(event);
   if (queued) return;
   queued = true;
   setTimeout(() => {
     queued = false;
-    const data = `data: ${JSON.stringify({ ...snapshot(), event: lastEvent })}\n\n`;
-    lastEvent = null;
+    const data = `data: ${JSON.stringify({ ...snapshot(), events })}\n\n`;
+    events = [];
     for (const c of clients) c.write(data);
-  }, 80);
+  }, 30);
 }
 
 // ---------------------------------------------------------------- http
@@ -1690,21 +1632,15 @@ async function handle(req, res) {
     // permission requests are held all the same, for when its profile is back on the board.
     if (url.pathname === '/hook/event') { const reply = otherProfile(e) ? null : onHookEvent(e); return send(res, 200, reply ?? ''); }
     if (url.pathname === '/hook/permission') {
-      // Nobody watching, or paused, or World's own Claude call: answer nothing, the terminal decides.
-      if (!armed || !watched() || quietIds.has(e?.session_id)) return send(res, 200, '');
+      // Nobody watching, or paused: answer nothing, the terminal decides.
+      if (!armed || !watched()) return send(res, 200, '');
       return holdPermission(e, res);
     }
     return send(res, 404, '');
   }
 
-  // The same page twice: / is the board, /world opens straight on the universe (the page reads ACP_VIEW).
-  if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/world')) {
-    const view = url.pathname === '/' ? 'board' : 'world';
-    return send(res, 200, page().replace('__ACP_TOKEN__', TOKEN).replace('__ACP_VIEW__', view), 'text/html; charset=utf-8');
-  }
-
-  if (req.method === 'GET' && url.pathname === '/world.js') {
-    return send(res, 200, fs.readFileSync(new URL('./public/world.js', import.meta.url), 'utf8'), 'text/javascript; charset=utf-8');
+  if (req.method === 'GET' && url.pathname === '/') {
+    return send(res, 200, page().replace('__ACP_TOKEN__', TOKEN), 'text/html; charset=utf-8');
   }
 
   if (req.method === 'GET' && url.pathname === '/events') {
@@ -1712,6 +1648,9 @@ async function handle(req, res) {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
     res.write(`retry: 2000\ndata: ${JSON.stringify(snapshot())}\n\n`);
     clients.add(res);
+    // The page's own id, for the thread of the session it has open (a reconnect brings the same one back).
+    const client = CLIENT.test(url.searchParams.get('c') ?? '') ? url.searchParams.get('c') : null;
+    if (client) clientRes.set(client, res);
     if (DAEMON && setRosterPace(true)) pollRoster().then(checkVersions); // back from idle: catch up at once
     clearTimeout(releaseTimer);
     releaseTimer = null;
@@ -1719,6 +1658,7 @@ async function handle(req, res) {
     req.on('close', () => {
       clearInterval(ping);
       clients.delete(res);
+      if (client && clientRes.get(client) === res) { clientRes.delete(client); dropClient(client); }
       // Last tab gone and not back in time: hand every held request back to the terminal, and (under the daemon) slow
       // the roster down. Not before: until then a held request still needs the fast polls to see a terminal answer.
       if (clients.size === 0 && releaseTimer === null) releaseTimer = setTimeout(() => {
@@ -1750,13 +1690,8 @@ async function handle(req, res) {
     const ACTIONS = { '/api/end': end, '/api/remove': remove, '/api/reply': reply, '/api/unqueue': unqueue, '/api/mode': switchMode,
                       '/api/folders': listFolders, '/api/folder': folderInfo, '/api/pick-folder': pickFolder,
                       '/api/profiles': profiles, '/api/profile': switchProfile, '/api/profile/connect': connectProfile,
-                      '/api/answer-open': answerOpen, '/api/world/open': openWorld, '/api/world/buy': buyInWorld,
-                      '/api/world/build': buildInWorld, '/api/world/probe': probeInWorld, '/api/world/probe-ready': probeReady,
-                      '/api/world/found': foundGalaxies, '/api/history': history,
-                      '/api/trust-terminal': openTrustTerminal,
-                      '/api/hub/status': () => ({ ok: true, hub: hubInfo() }), '/api/hub/login/start': hubLoginStart,
-                      '/api/hub/login/cancel': hubLoginCancel, '/api/hub/logout': hubLogout, '/api/hub/sync': hubSyncNow,
-                      '/api/update': updateApp };
+                      '/api/answer-open': answerOpen, '/api/history': history, '/api/follow': followSession,
+                      '/api/trust-terminal': openTrustTerminal };
     if (Object.hasOwn(ACTIONS, url.pathname)) {
       let r;
       try { r = await ACTIONS[url.pathname](body); } catch (err) { r = { ok: false, error: String(err?.message ?? err).slice(0, 300) }; }
@@ -1782,39 +1717,6 @@ server.on('error', (err) => {
   setTimeout(() => server.listen(PORT, '127.0.0.1'), RETRY_MS);
 });
 
-// ---------------------------------------------------------------- a clone's updates
-
-// A newer release than this clone runs, as the board shows it: `ready` (with `blocked`: null, or why a click can't take
-// it), `updating`, `restarting`, or `done` (updated, but nothing here restarts it). Null when there is none.
-let appUpdate = null;
-/** Ask the hub which release it runs. Only for a clone (a worker updates itself) and only signed in: signed out, the
- *  panel sends nothing to the hub. */
-async function checkAppUpdate() {
-  if (WORKER || !hub.status().loggedIn || appUpdate?.state === 'updating' || appUpdate?.state === 'restarting') return;
-  const r = await checkClone({ repo: REPO, hubUrl: hub.status().url, run });
-  if (r.outcome === 'error') return console.error('update check:', r.error);
-  const next = r.outcome === 'available' ? { sha: r.sha, blocked: r.blocked, state: 'ready' } : null;
-  if (JSON.stringify(next) !== JSON.stringify(appUpdate)) { appUpdate = next; broadcast(); }
-}
-/** The board's Update: fast-forward to the signed release the check found, rebuild the app, and restart on the new code. */
-async function updateApp() {
-  if (WORKER) return { ok: false, error: 'This install updates itself.' };
-  if (appUpdate?.state === 'updating' || appUpdate?.state === 'restarting') return { ok: false, error: 'The panel is updating already.' };
-  if (appUpdate?.state !== 'ready') return { ok: false, error: 'There is no new version to update to.' };
-  if (appUpdate.blocked) return { ok: false, error: appUpdate.blocked };
-  appUpdate = { ...appUpdate, state: 'updating', error: null };
-  broadcast();
-  const app = await appFor({ repo: REPO, port: PORT, run });
-  const r = await updateClone({ repo: REPO, sha: appUpdate.sha, run, appPath: app });
-  if (!r.ok) { appUpdate = { ...appUpdate, state: 'ready', error: r.error }; broadcast(); return r; }
-  if (!r.built && r.buildError) console.error('update: the app did not rebuild:', r.buildError);
-  const restart = DAEMON || app !== null; // launchd restarts the service; the app starts a server when its own is gone
-  appUpdate = { sha: r.sha, state: restart ? 'restarting' : 'done', built: r.built, buildError: r.buildError ?? null };
-  broadcast();
-  if (restart) setTimeout(() => process.exit(0), 1500); // after this answer and the board's last snapshot
-  return { ok: true, sha: r.sha, built: r.built, restart };
-}
-
 let rosterTimer = null, rosterFast = null;
 /** Reads the roster every ROSTER_MS when `fast`, every IDLE_ROSTER_MS when not. Returns whether the pace changed. */
 function setRosterPace(fast) {
@@ -1833,38 +1735,4 @@ server.listen(PORT, '127.0.0.1', () => {
   setRosterPace(looking());
   setInterval(() => { if (looking()) checkVersions(); }, VERSIONS_MS);
   setInterval(() => { prune(); broadcast(); }, 10_000);
-  setInterval(() => scanWorld(worldScans++ % 5 === 0), WORLD_MS);
-  // The order stream ends by itself when the hub says 401, and a `login` from a terminal never tells this process, so
-  // look every minute: a stream that has ended is opened again, and one that is up still asks the hub for its pending
-  // orders, in case the stream missed one (a Mac that slept through a drop can hold a stream that hears nothing).
-  const startOrders = () => {
-    if (!hub.status().loggedIn) return;
-    if (hubOrders.state().listening) hubOrders.drain(); else hubOrders.start();
-  };
-  startOrders();
-  if (hub.status().pending) startLoginLoop();   // a sign-in begun before a restart still finishes
-  setInterval(startOrders, WORLD_MS);
-  // A World that can't be saved (an unwritable prefs folder) must not take the panel down: under launchd it would crash-loop.
-  if (DAEMON && !world.started()) {
-    try { openWorld(); } catch (err) { console.error('world could not start:', err?.message ?? err); }
-  }
-  if (!WORKER) { // a clone: say when the hub runs a newer release; its owner updates it with a click
-    setTimeout(checkAppUpdate, APP_UPDATE_FIRST_MS);
-    setInterval(checkAppUpdate, APP_UPDATE_MS);
-  }
-  if (DAEMON && WORKER) { // only a worker install updates itself; a service from a clone is the app's and never does
-    try { markStarted(WORKER); } catch (err) { console.error('worker: could not record the start:', err?.message ?? err); }
-    // A timer's clock stops while the Mac sleeps, so a day-long interval on a laptop could go many days without a check.
-    // An hourly tick that checks once a day of wall time has passed keeps it daily.
-    let checkedAt = Date.now();
-    const check = () => {
-      checkedAt = Date.now();
-      checkForUpdate({ worker: WORKER, hubUrl: hub.status().url, run }).then((r) => {
-        try { recordCheck(WORKER.dir, r); } catch (err) { console.error('worker: could not record the check:', err?.message ?? err); }
-        if (r.outcome === 'error') console.error('update check:', r.error);
-      });
-    };
-    setTimeout(check, UPDATE_FIRST_MS);
-    setInterval(() => { if (Date.now() - checkedAt >= UPDATE_MS) check(); }, UPDATE_TICK_MS);
-  }
 });

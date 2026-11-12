@@ -1,6 +1,0 @@
-User-agent: *
-Allow: /
-Allow: /@
-Disallow: /api/
-Disallow: /me
-Disallow: /device

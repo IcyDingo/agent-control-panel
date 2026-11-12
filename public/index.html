@@ -12,7 +12,7 @@ catch { document.documentElement.dataset.theme = 'dark'; }
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
 <style>
 /* The four state queues stack in a rail on the left; the open session fills the rest of the width.
-   Space view shows the same sessions as an orrery. Matte graphite first, hairlines over shadows, soft corners:
+   Matte graphite first, hairlines over shadows, soft corners:
    6px on controls, 8px on cards and tiles, 12px on the panel. */
 :root {
   --bg: #0d0f12; --panel: #12151a; --raise: #171b21; --hover: #1e232b; --code: #0a0c0f;
@@ -23,9 +23,6 @@ catch { document.documentElement.dataset.theme = 'dark'; }
   --ok: #55b985; --ok-solid: #2c8a59; --stop: #e8634f; --stop-line: rgba(232, 99, 79, .5);
   --del: rgba(232, 99, 79, .12); --add: rgba(85, 185, 133, .12);
   --shade: rgba(0, 0, 0, .55); --on-solid: #ffffff; --top: #151c29;
-  /* Space view keeps one night sky in both themes */
-  --void: #03050a; --void-glow: #0b1526; --orbit: rgba(148, 170, 205, .15); --orbit-hot: rgba(227, 171, 62, .34);
-  --sun-core: #fffdf5; --sun: #ffe9b8; --sun-edge: #f0c070; --sun-glow: rgba(255, 196, 110, .22); --idle-body: #7d8796;
   --sans: "Geist", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   color-scheme: dark;
@@ -55,8 +52,8 @@ button, input, textarea, select { font: inherit; color: inherit; }
 
 /* ---------- top bar ---------- */
 .top {
-  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; min-height: 50px;
-  padding: 8px max(16px, env(safe-area-inset-right, 0px)) 8px max(16px, env(safe-area-inset-left, 0px)); border-bottom: 1px solid var(--line);
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; min-height: 44px;
+  padding: 5px max(16px, env(safe-area-inset-right, 0px)) 5px max(16px, env(safe-area-inset-left, 0px)); border-bottom: 1px solid var(--line);
   background: var(--panel);
 }
 .brand { display: inline-flex; align-items: center; gap: 9px; font-weight: 600; font-size: 14px; letter-spacing: -0.01em; }
@@ -76,12 +73,17 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .switch input:checked + i::after { transform: translateX(12px); }
 .switch input:focus-visible + i { outline: 1px solid var(--fg); outline-offset: 2px; }
 .banner { flex: none; margin: 0; padding: 8px max(16px, env(safe-area-inset-left, 0px)); border-bottom: 1px solid var(--amber-line); color: var(--amber); font-size: 12.5px; }
-.banner.connect { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; color: var(--fg-dim); }
+.banner.connect { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px 14px; min-height: 30px; padding-block: 4px; color: var(--fg-dim); }
+.banner.connect > span:first-child { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .banner.connect b { color: var(--fg); font-weight: 600; }
-.banner.connect .mono { font: 11.5px var(--mono); color: var(--fg-faint); }
+.banner.connect .mono { display: none; }
 /* Sessions on a Claude Code version deleted under them: macOS can refuse them ~/Documents at any moment. */
-.banner.old { display: grid; gap: 4px; }
-.banner.old ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; color: var(--fg-dim); }
+.banner.old { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-height: 30px; padding-block: 4px; }
+.banner.old > .lead { flex: 1 1 auto; min-width: 0; }
+.banner.old .btn.small { height: 20px; padding: 0 7px; font-size: 11px; color: var(--amber); border-color: var(--amber-line); }
+.banner.old .btn.icon { border: 0; color: var(--amber); }
+.banner.old ul { display: none; flex-basis: 100%; gap: 4px; margin: 2px 0 4px; padding: 0; list-style: none; color: var(--fg-dim); }
+.banner.old.open ul { display: grid; }
 .banner.old li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .banner.old li b, .note.old b { color: var(--fg); font-weight: 600; }
 .note.old { display: grid; gap: 8px; justify-items: start; border-color: var(--amber-line); color: var(--fg-dim); }
@@ -132,10 +134,12 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .btn.danger.soft:hover { color: var(--fg); }
 .btn.danger.soft.armed { background: var(--stop); border-color: var(--stop); color: var(--on-solid); }
 .btn.quiet { border-color: transparent; color: var(--fg-dim); }
+.btn.icon { width: 24px; height: 24px; padding: 0; justify-content: center; color: var(--fg-dim); }
+.btn.icon svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.btn.icon:hover { color: var(--fg); }
 .btn kbd { font: 500 11.5px var(--sans); opacity: .55; }
 .btn.quiet:hover { color: var(--fg); }
 .btn.small { height: 24px; padding: 0 8px; font-size: 12px; }
-.btn.orbit::before { content: ""; width: 11px; height: 11px; border-radius: 50%; border: 1px solid currentColor; background: radial-gradient(circle, currentColor 0 1.5px, transparent 2px); }
 .linkish { border: 0; background: none; padding: 0; color: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; font-size: 12.5px; }
 
 /* state, as a small square light */
@@ -154,17 +158,21 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .tag[data-s="finished"] { color: var(--ok); }
 
 /* ---------- the rail: Needs you always open, the other queues fold to their header ---------- */
-.stage { flex: 1; min-height: 0; position: relative; display: flex; overflow: clip; --rail-w: var(--rail-user, 320px); } /* clip: the panel slides in from 14px out */
+.stage { flex: 1; min-height: 0; position: relative; display: flex; overflow: clip; --rail-w: var(--rail-user, 260px); } /* clip: the panel slides in from 14px out */
 .board { flex: none; width: var(--rail-w); min-height: 0; overflow-y: auto; display: flex; flex-direction: column; background: var(--panel); border-right: 1px solid var(--line); }
 /* Open queues share what Needs you leaves, which takes what it needs up to half the rail. */
 .col { flex: 1 1 auto; min-height: 112px; min-width: 0; display: flex; flex-direction: column; border-bottom: 1px solid var(--line); }
 .col[data-col="waiting"] { flex: 0 1 auto; min-height: 0; max-height: 50%; }
 .col.folded { flex: none; min-height: 0; }
 .col.folded .col-body { display: none; }
-.col-h { flex: none; display: flex; align-items: center; gap: 8px; height: 42px; padding-right: 12px; font-size: 12.5px; font-weight: 600; color: var(--fg-dim); }
-.col-h .n { font: 500 12px var(--mono); color: var(--fg-faint); }
+.col.folded .col-tools { opacity: 0; transition: opacity .12s; }
+.col.folded:hover .col-tools, .col.folded:focus-within .col-tools, .col.folded .col-tools:has(.armed) { opacity: 1; }
+.col-h { flex: none; display: flex; align-items: center; gap: 8px; height: 28px; padding-right: 8px; font-size: 11.5px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; color: var(--fg-dim); }
+.col-h .n { font: 500 11px var(--mono); color: var(--fg-dim); }
+.col-h .btn.small { height: 20px; padding: 0 7px; font-size: 11px; text-transform: none; letter-spacing: 0; }
 .col[data-col="waiting"] .col-h { color: var(--amber); }
-.col-name { flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: 8px; padding: 0 0 0 16px; border: 0; background: none; font-weight: inherit; text-align: left; }
+.col-name { flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: 8px; padding: 0 0 0 12px; text-transform: inherit; letter-spacing: inherit; border: 0; background: none; font-weight: inherit; text-align: left; }
+.peek { text-transform: none; letter-spacing: 0; }
 .col-fold { cursor: pointer; }
 .col-fold:hover { color: var(--fg); }
 .col-fold:focus-visible { outline-offset: -2px; }
@@ -173,37 +181,66 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .chev { flex: none; width: 16px; margin-left: auto; font-size: 16px; line-height: 1; text-align: center; color: var(--fg-dim); transition: transform .15s; }
 .col:not(.folded) .chev { transform: rotate(90deg); }
 .col-tools { display: flex; }
-.col-body { flex: 1; min-height: 0; overflow: auto; padding: 2px 12px 12px; display: grid; gap: 8px; align-content: start; }
+.col-body { flex: 1; min-height: 0; overflow: auto; padding: 0 4px 6px; display: grid; gap: 0; align-content: start; }
 .col-empty { margin: 4px 2px; color: var(--fg-faint); font-size: 12.5px; }
 .col-hint { margin: 0 2px 4px; }
 
 .tile-wrap { position: relative; }
-.tile {
-  display: grid; grid-template-columns: 7px minmax(0, 1fr) auto; column-gap: 9px; row-gap: 4px; align-items: center; width: 100%;
-  padding: 11px 14px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--raise); text-align: left; cursor: pointer;
+/* One line per session: a chevron slot (filled when it has subagents), its state square, name, a short mono detail
+   (the tool it runs, or what it asks for), and its age. The branch, folder and full text live in the tooltip. */
+.srow {
+  display: flex; align-items: center; gap: 7px; width: 100%; height: 26px; padding: 0 8px 0 6px; border: 0; border-radius: 5px;
+  background: none; color: var(--fg); text-align: left; cursor: pointer; white-space: nowrap;
 }
-.tile:hover { background: var(--hover); }
-.tile[aria-current="true"] { border-color: var(--fg); }
-.tile[data-state="waiting"] { border-color: var(--amber-line); }
-.tile[data-state="waiting"][aria-current="true"] { border-color: var(--amber); box-shadow: inset 0 0 0 1px var(--amber); }
-.tile[data-state="finished"], .tile[data-state="failed"] { background: transparent; }
-.tname { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tside { display: inline-flex; gap: 8px; align-items: center; font: 11.5px var(--mono); color: var(--fg-faint); white-space: nowrap; }
-.tline { grid-column: 2 / -1; min-width: 0; font-size: 12.5px; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tline .t { font: 500 11.5px var(--mono); color: var(--run); margin-right: 6px; }
+.srow:hover { background: var(--hover); }
+.srow[aria-current="true"] { box-shadow: inset 0 0 0 1px var(--fg); }
+.srow[data-state="waiting"] { background: var(--amber-dim); }
+.chev-slot { flex: none; width: 12px; height: 12px; display: grid; place-items: center; color: var(--fg-dim); }
+.tname { flex: 1; min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tdetail { flex: none; max-width: 88px; overflow: hidden; text-overflow: ellipsis; font: 11.5px var(--mono); color: var(--fg-dim); }
+.srow[data-state="waiting"] .tdetail { color: var(--amber); }
+.srow[data-state="stopping"] .tdetail { color: var(--stop); }
+.tage { flex: none; width: 26px; text-align: right; font: 11.5px var(--mono); color: var(--fg-dim); }
+.told { flex: none; font: 600 10.5px var(--mono); color: var(--amber); }
+/* The drawer's branch line keeps its mark: a branch in a shared checkout, a folder in a worktree of its own. */
+.where-b::before { content: ""; flex: none; width: 11px; height: 11px; background: currentColor; -webkit-mask: var(--i-branch) center / contain no-repeat; mask: var(--i-branch) center / contain no-repeat; }
+.where-b.wt::before { -webkit-mask-image: var(--i-tree); mask-image: var(--i-tree); }
+.chev-slot svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; transition: transform .12s; }
+.chev-slot.open svg { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .chev-slot svg { transition: none; } }
+/* A session's subagents hang under its row as a small tree: each its own state square, title and age or outcome. */
+.sub {
+  position: relative; display: flex; align-items: center; gap: 7px; width: 100%; height: 24px; padding: 0 8px 0 24px; border: 0; border-radius: 5px;
+  background: none; color: var(--fg-dim); font-size: 12px; text-align: left; cursor: pointer; white-space: nowrap;
+}
+.sub::before { content: ""; position: absolute; left: 11px; top: -2px; bottom: 0; border-left: 1px solid var(--line-strong); }
+.sub::after { content: ""; position: absolute; left: 11px; top: 12px; width: 7px; border-top: 1px solid var(--line-strong); }
+.sub.last::before { bottom: 12px; }
+.sub:hover { background: var(--hover); color: var(--fg); }
+.sub.focus { box-shadow: inset 0 0 0 1px var(--fg); }
+.sd { flex: none; width: 5px; height: 5px; border-radius: 1px; background: var(--fg-faint); }
+.sub[data-state="running"] .sd, .sub[data-state="stopping"] .sd { background: var(--run); }
+.sub[data-state="waiting"] .sd { background: var(--amber); }
+.sub[data-state="done"] .sd { background: var(--ok); }
+.sub[data-state="stopped"] .sd { background: var(--stop); }
+.sn { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sage { flex: none; font: 11.5px var(--mono); color: var(--fg-dim); }
+.sub[data-state="waiting"] .sage { color: var(--amber); }
+/* Find by name (/) and the keys, at the rail's top and bottom. */
+#rail-find { flex: none; box-sizing: border-box; height: 26px; margin: 4px 4px 2px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--raise); color: var(--fg); font: 12px var(--mono); outline: none; }
+#rail-find:focus { border-color: var(--fg-dim); }
+#rail-find::placeholder { color: var(--fg-dim); }
+#rail-keys { flex: none; margin-top: auto; display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 6px 10px; border-top: 1px solid var(--line); font-size: 11px; color: var(--fg-dim); }
+#rail-keys span { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+#rail-keys kbd { display: inline-block; min-width: 14px; padding: 0 4px; border: 1px solid var(--line-strong); border-radius: 4px; font: 500 10.5px var(--mono); color: var(--fg-dim); text-align: center; line-height: 16px; }
+.board.narrow #rail-keys { display: none; }
 /* Where it works: its branch, with a branch mark in a shared checkout and a folder mark in a worktree of its own. */
 :root {
   --i-branch: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6'%3E%3Ccircle cx='4.5' cy='3.5' r='1.7'/%3E%3Ccircle cx='4.5' cy='12.5' r='1.7'/%3E%3Ccircle cx='11.5' cy='4.5' r='1.7'/%3E%3Cpath d='M4.5 5.2v5.6M11.5 6.2c0 3.2-7 1.8-7 4.6'/%3E%3C/svg%3E");
   --i-tree: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linejoin='round'%3E%3Cpath d='M1.8 3.2h4.4l1.5 1.6h6.5v8H1.8z'/%3E%3C/svg%3E");
 }
-.twhere { grid-column: 2 / -1; min-width: 0; display: flex; align-items: center; gap: 5px; font: 11px var(--mono); color: var(--fg-faint); }
-.twhere > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.twhere::before, .where-b::before { content: ""; flex: none; width: 11px; height: 11px; background: currentColor; -webkit-mask: var(--i-branch) center / contain no-repeat; mask: var(--i-branch) center / contain no-repeat; }
-.twhere.wt::before, .where-b.wt::before { -webkit-mask-image: var(--i-tree); mask-image: var(--i-tree); }
-.tile[data-state="waiting"] .tline { color: var(--amber); }
-.tile[data-state="stopping"] .tline { color: var(--stop); }
 .qstop {
-  position: absolute; top: 8px; right: 8px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  position: absolute; top: 2px; right: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   min-width: 22px; height: 22px; padding: 0 6px; border: 1px solid var(--stop-line); border-radius: 6px; background: var(--raise);
   color: var(--stop); font-size: 12px; font-weight: 600; cursor: pointer; opacity: 0;
 }
@@ -212,7 +249,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .qstop.x::before { content: "\00d7"; width: auto; height: auto; background: none; font-size: 15px; line-height: 1; }
 .qstop.armed, .qstop.x.armed { background: var(--stop); border-color: var(--stop); color: var(--on-solid); opacity: 1; }
 .tile-wrap:hover .qstop, .tile-wrap:focus-within .qstop { opacity: 1; }
-.tile-wrap.can-act:hover .tside, .tile-wrap.can-act:focus-within .tside, .tile-wrap:has(.qstop.armed) .tside { visibility: hidden; }
+.tile-wrap.can-act:hover .tage, .tile-wrap.can-act:focus-within .tage, .tile-wrap:has(.qstop.armed) .tage { visibility: hidden; }
 
 /* ---------- the session panel ---------- */
 .drawer {
@@ -220,15 +257,14 @@ button, input, textarea, select { font: inherit; color: inherit; }
   overflow: hidden; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: -28px 0 48px -36px var(--shade);
 }
 .drawer.enter { animation: slide .18s ease-out; }
-/* Beside the rail it sits flat, filling the rest of the width; Space view floats it over the sky as a card instead. */
+/* Beside the rail it sits flat, filling the rest of the width. */
 .stage > .drawer { position: relative; inset: auto; flex: 1; width: auto; min-width: 0; margin: 0; border: 0; border-radius: 0; box-shadow: none; }
 .stage .d-grip { display: none; }
 .ws-empty { flex: 1; min-width: 0; margin: 8px; display: grid; place-content: center; justify-items: center; gap: 12px; padding: 24px; border: 1px dashed var(--line); border-radius: 12px; color: var(--fg-faint); text-align: center; }
 .ws-empty p { margin: 0; }
 .ws-empty b { color: var(--fg-dim); font-weight: 600; }
 .ws-empty .btn { border-color: var(--amber-line); color: var(--amber); }
-/* Drag an edge to size its pane: the rail's right edge, or the floating panel's left edge in Space view. Double-click
-   puts it back. */
+/* Drag an edge to size its pane: the rail's right edge. Double-click puts it back. */
 .d-grip, .r-grip, .s-grip { position: absolute; top: 0; bottom: 0; z-index: 6; width: 8px; cursor: col-resize; touch-action: none; }
 .d-grip { left: 0; }
 .s-grip { left: -4px; }
@@ -243,7 +279,7 @@ body.resizing .drawer { transition: none; }
 .d-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 /* One column at reading width, centred once the panel is wider than that. */
 .d-col { width: 100%; max-width: 760px; margin-inline: auto; padding-inline: 32px; }
-.d-top-band { flex: none; max-height: 45%; overflow: auto; padding-block: 22px 18px; border-bottom: 1px solid var(--line); }
+.d-top-band { flex: none; max-height: 45%; overflow: auto; padding-block: 14px 12px; border-bottom: 1px solid var(--line); }
 .d-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding-block: 28px 24px; }
 .d-foot { flex: none; max-height: 62%; overflow: auto; padding-block: 0 20px; }
 /* What it asks you, and the options its last reply offered, come at the end of the chat: one place to scroll. */
@@ -271,10 +307,10 @@ body.resizing .drawer { transition: none; }
 .side-sec:empty { display: none; }
 .side-sec + .side-sec { border-top: 1px solid var(--line); }
 .d-side-body > .side-sec:first-child { padding-top: 4px; }
-.side-acts { flex: none; display: grid; gap: 8px; margin-top: auto; padding-top: 18px; }
+.side-acts { flex: none; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: auto; padding-top: 18px; }
 .side-acts:empty { display: none; }
-.side-acts .btn { justify-content: center; }
-.side-acts .hint { margin: 0; }
+.side-acts .btn { justify-content: center; min-width: 0; padding-inline: 8px; }
+.side-acts .hint { grid-column: 1 / -1; margin: 0; }
 .kv { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px 14px; margin: 0; font-size: 12.5px; }
 .kv dt { color: var(--fg-faint); }
 .kv dd { margin: 0; min-width: 0; color: var(--fg); overflow-wrap: anywhere; }
@@ -283,26 +319,24 @@ body.resizing .drawer { transition: none; }
 /* Under the conversation, on a narrow panel */
 .d-subs-in .d-side-body { padding: 0; overflow: visible; }
 .d-subs-in:empty { display: none; }
-.d-subs-in .side-acts { grid-auto-flow: column; justify-content: start; margin-top: 0; }
+.d-subs-in .side-acts { margin-top: 0; }
+.side-acts .btn:only-of-type { grid-column: 1 / -1; }
 .d-side.folded { width: 40px; }
 .d-side.folded .d-side-body, .d-side.folded .s-grip { display: none; }
 .d-side.folded .d-side-tab { writing-mode: vertical-rl; padding: 16px 12px; }
 .d-side.folded .d-side-tab::after { content: "\2039"; margin: 6px 0 0; }
 /* Expand hides the board beside it. */
 body.wide-session .stage:has(> .drawer:not([hidden])) > .board, body.wide-session .stage:has(> .drawer:not([hidden])) > .r-grip { display: none; }
-.space .d-expand { display: none; }
 /* Two rows: the name with its state light, then one line of facts. */
 .d-top { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .d-top .glyph { width: 8px; height: 8px; }
-.d-top .btn.quiet[aria-pressed="true"] { color: var(--fg); }
-.d-top .age { flex: none; font: 12px var(--mono); color: var(--fg-faint); }
+.d-meta .age { font: inherit; color: inherit; }
 .d-name { flex: 0 1 auto; min-width: 0; margin: 0; font-size: 20px; line-height: 1.2; font-weight: 600; letter-spacing: -0.015em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.d-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin: 10px 0 0 20px; color: var(--fg-dim); font-size: 12.5px; }
-.d-facts .tag { font-weight: 550; }
-.d-share { margin: 8px 0 0 20px; color: var(--amber); font-size: 12.5px; }
+.d-meta { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-dim); font-size: 12.5px; }
+.d-meta .st { font-weight: 550; }
+.d-meta .st[data-s="waiting"] { color: var(--amber); } .d-meta .st[data-s="busy"] { color: var(--run); } .d-meta .st[data-s="stopping"], .d-meta .st[data-s="failed"] { color: var(--stop); } .d-meta .st[data-s="finished"] { color: var(--ok); }
+.d-meta .bypass { color: var(--stop); }
 .where-b { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font: 12px var(--mono); color: var(--fg-dim); overflow-wrap: anywhere; }
-.mode-tag { display: inline-block; padding: 0 7px; border: 1px solid var(--line-strong); border-radius: 5px; font-size: 11.5px; line-height: 18px; white-space: nowrap; }
-.mode-tag[data-mode="bypassPermissions"] { border-color: var(--stop); color: var(--stop); }
 .mode-pick { flex: 0 1 auto; width: auto; }
 .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
 .hint { margin: 8px 0 0; font-size: 12.5px; color: var(--stop); }
@@ -380,6 +414,7 @@ textarea.field { flex-basis: 100%; height: auto; min-height: 3.4em; padding: 6px
 .branch[data-state="waiting"]::after { border-top-color: var(--amber); }
 .branch[data-state="stopping"]::after { border-top-color: var(--stop); }
 .b-head { display: flex; align-items: center; gap: 8px; min-height: 24px; }
+.branch.focus > .b-head { box-shadow: inset 0 0 0 1px var(--fg); border-radius: 6px; padding: 0 6px; margin-left: -6px; }
 .b-title { font-weight: 550; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .b-type { font: 11.5px var(--mono); color: var(--fg-faint); white-space: nowrap; }
 .b-head > :last-child { margin-left: auto; }
@@ -418,6 +453,32 @@ textarea.field { flex-basis: 100%; height: auto; min-height: 3.4em; padding: 6px
 .msg.note { justify-self: center; font-size: 12px; color: var(--fg-faint); }
 .msg.you .m-who { justify-content: flex-end; margin: 4px 0 0; }
 .msg.out .m-body { max-height: 260px; overflow: auto; margin: 0; padding: 10px 14px; border-radius: 10px; background: var(--raise); font: 12.5px/1.5 var(--mono); white-space: pre-wrap; }
+/* a tool call: one quiet line (its state as the small light, what it ran, how long it took), what it returned behind a
+   disclosure. Calls in a row sit close together; failed and refused ones take the stop colour. */
+.msg.tool { font-size: 12.5px; color: var(--fg-dim); }
+.msg.tool + .msg.tool { margin-top: -20px; }
+.msg.tool .t-line { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 22px; }
+.msg.tool summary.t-line { list-style: none; cursor: pointer; }
+.msg.tool summary.t-line::-webkit-details-marker { display: none; }
+.msg.tool summary.t-line::after { content: ""; flex: none; width: 5px; height: 5px; margin: 0 3px 2px 0; border: solid var(--fg-faint); border-width: 0 1.5px 1.5px 0; transform: rotate(-45deg); transition: transform .15s; }
+.msg.tool details[open] > summary.t-line::after { transform: rotate(45deg); }
+.msg.tool summary.t-line:hover .t-what { color: var(--fg-dim); }
+.msg.tool .glyph { margin-right: 1px; }
+.msg.tool .glyph[data-s="refused"] { background: var(--stop); }
+.msg.tool b { flex: none; font: 500 12px var(--mono); color: var(--fg-dim); }
+.msg.tool .t-what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px var(--mono); color: var(--fg-faint); }
+.msg.tool .t-dur { flex: none; font: 11.5px var(--mono); color: var(--fg-faint); white-space: nowrap; }
+.msg.tool .t-note { margin: 1px 0 0 16px; font-size: 12px; color: var(--fg-faint); }
+.msg.tool pre.m-body { max-height: 260px; overflow: auto; margin: 6px 0 2px 16px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--code); font: 12px/1.5 var(--mono); white-space: pre-wrap; }
+.msg.tool[data-state="running"] b { color: var(--run); }
+.msg.tool[data-state="waiting"] b, .msg.tool[data-state="waiting"] .t-dur { color: var(--amber); }
+.msg.tool[data-state="failed"] b, .msg.tool[data-state="refused"] b, .msg.tool[data-state="failed"] .t-what, .msg.tool[data-state="refused"] .t-what { color: var(--stop); }
+/* the end of a turn: a hairline */
+.turn { width: 100%; margin: 0; border: 0; border-top: 1px solid var(--line); }
+/* newer rows below: a small button at the bottom of the chat's view, which takes no room of its own */
+.d-newer-at { position: sticky; bottom: 0; height: 0; display: flex; justify-content: center; pointer-events: none; }
+.d-newer { pointer-events: auto; height: 26px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--raise); box-shadow: 0 2px 10px var(--shade); font-size: 12px; color: var(--fg-dim); cursor: pointer; transform: translateY(calc(-100% - 10px)); }
+.d-newer:hover { color: var(--fg); }
 .linkish { padding: 0; border: 0; background: none; color: var(--fg-dim); font-size: 11.5px; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .composer { border: 1px solid var(--line-strong); border-radius: 12px; background: var(--raise); }
 .composer:focus-within { border-color: var(--fg-dim); }
@@ -433,6 +494,16 @@ textarea.field { flex-basis: 100%; height: auto; min-height: 3.4em; padding: 6px
 .c-mode + .c-mode { border-left: 1px solid var(--line); border-radius: 0 6px 6px 0; }
 .c-bar .grow + .btn { margin-left: 6px; }
 .c-hint { margin: 6px 0 0; font-size: 12px; }
+.c-hint:empty { display: none; }
+/* One chip for mode, model and effort; its popover holds the three selects. */
+.c-opts { position: relative; }
+#d-opts { color: var(--fg-dim); font-weight: 400; }
+#d-opts::after { content: "\25BE"; margin-left: 2px; font-size: 9px; color: var(--fg-faint); }
+#d-opts[aria-expanded="true"], #d-opts:hover { color: var(--fg); }
+.c-pop { position: fixed; z-index: 40; display: grid; gap: 6px; min-width: 260px; padding: 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--raise); box-shadow: 0 12px 28px -16px var(--shade); }
+.c-row { display: grid; grid-template-columns: 56px 1fr; align-items: center; gap: 8px; font-size: 12px; color: var(--fg-dim); }
+.c-pop .c-mode { width: 100%; border: 1px solid var(--line); border-radius: 6px; background-color: var(--panel); }
+.c-pop .c-mode + .c-mode { border-left: 1px solid var(--line); border-radius: 6px; }
 .lf-row { display: flex; gap: 6px; min-width: 0; }
 .lf-row input { flex: 1; }
 .advance { flex: none; position: relative; display: flex; align-items: center; gap: 14px; padding: 10px 20px; border-top: 1px solid var(--line-strong); background: var(--raise); font-size: 13px; font-weight: 550; }
@@ -483,319 +554,6 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .toast { max-width: min(560px, calc(100vw - 32px)); padding: 8px 13px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--raise); color: var(--fg); font-size: 12.5px; box-shadow: 0 12px 28px -16px var(--shade); }
 .toast.bad { border-color: var(--stop-line); color: var(--stop); }
 
-/* ---------- world: a universe your agents' work pays for (public/world.js draws it). It shares Space view's night sky. ---------- */
-.btn.globe::before { content: ""; width: 11px; height: 11px; border-radius: 50%; border: 1px solid currentColor; background: linear-gradient(currentColor, currentColor) 50% 50% / 100% 1px no-repeat; }
-.world canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: grab; touch-action: none; }
-.world canvas:active { cursor: grabbing; }
-.w-credit { font: 12.5px var(--mono); color: var(--fg-dim); }
-.w-needs { border-color: var(--amber-line); color: var(--amber); }
-.w-credit b { font-weight: 500; color: var(--amber); }
-/* The top bar keeps World's credit to spend in view. */
-.wb { margin-left: 2px; padding-left: 9px; border-left: 1px solid var(--line-strong); font: 12px var(--mono); color: var(--fg-dim); }
-.wb b { font-weight: 500; color: var(--amber); }
-/* The side: a rail of icon buttons on the right, and the one open card to its left (world.js openCard). */
-.w-side {
-  position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); top: calc(var(--sp-top, 52px) + 14px); z-index: 2;
-  display: flex; flex-direction: row-reverse; align-items: flex-start; gap: 10px;
-}
-.w-rail { flex: none; width: 56px; padding: 6px; display: grid; gap: 4px; justify-items: center; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--panel) 92%, transparent); backdrop-filter: blur(8px); }
-.w-rail button { position: relative; width: 44px; height: 44px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 10px; background: none; color: var(--fg-dim); cursor: pointer; }
-.w-rail button:hover { background: var(--hover); color: var(--fg); }
-.w-rail button.on { background: var(--amber-dim); color: var(--amber); }
-.w-rail svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.w-rail hr { width: 28px; margin: 2px 0; border: 0; border-top: 1px solid var(--line); }
-.w-rail-av { display: grid; place-items: center; width: 28px; height: 28px; }
-.w-rail-av .avatar { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--line-strong); background: var(--raise); color: var(--fg-dim); display: inline-flex; align-items: center; justify-content: center; font: 600 11px var(--sans); object-fit: cover; }
-.w-rail button.on .avatar { border-color: var(--amber); }
-/* A dot on a button: amber when something waits for you there, blue while it runs. */
-.w-rail button.has::after, .w-rail button.busy::after { content: ""; position: absolute; top: 7px; right: 7px; width: 7px; height: 7px; border-radius: 50%; background: var(--amber); }
-.w-rail button.busy::after { background: var(--run); animation: w-pulse 1.2s ease-in-out infinite; }
-@keyframes w-pulse { 50% { opacity: .35; } }
-@media (prefers-reduced-motion: reduce) { .w-rail button.busy::after { animation: none; } }
-.w-card { width: 320px; box-sizing: border-box; max-height: calc(100vh - var(--sp-top, 52px) - 28px); overflow-y: auto; overscroll-behavior: contain; gap: 12px; padding: 16px; border-color: var(--line-strong); background: color-mix(in srgb, var(--panel) 95%, transparent); box-shadow: 0 18px 40px -20px var(--shade); }
-.w-card > header { display: flex; align-items: center; gap: 8px; }
-.w-card > header h2 { flex: 1; font-size: 14px; }
-.w-card-x { width: 24px; padding: 0; justify-content: center; }
-.w-card-x::before { content: "\00d7"; font-size: 17px; line-height: 1; }
-.w-part { display: grid; gap: 8px; }
-.w-card > .w-part:not([hidden]) + .w-part { padding-top: 12px; border-top: 1px solid var(--line); }
-.w-moment { padding: 10px 12px; border: 1px solid var(--amber-line); border-radius: 8px; }
-.w-moment h3 { margin: 0; font-size: 13px; font-weight: 600; }
-.w-act span.w-sync { font-family: var(--sans); color: var(--fg-dim); }
-/* Build's places: Home and each colony, a chip each with the planet's colour. Picking one flies the map there. */
-.w-places { display: flex; flex-wrap: wrap; gap: 6px; }
-.w-place { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px 0 6px; border: 1px solid var(--line-strong); border-radius: 14px; background: none; color: var(--fg-dim); font: 500 12px var(--sans); cursor: pointer; }
-.w-place:hover { color: var(--fg); background: var(--hover); }
-.w-place.on { border-color: var(--amber); background: var(--amber-dim); color: var(--fg); }
-.w-place i { width: 14px; height: 14px; border-radius: 50%; box-shadow: inset -3px -3px 5px rgba(0, 0, 0, .35); }
-/* Profile's days: the galaxy page's mosaic (hub.css), one square a day, amber when the agents worked. */
-.w-days .mosaic { display: grid; grid-template-columns: repeat(var(--cols, 20), 1fr); border-radius: 6px; overflow: hidden; }
-.w-days .mosaic span { display: block; aspect-ratio: 1; }
-.w-days .q1 { background: var(--raise); } .w-days .q2 { background: var(--hover); } .w-days .q3 { background: var(--line); } .w-days .q4 { background: var(--line-strong); }
-.w-days .a0 { background: var(--amber); } .w-days .a1 { background: #d4a03a; } .w-days .a2 { background: #b98c30; }
-.w-days .cap { display: flex; justify-content: space-between; gap: 8px; padding-top: 6px; color: var(--fg-faint); font-size: 11.5px; }
-/* Home's level, top left: the XP toward the next level, the stage it leads to, and today's XP. */
-.w-hud { position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); top: calc(var(--sp-top, 52px) + 14px); z-index: 2; width: 268px; box-sizing: border-box; padding: 12px 14px; display: grid; gap: 7px; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--panel) 88%, transparent); backdrop-filter: blur(8px); }
-.w-hud-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
-.w-hud-top b { font-size: 13px; font-weight: 600; }
-.w-hud-top b span { color: var(--amber); font: 500 12px var(--mono); }
-.w-hud-top > span { color: var(--fg-dim); font: 11.5px var(--mono); white-space: nowrap; }
-.w-hud .w-bar { height: 5px; }
-.w-hud .w-bar.today { height: 3px; }
-.w-hud-row { display: flex; justify-content: space-between; gap: 10px; margin: 0; font-size: 11.5px; color: var(--fg-dim); }
-.w-hud-row span:last-child { color: var(--amber); white-space: nowrap; }
-.w-box { display: grid; gap: 8px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--panel) 90%, transparent); backdrop-filter: blur(8px); }
-.w-box h2 { margin: 0; font-size: 13.5px; font-weight: 600; }
-.w-box dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; margin: 0; font-size: 12.5px; }
-.w-box dt { color: var(--fg-dim); }
-.w-box dd { margin: 0; font: 12.5px var(--mono); text-align: right; }
-.w-box p { margin: 0; color: var(--fg-dim); font-size: 12.5px; }
-.w-box p.warn { color: var(--amber); }
-/* Home's level: its stage, the XP toward the next level, and today's XP toward a full day. */
-.w-box h2 span { margin-left: 6px; color: var(--amber); font: 500 12px var(--mono); }
-.w-box p.w-stage { display: flex; justify-content: space-between; gap: 10px; color: var(--fg); font-size: 13.5px; }
-.w-stage span { color: var(--fg-dim); font: 12px var(--mono); white-space: nowrap; }
-.w-bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
-.w-bar i { display: block; height: 100%; width: 0; border-radius: inherit; background: var(--ok); transition: width .6s ease-out; }
-.w-bar.today i { background: var(--amber); }
-.w-zoom { position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); z-index: 2; display: flex; flex-wrap: wrap-reverse; gap: 6px; max-width: calc(100% - 430px); }
-.w-zoom > span { display: contents; } /* the colonies, between Home and Map */
-.w-zoom .btn.on { border-color: var(--amber); color: var(--amber); }
-/* Spending and moments: a row of controls, a price beside its button, and the moments as a list of stars. */
-.w-row { display: flex; flex-wrap: wrap; gap: 6px; }
-.w-row .field { flex: 1 1 110px; height: 24px; font-size: 12px; }
-.w-act { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.w-act span { font: 12px var(--mono); color: var(--amber); }
-.w-box .btn.on { border-color: var(--amber); color: var(--amber); }
-.w-box .btn:disabled { opacity: .5; cursor: default; }
-.w-box .err { margin: 0; }
-.w-box > input.field, .w-part > input.field { flex: none; height: 26px; font-size: 12.5px; }
-.w-box > textarea.field, .w-part > textarea.field { flex: none; font-size: 12.5px; }
-.w-built { padding-top: 2px; border-top: 1px solid var(--line); }
-.w-built li { color: var(--fg-dim); font-size: 12px; }
-.w-built li::before { content: "▪ "; color: var(--amber); }
-.w-list { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
-.w-list .linkish { display: inline-flex; align-items: center; gap: 7px; color: var(--fg-dim); font-size: 12.5px; text-decoration: none; text-align: left; }
-.w-list .linkish:hover { color: var(--fg); }
-.w-list button.linkish { padding: 0; border: 0; background: none; cursor: pointer; font: inherit; font-size: 12.5px; }
-.w-list .linkish::before { content: ""; flex: none; width: 7px; height: 7px; background: var(--m, #cfe0ff); clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%); }
-.w-list [data-kind="cleanup"] { --m: #7ee0a8; }
-.w-list [data-kind="level"] { --m: #ffcf7a; }
-/* Profile: the hub account, or the way to sign in to one. */
-.w-pf { display: grid; gap: 8px; }
-.w-pf .w-code { font: 600 14px var(--mono); letter-spacing: .08em; color: var(--fg); }
-.w-pf a { color: var(--amber); text-decoration-color: var(--amber-line); overflow-wrap: anywhere; }
-.w-pf .w-wait { color: var(--fg-dim); font-family: var(--sans); }
-.w-who { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.w-who > div { min-width: 0; display: grid; }
-.w-who b { font-size: 13.5px; font-weight: 600; overflow-wrap: anywhere; }
-.w-who div span { color: var(--fg-dim); font: 12px var(--mono); }
-.w-who .avatar { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line-strong); background: var(--raise); color: var(--fg-dim); font: 600 13px var(--sans); object-fit: cover; }
-.w-links { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; }
-/* A system shown read-only (world.js enter with readOnly): nothing to spend, and none of the owner's own numbers. */
-body.w-readonly #w-profile, body.w-readonly #w-build-box, body.w-readonly #w-rocket-box, body.w-readonly #w-push-box, body.w-readonly #w-today-box, body.w-readonly #w-total-box { display: none; }
-/* Narrow: Home's level, then the rail as a row, then the open card at full width, all over the top of the map. */
-@media (max-width: 760px) {
-  .w-hud { position: static; width: auto; margin: calc(var(--sp-top, 52px) + 10px) 16px 0; }
-  .w-side { position: static; flex-direction: column; align-items: stretch; margin: 10px 16px 0; }
-  .w-rail { width: auto; display: flex; justify-content: space-around; }
-  .w-rail hr { display: none; }
-  .w-card { width: auto; max-height: calc(100vh - 260px); }
-  .w-zoom { max-width: calc(100% - 32px); }
-}
-
-/* ---------- space view: the same sessions as an orrery. You sit at the centre; the closer a session orbits, the sooner it needs you. ---------- */
-body.in-space { overflow: hidden; }
-.space {
-  position: fixed; inset: 0; z-index: 40; overflow: hidden; background: radial-gradient(ellipse at 50% 52%, var(--void-glow), var(--void) 72%);
-  --bg: #0d0f12; --panel: #12151a; --raise: #171b21; --hover: #1e232b; --code: #0a0c0f; --line: #252b33; --line-strong: #39414c;
-  --fg: #e3e7ed; --fg-dim: #8c96a4; --fg-faint: #5f6875; --amber: #e3ab3e; --amber-dim: rgba(227, 171, 62, .1); --amber-line: rgba(227, 171, 62, .42);
-  --run: #7ea6e6; --run-dim: rgba(126, 166, 230, .12); --ok: #55b985; --ok-solid: #2c8a59; --stop: #e8634f; --stop-line: rgba(232, 99, 79, .5);
-  --del: rgba(232, 99, 79, .12); --add: rgba(85, 185, 133, .12); --shade: rgba(0, 0, 0, .55); --k: 1; color: var(--fg); color-scheme: dark;
-}
-body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c; }
-.stars, .orbits { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.orbits path { fill: none; stroke: var(--orbit); stroke-width: 1; }
-.orbits path.hot { stroke: var(--orbit-hot); }
-.orbits path.moon-orbit { stroke: rgba(148, 170, 205, .09); }
-.orbits text { fill: var(--fg-faint); font: 500 11.5px var(--sans); }
-.orbits text.hot { fill: var(--amber); }
-.orbits .tether { stroke: var(--amber); stroke-width: 1; stroke-dasharray: 2 5; opacity: .6; animation: pull 1.1s linear infinite; }
-@keyframes pull { to { stroke-dashoffset: -7; } }
-.bodies { position: absolute; inset: 0; z-index: 1; }
-#planets { position: absolute; inset: 0; }
-.planet { position: absolute; left: 0; top: 0; width: 0; height: 0; padding: 0; border: 0; background: none; cursor: pointer; --c: var(--idle-body); --R: calc(var(--r) * var(--k)); }
-.planet[data-state="waiting"] { --c: var(--amber); }
-.planet[data-state="busy"] { --c: var(--run); }
-.planet[data-state="stopping"], .planet[data-state="failed"] { --c: var(--stop); }
-.planet[data-state="finished"] { --c: var(--ok); }
-.planet:focus-visible { outline: none; }
-/* A session is a satellite: a body in its state's colour between two solar wings, flying along its orbit. A background
-   session carries a dish. --R is its size; --rot lines it up with the orbit; --ext is how far it reaches below. */
-.sat { position: absolute; left: 0; top: 0; transform: rotate(var(--rot, 0rad)) scale(var(--d, 1)); }
-.sat-in { position: absolute; left: 0; top: 0; }
-.sat-core {
-  position: absolute; left: calc(var(--R) * -.55); top: calc(var(--R) * -.55); width: calc(var(--R) * 1.1); height: calc(var(--R) * 1.1); border-radius: 2px;
-  background: linear-gradient(135deg, color-mix(in srgb, var(--c) 40%, #fff) 0%, var(--c) 42%, color-mix(in srgb, var(--c) 30%, #000) 100%);
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .3);
-}
-.sat-wing {
-  position: absolute; top: calc(var(--R) * -.42); width: calc(var(--R) * 1.35); height: calc(var(--R) * .84);
-  background: repeating-linear-gradient(90deg, #345a91 0 calc(var(--R) * .3), #15243b calc(var(--R) * .3) calc(var(--R) * .35));
-  box-shadow: inset 0 0 0 1px rgba(150, 185, 235, .34);
-}
-.sat-wing.l { left: calc(var(--R) * -2.15); transform-origin: right; }
-.sat-wing.r { left: calc(var(--R) * .8); transform-origin: left; }
-.sat-wing::after { content: ""; position: absolute; top: 50%; width: calc(var(--R) * .25); border-top: 1px solid rgba(175, 195, 225, .55); }
-.sat-wing.l::after { left: 100%; }
-.sat-wing.r::after { right: 100%; }
-.sat-dish {
-  position: absolute; left: calc(var(--R) * -.36); top: calc(var(--R) * -1.32); width: calc(var(--R) * .72); height: calc(var(--R) * .42);
-  border: 1px solid color-mix(in srgb, var(--c) 60%, #fff); border-top: 0; border-radius: 0 0 50% 50% / 0 0 100% 100%;
-}
-.sat-dish::after { content: ""; position: absolute; left: 50%; top: 100%; height: calc(var(--R) * .36); border-left: 1px solid rgba(190, 205, 225, .6); }
-.planet[data-state="idle"] .sat-in, .planet[data-state="finished"] .sat-in, .planet[data-state="failed"] .sat-in { filter: saturate(.55) brightness(.75); }
-.planet[data-state="busy"] .sat-core { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .3), 0 0 14px -1px var(--c); }
-.planet[data-state="stopping"] .sat-in { animation: blink .7s ease-in-out infinite; }
-.sat::after, .sat::before { position: absolute; border-radius: 50%; pointer-events: none; }
-.planet[data-state="waiting"] .sat::after {
-  content: ""; left: calc(var(--R) * -.8); top: calc(var(--R) * -.8); width: calc(var(--R) * 1.6); height: calc(var(--R) * 1.6);
-  border: 1px solid var(--c); animation: ping 2.4s ease-out infinite;
-}
-@keyframes ping { from { transform: scale(1); opacity: .8; } to { transform: scale(2.6); opacity: 0; } }
-.planet[aria-current="true"] .sat::before, .planet:focus-visible .sat::before {
-  content: ""; left: calc(var(--R) * -2.6); top: calc(var(--R) * -2.6); width: calc(var(--R) * 5.2); height: calc(var(--R) * 5.2); border: 1px solid var(--fg); opacity: .55;
-}
-.planet:focus-visible .sat::before { border-style: dashed; }
-.p-label {
-  position: absolute; left: 0; top: calc(var(--ext, var(--R)) + 8px); transform: translateX(-50%); display: grid; justify-items: center; gap: 1px;
-  white-space: nowrap; text-shadow: 0 0 4px var(--void), 0 0 2px var(--void);
-}
-.p-name { font-size: 12px; font-weight: 550; color: var(--fg); }
-.planet[data-state="idle"] .p-name, .planet[data-state="finished"] .p-name, .planet[data-state="failed"] .p-name { color: var(--fg-dim); }
-.p-ask { max-width: 230px; overflow: hidden; text-overflow: ellipsis; font-size: 11.5px; color: var(--amber); }
-.planet[data-state="stopping"] .p-ask { color: var(--stop); }
-.p-ask .t { margin-right: 5px; font: 500 11px var(--mono); }
-.space.compact .p-label, .space.tight .p-ask { display: none; }
-.planet.leaving, .moon.leaving { opacity: 0; transition: opacity .6s; pointer-events: none; }
-/* A subagent is a small satellite circling its session's, wings along its little orbit. */
-.moon { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; --mc: var(--fg-faint); }
-.moon[data-state="running"] { --mc: var(--run); }
-.moon[data-state="waiting"] { --mc: var(--amber); }
-.moon[data-state="stopping"], .moon[data-state="stopped"] { --mc: var(--stop); }
-.mi { position: absolute; left: 0; top: 0; }
-.mc { position: absolute; left: -2.5px; top: -2.5px; width: 5px; height: 5px; border-radius: 1px; background: var(--mc); }
-.mw { position: absolute; top: -1.75px; width: 5px; height: 3.5px; background: #345a91; box-shadow: inset 0 0 0 .5px rgba(150, 185, 235, .5); }
-.mw.l { left: -8.5px; }
-.mw.r { left: 3.5px; }
-.moon[data-state="running"] .mc { box-shadow: 0 0 6px var(--run); }
-.moon[data-state="waiting"] .mi { transform: scale(1.35); }
-.moon[data-state="waiting"] .mc { box-shadow: 0 0 8px var(--amber); }
-.moon[data-state="stopping"] .mi { animation: blink .7s ease-in-out infinite; }
-.moon[data-state="stopped"] .mc { background: transparent; box-shadow: inset 0 0 0 1px var(--stop); }
-.moon[data-state="done"] .mi { opacity: .6; }
-.sun { position: absolute; left: 0; top: 0; z-index: 50; width: 0; height: 0; padding: 0; border: 0; background: none; cursor: pointer; }
-.sun:focus-visible { outline: none; }
-.sun:focus-visible .sun-core { outline: 1px dashed var(--fg); outline-offset: 6px; }
-.sun-core {
-  position: absolute; left: -13px; top: -13px; width: 26px; height: 26px; border-radius: 50%;
-  background: radial-gradient(circle at 40% 38%, var(--sun-core), var(--sun) 45%, var(--sun-edge) 100%);
-  box-shadow: 0 0 22px 6px var(--sun-glow), 0 0 110px 36px rgba(255, 196, 110, .06);
-}
-.sun-label { position: absolute; left: 0; top: 22px; transform: translateX(-50%); display: grid; justify-items: center; white-space: nowrap; font-size: 12px; text-shadow: 0 0 4px var(--void); }
-.sun-label b { font-weight: 600; }
-.sun-label span { color: var(--fg-dim); font-size: 11.5px; }
-.sun-label span.hot { color: var(--amber); }
-.sp-tip {
-  position: absolute; left: 0; top: 0; z-index: 200; display: grid; gap: 4px; width: max-content; max-width: 300px; padding: 9px 11px;
-  border: 1px solid var(--line-strong); border-radius: 4px; background: color-mix(in srgb, var(--panel) 94%, transparent); font-size: 12.5px; pointer-events: none;
-}
-.sp-tip .t-name { font-weight: 600; }
-.sp-tip .t-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-dim); }
-.sp-tip .t-line .t { margin-right: 6px; font: 500 11.5px var(--mono); color: var(--run); }
-.sp-tip .t-meta { font: 11.5px var(--mono); color: var(--fg-faint); }
-.sp-top {
-  position: absolute; top: 0; left: 0; right: 0; z-index: 6; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 22px; min-height: 52px;
-  padding: calc(8px + env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) 8px max(16px, env(safe-area-inset-left, 0px));
-  border-bottom: 1px solid var(--orbit); background: color-mix(in srgb, var(--void) 72%, transparent);
-}
-.sp-sub { color: var(--fg-dim); font-size: 12.5px; }
-.sp-foot {
-  position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); z-index: 2;
-  display: grid; justify-items: start; gap: 12px; max-width: calc(100% - 32px);
-}
-.sp-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; font-size: 12px; color: var(--fg-dim); pointer-events: none; }
-/* Earth: new agents launch from here, by rocket, into their orbit. */
-/* It floats: a slow drift, and it turns (land and clouds slide under a fixed day/night shading, on a tilted axis). */
-.earth {
-  display: grid; justify-items: center; gap: 7px; margin: 0 0 6px 18px; padding: 6px; border: 0; border-radius: 4px; background: none;
-  color: var(--fg-dim); cursor: pointer; animation: drift 11s ease-in-out infinite;
-}
-@keyframes drift { 0%, 100% { transform: translate(0, 0); } 30% { transform: translate(5px, -9px); } 62% { transform: translate(-4px, -4px); } }
-.earth:focus-visible { outline: 1px dashed var(--fg); outline-offset: 2px; }
-.earth:hover, .earth:focus-visible { animation-play-state: paused; } /* holds still under the pointer, like the planets */
-.earth-globe {
-  position: relative; width: 50px; height: 50px; border-radius: 50%; overflow: hidden;
-  background: radial-gradient(circle at 40% 38%, #4c84c4, #29507f 58%, #12233a 100%);
-  box-shadow: 0 0 0 1px rgba(150, 190, 255, .2), 0 0 18px 2px rgba(110, 160, 240, .3), 0 0 60px 10px rgba(90, 140, 230, .08); transition: box-shadow .25s;
-}
-.earth-land, .earth-cloud { position: absolute; left: 0; top: -25%; width: 200%; height: 150%; background-size: 50% 100%; background-repeat: repeat-x; animation: turn 48s linear infinite; }
-.earth-land {
-  background-image:
-    radial-gradient(ellipse 16% 12% at 22% 40%, #5d8c60 0 60%, transparent 68%),
-    radial-gradient(ellipse 10% 17% at 38% 58%, #527c55 0 58%, transparent 66%),
-    radial-gradient(ellipse 13% 7% at 70% 30%, #69976a 0 55%, transparent 64%),
-    radial-gradient(ellipse 9% 12% at 82% 62%, #4f7a52 0 55%, transparent 64%);
-}
-.earth-cloud {
-  animation-duration: 31s; opacity: .55;
-  background-image:
-    radial-gradient(ellipse 14% 4% at 30% 34%, rgba(255, 255, 255, .7) 0 50%, transparent 70%),
-    radial-gradient(ellipse 18% 5% at 64% 70%, rgba(255, 255, 255, .6) 0 45%, transparent 70%),
-    radial-gradient(ellipse 10% 3% at 86% 44%, rgba(255, 255, 255, .55) 0 45%, transparent 70%);
-}
-@keyframes turn { from { transform: rotate(-18deg) translateX(0); } to { transform: rotate(-18deg) translateX(-50%); } }
-.earth-globe::after {
-  content: ""; position: absolute; inset: 0; border-radius: 50%;
-  background: radial-gradient(circle at 30% 28%, rgba(255, 255, 255, .22), transparent 30%), radial-gradient(circle at 30% 28%, transparent 44%, rgba(4, 8, 16, .66) 100%);
-  box-shadow: inset 0 0 0 1px rgba(170, 205, 255, .12), inset 2px 2px 6px rgba(170, 205, 255, .22);
-}
-.earth:hover .earth-globe, .earth:focus-visible .earth-globe { box-shadow: 0 0 0 1px rgba(150, 190, 255, .34), 0 0 26px 5px rgba(110, 160, 240, .44), 0 0 70px 14px rgba(90, 140, 230, .12); }
-.earth-label { display: grid; justify-items: center; gap: 1px; line-height: 1.25; white-space: nowrap; text-shadow: 0 0 4px var(--void), 0 0 2px var(--void); }
-.earth-label b { color: var(--fg); font-size: 12px; font-weight: 550; }
-.earth-label span { font-size: 11.5px; }
-.earth:hover .earth-label span { color: var(--fg); }
-@media (prefers-reduced-motion: reduce) { .earth, .earth-land, .earth-cloud { animation: none; } }
-.rocket { position: absolute; left: 0; top: 0; z-index: 120; width: 16px; height: 28px; margin: -14px 0 0 -8px; pointer-events: none; transition: opacity .35s; }
-.rocket svg { display: block; overflow: visible; }
-.r-body { fill: #dfe5ee; }
-.r-fin { fill: #c9584a; }
-.r-window { fill: #7ea6e6; stroke: #2a3442; stroke-width: .6; }
-.r-flame { fill: #ffc56a; transform-origin: 8px 20px; animation: flame .09s ease-in-out infinite alternate; }
-.rocket.coast .r-flame { opacity: 0; animation: none; }
-@keyframes flame { from { transform: scaleY(.7); opacity: .8; } to { transform: scaleY(1.3); opacity: 1; } }
-.orbits .trails circle { fill: #ffd28a; }
-.planet.incoming { opacity: 0; pointer-events: none; }
-.planet.born .sat-in { animation: born .7s cubic-bezier(.2, 1.5, .4, 1); }
-.planet.born .sat-wing { animation: unfold .55s .25s cubic-bezier(.3, 1.3, .5, 1) both; } /* its wings open once it is in orbit */
-@keyframes born { from { transform: scale(.15); } }
-@keyframes unfold { from { transform: scaleX(0); } }
-.burst { position: absolute; left: 0; top: 0; width: 4px; height: 4px; margin: -2px 0 0 -2px; border-radius: 50%; box-shadow: 0 0 0 1px var(--c); pointer-events: none; animation: burst .9s ease-out forwards; }
-@keyframes burst { to { width: 96px; height: 96px; margin: -48px 0 0 -48px; opacity: 0; } }
-.sp-legend .k { display: inline-flex; align-items: center; gap: 8px; }
-.k-sat { position: relative; width: 6px; height: 6px; margin: 0 9px; border-radius: 1px; background: var(--fg-dim); }
-.k-sat::before, .k-sat::after { content: ""; position: absolute; top: 1px; width: 6px; height: 4px; background: #345a91; box-shadow: inset 0 0 0 1px rgba(150, 185, 235, .4); }
-.k-sat::before { right: 8px; }
-.k-sat::after { left: 8px; }
-.k-dish { position: absolute; left: -1px; top: -6px; width: 8px; height: 4px; border: 1px solid var(--fg-dim); border-top: 0; border-radius: 0 0 50% 50% / 0 0 100% 100%; }
-.k-moon { position: relative; width: 4px; height: 4px; margin: 0 6px; border-radius: 1px; background: var(--run); }
-.k-moon::before, .k-moon::after { content: ""; position: absolute; top: .5px; width: 4px; height: 3px; background: #345a91; }
-.k-moon::before { right: 5px; }
-.k-moon::after { left: 5px; }
-.k-tether { width: 16px; border-top: 1px dashed var(--amber); }
-.space { --drawer-w: var(--drawer-user, clamp(440px, 46vw, 820px)); }
-.space .drawer { top: var(--sp-top, 52px); z-index: 5; background: color-mix(in srgb, var(--panel) 93%, transparent); backdrop-filter: blur(10px); }
-
 /* Narrow, the rail takes the width and the open session covers it. */
 @media (max-width: 860px) {
   .board { flex: 1; width: auto; border-right: 0; }
@@ -806,7 +564,7 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
   .stage > .drawer { position: absolute; inset: 0; margin: 0; width: auto; }
 }
 @media (max-width: 520px) { .pair { grid-template-columns: 1fr; } }
-@media (hover: none) { .qstop { opacity: 1; } .tile-wrap.can-act .tside { visibility: hidden; } }
+@media (hover: none) { .qstop { opacity: 1; } .tile-wrap.can-act .tage { visibility: hidden; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 </style>
 </head>
@@ -821,19 +579,16 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
   <div class="counts" id="counts"></div>
   <span class="grow"></span>
   <span class="paused" id="paused" hidden>Paused: the terminal answers everything</span>
-  <button class="linkish" type="button" id="notify" hidden>Turn on desktop alerts</button>
-  <label class="switch" title="When off, requests go to the terminal only"><input type="checkbox" id="armed" checked><i></i>Answer prompts here</label>
+  <button class="btn icon" type="button" id="notify" aria-label="Turn on desktop alerts" title="Turn on desktop alerts" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg></button>
+  <label class="switch" title="When off, requests go to the terminal only"><input type="checkbox" id="armed" checked><i></i>Answering here</label>
   <div class="prof">
     <button class="prof-btn theme-btn" type="button" id="theme-btn" aria-haspopup="menu" aria-expanded="false"></button>
     <div class="prof-menu theme-menu" id="theme-menu" role="menu" aria-label="Theme" hidden></div>
   </div>
-  <button class="btn orbit" type="button" id="space-btn">Space view</button>
-  <button class="btn globe" type="button" id="world-btn" title="A world your agents' work builds">World<span class="wb" id="wb" hidden><b id="wb-bal"></b> credit</span></button>
   <button class="btn primary" type="button" id="new-agent">New agent</button>
 </header>
 <p class="banner" id="roster-err" hidden></p>
 <div class="banner old" id="old-ver" role="status" hidden></div>
-<div class="banner connect" id="app-update" role="status" hidden></div>
 <div class="banner connect" id="prof-banner" hidden>
   <span>The <b id="pb-name"></b> profile doesn't report to this panel yet. Its sessions are listed, but their requests, tools and subagents don't show as they happen.</span>
   <button class="btn small" type="button" id="pb-connect">Connect this profile</button>
@@ -856,12 +611,14 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
           <div class="d-col">
             <section class="sec" id="d-chat" hidden>
               <button class="linkish d-earlier" type="button" id="d-earlier" hidden>Show earlier</button>
-              <div class="thread" id="d-thread" aria-live="polite"></div>
+              <div class="thread" id="d-thread"></div>
             </section>
             <div class="chips" id="d-chips" hidden></div>
             <section class="sec needs" id="d-needs" hidden><h4 class="rule">Needs you <span class="n" id="d-needs-n"></span></h4><div class="cards" id="d-cards"></div></section>
             <div class="d-subs-in" id="d-subs-in"></div>
           </div>
+          <!-- Shown when rows came in below while you read further up. -->
+          <div class="d-newer-at"><button class="d-newer" type="button" id="d-newer" hidden>↓ newer</button></div>
         </div>
         <div class="d-foot">
           <div class="d-col">
@@ -870,9 +627,14 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
               <div class="composer">
                 <textarea id="d-reply" rows="2" placeholder="Answer it, or tell it what to do next" aria-label="Your message"></textarea>
                 <div class="c-bar">
-                  <select class="c-mode" id="d-mode" aria-label="Its permission mode"></select>
-                  <select class="c-mode" id="d-model" aria-label="Its model"></select>
-                  <select class="c-mode" id="d-effort" aria-label="Its effort level"></select>
+                  <div class="c-opts">
+                    <button class="btn quiet small" type="button" id="d-opts" aria-haspopup="dialog" aria-expanded="false" title="Mode, model and effort"></button>
+                    <div class="c-pop" id="d-pop" role="dialog" aria-label="Mode, model and effort" hidden>
+                      <label class="c-row"><span>Mode</span><select class="c-mode" id="d-mode" aria-label="Its permission mode"></select></label>
+                      <label class="c-row"><span>Model</span><select class="c-mode" id="d-model" aria-label="Its model"></select></label>
+                      <label class="c-row"><span>Effort</span><select class="c-mode" id="d-effort" aria-label="Its effort level"></select></label>
+                    </div>
+                  </div>
                   <span class="grow"></span>
                   <button class="btn primary small" type="button" id="d-send" disabled>Send</button>
                 </div>
@@ -895,178 +657,6 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
     <div id="d-advance"></div>
   </aside>
 </main>
-
-<div class="space" id="space" role="dialog" aria-modal="true" aria-label="Space view" hidden>
-  <canvas class="stars" id="stars" aria-hidden="true"></canvas>
-  <svg class="orbits" aria-hidden="true"><g id="rings"></g><g id="moon-orbits"></g><g id="tethers"></g><g class="trails" id="trails"></g></svg>
-  <div class="bodies">
-    <div id="planets"></div>
-    <button class="sun" id="sun" type="button" aria-label="You. Opens the next request."><span class="sun-core"></span><span class="sun-label"><b>You</b><span id="sun-n"></span></span></button>
-    <div class="sp-tip" id="sp-tip" hidden></div>
-  </div>
-  <div class="sp-top" id="sp-top">
-    <span class="brand">Agent panel</span>
-    <span class="sp-sub" id="sp-sub">Space view</span>
-    <div class="counts" id="sp-counts"></div>
-    <span class="grow"></span>
-    <button class="btn quiet small" type="button" id="sp-full">Full screen</button>
-    <button class="btn small" type="button" id="sp-exit" title="Esc">Back to board</button>
-  </div>
-  <div class="sp-foot">
-    <button class="earth" id="earth" type="button" aria-label="New agent: launch one from Earth">
-      <span class="earth-globe" id="earth-globe"><span class="earth-land"></span><span class="earth-cloud"></span></span><span class="earth-label"><b>Earth</b><span>Launch a new agent</span></span>
-    </button>
-    <div class="sp-legend">
-      <span>The closer in, the sooner it needs you.</span>
-      <span class="k"><i class="k-sat"></i>Terminal session</span>
-      <span class="k"><i class="k-sat"><i class="k-dish"></i></i>Background session</span>
-      <span class="k"><i class="k-moon"></i>Subagent</span>
-      <span class="k"><i class="k-tether"></i>Waiting on you</span>
-    </div>
-  </div>
-</div>
-
-<div class="space world" id="world" role="dialog" aria-modal="true" aria-label="World" hidden>
-  <canvas id="w-canvas" aria-label="Your world. Scroll or use Home and Map to zoom, drag to look around."></canvas>
-  <div class="sp-top">
-    <span class="brand">World</span>
-    <span class="sp-sub" id="w-where">Home</span>
-    <span class="grow"></span>
-    <button class="btn small w-needs" type="button" id="w-needs" title="Back to the board, at the first one" hidden></button>
-    <span class="w-credit"><b id="w-credit">0</b> credit</span>
-    <button class="btn small" type="button" id="w-exit" title="Esc">Back to board</button>
-  </div>
-  <!-- Home's level, in a box of its own at the top left. -->
-  <div class="w-hud" id="w-hud">
-    <div class="w-hud-top"><b>Home · <span id="w-level"></span></b><span id="w-xp"></span></div>
-    <div class="w-bar"><i id="w-bar"></i></div>
-    <p class="w-hud-row"><span id="w-next"></span><span id="w-xp-today"></span></p>
-    <div class="w-bar today"><i id="w-bar-today"></i></div>
-    <b id="w-stage" hidden></b>
-  </div>
-  <!-- The side: a rail of buttons on the right, each opening one card beside it (world.js openCard). One card at a time,
-       or none and the map clear. The boxes inside keep the ids world.js fills. -->
-  <aside class="w-side" id="w-side">
-    <nav class="w-rail" id="w-rail" aria-label="World tools">
-      <button type="button" data-card="profile" aria-pressed="false" aria-label="Profile" title="Profile"><span class="w-rail-av" id="w-rail-avatar"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c1-4 4-6 7-6s6 2 7 6"/></svg></span></button>
-      <hr>
-      <button type="button" data-card="build" aria-pressed="false" aria-label="Build" title="Build"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg></button>
-      <button type="button" data-card="rocket" aria-pressed="false" aria-label="Send a rocket" title="Send a rocket"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 15c-1 1-2 5-2 5s4-1 5-2"/><path d="M9 15l-3-3c1-4 5-9 12-9 0 7-5 11-9 12z"/><circle cx="15" cy="9" r="1.5"/></svg></button>
-      <button type="button" data-card="push" aria-pressed="false" aria-label="Push the frontier" title="Push the frontier"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></svg></button>
-      <button type="button" data-card="probe" aria-pressed="false" aria-label="Send a probe" title="Send a probe" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="16" r="2.5"/><path d="M10 14l7-7M14 7h3v3"/><path d="M4.5 9.5a8 8 0 0 1 5-5M3 6a11 11 0 0 1 3-3"/></svg></button>
-      <hr>
-      <button type="button" data-card="moments" aria-pressed="false" aria-label="Moments" title="Moments"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6-4.5-4.2 6.1-.7z"/></svg></button>
-      <button type="button" data-card="today" aria-pressed="false" aria-label="Today's work" title="Today's work"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V11M11 20V5M17 20v-7M3 20h18"/></svg></button>
-    </nav>
-
-    <section class="w-box w-card" data-card="profile" aria-label="Profile" hidden>
-      <header><h2>Profile</h2><button class="btn small quiet w-card-x" type="button" aria-label="Close" title="Close"></button></header>
-      <div class="w-part" id="w-profile">
-        <div class="w-pf" id="w-pf-out" hidden>
-          <p>Sign in with GitHub to put your galaxy in the Universe, visit others, and send rockets to friends. Only the shape of your world is shared, never your repositories, lines or credit.</p>
-          <div class="w-act" id="w-pf-start"><span></span><button class="btn small go" type="button" id="w-pf-login">Sign in with GitHub</button></div>
-          <div class="w-pf" id="w-pf-wait" hidden>
-            <p>Enter <b class="w-code" id="w-pf-code"></b> at <a id="w-pf-link" target="_blank" rel="noopener"></a></p>
-            <div class="w-act"><span class="w-wait">Waiting…</span><button class="btn small" type="button" id="w-pf-cancel">Cancel</button></div>
-          </div>
-          <p class="err" id="w-pf-err" role="alert" hidden></p>
-        </div>
-        <div class="w-pf" id="w-pf-in" hidden>
-          <div class="w-who"><span id="w-pf-avatar"></span><div><b id="w-pf-handle"></b><span id="w-pf-xy"></span></div></div>
-          <div class="w-links"><a id="w-pf-page" target="_blank" rel="noopener">Your page</a><a id="w-pf-edit" target="_blank" rel="noopener">Edit profile</a></div>
-          <p id="w-pf-order" hidden></p>
-          <div class="w-act"><span class="w-sync" id="w-pf-sync"></span><button class="btn small" type="button" id="w-pf-logout">Sign out</button></div>
-        </div>
-      </div>
-      <div class="w-part">
-        <p id="w-pf-stats"></p>
-        <div class="w-days" id="w-pf-days"></div>
-      </div>
-    </section>
-
-    <section class="w-box w-card" data-card="build" aria-label="Build" hidden>
-      <header><h2 id="w-build-title">Build</h2><button class="btn small quiet w-card-x" type="button" aria-label="Close" title="Close"></button></header>
-      <div class="w-places" id="w-build-on" role="group" aria-label="Where to build"></div>
-      <div class="w-part" id="w-build-box">
-        <p>Describe something to build here, on the ground or in orbit. Claude picks what to draw.</p>
-        <textarea class="field" id="w-build-text" maxlength="300" rows="2" placeholder="A ring city along the equator, lit at night" aria-label="What to build"></textarea>
-        <div class="w-act"><span id="w-build-price"></span><button class="btn small go" type="button" id="w-build" disabled>Build it</button></div>
-        <p id="w-build-why" hidden></p>
-        <p class="err" id="w-build-err" role="alert" hidden></p>
-        <ul class="w-list w-built" id="w-built" aria-label="Built here" hidden></ul>
-      </div>
-      <p id="w-build-none" hidden>Pick Home or one of your colonies to build there.</p>
-    </section>
-
-    <section class="w-box w-card" data-card="rocket" aria-label="Send a rocket" hidden>
-      <header><h2>Send a rocket</h2><button class="btn small quiet w-card-x" type="button" aria-label="Close" title="Close"></button></header>
-      <div class="w-part" id="w-rocket-box" hidden>
-        <p id="w-rocket-text"></p>
-        <div class="w-row"><select class="field" id="w-rocket-to" aria-label="Planet to send it to"></select><button class="btn small" type="button" id="w-rocket-show">Show</button></div>
-        <input class="field" id="w-rocket-name" maxlength="24" placeholder="Name the colony" aria-label="The colony's name" autocomplete="off" spellcheck="false">
-        <div class="w-act"><span id="w-rocket-price"></span><button class="btn small go" type="button" id="w-rocket" disabled>Send a rocket</button></div>
-        <p id="w-rocket-why" hidden></p>
-        <p class="err" id="w-rocket-err" role="alert" hidden></p>
-      </div>
-      <p id="w-rocket-none">The frontier hasn't found a bare planet yet. Push the frontier to find one, then a rocket lands a colony there.</p>
-    </section>
-
-    <section class="w-box w-card" data-card="push" aria-label="Push the frontier" hidden>
-      <header><h2>Push the frontier</h2><button class="btn small quiet w-card-x" type="button" aria-label="Close" title="Close"></button></header>
-      <div class="w-places" id="w-push-from" role="group" aria-label="Where to push from"></div>
-      <div class="w-part" id="w-push-box">
-        <p id="w-push-text">Pick a direction from Home. The dark lights up that way as you keep working, and it can find a planet.</p>
-        <div class="w-row"><select class="field" id="w-dir" aria-label="Direction to push"></select><button class="btn small" type="button" id="w-aim">Aim on the map</button></div>
-        <div class="w-act"><span id="w-push-price"></span><button class="btn small go" type="button" id="w-push" disabled>Pick a direction</button></div>
-        <p id="w-push-why" hidden></p>
-        <p class="err" id="w-push-err" role="alert" hidden></p>
-      </div>
-      <p id="w-push-none" hidden>Pick Home or one of your colonies to push from.</p>
-    </section>
-
-    <section class="w-box w-card" data-card="probe" aria-label="Send a probe" hidden>
-      <header><h2>Send a probe</h2><button class="btn small quiet w-card-x" type="button" aria-label="Close" title="Close"></button></header>
-      <div class="w-part" id="w-probe-box">
-        <p>Pick a direction from your sun. The probe finds the nearest galaxy that way you haven't found, and arrives as you keep working.</p>
-        <div class="w-row"><select class="field" id="w-probe-dir" aria-label="Direction to send it"></select><button class="btn small" type="button" id="w-probe-aim">Aim on the map</button></div>
-        <div class="w-act"><span id="w-probe-price"></span><button class="btn small go" type="button" id="w-probe" disabled>Pick a direction</button></div>
-        <p id="w-probe-why" hidden></p>
-        <p class="err" id="w-probe-err" role="alert" hidden></p>
-        <p id="w-probe-none" hidden>Send a probe to find the galaxies around you.</p>
-        <ul class="w-list" id="w-probe-list" aria-label="Your probes" hidden></ul>
-      </div>
-    </section>
-
-    <section class="w-box w-card" data-card="moments" aria-label="Moments" hidden>
-      <header><h2>Moments <span id="w-moments-n"></span></h2><button class="btn small quiet w-card-x" type="button" aria-label="Close" title="Close"></button></header>
-      <div class="w-part w-moment" id="w-moment" aria-live="polite" hidden>
-        <h3 id="w-m-name"></h3>
-        <p id="w-m-when"></p>
-        <dl id="w-m-info"></dl>
-        <div class="w-act"><span></span><button class="btn small" type="button" id="w-m-close">Close</button></div>
-      </div>
-      <div class="w-part" id="w-moments-box" hidden>
-        <ul class="w-list" id="w-moments"></ul>
-      </div>
-      <p id="w-moments-none">No moments yet. A week of work, a big cleanup or a new level puts a star on the map.</p>
-    </section>
-
-    <section class="w-box w-card" data-card="today" aria-label="Today's work" hidden>
-      <header><h2>Today's work</h2><button class="btn small quiet w-card-x" type="button" aria-label="Close" title="Close"></button></header>
-      <div class="w-part" id="w-today-box">
-        <dl id="w-today"></dl>
-        <p class="warn" id="w-noemail" hidden></p>
-      </div>
-      <div class="w-part" id="w-total-box">
-        <p id="w-total"></p>
-        <p>A day's credit comes from the lines changed, the commits and the time you were active (an agent working, or
-          files changing in a repository World counts), and grows more slowly the bigger the day. Stars on the map are moments: a week of work, a big cleanup, a level Home reached.
-          Click one to see what was done.</p>
-      </div>
-    </section>
-  </aside>
-  <div class="w-zoom"><button class="btn small on" type="button" id="w-home" data-place="home">Home</button><span id="w-colonies"></span><button class="btn small" type="button" id="w-map">Map</button><button class="btn small" type="button" id="w-universe" hidden>Universe</button><button class="btn small quiet" type="button" id="w-universe-hint" hidden>Sign in to explore the Universe</button></div>
-</div>
 
 <dialog class="launcher" id="launcher" aria-labelledby="launch-title">
   <form id="launch-form">
@@ -1112,10 +702,10 @@ body.in-space #toasts { --raise: #171b21; --fg: #e3e7ed; --line-strong: #39414c;
 </dialog>
 <div id="toasts" role="status" aria-live="polite"></div>
 
-<script src="/world.js"></script>
 <script>
 const TOKEN = '__ACP_TOKEN__';
-window.ACP_VIEW = '__ACP_VIEW__'; // 'board' at /, 'world' at /world
+// This page, to the server: the thread of the session it has open comes on its stream, under this id.
+const CLIENT = crypto.randomUUID?.() ?? Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
 const COLS = [['waiting', 'Needs you'], ['busy', 'Working'], ['idle', 'Idle'], ['finished', 'Finished']];
 const LABEL = { waiting: 'Needs you', busy: 'Working', idle: 'Idle', finished: 'Finished', failed: 'Failed', stopping: 'Stopping', running: 'Running', done: 'Done', stopped: 'Stopped' };
 const KIND = { background: 'Background session', interactive: 'Terminal session' };
@@ -1220,9 +810,13 @@ function patch(node, sig, build) {
 
 // ---------- live connection ----------
 function connect() {
-  const es = new EventSource('/events?t=' + encodeURIComponent(TOKEN));
+  const es = new EventSource('/events?t=' + encodeURIComponent(TOKEN) + '&c=' + CLIENT);
   const conn = $('conn');
-  es.onopen = () => { conn.classList.remove('down'); conn.textContent = 'Live'; };
+  // The server forgets what a page follows when its stream closes: a stream that opens again asks for it again.
+  es.onopen = () => { conn.classList.remove('down'); conn.textContent = 'Live'; if (followed) followOpen(followed); };
+  es.addEventListener('thread', (m) => { const d = JSON.parse(m.data); applyThread(d.sessionId, d.events); });
+  // Its transcript was cut or replaced, or the profile switched: what the page holds is gone, so it asks again.
+  es.addEventListener('thread-reset', (m) => { const { sessionId } = JSON.parse(m.data); if (sessionId === followed) { threads.delete(sessionId); followOpen(sessionId); } });
   es.onerror = () => {
     conn.classList.add('down');
     conn.textContent = 'Disconnected. Is server.mjs running?';
@@ -1232,20 +826,13 @@ function connect() {
   es.onmessage = (m) => {
     const prev = snap;
     snap = JSON.parse(m.data);
-    if (worldOn) {
-      AgentWorld.update(snap.world, snap.hub);
-      worldNeeds();
-      // World covers the board: say so when something new needs you.
-      for (const p of snap.pending) if (prev && !prev.pending.some((q) => q.id === p.id)) toast(`${label(sessionOf(p.sessionId))} needs you.`);
-    }
     for (const p of snap.pending) if (prev && !prev.pending.some((q) => q.id === p.id)) alertNew(p);
     const newOld = prev ? (snap.oldVersions ?? []).filter((o) => !(prev.oldVersions ?? []).some((x) => x.sessionId === o.sessionId)) : [];
     if (newOld.length === 1) toast(`${newOld[0].name || 'A session'} runs Claude Code ${newOld[0].version}, which has been deleted. Restart it before it loses ~/Documents.`);
     else if (newOld.length) toast(`${newOld.length} sessions run a Claude Code version that has been deleted. Restart them before they lose ~/Documents.`);
-    const was = prev?.world?.home, home = snap.world?.home;
-    if (was && home && home.level > was.level) toast(`Home reached level ${home.level}: ${home.stage}.`);
-    const ev = snap.event;
-    if (ev?.type === 'settled' && cards.has(ev.id)) {
+    // Every request settled since the last snapshot (the first one, on connect, carries none).
+    for (const ev of snap.events ?? []) {
+      if (ev?.type !== 'settled' || !cards.has(ev.id)) continue;
       const r = cards.get(ev.id).req;
       const how = (ev.why === 'deny' && DIALOG[r.toolName]?.deny) || SETTLED[ev.why] || ev.why;
       notes.set(r.sessionId, { text: `${toolName(r.toolName)}: ${how}.`, at: Date.now() });
@@ -1276,7 +863,7 @@ function alertNew(p) {
   const title = p.toolName === 'AskUserQuestion' ? `${who} has a question for you`
     : p.toolName === 'ExitPlanMode' ? `${who} has a plan ready for review` : `${who} wants to use ${p.toolName}`;
   const n = new Notification(title, { body: summary(p), tag: p.id });
-  n.onclick = () => { window.focus(); exitWorld(); open = p.sessionId; render(); n.close(); };
+  n.onclick = () => { window.focus(); open = p.sessionId; render(); n.close(); };
 }
 function summary(p) {
   const i = p.toolInput || {};
@@ -1409,6 +996,86 @@ const colEls = COLS.map(([k, name]) => {
   $('board').append(c.sec);
   return c;
 });
+// ---- find by name, and the keys that move you through the rail
+let railQuery = '';
+const railFind = el('input', { id: 'rail-find', type: 'search', placeholder: 'Find a session', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Find a session' });
+railFind.hidden = true;
+$('board').prepend(railFind);
+const kb = (...keys) => keys.map((k) => el('kbd', { text: k }));
+$('board').append(el('div', { id: 'rail-keys', 'aria-hidden': 'true' },
+  el('span', {}, ...kb('↑', '↓'), ' move'), el('span', {}, ...kb('→'), ' subagents'), el('span', {}, ...kb('n'), ' next needs you'), el('span', {}, ...kb('/'), ' find')));
+new ResizeObserver(() => $('board').classList.toggle('narrow', $('board').clientWidth < 240)).observe($('board'));
+const matchesQuery = (s) => !railQuery || label(s).toLowerCase().includes(railQuery);
+function showFind(on) {
+  railFind.hidden = !on;
+  if (on) railFind.focus();
+  else { railFind.value = ''; railQuery = ''; }
+}
+railFind.oninput = () => { railQuery = railFind.value.trim().toLowerCase(); render(); };
+railFind.onblur = () => { if (!railFind.value) showFind(false); };
+railFind.onkeydown = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); showFind(false); railFind.blur(); render(); } };
+/** The rail's rows in visual order: sessions in unfolded sections, and the subagents of open trees, as filtered. */
+function railRows() {
+  const rows = [];
+  for (const c of colEls) {
+    if (c.k !== 'waiting' && folded.has(c.k)) continue;
+    for (const w of c.body.children) {
+      const s = w.dataset?.sid && sessionOf(w.dataset.sid);
+      if (!s) continue;
+      if (w.classList.contains('tile-wrap')) rows.push({ kind: 'session', s, el: w.firstChild });
+      else if (w.classList.contains('sub')) { const a = s.subagents.find((x) => x.agentId === w.dataset.aid); if (a) rows.push({ kind: 'sub', s, a, el: w }); }
+    }
+  }
+  return rows;
+}
+let followSoon = false; // the selection is moving by key: the follow waits 120 ms for the key to settle
+// Arrow keys from the page body count as the rail's only while the last click was in the rail: after a click into the
+// conversation, the arrows scroll it, as anywhere else.
+let railArmed = true;
+document.addEventListener('pointerdown', (e) => { railArmed = Boolean(e.target.closest?.('#board')); }, true);
+function moveSel(delta) {
+  const rows = railRows();
+  if (!rows.length) return;
+  let i = subFocus ? rows.findIndex((r) => r.kind === 'sub' && r.a.agentId === subFocus) : -1;
+  if (i < 0) i = rows.findIndex((r) => r.kind === 'session' && r.s.sessionId === open); // the subagent row is gone (folded): from its session
+  const to = rows[i < 0 ? (delta > 0 ? 0 : rows.length - 1) : Math.max(0, Math.min(rows.length - 1, i + delta))];
+  if (to.kind === 'sub') focusSub(to.s, to.a);
+  else { cancelAdvance(); subFocus = null; open = to.s.sessionId; render(); }
+  followSoon = true;
+  clearTimeout(followTimer);
+  followTimer = setTimeout(() => { followSoon = false; if (open !== followed) followOpen(open); }, 120);
+  to.el.focus({ preventScroll: true });
+  to.el.scrollIntoView({ block: 'nearest' });
+}
+function nextNeedsYou() {
+  const ids = asking().filter((id) => { const s = sessionOf(id); return s && matchesQuery(s); });
+  if (!ids.length) { toast('Nothing needs you.'); return; }
+  cancelAdvance();
+  selectNow();
+  subFocus = null;
+  open = ids[(ids.indexOf(open) + 1) % ids.length];
+  render();
+  tiles.get(open)?.btn.scrollIntoView({ block: 'nearest' });
+}
+function railKeys(e) {
+  if (dlg.open || e.ctrlKey || e.metaKey || e.altKey) return;
+  const t = e.target;
+  if (t.closest?.('textarea, input, select, [contenteditable], [role=menu], [role=separator]')) return;
+  if (e.key === 'Escape' && railQuery) { e.preventDefault(); e.stopImmediatePropagation(); showFind(false); render(); return; }
+  const arrow = e.key.startsWith('Arrow'), onBody = t === document.body || t === document.documentElement;
+  if (arrow && !(t.closest?.('#board') || (onBody && railArmed))) return;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); moveSel(e.key === 'ArrowDown' ? 1 : -1); }
+  else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+    const s = sessionOf(open);
+    if (!s?.subagents.length) return;
+    e.preventDefault();
+    if (e.key === 'ArrowLeft' && subFocus && s.subagents.some((a) => a.agentId === subFocus)) { subFocus = null; tiles.get(s.sessionId)?.btn.focus({ preventScroll: true }); }
+    setTree(s, e.key === 'ArrowRight');
+  }
+  else if (e.key === 'n' && !e.shiftKey) { e.preventDefault(); nextNeedsYou(); }
+  else if (e.key === '/') { e.preventDefault(); showFind(true); }
+}
+document.addEventListener('keydown', railKeys);
 function tileAction(s, st) {
   const bg = s.kind === 'background';
   if (st === 'busy' || st === 'waiting') return { kind: 'int', ask: 'Interrupt?', name: 'Interrupt', run: () => doInterrupt(s), title: HINT.int };
@@ -1430,36 +1097,123 @@ const listOf = (names, n = 3) => names.length > n ? `${names.slice(0, n).join(',
 /** Other live sessions working in the same checkout: they share its branch and its files, and one that switches the
  *  branch switches it for all of them. */
 const sharersOf = (s) => !s.git ? [] : (snap?.sessions ?? []).filter((o) => o !== s && o.git?.top === s.git.top && !['finished', 'failed'].includes(stateOf(o))).map(label);
-const tiles = new Map(); // sessionId → its tile
+/** The row's short mono detail and the long form for its tooltip: what it runs, or what it asks for. */
+function detailOf(s, st) {
+  const rs = reqsOf(s.sessionId);
+  if (st === 'stopping') return { text: 'stopping', full: 'Stopping at its next tool call' };
+  if (rs.length) {
+    const p = rs[0], name = p.toolName === 'ExitPlanMode' ? 'Plan' : p.toolName === 'AskUserQuestion' ? 'Asks' : p.toolName;
+    return { text: (p.agentId ? 'sub:' : '') + name + (rs.length > 1 ? ` +${rs.length - 1}` : ''), full: (p.agentId ? 'Its subagent: ' : '') + askText(p) };
+  }
+  if (st === 'waiting') return { text: 'terminal', full: textOf(lineOf(s)) };
+  if (st === 'busy') return { text: s.lastTool?.tool ?? '', full: s.lastTool ? `${s.lastTool.tool} ${s.lastTool.text}` : '' };
+  return { text: '', full: '' };
+}
+/** The tooltip: where it works, its folder, and what the row has no room for. */
+function tipOf(s, st) {
+  const w = whereOf(s.git), d = detailOf(s, st);
+  const more = d.full || (['busy', 'waiting', 'stopping'].includes(st) ? '' : textOf(lineOf(s)));
+  return [w?.long, s.workCwd ?? s.cwd, more].filter(Boolean).join('\n') || label(s);
+}
+// ---- subagent trees: a session's subagents under its row. Open by itself while one runs or waits, folds 20 s after the
+// last one finishes; a chevron click or a key wins until a new subagent starts. Nothing folds or unfolds by itself while
+// the pointer is over that session's rows: the change waits for the pointer to leave.
+const trees = new Map(); // sessionId → { mode: 'auto'|'open'|'shut', shown, pending, known: Set<agentId> }
+const TREE_LINGER_MS = 20_000;
+// While the pointer is over the rail, no tree changes by itself: a tree above the pointer would shift the row under it.
+// The changes wait, and apply together when the pointer leaves.
+let railHover = false;
+const CHEV_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
+function treeOf(s) {
+  let t = trees.get(s.sessionId);
+  if (!t) { t = { mode: 'auto', shown: false, pending: null, known: new Set() }; trees.set(s.sessionId, t); }
+  return t;
+}
+/** Whether the session's tree shows now, after the automatic rule, a manual choice and the pointer. */
+function treeOpen(s) {
+  if (!s.subagents.length) return false;
+  const t = treeOf(s);
+  if (s.subagents.some((a) => !t.known.has(a.agentId))) { t.known = new Set(s.subagents.map((a) => a.agentId)); t.mode = 'auto'; }
+  const live = s.subagents.some((a) => ['running', 'waiting', 'stopping'].includes(subState(s, a)));
+  const lastStop = Math.max(0, ...s.subagents.map((a) => a.stoppedAt ?? 0));
+  const want = t.mode === 'auto' ? live || snap.now - lastStop < TREE_LINGER_MS : t.mode === 'open';
+  if (want !== t.shown) {
+    if (t.mode === 'auto' && railHover) { t.pending = want; return t.shown; }
+    t.shown = want; t.pending = null;
+  }
+  return t.shown;
+}
+function setTree(s, on) { const t = treeOf(s); t.mode = on ? 'open' : 'shut'; t.shown = on; t.pending = null; render(); }
+$('board').addEventListener('pointerenter', () => { railHover = true; });
+$('board').addEventListener('pointerleave', () => {
+  railHover = false;
+  let changed = false;
+  for (const t of trees.values()) if (t.pending !== null) { t.shown = t.pending; t.pending = null; changed = true; }
+  if (changed) render();
+});
+const subEls = new Map(); // agentId → its row under the session
+let subFocus = null;      // the subagent picked from the rail, marked in the details
+function subRow(s, a, last) {
+  let b = subEls.get(a.agentId);
+  if (!b) {
+    b = el('button', { class: 'sub', type: 'button' }, el('span', { class: 'sd', 'aria-hidden': 'true' }), el('span', { class: 'sn' }), el('span', { class: 'sage' }));
+    subEls.set(a.agentId, b);
+  }
+  const st = subState(s, a);
+  b.dataset.sid = s.sessionId;
+  b.dataset.aid = a.agentId;
+  setAttr(b, 'data-state', st);
+  b.classList.toggle('focus', subFocus === a.agentId);
+  b.classList.toggle('last', last);
+  b.onclick = () => { selectNow(); focusSub(s, a); };
+  setText(b.children[1], a.title || a.agentType);
+  setText(b.children[2], st === 'running' ? ago(snap.now - a.startedAt) : st === 'waiting' ? 'asks you' : LABEL[st].toLowerCase());
+  setAttr(b, 'title', a.lastTool ? `${a.lastTool.tool} ${a.lastTool.text}` : a.task ?? (a.title || a.agentType));
+  return b;
+}
+/** A click or `n` picks a session outright: any pending key-driven follow delay is dropped. */
+function selectNow() { followSoon = false; clearTimeout(followTimer); }
+/** Open the session and mark this subagent in its details, unfolding the details column if it was folded away. */
+function focusSub(s, a) {
+  cancelAdvance();
+  open = s.sessionId;
+  subFocus = a.agentId;
+  if (sideFolded) { sideFolded = false; pref('acp.sideFolded', '0'); }
+  render();
+  document.querySelector('#d-subs .branch.focus')?.scrollIntoView({ block: 'nearest' });
+}
+const tiles = new Map(); // sessionId → its row
 function tile(s) {
   const id = s.sessionId;
   let t = tiles.get(id);
   if (!t) {
-    t = { glyph: el('span', { class: 'glyph', 'aria-hidden': 'true' }), name: el('span', { class: 'tname' }), subs: el('span'), age: el('span'), line: el('span', { class: 'tline' }),
-          on: el('span'), old: el('span', { class: 'told', text: 'restart' }) };
-    t.where = el('span', { class: 'twhere' }, t.on);
-    t.btn = el('button', { class: 'tile', type: 'button', onclick: () => { cancelAdvance(); open = open === id ? null : id; render(); } },
-      t.glyph, t.name, el('span', { class: 'tside' }, t.old, t.subs, t.age), t.line, t.where);
+    t = { chev: el('span', { class: 'chev-slot', 'aria-hidden': 'true' }), glyph: el('span', { class: 'glyph', 'aria-hidden': 'true' }), name: el('span', { class: 'tname' }),
+          detail: el('span', { class: 'tdetail' }), old: el('span', { class: 'told', text: '!' }), age: el('span', { class: 'tage' }) };
+    t.btn = el('button', { class: 'srow', type: 'button', onclick: () => { cancelAdvance(); selectNow(); subFocus = null; open = open === id ? null : id; render(); } },
+      t.chev, t.glyph, t.name, t.detail, t.old, t.age);
     t.q = el('button', { class: 'qstop', type: 'button', onclick: () => t.act && confirmOr(t.key, t.act.run) });
-    t.wrap = el('div', { class: 'tile-wrap' }, t.btn, t.q);
+    t.wrap = el('div', { class: 'tile-wrap', 'data-sid': id }, t.btn, t.q);
+    t.subRows = [];
     tiles.set(id, t);
   }
-  const st = stateOf(s), running = s.subagents.filter((a) => subState(s, a) === 'running').length;
+  const st = stateOf(s), hasSubs = s.subagents.length > 0, treeOn = hasSubs && treeOpen(s);
+  if (hasSubs && !t.chev.firstChild) t.chev.innerHTML = CHEV_SVG;
+  else if (!hasSubs && t.chev.firstChild) t.chev.replaceChildren();
+  t.chev.classList.toggle('open', treeOn);
+  t.chev.onclick = hasSubs ? (e) => { e.stopPropagation(); setTree(s, !treeOpen(s)); } : null;
+  if (hasSubs) setAttr(t.btn, 'aria-expanded', String(treeOn)); else t.btn.removeAttribute('aria-expanded');
+  t.subRows = treeOn ? s.subagents.map((a, i) => subRow(s, a, i === s.subagents.length - 1)) : [];
   setAttr(t.btn, 'data-state', st);
   setAttr(t.btn, 'aria-current', String(open === id));
-  const w = whereOf(s.git);
-  setAttr(t.btn, 'title', [w?.long, s.workCwd ?? s.cwd].filter(Boolean).join('\n') || label(s));
-  t.where.hidden = !w;
-  if (w) { t.where.classList.toggle('wt', Boolean(s.git.worktree)); setText(t.on, w.on); }
+  setAttr(t.btn, 'title', tipOf(s, st));
   setAttr(t.glyph, 'data-s', st);
   setText(t.name, label(s));
-  setText(t.subs, running ? `${running} sub${running > 1 ? 's' : ''}` : '');
+  const d = detailOf(s, st);
+  setText(t.detail, d.text);
+  t.detail.hidden = !d.text;
   t.old.hidden = !s.oldVersion;
-  setAttr(t.old, 'title', s.oldVersion ? oldWhy(s.oldVersion) : '');
-  t.subs.hidden = !running;
+  setAttr(t.old, 'title', s.oldVersion ? 'Restart: ' + oldWhy(s.oldVersion) : '');
   setText(t.age, s.startedAt ? ago(snap.now - s.startedAt) : '');
-  const parts = lineOf(s), text = textOf(parts);
-  if (t.lineText !== text) { t.lineText = text; t.line.replaceChildren(...parts); }
   t.act = tileAction(s, st);
   t.wrap.classList.toggle('can-act', Boolean(t.act));
   t.q.hidden = !t.act;
@@ -1487,8 +1241,8 @@ function renderBoard(g, vis) {
       run: () => bulk(g.finished, doRemove, (n) => `Cleared ${sessions(n)}. Transcripts are kept.`) },
   };
   for (const c of colEls) {
-    const list = g[c.k], b = BULK[c.k] || null, on = Boolean(b) && armed?.key === b.key;
-    setText(c.n, String(list.length));
+    const all = g[c.k], list = railQuery ? all.filter(matchesQuery) : all, b = BULK[c.k] || null, on = Boolean(b) && armed?.key === b.key;
+    setText(c.n, railQuery ? `${list.length}/${all.length}` : String(all.length));
     if (c.peek) {
       const shut = folded.has(c.k);
       c.sec.classList.toggle('folded', shut);
@@ -1505,19 +1259,22 @@ function renderBoard(g, vis) {
     }
     c.hint.hidden = !on;
     if (on) setText(c.hint, HINT[b.key.slice(0, -1)]);
-    c.empty.hidden = list.length > 0;
+    c.empty.hidden = list.length > 0 || Boolean(railQuery);
     setText(c.empty, c.k === 'waiting' ? 'Nothing needs you.' : c.k === 'busy' && !vis.length ? 'No sessions yet. Press New agent, or run claude in a terminal, and it shows up here.' : 'None.');
     // Move only what is out of place.
-    const want = [c.hint, ...list.map(tile), c.empty];
+    const want = [c.hint, ...list.flatMap((s) => { const w = tile(s); return [w, ...tiles.get(s.sessionId).subRows]; }), c.empty];
     want.forEach((n, i) => { if (c.body.children[i] !== n) c.body.insertBefore(n, c.body.children[i] ?? null); });
     while (c.body.children.length > want.length) c.body.lastChild.remove();
   }
   const keep = new Set(vis.map((s) => s.sessionId));
-  for (const [id, t] of tiles) if (!keep.has(id)) { t.wrap.remove(); tiles.delete(id); }
+  for (const [id, t] of tiles) if (!keep.has(id)) { t.wrap.remove(); tiles.delete(id); trees.delete(id); }
+  const agents = new Set(vis.flatMap((s) => s.subagents.map((a) => a.agentId)));
+  for (const [id, b] of subEls) if (!agents.has(id)) { b.remove(); subEls.delete(id); }
+  if (subFocus && !agents.has(subFocus)) subFocus = null;
   countsInto($('counts'), g);
 }
 function countsInto(node, g) {
-  node.replaceChildren(...COLS.map(([k, name]) => el('span', { class: k === 'waiting' && g[k].length ? 'hot' : '' }, el('b', { text: String(g[k].length) }), name.toLowerCase())));
+  node.replaceChildren(...COLS.filter(([k]) => g[k].length).map(([k, name]) => el('span', { class: k === 'waiting' ? 'hot' : '' }, el('b', { text: String(g[k].length) }), name.toLowerCase())));
 }
 
 // ---------- the session panel ----------
@@ -1534,34 +1291,24 @@ function restartHow(o) {
     : `Switch to the ${o.profile.label} profile, end it, then send it a message: it comes back on the installed version.` })];
 }
 /** Every profile's sessions on a deleted version: the one that loses access is often not on screen. */
+// One line until asked: "Show which" unfolds the list, × puts the banner away until the list changes.
+let oldOpen = false; const oldDismissed = new Set();
 function renderOld(list) {
   const b = $('old-ver');
-  b.hidden = !list.length;
-  patch(b, JSON.stringify([list, snap.profile?.id]), () => !list.length ? null : [
-    el('span', { text: `${list.length === 1 ? 'A session runs' : `${list.length} sessions run`} a Claude Code version the updater has deleted, so macOS can stop ${list.length === 1 ? 'it' : 'them'} reading ~/Documents at any moment. Restart ${list.length === 1 ? 'it' : 'them'} on the installed version:` }),
+  b.hidden = !list.length || list.every((o) => oldDismissed.has(o.sessionId));
+  b.classList.toggle('open', oldOpen);
+  patch(b, JSON.stringify([list, snap.profile?.id, oldOpen]), () => !list.length ? null : [
+    el('span', { class: 'lead', text: `${list.length === 1 ? 'A session runs' : `${list.length} sessions run`} a Claude Code version the updater has deleted; restart ${list.length === 1 ? 'it' : 'them'} before macOS stops ${list.length === 1 ? 'it' : 'them'} reading ~/Documents.` }),
+    el('button', { class: 'btn small', type: 'button', text: oldOpen ? 'Hide' : 'Show which', 'aria-expanded': String(oldOpen), onclick: () => { oldOpen = !oldOpen; render(); } }),
+    el('button', { class: 'btn icon', type: 'button', 'aria-label': 'Dismiss', title: 'Put this away until the list changes', text: '×', onclick: () => { for (const o of list) oldDismissed.add(o.sessionId); render(); } }),
     el('ul', {}, ...list.map((o) => el('li', {}, el('b', { text: o.name || o.id || o.sessionId.slice(0, 8) }),
       el('span', { text: `${o.shown ? '' : `${o.profile.label} profile, `}Claude Code ${o.version}.` }), ...restartHow(o)))),
   ]);
 }
-/** A newer release on the hub, for a panel run from a clone: Update pulls main, rebuilds the app and restarts on it. */
-function renderUpdate(u) {
-  const b = $('app-update');
-  b.hidden = !u;
-  patch(b, JSON.stringify(u), () => !u ? null
-    : u.state === 'restarting' ? [el('span', { text: 'Updated. The panel is restarting on the new version…' })]
-    : u.state === 'done' ? [el('span', { text: 'Updated. Quit the panel and start it again to run the new version.' })]
-    : [
-      el('span', {}, el('b', { text: 'A new version of the panel is out' }), ` (${u.sha.slice(0, 7)}).`),
-      u.blocked ? el('span', { text: `${u.blocked} Update it yourself: git pull, then ./install.sh.` })
-        : el('button', { class: 'btn small', type: 'button', disabled: u.state === 'updating', onclick: () => api('/api/update', {}) },
-          u.state === 'updating' ? 'Updating…' : 'Update'),
-      u.error ? el('span', { class: 'mono', text: u.error }) : null,
-    ]);
-}
 /** The workspace with nothing open: you closed it. It offers the top of Needs you, the one that has waited longest. */
 function renderEmpty(waiting) {
   const e = $('empty'), next = waiting[0], n = waiting.length;
-  e.hidden = !$('drawer').hidden && !spaceOn;
+  e.hidden = !$('drawer').hidden;
   if (!e.hidden) patch(e, next ? `${next.sessionId}:${n}:${label(next)}` : '', () => next ? [
     el('p', {}, el('b', { text: 'Nothing open.' }), ` ${n === 1 ? 'One session needs' : n + ' sessions need'} you.`),
     el('button', { class: 'btn', type: 'button', id: 'empty-next', onclick: () => { cancelAdvance(); open = next.sessionId; render(); } }, 'Open ' + label(next)),
@@ -1578,7 +1325,7 @@ function renderDrawer(vis) {
     d.classList.remove('enter');
     void d.offsetWidth;
     d.classList.add('enter');
-    stick = true; // a session opens at its newest message, like a chat
+    pinEnd(); // a session opens at its newest message, like a chat
     drawerWas = s.sessionId;
     $('d-reply').value = drafts.get(s.sessionId) ?? '';
   }
@@ -1590,23 +1337,20 @@ function renderDrawer(vis) {
   const elsewhere = (s.elsewhere ?? []).map((g) => elsewhereOf(g, s.git)), here = s.workCwd ?? s.cwd;
   const stateWord = s.leftRosterAt ? 'Closed' : s.state === 'stopped' ? 'Ended' : LABEL[st];
   patch($('d-head'), JSON.stringify([s.sessionId, st, label(s), s.cwd, here, s.kind, s.inRoster, Boolean(s.leftRosterAt), s.state, noteText, s.hostsPanel, s.mode, s.git, sharers, elsewhere, s.oldVersion, snap.profile?.command, wideSession]), () => [
-    el('div', { class: 'd-top' }, glyph(st), el('h2', { class: 'd-name', text: label(s), title: label(s) }), el('span', { class: 'age' }), el('span', { class: 'grow' }),
-      el('button', { class: 'btn quiet small d-expand', type: 'button', text: wideSession ? 'Collapse' : 'Expand', 'aria-pressed': String(wideSession),
-        title: wideSession ? 'Show the board beside it again' : 'Give it the whole window', onclick: () => setLayout('wideSession', !wideSession) }),
-      el('button', { class: 'btn quiet small', type: 'button', text: 'Close', onclick: () => { cancelAdvance(); open = null; render(); } })),
-    el('div', { class: 'd-facts' },
-      el('span', { class: 'tag', 'data-s': st, text: stateWord }),
-      el('span', { text: KIND[s.kind] || 'Headless session' }),
-      where ? el('span', { class: 'where-b' + (s.git.worktree ? ' wt' : ''), title: where.long, text: where.on }) : null,
-      where ? el('span', { text: 'in ' + where.at }) : null,
-      s.mode ? el('span', { class: 'mode-tag', 'data-mode': s.mode, title: 'Its permission mode', text: modeOf(s.mode) }) : null),
-    sharers.length ? el('p', { class: 'd-share', title: sharers.join('\n'), text: `Shares this checkout and its branch with ${listOf(sharers)}.` }) : null,
-    elsewhere.length ? el('p', { class: 'd-share', text: `Also edits files in ${listOf(elsewhere)}.` }) : null,
+    el('div', { class: 'd-top' }, glyph(st), el('h2', { class: 'd-name', text: label(s), title: label(s) }),
+      el('span', { class: 'd-meta', title: where ? where.long : null },
+        el('span', { class: 'st', 'data-s': st, text: stateWord }), ' · ', KIND[s.kind]?.replace(' session', '') || 'Headless',
+        s.mode ? [' · ', el('span', { class: s.mode === 'bypassPermissions' ? 'bypass' : '', title: 'Its permission mode', text: modeOf(s.mode) })] : null,
+        el('span', { class: 'age' })),
+      el('button', { class: 'btn icon d-expand', type: 'button', 'aria-pressed': String(wideSession), 'aria-label': wideSession ? 'Collapse' : 'Expand',
+        title: wideSession ? 'Show the board beside it again' : 'Give it the whole window', onclick: () => setLayout('wideSession', !wideSession) },
+        svgIcon(wideSession ? 'M10 4H4v6M14 20h6v-6M4 4l7 7M20 20l-7-7' : 'M4 10V4h6M20 14v6h-6M20 4l-7 7M4 20l7-7')),
+      el('button', { class: 'btn icon', type: 'button', 'aria-label': 'Close', title: 'Close (Esc)', onclick: () => { cancelAdvance(); open = null; render(); } }, svgIcon('M6 6l12 12M18 6L6 18'))),
     noteText ? el('p', { class: 'note', text: noteText }) : null,
     s.oldVersion && !ended ? el('div', { class: 'note old', role: 'status' }, el('span', { class: 'lead', text: 'Restart this session.' }),
       el('span', { text: oldWhy(s.oldVersion) }), ...restartHow({ ...s, shown: true, profile: snap.profile })) : null,
   ]);
-  setText($('d-head').querySelector('.age'), s.startedAt ? 'up ' + ago(snap.now - s.startedAt) : '');
+  setText($('d-head').querySelector('.age'), s.startedAt ? ' · up ' + ago(snap.now - s.startedAt) : '');
 
   // Request cards are built once and kept, so an edit in progress survives every update.
   const rs = reqsOf(s.sessionId), box = $('d-cards');
@@ -1614,7 +1358,7 @@ function renderDrawer(vis) {
   setText($('d-needs-n'), rs.length > 1 ? String(rs.length) : '');
   const want = rs.map((p) => {
     let c = cards.get(p.id);
-    if (!c) { c = { req: p, el: buildCard(p) }; cards.set(p.id, c); stick = true; }
+    if (!c) { c = { req: p, el: buildCard(p) }; cards.set(p.id, c); pinEnd(); }
     setText(c.el.querySelector('.req-age'), 'waiting ' + ago(snap.now - p.createdAt));
     return c;
   });
@@ -1622,14 +1366,22 @@ function renderDrawer(vis) {
   want.forEach((c, i) => { if (box.children[i] !== c.el) box.insertBefore(c.el, box.children[i] ?? null); });
   for (const c of want) if (!c.fitted && c.el.offsetParent !== null) { c.fitted = true; c.el._fit(); }
 
-  patch($('d-line'), JSON.stringify([st, stateWord, s.lastTool?.tool, s.lastTool?.text, s.waitingFor, s.leftRosterAt, s.state, rs.length, s.bgTasks, s.hostsPanel]),
+  // The live thread shows what it is doing; this line stays only for what the thread cannot show.
+  const showNow = st === 'waiting' || st === 'stopping' || isOver(s) || Boolean(s.leftRosterAt)
+    || (st === 'busy' && !(threads.get(s.sessionId)?.rows.size)) // no transcript rows to show it: say what it does
+    || (st === 'idle' && Boolean(s.hostsPanel || s.bgTasks));     // "reply in its terminal", "N background tasks"
+
+  $('d-line').hidden = !showNow;
+  if (showNow) patch($('d-line'), JSON.stringify([st, stateWord, s.lastTool?.tool, s.lastTool?.text, s.waitingFor, s.leftRosterAt, s.state, rs.length, s.bgTasks, s.hostsPanel]),
     () => [el('span', { class: 'tag', 'data-s': st }, glyph(st), stateWord), nowLine(s, st, rs)]);
   renderCompose(s, st);
 
   // The column: where it works, how to reopen it, its subagents, and the buttons that stop it.
-  patch($('d-info'), JSON.stringify([s.sessionId, s.cwd, here, s.git, s.kind, s.id, Boolean(s.leftRosterAt), snap.profile?.command]), () => el('dl', { class: 'kv' },
+  patch($('d-info'), JSON.stringify([s.sessionId, s.cwd, here, s.git, s.kind, s.id, Boolean(s.leftRosterAt), snap.profile?.command, sharers, elsewhere]), () => el('dl', { class: 'kv' },
     el('dt', { text: 'Folder' }), el('dd', { class: 'mono', text: here || 'unknown', title: here !== s.cwd && s.cwd ? `Started in ${s.cwd}` : null }),
-    where ? [el('dt', { text: 'Branch' }), el('dd', { class: 'mono', text: where.on }), el('dt', { text: 'Checkout' }), el('dd', { text: where.at[0].toUpperCase() + where.at.slice(1) })] : null,
+    where ? [el('dt', { text: 'Branch' }), el('dd', { class: 'mono' + (s.git.worktree ? ' where-b wt' : ' where-b'), text: where.on, title: where.long }), el('dt', { text: 'Checkout' }), el('dd', { text: where.at[0].toUpperCase() + where.at.slice(1) })] : null,
+    sharers.length ? [el('dt', { text: 'Shares with' }), el('dd', { title: sharers.join('\n'), text: listOf(sharers) })] : null,
+    elsewhere.length ? [el('dt', { text: 'Also edits' }), el('dd', { text: listOf(elsewhere) })] : null,
     bg && s.id ? [el('dt', { text: 'Reopen' }), el('dd', {}, copyBtn('claude attach ' + s.id))]
       : s.kind === 'interactive' && s.leftRosterAt ? [el('dt', { text: 'Reopen' }), el('dd', {}, copyBtn('claude --resume ' + s.sessionId))] : null));
   patch($('d-acts'), JSON.stringify([s.sessionId, live, ended, canEnd(s), canRm(s), bg, armedHere, s.bgTasks]), () => [
@@ -1642,7 +1394,7 @@ function renderDrawer(vis) {
   // The tree's buttons only rebuild when its shape changes; each subagent's "now" line updates on its own.
   const subArmed = armed?.key.startsWith(`sub:${s.sessionId}:`) ? armed.key : null;
   const shape = s.subagents.map((a) => [a.agentId, subState(s, a), a.title, a.agentType, Boolean(a.task)]);
-  patch($('d-subs'), JSON.stringify([s.sessionId, subArmed, shape]), () => (s.subagents.length ? subTree(s)
+  patch($('d-subs'), JSON.stringify([s.sessionId, subArmed, shape, subFocus]), () => (s.subagents.length ? subTree(s)
     : el('section', { class: 'sec' }, el('h4', { class: 'rule', text: 'Subagents' }), quiet('None right now. Each appears here, titled with the task its parent gave it.'))));
   for (const a of s.subagents) {
     const node = subNows.get(a.agentId);
@@ -1711,70 +1463,272 @@ function ranHow(m) {
   return m.status === 'waiting' ? `Ran${as}. It opened something on its screen: claude attach shows it`
     : m.status === 'busy' ? `Ran${as}. It is working on it` : m.ran ? `Ran${as} at its prompt` : 'Typed at its prompt. Nothing came back in its conversation';
 }
-// ---------- the conversation: read back from its transcript, plus what you sent from here until it shows there ----------
-const chats = new Map(); // sessionId → { items, more, limit, key, busy }
-// Read again when it said something, you sent something, or (while it works) every quarter minute.
-const chatKey = (s) => JSON.stringify([s.lastMessageAt ?? 0, (s.sent ?? []).length, (s.queued ?? []).length, s.state, s.status, s.working ? Math.floor((s.lastEventAt ?? 0) / 15_000) : 0]);
-async function loadChat(s, limit) {
-  const c = chats.get(s.sessionId) ?? { items: [], more: false, limit: 60 };
-  chats.set(s.sessionId, c);
-  if (c.busy) return;
-  c.busy = true; c.key = chatKey(s);
-  const r = await api('/api/history', { sessionId: s.sessionId, limit: limit ?? c.limit });
-  c.busy = false;
-  if (r.ok) Object.assign(c, { items: r.items, more: r.more, limit: limit ?? c.limit });
-  if (open === s.sessionId) render();
+// ---------- the conversation: the open session's thread, live from its transcript, plus what you sent from here ----------
+// The server follows the transcript of the session this page has open (followOpen tells it which) and sends its rows as
+// they are written: a row is new (an item) or an update to one it sent before, by key. The page only keeps and draws
+// them. What you sent from here shows beside them until the transcript has it.
+const CAP = 400; // rows kept in the DOM while you follow the bottom; Show earlier and scrolling up lift it
+/** sessionId → { rows: Map<key, item>, more, pending, loading, early, version }: the open session's thread. */
+const threads = new Map();
+let followed = null, followAsk = 0, followTimer = 0; // the session the last followOpen was for, which ask that was, and a key-driven delay
+/** Tell the server which session this page has open, and seed its thread from the reply. Rows that arrive while the
+ *  reply is on its way wait in `early`; a reply for a session you have already left, or overtaken by a newer ask
+ *  (a reconnect), is dropped. Older rows read with Show earlier stay when the same session is asked for again. */
+async function followOpen(id) {
+  if (followed && followed !== id) threads.delete(followed);
+  followed = id ?? null;
+  const ask = ++followAsk;
+  let t = id ? threads.get(id) : null;
+  if (id && !t) threads.set(id, t = { rows: new Map(), more: false, pending: false, version: 0 });
+  if (t) { t.loading = true; t.early = []; }
+  const r = await api('/api/follow', { client: CLIENT, sessionId: id ?? null, limit: 60 });
+  if (!id || ask !== followAsk || threads.get(id) !== t) return;
+  t.loading = false;
+  if (r.ok) {
+    const items = r.items.map(bareItem), low = Math.min(...items.map((m) => (typeof m.pos === 'number' ? m.pos : Infinity)));
+    const old = t.rows, kept = [...old.values()].filter((m) => typeof m.pos === 'number' && m.pos < low);
+    t.rows = new Map();
+    for (const m of [...kept, ...items]) putRow(t, m, old);
+    t.more = kept.length ? t.more : r.more;
+    t.pending = Boolean(r.pending);
+  } else console.error('follow:', r.error);
+  const early = t.early;
+  t.early = [];
+  applyThread(id, early);
+  t.version++;
+  later();
 }
+const bareItem = ({ input, ...m }) => m; // /api/history's items carry a call's input, which nothing here draws
+/** Put an item under its key, keeping the element drawn for that key (`from`: where it was). */
+function putRow(t, m, from = t.rows) {
+  const was = from.get(m.key);
+  if (was) { m.el = was.el; m._sig = was._sig; m.dur = was.dur; }
+  t.rows.set(m.key, m);
+}
+/** Thread events for a session: new rows, and updates that patch a row (or drop it). */
+function applyThread(id, events) {
+  const t = threads.get(id);
+  if (!t || id !== followed || !events?.length) return;
+  if (t.loading) { t.early.push(...events); return; }
+  for (const e of events) {
+    if (e.who !== 'update') { putRow(t, bareItem(e)); continue; }
+    const r = t.rows.get(e.key);
+    if (!r) continue;
+    if (e.patch.removed) t.rows.delete(e.key); else Object.assign(r, e.patch);
+  }
+  t.pending = false;
+  t.version++;
+  later();
+}
+let frame = 0; // thread events come in bursts: one redraw per frame
+function later() { if (!frame) frame = requestAnimationFrame(() => { frame = 0; render(); }); }
+/** A thread's rows in order: transcript rows by their place in the file, the rest (a call its hook announced, a turn's
+ *  end) among them by time, as thread.mjs orders them. Kept until the thread changes. */
+function rowsOf(t) {
+  if (t.ordered?.version === t.version) return t.ordered.rows;
+  const all = [...t.rows.values()];
+  const filed = all.filter((m) => typeof m.pos === 'number').sort((a, b) => a.pos - b.pos);
+  const loose = all.filter((m) => typeof m.pos !== 'number').sort((a, b) => a.at - b.at);
+  const rows = [];
+  let i = 0, j = 0;
+  while (i < filed.length || j < loose.length) rows.push(j < loose.length && (i >= filed.length || loose[j].at < filed[i].at) ? loose[j++] : filed[i++]);
+  t.ordered = { version: t.version, rows };
+  return rows;
+}
+/** Show earlier: rows kept out of the DOM first, then the transcript before the oldest row. A result whose call is
+ *  here folds into its row, a call whose result is here takes it over, as thread.mjs does. */
+async function earlier() {
+  const s = sessionOf(open), t = s && threads.get(s.sessionId), sc = $('d-scroll');
+  if (!t || t.busy) return;
+  if (!shownFrom.hidden && t.more) {
+    const pos = [...t.rows.values()].map((m) => m.pos).filter((p) => typeof p === 'number');
+    t.busy = true;
+    const r = await api('/api/history', { sessionId: s.sessionId, limit: 100, ...(pos.length ? { before: Math.min(...pos) } : {}) });
+    t.busy = false;
+    if (threads.get(s.sessionId) !== t) return;
+    if (!r.ok) { toast(r.error || 'Nothing earlier could be read.', true); return; }
+    const orphans = new Map([...t.rows.values()].filter((x) => x.who === 'result').map((x) => [x.toolUseId, x]));
+    for (const m of r.items.map(bareItem)) {
+      if (t.rows.has(m.key)) continue;
+      const call = m.who === 'result' ? t.rows.get('tool:' + m.toolUseId) : null;
+      if (call?.who === 'tool') { foldResult(call, m); continue; }
+      putRow(t, m);
+      const orphan = m.who === 'tool' && orphans.get(m.toolUseId);
+      if (orphan) { foldResult(m, orphan); t.rows.delete(orphan.key); orphans.delete(m.toolUseId); }
+    }
+    t.more = r.more;
+    t.version++;
+  }
+  uncapped = true;
+  keepBelow = sc.scrollHeight - sc.scrollTop;
+  render();
+}
+function foldResult(row, res) {
+  if (row.state !== 'refused') row.state = res.ok ? 'done' : 'failed';
+  row.preview = res.preview;
+  row.endedAt = res.at;
+}
+$('d-earlier').onclick = earlier;
+
 const outbox = new Map(); // sessionId → messages on their way: shown at once, and put back in the box if they fail
-let stick = false, keepBelow = null; // scroll to the newest message; or keep your place when older ones load above
-// Whether you are at the newest message, from your own scrolling: the bands around the chat grow and shrink (a note, a
-// card, the box), and that alone must not stop new messages from staying in view.
-let followEnd = true;
-$('d-scroll').addEventListener('scroll', () => { const n = $('d-scroll'); followEnd = n.scrollHeight - n.scrollTop - n.clientHeight < 48; }, { passive: true });
-new ResizeObserver(() => { if (followEnd) $('d-scroll').scrollTop = $('d-scroll').scrollHeight; }).observe($('d-scroll'));
+let keepBelow = null; // keep your place when older rows load above
+// Whether you are at the newest row (within 48 px of the bottom), from your own scrolling: new rows keep it in view,
+// and so does the box growing under it. Opening a session, a new card and sending set it again. A scroll of yours whose
+// event has not come yet shows as the view sitting above where the page last put it (`pinTop`).
+let followEnd = true, pinTop = 0;
+const atEnd = (n) => n.scrollHeight - n.scrollTop - n.clientHeight < 48;
+const following = (n) => atEnd(n) || (followEnd && n.scrollTop >= pinTop - 2);
+/** Go to the newest row at the next redraw, wherever you were. */
+function pinEnd() { followEnd = true; pinTop = 0; }
+function toEnd(n) { n.scrollTop = n.scrollHeight; pinTop = n.scrollTop; followEnd = true; $('d-newer').hidden = true; }
+$('d-scroll').addEventListener('scroll', () => { followEnd = atEnd($('d-scroll')); if (followEnd) $('d-newer').hidden = true; }, { passive: true });
+new ResizeObserver(() => { if (following($('d-scroll'))) toEnd($('d-scroll')); }).observe($('d-scroll'));
+$('d-newer').onclick = () => toEnd($('d-scroll'));
 const norm = (t) => String(t ?? '').replace(/\s+/g, ' ').trim();
-function renderThread(s) {
-  const c = chats.get(s.sessionId);
-  if (!c || (!c.busy && c.key !== chatKey(s))) loadChat(s);
-  const hist = c?.items ?? [], yours = new Set(hist.filter((m) => m.who === 'you').map((m) => norm(m.text)));
-  const claude = hist.filter((m) => m.who === 'claude').map((m) => norm(m.text)), sentTexts = new Set((s.sent ?? []).map((m) => norm(m.text)));
-  const local = [
+let drawn = null, uncapped = false, shownFrom = { key: null, hidden: 0 }, lastShown = null; // what the DOM holds, for the open session
+const localRows = new Map(); // `local:<at>` → its row, kept between redraws so its element is too
+const openTools = new Set(); // tool row keys whose output is unfolded
+/** How long a call took (or has taken): 1.2 s, 45 s, 2 m. */
+function took(ms) {
+  const s = Math.max(0, ms) / 1000;
+  return s < 9.95 ? s.toFixed(1) + ' s' : s < 59.5 ? Math.round(s) + ' s' : Math.round(s / 60) + ' m';
+}
+/** What a row draws from, so it is rebuilt only when that changes. A running call's clock is set on each tick. */
+function sigOf(m, cont, s) {
+  return JSON.stringify(m.who === 'tool' ? [m.who, m.state, m.waiting, m.settledWhy, m.preview, m.endedAt, m.at, m.summary?.tool, m.summary?.text, m.name]
+    : m.who === 'result' ? [m.who, m.ok, m.preview]
+    : m.who === 'claude' ? [m.who, cont, m.text]
+    : m.who === 'local' ? [m.who, m.kind, m.text, m.note, Boolean(m.held), m.sending, m.title, m.held ? s.queueError : null]
+    : [m.who, m.text]);
+}
+function toolRow(m) {
+  const res = m.who === 'result', state = res ? (m.ok ? 'done' : 'failed') : m.state;
+  const shown = !res && m.waiting && state === 'running' ? 'waiting' : state;
+  const name = res ? 'Result' : shortTool(m.summary?.tool ?? m.name ?? 'Tool'), what = res ? '' : m.summary?.text ?? '';
+  const dur = el('span', { class: 't-dur' });
+  const line = [glyph(shown), el('b', { text: name, title: res ? null : m.summary?.tool ?? m.name }), el('span', { class: 't-what', text: what, title: what || null }), dur];
+  const why = m.settledWhy != null ? el('div', { class: 't-note', text: SETTLED[m.settledWhy] ?? m.settledWhy }) : null;
+  const n = el('div', { class: 'msg tool', 'data-state': shown, title: m.at ? new Date(m.at).toLocaleString() : null },
+    m.preview ? el('details', { open: openTools.has(m.key), ontoggle: (e) => (e.target.open ? openTools.add(m.key) : openTools.delete(m.key)) },
+      el('summary', { class: 't-line' }, line), el('pre', { class: 'm-body', text: m.preview }))
+      : el('div', { class: 't-line' }, line),
+    why);
+  m.dur = dur;
+  return n;
+}
+function rowEl(m, cont, s) {
+  if (m.who === 'tool' || m.who === 'result') return toolRow(m);
+  if (m.who === 'turn') return el('hr', { class: 'turn' });
+  if (m.who === 'note') return el('div', { class: 'msg note', text: m.text });
+  if (m.who === 'claude') return cont ? el('div', { class: 'm-body' }, md(m.text))
+    : el('div', { class: 'msg claude', title: m.at ? new Date(m.at).toLocaleString() : null }, el('div', { class: 'm-who' }, el('b', { text: 'Claude' })), el('div', { class: 'm-body' }, md(m.text)));
+  if (m.kind === 'out') return el('div', { class: 'msg out' }, el('div', { class: 'm-who' }, el('b', { text: m.title }), 'printed'), el('pre', { class: 'm-body', text: m.text }));
+  return el('div', { class: 'msg you' + (m.held ? ' waiting' : '') + (m.sending ? ' sending' : ''), title: m.at ? new Date(m.at).toLocaleString() : null }, el('div', { class: 'm-body', text: m.text }),
+    m.note || m.held ? el('div', { class: 'm-who' },
+      m.held && s.queueError ? el('span', { class: 'wait', text: 'Not sent yet: ' + s.queueError }) : el('span', { text: m.held ? 'Waiting until it is done' : m.note }),
+      m.held ? el('button', { class: 'linkish', type: 'button', text: 'Cancel', onclick: () => unqueue(s, m.held) }) : null) : null);
+}
+/** What you sent from here that its transcript does not have yet, as rows keyed `local:<at>`. A message has landed
+ *  when the thread has a `you` row with its text, recorded no earlier than 10 s before you sent it; an outbox entry
+ *  that has landed (or that the server's own record now shows) is dropped. */
+function localOf(s, rows) {
+  const yours = rows.filter((m) => m.who === 'you').map((m) => ({ text: norm(m.text), at: m.at }));
+  const landed = (m) => yours.some((y) => y.text === norm(m.text) && y.at >= m.at - 10_000);
+  const sentTexts = new Set((s.sent ?? []).map((m) => norm(m.text)));
+  const box = outbox.get(s.sessionId);
+  if (box) outbox.set(s.sessionId, box.filter((m) => !(landed(m) || (m.done && (sentTexts.has(norm(m.text)) || (s.queued ?? []).some((q) => norm(q.text) === norm(m.text)))))));
+  const you = (m, extra) => ({ who: 'local', kind: 'you', text: m.text, at: m.at, note: undefined, held: undefined, sending: false, title: undefined, ...extra });
+  const items = [
     // What you sent from here shows with how it went until its transcript has it (a command's printout stays).
-    ...(s.sent ?? []).flatMap((m) => [...(yours.has(norm(m.text)) ? [] : [{ who: 'you', text: m.text, at: m.at, note: m.how === 'command' ? ranHow(m) : SENT_HOW[m.how] ?? 'Sent' }]),
-      ...(m.output ? [{ who: 'out', text: m.output, at: m.at + 1, title: m.ran ?? m.text.split(' ')[0] }] : [])]),
-    ...(s.queued ?? []).map((m) => ({ who: 'you', text: m.text, at: m.at, held: m })),
-    ...(outbox.get(s.sessionId) ?? []).filter((m) => !(m.done && (sentTexts.has(norm(m.text)) || yours.has(norm(m.text)) || (s.queued ?? []).some((q) => norm(q.text) === norm(m.text)))))
-      .map((m) => ({ who: 'you', text: m.text, at: m.at, note: m.done ? 'Sent' : 'Sending…', sending: !m.done })),
-    // Its newest reply, from the Stop hook, until the transcript read has caught up with it.
-    ...(s.lastMessage && !claude.some((t) => t.includes(norm(s.lastMessage))) && (s.lastMessageAt ?? 0) >= (hist.at(-1)?.at ?? 0)
-      ? [{ who: 'claude', text: s.lastMessage, at: s.lastMessageAt ?? 0 }] : []),
+    ...(s.sent ?? []).flatMap((m) => [...(landed(m) ? [] : [you(m, { note: m.how === 'command' ? ranHow(m) : SENT_HOW[m.how] ?? 'Sent' })]),
+      ...(m.output ? [{ ...you(m), kind: 'out', text: m.output, at: m.at + 1, title: m.ran ?? m.text.split(' ')[0] }] : [])]),
+    ...(s.queued ?? []).map((m) => you(m, { held: m })),
+    ...(outbox.get(s.sessionId) ?? []).map((m) => you(m, { note: m.done ? 'Sent' : 'Sending…', sending: !m.done })),
   ].sort((a, b) => a.at - b.at);
-  const items = [...hist, ...local], sc = $('d-scroll');
-  $('d-earlier').hidden = !c?.more;
-  patch($('d-thread'), JSON.stringify([s.sessionId, hist.length, hist[0]?.at, hist.at(-1)?.at, local.map((m) => [m.who, m.at, m.text, m.note]), s.queueError]), () => items.map((m) => (m.who === 'claude'
-    ? el('div', { class: 'msg claude', title: m.at ? new Date(m.at).toLocaleString() : null }, el('div', { class: 'm-who' }, el('b', { text: 'Claude' })), el('div', { class: 'm-body' }, md(m.text)))
-    : m.who === 'note' ? el('div', { class: 'msg note', text: m.text })
-    : m.who === 'out' ? el('div', { class: 'msg out' }, el('div', { class: 'm-who' }, el('b', { text: m.title }), 'printed'), el('pre', { class: 'm-body', text: m.text }))
-    : el('div', { class: 'msg you' + (m.held ? ' waiting' : '') + (m.sending ? ' sending' : ''), title: m.at ? new Date(m.at).toLocaleString() : null }, el('div', { class: 'm-body', text: m.text }),
-      m.note || m.held ? el('div', { class: 'm-who' },
-        m.held && s.queueError ? el('span', { class: 'wait', text: 'Not sent yet: ' + s.queueError }) : el('span', { text: m.held ? 'Waiting until it is done' : m.note }),
-        m.held ? el('button', { class: 'linkish', type: 'button', text: 'Cancel', onclick: () => unqueue(s, m.held) }) : null) : null))));
+  const seen = new Set();
+  return items.map((m) => {
+    let key = `local:${m.at}`;
+    while (seen.has(key)) key += '+';
+    seen.add(key);
+    const row = Object.assign(localRows.get(key) ?? {}, m, { key });
+    localRows.set(key, row);
+    return row;
+  });
+}
+/** Draw the open session's thread into #d-thread, keyed: a row's element is kept while what it draws is the same and
+ *  rebuilt alone when it changes; rows are put in order and elements whose row is gone are removed. Adjacent Claude
+ *  rows of one message share one bubble (the first row's), the later ones adding a body to it. Returns the row count. */
+function renderThread(s) {
+  const t = threads.get(s.sessionId), sc = $('d-scroll'), box = $('d-thread');
+  if (drawn !== s.sessionId) { drawn = s.sessionId; uncapped = false; shownFrom = { key: null, hidden: 0 }; lastShown = null; localRows.clear(); box.replaceChildren(); $('d-newer').hidden = true; }
+  const atBottom = following(sc); // measured before the rows change
+  const thread = t ? rowsOf(t) : [], local = localOf(s, thread);
+  for (const k of localRows.keys()) if (!local.some((m) => m.key === k)) localRows.delete(k);
+  // A command's printout goes among the thread's rows by time; what is still on its way to the transcript (sending,
+  // sent, waiting until it is done) stays at the end, as it always has.
+  const out = local.filter((m) => m.kind === 'out'), all = [];
+  for (let i = 0, j = 0; i < thread.length || j < out.length;) all.push(j < out.length && (i >= thread.length || out[j].at < thread[i].at) ? out[j++] : thread[i++]);
+  all.push(...local.filter((m) => m.kind !== 'out'));
+  // The latest CAP rows, unless you are reading back: scrolled up keeps the top where it is, Show earlier shows all
+  // until you are back at the bottom.
+  if (atBottom && keepBelow == null) uncapped = false;
+  let from = 0;
+  if (!uncapped) {
+    const i = atBottom ? -1 : all.findIndex((m) => m.key === shownFrom.key);
+    from = i >= 0 ? i : Math.max(0, all.length - CAP);
+  }
+  shownFrom = { key: all[from]?.key ?? null, hidden: from };
+  const rows = all.slice(from);
+  // A call still running has a clock only while the session works: one that never got its result (a session killed
+  // mid-call, read back later) shows no time rather than one that grows forever.
+  const st = stateOf(s), ticking = st === 'busy' || st === 'waiting';
+  const conts = rows.map((m, i) => { const before = rows[i - 1]; return m.who === 'claude' && before?.who === 'claude' && m.messageId != null && before.messageId === m.messageId; });
+  rows.forEach((m, i) => {
+    const sig = sigOf(m, conts[i], s);
+    if (!m.el || m._sig !== sig) { m.el = rowEl(m, conts[i], s); m._sig = sig; }
+    if (m.dur) setText(m.dur, m.who === 'tool' && m.state === 'running' ? (m.waiting ? 'waiting for you' : ticking ? took(Date.now() - m.at) : '')
+      : m.endedAt != null && m.at ? took(m.endedAt - m.at) : '');
+  });
+  // What is not in the window (rows scrolled past the cap, rebuilt rows' old elements) leaves first, so placing the
+  // rows below moves only what is new: a row kept where it was is never taken out and put back (its selection, an
+  // open output's scroll and a running glyph's animation stay as they are).
+  const inWindow = new Set(rows.filter((m, i) => !conts[i]).map((m) => m.el));
+  for (const n of [...box.childNodes]) if (!inWindow.has(n)) n.remove();
+  let prev = null, wrap = null, inWrap = null;
+  const closeWrap = () => { if (wrap) while (inWrap.nextSibling) inWrap.nextSibling.remove(); wrap = inWrap = null; };
+  rows.forEach((m, i) => {
+    const cont = conts[i];
+    if (cont) {
+      const at = inWrap.nextSibling;
+      if (at !== m.el) wrap.insertBefore(m.el, at);
+      inWrap = m.el;
+      return;
+    }
+    closeWrap();
+    const at = prev ? prev.nextSibling : box.firstChild;
+    if (at !== m.el) box.insertBefore(m.el, at);
+    prev = m.el;
+    if (m.who === 'claude') { wrap = m.el; inWrap = m.el.querySelector('.m-body'); }
+  });
+  closeWrap();
+  while (prev ? prev.nextSibling : box.firstChild) (prev ? prev.nextSibling : box.firstChild).remove();
+  $('d-earlier').hidden = !(from > 0 || t?.more);
+  const last = rows.at(-1)?.key ?? null, grew = last !== lastShown;
+  lastShown = last;
   if (keepBelow != null) { sc.scrollTop = sc.scrollHeight - keepBelow; keepBelow = null; }
-  else if (stick || followEnd) { sc.scrollTop = sc.scrollHeight; followEnd = true; if (c && !c.busy) stick = false; }
-  return items.length;
+  else if (atBottom) toEnd(sc);
+  else if (grew) $('d-newer').hidden = false;
+  return all.length;
 }
-/** What it said last: its transcript's newest reply, unless the Stop hook brought a newer one (a profile that doesn't
- *  report here never does). */
+/** What it said last: the newest reply in its thread (every block of it), unless the Stop hook brought a newer one (a
+ *  session whose transcript is not followed yet). */
 function lastSaidOf(s) {
-  const h = chats.get(s.sessionId)?.items.findLast((m) => m.who === 'claude');
-  return h && h.at >= (s.lastMessageAt ?? 0) ? h.text : s.lastMessage;
+  const rows = threads.has(s.sessionId) ? rowsOf(threads.get(s.sessionId)) : [], i = rows.findLastIndex((m) => m.who === 'claude');
+  if (i < 0 || rows[i].at < (s.lastMessageAt ?? 0)) return s.lastMessage;
+  let j = i;
+  while (j > 0 && rows[j - 1].who === 'claude' && rows[j - 1].messageId != null && rows[j - 1].messageId === rows[i].messageId) j--;
+  return rows.slice(j, i + 1).map((m) => m.text).join('\n\n');
 }
-$('d-earlier').onclick = () => {
-  const s = sessionOf(open), c = s && chats.get(s.sessionId);
-  if (!c || c.busy) return;
-  keepBelow = $('d-scroll').scrollHeight - $('d-scroll').scrollTop;
-  loadChat(s, c.limit + 100);
-};
 
 // ---------- the panel's layout: the whole window, and its details in a column of their own ----------
 function pref(key, value) {
@@ -1794,7 +1748,7 @@ function applyLayout() {
 applyLayout();
 /** A panel with room for a column beside the chat gets its details there; a narrower one keeps them under the conversation. */
 function placeSide(s) {
-  const roomy = !document.body.classList.contains('in-space') && $('drawer').clientWidth >= 900;
+  const roomy = $('drawer').clientWidth >= 900;
   const home = roomy ? $('d-side') : $('d-subs-in');
   if ($('d-side-body').parentElement !== home) home.append($('d-side-body'));
   $('d-side').hidden = !roomy;
@@ -1816,6 +1770,7 @@ function renderCompose(s, st) {
   }
   $('d-chat').hidden = !renderThread(s) && !show;
   $('d-compose').hidden = !show;
+  if (!$('d-pop').hidden && (!show || popFor !== s.sessionId)) showPop(false);
   if (!show) return;
   const running = s.inRoster && !isOver(s), term = s.kind === 'interactive';
   setAttr($('d-reply'), 'placeholder', s.working ? 'Tell it something while it works' : 'Answer it, or tell it what to do next');
@@ -1847,18 +1802,43 @@ function renderCompose(s, st) {
   btn.className = 'btn small ' + (on ? 'danger armed' : 'primary');
   const cmd = isCommand(), typing = live && cmd && !restart;
   setText(btn, on ? (queue ? 'Confirm: close it once done' : 'Confirm: close it and send') : sending.has(s.sessionId) ? (typing ? 'Running…' : 'Sending…')
-    : typing ? (queue ? 'Run when it is done' : 'Run') : queue ? 'Send when it is done' : restart ? 'Restart and send' : term && running ? 'Send, move to background' : 'Send');
+    : typing ? (queue ? 'Run when it is done' : 'Run') : queue ? 'Send when done' : restart ? 'Restart and send' : term && running ? 'Send, move to background' : 'Send');
   const back = comesBack(picked && picked !== s.mode ? picked : null, mPick, ePick), carry = back ? ` It comes back ${back}.` : '';
-  setText($('d-send-hint'), to ? `Switching it to ${modeOf(to).toLowerCase()}…`
-    : typing ? (queue ? 'Once it is done, this is typed at its prompt, as you would in claude attach.' : 'This is typed at its prompt, as you would in claude attach.')
+  const how = typing ? (queue ? 'Once it is done, this is typed at its prompt, as you would in claude attach.' : 'This is typed at its prompt, as you would in claude attach.')
     : restart ? (queue ? 'When it is done, it' : 'It') + (inOwnTree(s) ? ' carries on as a copy under a new id, in its worktree, with this as its next prompt.' : ' restarts in the background with this as its next prompt.') + tasksStop(s) + carry
     : live ? (s.working ? 'It reads this at its next step, as if you typed it while it works.' : 'It carries on with your message.')
     : queue ? 'When it is done, Claude closes in its terminal and carries on in the background with this. Or type it in its terminal.' + tasksStop(s) + carry
     : (term && running ? 'Claude closes in its terminal and carries on in the background with this. claude attach opens it there.'
       : running ? 'It restarts in the background with this as its next prompt.'
-      : 'It starts again in the background with this as its next prompt.') + (running ? tasksStop(s) : '') + carry);
+      : 'It starts again in the background with this as its next prompt.') + (running ? tasksStop(s) : '') + carry;
+  setText($('d-send-hint'), to ? `Switching it to ${modeOf(to).toLowerCase()}…` : '');
+  setAttr(btn, 'title', how);
+  chipLabel();
   syncSend();
 }
+/** The chip reads what the three selects say, e.g. "Auto mode · Fable 5.1 · High effort". */
+function chipLabel() {
+  const text = ['d-mode', 'd-model', 'd-effort'].map((id) => { const o = $(id).selectedOptions[0]; return o ? o.text : ''; }).filter(Boolean).join(' · ');
+  setText($('d-opts'), text || 'Options');
+}
+let popFor = null; // the session the popover was opened for; it closes when that changes or the reply box hides
+function showPop(on) {
+  const pop = $('d-pop');
+  if (on) { // fixed, above the chip: the footer's scroll box would clip an absolutely placed one
+    const r = $('d-opts').getBoundingClientRect();
+    pop.style.left = Math.max(8, r.left) + 'px';
+    pop.style.bottom = (innerHeight - r.top + 6) + 'px';
+  }
+  pop.hidden = !on;
+  popFor = on ? open : null;
+  setAttr($('d-opts'), 'aria-expanded', String(on));
+  if (on) $('d-mode').focus({ preventScroll: true });
+}
+$('d-opts').onclick = () => showPop($('d-pop').hidden);
+document.addEventListener('pointerdown', (e) => { if (!$('d-pop').hidden && !e.target.closest('.c-opts')) showPop(false); }, true);
+$('d-pop').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); showPop(false); $('d-opts').focus(); } });
+$('d-pop').addEventListener('focusout', (e) => { if (!$('d-pop').hidden && !e.relatedTarget?.closest?.('.c-opts') && e.relatedTarget) showPop(false); });
+for (const id of ['d-mode', 'd-model', 'd-effort']) $(id).addEventListener('change', chipLabel);
 $('d-mode').onchange = async () => {
   const s = sessionOf(open), m = $('d-mode').value;
   if (!s || !m) return;
@@ -1909,7 +1889,7 @@ async function doReply(s) {
   const ta = $('d-reply'), text = ta.value.trim(), msg = { text, at: Date.now() };
   outbox.set(s.sessionId, [...(outbox.get(s.sessionId) ?? []).filter((m) => !m.done || Date.now() - m.done < 10_000), msg]);
   ta.value = ''; fit(ta); drafts.delete(s.sessionId);
-  stick = true;
+  pinEnd();
   sending.add(s.sessionId);
   render();
   const mode = bgLive(s) ? null : modePicks.get(s.sessionId), model = modelPicks.get(s.sessionId), effort = effortPicks.get(s.sessionId);
@@ -1951,7 +1931,7 @@ function subTree(s) {
     subNows.set(a.agentId, now);
     const task = a.task ? el('details', { open: tasksOpen.has(a.agentId), ontoggle: (e) => (e.target.open ? tasksOpen.add(a.agentId) : tasksOpen.delete(a.agentId)) },
       el('summary', { text: 'Its task' }), el('p', { text: a.task })) : null;
-    return el('li', { class: 'branch', 'data-state': st },
+    return el('li', { class: 'branch' + (subFocus === a.agentId ? ' focus' : ''), 'data-state': st },
       el('div', { class: 'b-head' }, glyph(st), el('span', { class: 'b-title', text: a.title || a.agentType }), el('span', { class: 'b-type', text: a.agentType }),
         live ? armBtn(key, 'Stop', 'Confirm stop', () => doInterrupt(s, a)) : el('span', { class: 'b-age', text: LABEL[st].toLowerCase() })),
       now,
@@ -1979,6 +1959,12 @@ function cancelAdvance() {
 }
 
 // ---------- render ----------
+/** A 24-viewBox stroke icon from one path, for .btn.icon. */
+function svgIcon(d) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'), path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true'); path.setAttribute('d', d); svg.append(path);
+  return svg;
+}
 function render() {
   if (!snap) return;
   renderProfile();
@@ -1991,15 +1977,14 @@ function render() {
   // At the start, and when the open one goes away, the top of Needs you (it has waited longest) takes the workspace.
   if (open === undefined || (open && !vis.some((s) => s.sessionId === open))) open = g.waiting[0]?.sessionId ?? null;
   if (launchedId) { const s = vis.find((x) => x.id === launchedId); if (s) { launchedId = null; open = s.sessionId; } }
+  if (open !== followed && !followSoon) followOpen(open); // moving by key, moveSel's own timer follows once the key settles
+  if (subFocus && !sessionOf(open)?.subagents.some((a) => a.agentId === subFocus)) subFocus = null;
   const live = new Set(snap.pending.map((p) => p.id));
   for (const [id, c] of cards) if (!live.has(id)) { c.el.remove(); cards.delete(id); }
   renderBoard(g, vis);
   renderDrawer(vis);
   renderEmpty(g.waiting);
-  renderWorldBtn(snap.world);
   renderOld(snap.oldVersions ?? []);
-  renderUpdate(snap.appUpdate ?? null);
-  if (spaceOn) renderSpace(g);
   document.title = snap.pending.length ? `(${snap.pending.length}) Agent panel` : 'Agent panel';
   // A two-click control keeps the keyboard focus through a redraw.
   if (armed && (!document.activeElement || document.activeElement === document.body)) document.querySelector(`[data-key="${CSS.escape(armed.key)}"]`)?.focus({ preventScroll: true });
@@ -2147,8 +2132,8 @@ $('launch-form').addEventListener('submit', async (e) => {
   $('l-prompt').value = '';
   $('l-name').value = '';
   $('l-wt-name').value = '';
-  if (launchRocket(r.id)) toast(`Launched ${name || r.id}. It's on its way to its orbit.`);
-  else { launchedId = r.id; toast(`Launched ${name || r.id}. It opens here in a moment.`); }
+  launchedId = r.id;
+  toast(`Launched ${name || r.id}. It opens here in a moment.`);
 });
 
 // ---------- a permission request card ----------
@@ -2380,422 +2365,6 @@ function inline(node, text) {
   return node;
 }
 
-// ---------- space view: the same sessions as an orrery ----------
-// You sit at the centre. From the centre out the orbits are Needs you, Working, Idle and Finished.
-const RINGS = ['waiting', 'busy', 'idle', 'finished'];
-const RING_AT = { waiting: 0.32, busy: 0.56, idle: 0.79, finished: 1 };
-const START = { waiting: Math.PI / 4, busy: -0.35, idle: 0.6, finished: 1.9 };
-const TAU = 2 * Math.PI;
-// Motion means work: a session that needs you holds still until you answer, working ones drift, idle ones creep, finished ones stop.
-const SPIN = { waiting: 0, busy: TAU / 150, idle: TAU / 600, finished: 0 };
-const MOON_SPIN = TAU / 9;
-const calm = matchMedia('(prefers-reduced-motion: reduce)');
-const bodies = new Map();   // sessionId → its planet
-const rockets = new Map();  // a session just launched from Earth: its short id → the rocket's flight
-let spaceOn = false, raf = 0, last = 0, G = null, hoverId = null, focusId = null, side = 0, keepSpace = false;
-let size = { w: 0, h: 0, top: 52 };
-// Orbits are superellipses: 2 is an ellipse; higher squares them off toward a rounded rectangle.
-const SQUARE = 2;
-const spow = (v) => Math.sign(v) * Math.abs(v) ** (2 / SQUARE);
-const orbitAt = (cx, cy, rx, ry, a) => [cx + rx * spow(Math.cos(a)), cy + ry * spow(Math.sin(a))];
-function orbitPath(cx, cy, rx, ry) {
-  let d = '';
-  for (let i = 0; i <= 96; i++) { const [x, y] = orbitAt(cx, cy, rx, ry, (TAU * i) / 96); d += (i ? 'L' : 'M') + x.toFixed(1) + ',' + y.toFixed(1); }
-  return d + 'Z';
-}
-const svg = (tag, attrs = {}) => { const n = document.createElementNS('http://www.w3.org/2000/svg', tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); return n; };
-const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
-const ringEls = RINGS.map((k) => {
-  const e = svg('path', { class: k === 'waiting' ? 'hot' : '' }), t = svg('text', { class: k === 'waiting' ? 'hot' : '', 'text-anchor': 'middle' });
-  $('rings').append(e, t);
-  return { e, t, count: 0, shown: '' };
-});
-function targetGeom() {
-  const w = size.w - side, h = size.h - size.top - 56;
-  const rx = Math.max(110, w * 0.45 - 40);
-  const ry = Math.max(80, Math.min(h * 0.47, rx * (w > h * 1.4 ? 0.62 : w > h ? 0.8 : 1)));
-  return { cx: w / 2, cy: size.top + h / 2, rx, ry };
-}
-function layoutSpace() {
-  const sp = $('space');
-  size = { w: sp.clientWidth, h: sp.clientHeight, top: $('sp-top').offsetHeight };
-  sp.style.setProperty('--sp-top', size.top + 'px');
-  const c = $('stars'), dpr = Math.min(2, devicePixelRatio || 1);
-  c.width = size.w * dpr;
-  c.height = size.h * dpr;
-  const x = c.getContext('2d');
-  x.scale(dpr, dpr);
-  let seed = 7;
-  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-  for (let i = 0, n = Math.round((size.w * size.h) / 4200); i < n; i++) {
-    const r = rnd() ** 3 * 1.3 + 0.25, a = (0.15 + rnd() * 0.6).toFixed(2), hue = rnd();
-    x.fillStyle = hue < 0.15 ? `rgba(255, 214, 170, ${a})` : hue < 0.35 ? `rgba(180, 205, 255, ${a})` : `rgba(235, 240, 250, ${a})`;
-    x.beginPath();
-    x.arc(rnd() * size.w, rnd() * size.h, r, 0, TAU);
-    x.fill();
-  }
-}
-function makeBody(id, kind) {
-  const b = { id, f: 0, theta: 0, dtheta: 0, ring: null, base: 9, moons: new Map(), leaving: false, x: 0, y: 0 };
-  const bg = kind === 'background';
-  b.name = el('span', { class: 'p-name' });
-  b.ask = el('span', { class: 'p-ask' });
-  b.el = el('button', { class: 'planet' + (bg ? ' bg' : ''), type: 'button', onclick: () => { cancelAdvance(); open = open === id ? null : id; render(); },
-      onpointerenter: () => { hoverId = id; showTip(); }, onpointerleave: () => { if (hoverId === id) hoverId = null; showTip(); },
-      onfocus: () => { focusId = id; showTip(); }, onblur: () => { if (focusId === id) focusId = null; showTip(); } },
-    el('span', { class: 'sat' }, el('span', { class: 'sat-in' }, el('span', { class: 'sat-wing l' }), el('span', { class: 'sat-core' }), el('span', { class: 'sat-wing r' }),
-      bg ? el('span', { class: 'sat-dish' }) : null)),
-    el('span', { class: 'p-label' }, b.name, b.ask));
-  return b;
-}
-function dropBody(b) {
-  b.el.remove();
-  for (const m of b.moons.values()) { m.el.remove(); m.orbit.remove(); }
-  if (bodies.get(b.id) === b) bodies.delete(b.id);
-}
-// A planet changing orbit slots into the widest gap on its new one.
-function gapOn(ring, self) {
-  const as = [...bodies.values()].filter((o) => o !== self && !o.leaving && o.ring === ring).map((o) => wrapAngle(o.theta + o.dtheta))
-    .concat(ring === 'busy' ? [...rockets.values()].filter((r) => !r.body && !r.done).map((r) => wrapAngle(r.theta)) : []) // a rocket's slot is taken
-    .sort((a, b) => a - b);
-  if (!as.length) return START[ring];
-  let best = -1, at = 0;
-  as.forEach((a, i) => { const nx = i + 1 < as.length ? as[i + 1] : as[0] + TAU; if (nx - a > best) { best = nx - a; at = a + best / 2; } });
-  return at;
-}
-function paintBody(b, s) {
-  const st = stateOf(s), ask = st === 'waiting' || st === 'stopping';
-  b.el.dataset.state = st;
-  b.el.setAttribute('aria-current', String(open === s.sessionId));
-  b.el.setAttribute('aria-label', `${label(s)}, ${LABEL[st].toLowerCase()}: ${textOf(lineOf(s))}`);
-  b.base = 9 + 2.5 * Math.min(s.subagents.length, 3);
-  b.el.style.setProperty('--r', b.base + 'px');
-  b.name.textContent = label(s);
-  b.ask.hidden = !ask;
-  const askText = ask ? textOf(lineOf(s)) : '';
-  if (b.askShown !== askText) { b.askShown = askText; b.ask.replaceChildren(...(ask ? lineOf(s) : [])); }
-  const keep = new Set();
-  s.subagents.forEach((a, i) => {
-    keep.add(a.agentId);
-    let m = b.moons.get(a.agentId);
-    if (!m) {
-      m = { el: el('span', { class: 'moon' }, el('span', { class: 'mi' }, el('i', { class: 'mw l' }), el('i', { class: 'mc' }), el('i', { class: 'mw r' }))),
-            orbit: svg('path', { class: 'moon-orbit' }), phi: 0.9 + i * 2.4 };
-      b.moons.set(a.agentId, m);
-      $('planets').append(m.el);
-      $('moon-orbits').append(m.orbit);
-    }
-    m.i = i;
-    m.el.dataset.state = subState(s, a);
-  });
-  for (const [aid, m] of b.moons) if (!keep.has(aid)) { m.el.remove(); m.orbit.remove(); b.moons.delete(aid); }
-}
-function renderSpace(g) {
-  const seen = new Set(), fresh = !bodies.size;
-  side = !$('drawer').hidden && size.w > 980 ? $('drawer').offsetWidth : 0;
-  for (const k of RINGS) g[k].forEach((s, i) => {
-    seen.add(s.sessionId);
-    let b = bodies.get(s.sessionId);
-    if (!b) {
-      b = makeBody(s.sessionId, s.kind);
-      b.ring = k;
-      b.theta = fresh ? START[k] + (TAU * i) / g[k].length : gapOn(k, b);
-      b.f = fresh ? RING_AT[k] : 1.35;   // a new session drifts in from beyond the outer orbit
-      bodies.set(s.sessionId, b);
-      $('planets').append(b.el);
-      const rk = [...rockets.values()].find((r) => !r.body && !r.done && s.sessionId.startsWith(r.id));
-      if (rk) { if (k === 'busy') b.theta = rk.theta; carry(rk, b); } // launched from Earth: it waits, unseen, for its rocket
-    } else if (b.ring !== k) {
-      b.ring = k;
-      b.dtheta = wrapAngle(gapOn(k, b) - b.theta);
-    }
-    paintBody(b, s);
-  });
-  for (const b of bodies.values()) if (!seen.has(b.id) && !b.leaving) {
-    b.leaving = true;
-    b.el.classList.add('leaving');
-    for (const m of b.moons.values()) m.el.classList.add('leaving');
-    setTimeout(() => dropBody(b), 650);
-  }
-  const n = g.waiting.length;
-  $('sun-n').textContent = n ? `${n} need${n === 1 ? 's' : ''} you` : 'Nothing needs you';
-  $('sun-n').className = n ? 'hot' : '';
-  RINGS.forEach((k, i) => { ringEls[i].count = g[k].length; });
-  countsInto($('sp-counts'), g);
-  showTip();
-}
-function showTip() {
-  const id = hoverId ?? focusId, s = id ? sessionOf(id) : null, tip = $('sp-tip');
-  tip.hidden = !s;
-  if (!s) return;
-  const st = stateOf(s), n = s.subagents.length;
-  const where = whereOf(s.git);
-  const sig = JSON.stringify([id, st, textOf(lineOf(s)), n, where?.long]);
-  if (tip._sig === sig) return;
-  tip._sig = sig;
-  tip.replaceChildren(...[
-    el('span', { class: 't-name', text: label(s) }),
-    el('span', { class: 'tag', 'data-s': st }, glyph(st), LABEL[st]),
-    textOf(lineOf(s)) !== LABEL[st] ? el('span', { class: 't-line' }, ...lineOf(s)) : null,
-    el('span', { class: 't-meta', text: `${s.kind === 'background' ? 'Background' : s.kind === 'interactive' ? 'Terminal' : 'Headless'}${s.startedAt ? ', up ' + ago(snap.now - s.startedAt) : ''}${n ? `, ${n} subagent${n > 1 ? 's' : ''}` : ''}${s.mode ? ', ' + modeOf(s.mode).toLowerCase() : ''}` }),
-    where ? el('span', { class: 't-meta', text: where.long }) : null].filter(Boolean));
-}
-function frame(t) {
-  raf = requestAnimationFrame(frame);
-  const dt = last ? Math.min(0.05, (t - last) / 1000) : 0;
-  last = t;
-  const still = calm.matches, T = targetGeom();
-  const ease = (rate) => (still ? 1 : Math.min(1, dt * rate));
-  if (!G) G = { ...T };
-  for (const k in T) G[k] += (T[k] - G[k]) * ease(4);
-  const K = Math.max(0.7, Math.min(1, G.rx / 520)), sp = $('space');
-  sp.style.setProperty('--k', K.toFixed(3));
-  sp.classList.toggle('compact', G.ry * (RING_AT.busy - RING_AT.waiting) < 50 || size.w - side < 640);
-  sp.classList.toggle('tight', G.rx * RING_AT.waiting < 150);
-  // Hovering or focusing a planet holds the orbits still, so it stays where you are about to click.
-  const turn = hoverId || focusId || still ? 0 : 1;
-  RINGS.forEach((k, i) => {
-    const r = ringEls[i], rx = G.rx * RING_AT[k], ry = G.ry * RING_AT[k], text = `${LABEL[k]}  ${r.count}`;
-    r.e.setAttribute('d', orbitPath(G.cx, G.cy, rx, ry));
-    r.t.setAttribute('x', G.cx); r.t.setAttribute('y', G.cy - ry - 7);
-    if (r.shown !== text) r.t.textContent = r.shown = text;
-  });
-  $('sun').style.transform = `translate(${G.cx}px, ${G.cy}px)`;
-  const pulls = [];
-  for (const b of bodies.values()) {
-    b.theta += SPIN[b.ring] * dt * turn;
-    if (b.dtheta) { const step = b.dtheta * ease(2.5); b.theta += step; b.dtheta = Math.abs(b.dtheta - step) < 1e-3 ? 0 : b.dtheta - step; }
-    b.f += (RING_AT[b.ring] - b.f) * ease(2.2);
-    const sin = Math.sin(b.theta), depth = 1 + 0.12 * sin, z = 50 + Math.round(sin * 30);
-    [b.x, b.y] = orbitAt(G.cx, G.cy, G.rx * b.f, G.ry * b.f, b.theta);
-    // It flies along its orbit: wings along the tangent, turned so its top (the dish) stays up.
-    let rot = Math.atan2(G.ry * Math.cos(b.theta), -G.rx * Math.sin(b.theta));
-    if (rot > Math.PI / 2) rot -= Math.PI; else if (rot < -Math.PI / 2) rot += Math.PI;
-    b.ext = b.base * K * depth * Math.max(0.8, 2.15 * Math.abs(Math.sin(rot)) + 0.42 * Math.abs(Math.cos(rot)));
-    b.el.style.transform = `translate(${b.x.toFixed(1)}px, ${b.y.toFixed(1)}px)`;
-    b.el.style.zIndex = b.id === (hoverId ?? focusId) ? 95 : z;
-    b.el.style.setProperty('--d', depth.toFixed(3));
-    b.el.style.setProperty('--rot', rot.toFixed(3) + 'rad');
-    b.el.style.setProperty('--ext', b.ext.toFixed(1) + 'px');
-    let moonAsks = false;
-    for (const m of b.moons.values()) {
-      const ms = m.el.dataset.state;
-      if (ms === 'running' && !still) m.phi += MOON_SPIN * dt;
-      const rr = b.base * K * depth * 2.3 + 6 + m.i * 6, [mx, my] = orbitAt(b.x, b.y, rr, rr * 0.45, m.phi); // clear of its wings
-      m.orbit.setAttribute('d', orbitPath(b.x, b.y, rr, rr * 0.45));
-      let mrot = Math.atan2(rr * 0.45 * Math.cos(m.phi), -rr * Math.sin(m.phi));
-      if (mrot > Math.PI / 2) mrot -= Math.PI; else if (mrot < -Math.PI / 2) mrot += Math.PI;
-      m.el.style.transform = `translate(${mx.toFixed(1)}px, ${my.toFixed(1)}px) rotate(${mrot.toFixed(3)}rad)`;
-      m.el.style.zIndex = z + (Math.sin(m.phi) > 0 ? 1 : -1);
-      if (ms === 'waiting') { moonAsks = true; pulls.push([mx, my]); }
-    }
-    if (!moonAsks && !b.leaving && !b.incoming && b.el.dataset.state === 'waiting') pulls.push([b.x, b.y]);
-  }
-  flyRockets(dt, turn);
-  // A dashed line runs from whatever is asking to you.
-  const pool = $('tethers');
-  while (pool.childElementCount < pulls.length) pool.append(svg('line', { class: 'tether' }));
-  [...pool.children].forEach((l, i) => {
-    const p = pulls[i];
-    l.style.display = p ? '' : 'none';
-    if (p) { l.setAttribute('x1', p[0]); l.setAttribute('y1', p[1]); l.setAttribute('x2', G.cx); l.setAttribute('y2', G.cy); }
-  });
-  const tip = $('sp-tip'), tb = bodies.get(hoverId ?? focusId);
-  if (tb && !tip.hidden) {
-    // Above the planet, so its own label stays readable; below the label when there is no room above.
-    const tw = tip.offsetWidth, th = tip.offsetHeight, r = tb.ext ?? tb.base * K;
-    const tx = Math.min(Math.max(8, tb.x - tw / 2), size.w - side - tw - 8);
-    let ty = tb.y - r - th - 14;
-    if (ty < size.top + 8) ty = tb.y + r + 44;
-    tip.style.transform = `translate(${tx}px, ${ty}px)`;
-  }
-}
-function enterSpace() {
-  spaceOn = true;
-  $('space').hidden = false;
-  $('space').append($('drawer'));
-  document.body.classList.add('in-space');
-  layoutSpace();
-  render();
-  raf = requestAnimationFrame(frame);
-  $('sp-exit').focus({ preventScroll: true });
-  document.documentElement.requestFullscreen?.().catch(() => {});
-}
-function exitSpace() {
-  if (!spaceOn) return;
-  spaceOn = false;
-  cancelAnimationFrame(raf);
-  last = 0;
-  G = null;
-  hoverId = focusId = null;
-  $('space').hidden = true;
-  document.querySelector('.stage').append($('drawer'));
-  document.body.classList.remove('in-space');
-  for (const b of [...bodies.values()]) dropBody(b);
-  for (const r of rockets.values()) r.el.remove();
-  rockets.clear();
-  $('trails').replaceChildren();
-  $('tethers').replaceChildren();
-  $('sp-tip').hidden = true;
-  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-  render();
-  $('space-btn').focus({ preventScroll: true });
-}
-$('space-btn').onclick = enterSpace;
-$('sp-exit').onclick = exitSpace;
-$('sp-full').hidden = !document.fullscreenEnabled;
-$('sp-full').onclick = () => {
-  if (document.fullscreenElement) { keepSpace = true; document.exitFullscreen().catch(() => {}); }
-  else document.documentElement.requestFullscreen?.().catch(() => toast('Full screen is blocked here. Space view still fills the window.'));
-};
-// Leaving full screen (Esc) leaves Space view too, unless you only asked to leave full screen.
-document.addEventListener('fullscreenchange', () => {
-  $('sp-full').textContent = document.fullscreenElement ? 'Leave full screen' : 'Full screen';
-  if (!document.fullscreenElement && spaceOn && !keepSpace) exitSpace();
-  keepSpace = false;
-});
-// The sun opens the next request, and each click moves on to the one after.
-$('sun').onclick = () => {
-  const ids = asking(), id = ids.find((x) => x !== open) ?? ids[0];
-  if (!id) { toast('Nothing needs you.'); return; }
-  cancelAdvance();
-  open = id;
-  render();
-};
-$('planets').addEventListener('click', (e) => { if (e.target === e.currentTarget && open) { cancelAdvance(); open = null; render(); } });
-
-// ---------- World: a universe your agents' work pays for (public/world.js draws it) ----------
-let worldOn = false;
-async function enterWorld() {
-  const r = await api('/api/world/open', {});
-  if (!r.ok) { toast(r.error || 'World did not open.', true); return; }
-  worldOn = true;
-  $('world').hidden = false;
-  document.body.classList.add('in-space');
-  AgentWorld.enter(r.world, { api, toast, hub: snap?.hub, card: { key: 'acp.world.card', first: 'build' }, universe: {
-    // The galaxies your probes found are named by the hub, through this Mac; a click opens their page there.
-    names: async (at) => { const r = await api('/api/world/found', { at }); return r.ok ? r.galaxies : null; }, // null: ask again
-    visit: (handle) => snap?.hub?.url && window.open(`${snap.hub.url}/@${encodeURIComponent(handle)}`, '_blank', 'noopener'),
-  } });
-  worldNeeds();
-  $('w-exit').focus({ preventScroll: true });
-}
-/** World's credit on its button in the top bar; the tooltip holds today's numbers. Just "World" until it starts. */
-function renderWorldBtn(w) {
-  const b = $('world-btn'), fmt = (n) => Math.round(n).toLocaleString('en-US');
-  $('wb').hidden = !w?.started;
-  if (!w?.started) { setAttr(b, 'title', 'A world your agents\' work builds'); return; }
-  setText($('wb-bal'), fmt(Math.max(0, w.balance)));
-  setAttr(b, 'title', `${fmt(Math.max(0, w.balance))} credit to spend in World. Today: ${AgentWorld.read.todayLine(w.today)}`
-    + (w.home ? ` Home is level ${w.home.level}, ${w.home.stage}.` : ''));
-}
-/** How many sessions wait on you, shown in World's top bar; it takes you to the first. */
-function worldNeeds() {
-  const n = snap ? asking().length : 0;
-  $('w-needs').hidden = !n;
-  $('w-needs').textContent = n === 1 ? '1 needs you' : `${n} need you`;
-}
-$('w-needs').onclick = () => {
-  const id = asking()[0];
-  exitWorld();
-  if (id) { cancelAdvance(); open = id; render(); }
-};
-function exitWorld() {
-  if (!worldOn) return;
-  worldOn = false;
-  AgentWorld.exit();
-  $('world').hidden = true;
-  if (!spaceOn) document.body.classList.remove('in-space');
-  $('world-btn').focus({ preventScroll: true });
-}
-$('world-btn').onclick = enterWorld;
-$('w-exit').onclick = exitWorld;
-
-// ---------- Earth: a new agent launches from here by rocket, and its planet appears where the rocket reaches its orbit ----------
-$('earth').onclick = openLauncher;
-const FLIGHT = 2.6; // seconds from Earth to its orbit
-const ROCKET = '<svg viewBox="0 0 16 28" width="16" height="28" aria-hidden="true"><path class="r-flame" d="M5.6 20.5Q8 31 10.4 20.5Z"/>'
-  + '<path class="r-fin" d="M4.2 14.5 1 21l3.6-1.2zM11.8 14.5 15 21l-3.6-1.2z"/><path class="r-body" d="M8 1c3.4 3.6 4 8.6 3.9 13.5l-.5 6H4.6l-.5-6C4 9.6 4.6 4.6 8 1z"/>'
-  + '<circle class="r-window" cx="8" cy="9.5" r="1.9"/></svg>';
-/** Sends a rocket up for a session just launched; false when there is no flight to show (board view, reduced motion). */
-function launchRocket(id) {
-  if (!spaceOn || calm.matches || !G) return false;
-  const g = $('earth-globe').getBoundingClientRect(), s = $('space').getBoundingClientRect();
-  const x = g.left - s.left + g.width / 2, y = g.top - s.top + g.height / 2;
-  const r = { id, x0: x, y0: y, x, y, t: 0, dur: FLIGHT, climb: 150, angle: -Math.PI / 2, theta: gapOn('busy', null), tx: null, ty: null, body: null, done: false, trail: [], el: el('div', { class: 'rocket' }) };
-  r.el.innerHTML = ROCKET;
-  r.el.style.transform = `translate(${x}px, ${y}px) rotate(0rad)`;
-  $('planets').parentElement.append(r.el);
-  rockets.set(id, r);
-  // It may already be in the sky (its first hook event can beat the launch reply): hide it until the rocket gets there.
-  const b = [...bodies.values()].find((o) => o.id.startsWith(id) && !o.leaving);
-  if (b) { r.theta = b.theta; carry(r, b); }
-  return true;
-}
-function carry(r, b) {
-  // Already waiting in orbit, and its session turned up somewhere else: a short hop over to it.
-  if (r.t >= r.dur) Object.assign(r, { x0: r.x, y0: r.y, t: 0, dur: 1.1, climb: 30 });
-  r.body = b;
-  b.incoming = true;
-  b.f = RING_AT[b.ring];
-  b.el.classList.add('incoming');
-}
-function arrive(r) {
-  r.done = true;
-  r.el.style.opacity = '0';
-  const b = r.body;
-  b.incoming = false;
-  b.el.classList.remove('incoming');
-  b.el.classList.add('born');
-  const burst = el('span', { class: 'burst' });
-  b.el.append(burst);
-  setTimeout(() => { burst.remove(); b.el.classList.remove('born'); }, 900);
-  // Its panel opens, as after a launch on the board, unless you are typing in the one that is open.
-  if (!document.activeElement?.closest?.('#drawer textarea, #drawer input')) { cancelAdvance(); open = b.id; render(); }
-}
-function flyRockets(dt, turn) {
-  const dots = [];
-  for (const r of [...rockets.values()]) {
-    r.t += dt;
-    if (!r.done) {
-      // Until its session shows up, it heads for a free slot on the Working orbit, which turns with that orbit.
-      r.theta += SPIN.busy * dt * turn;
-      const live = r.body && !r.body.leaving;
-      const [px, py] = live ? [r.body.x, r.body.y] : orbitAt(G.cx, G.cy, G.rx * RING_AT.busy, G.ry * RING_AT.busy, r.theta);
-      if (r.tx == null) { r.tx = px; r.ty = py; }
-      r.tx += (px - r.tx) * Math.min(1, dt * 6);
-      r.ty += (py - r.ty) * Math.min(1, dt * 6);
-      // Straight up off Earth, then over into its orbit: a quadratic curve whose control point sits above the pad.
-      const p = Math.min(1, r.t / r.dur), e = p < 0.5 ? 4 * p ** 3 : 1 - (-2 * p + 2) ** 3 / 2, u = 1 - e;
-      const cx = r.x0 + (r.tx - r.x0) * 0.08, cy = Math.min(r.y0, r.ty) - r.climb;
-      r.x = u * u * r.x0 + 2 * u * e * cx + e * e * r.tx;
-      r.y = u * u * r.y0 + 2 * u * e * cy + e * e * r.ty;
-      const dx = 2 * u * (cx - r.x0) + 2 * e * (r.tx - cx), dy = 2 * u * (cy - r.y0) + 2 * e * (r.ty - cy);
-      if (Math.hypot(dx, dy) > 1e-3) r.angle = Math.atan2(dy, dx);
-      r.el.style.transform = `translate(${r.x.toFixed(1)}px, ${r.y.toFixed(1)}px) rotate(${(r.angle + Math.PI / 2).toFixed(3)}rad)`;
-      r.el.classList.toggle('coast', p >= 1);
-      if (p >= 1 && live) arrive(r);
-      else if (p >= 1 && r.body?.leaving) { r.done = true; r.el.style.opacity = '0'; }
-      else if (r.t > 30) { r.done = true; r.el.style.opacity = '0'; } // no session showed up: it fades out
-      // Exhaust: puffs left behind its tail while the engine burns.
-      const tail = [r.x - Math.cos(r.angle) * 13, r.y - Math.sin(r.angle) * 13], prev = r.trail.at(-1);
-      if (p < 1 && (!prev || Math.hypot(tail[0] - prev.x, tail[1] - prev.y) > 5)) r.trail.push({ x: tail[0], y: tail[1], t: r.t });
-    }
-    r.trail = r.trail.filter((d) => r.t - d.t < 0.9);
-    for (const d of r.trail) dots.push([d.x, d.y, 1 - (r.t - d.t) / 0.9]);
-    if (r.done && !r.trail.length && r.t > 0.5) { r.el.remove(); rockets.delete(r.id); }
-  }
-  const pool = $('trails');
-  while (pool.childElementCount < dots.length) pool.append(svg('circle'));
-  [...pool.children].forEach((c, i) => {
-    const d = dots[i];
-    c.style.display = d ? '' : 'none';
-    if (d) { c.setAttribute('cx', d[0].toFixed(1)); c.setAttribute('cy', d[1].toFixed(1)); c.setAttribute('r', (0.6 + 1.8 * d[2]).toFixed(2)); c.setAttribute('opacity', (0.6 * d[2]).toFixed(2)); }
-  });
-}
-new ResizeObserver(() => { if (spaceOn) layoutSpace(); }).observe($('space'));
-
-// Esc closes the session panel, then leaves Space view.
 // ---------- the profile: which Claude Code config folder's sessions this shows, and switching to another ----------
 let profArmed = null; // a profile whose switch would send waiting requests back, awaiting a second click
 function renderProfile() {
@@ -2803,10 +2372,10 @@ function renderProfile() {
   if (!p) return;
   const name = p.label ?? p.id;
   setText($('prof-name'), name);
-  $('sp-sub').textContent = `Space view, ${name} profile`;
   $('prof-banner').hidden = p.connected;
   setText($('pb-name'), name);
   setText($('pb-file'), `Adds its hooks to ${p.where}/settings.json and keeps a copy of the old file.`);
+  setAttr($('pb-connect'), 'title', `Adds its hooks to ${p.where}/settings.json and keeps a copy of the old file.`);
 }
 async function openProfiles() {
   const menu = $('prof-menu'), r = await api('/api/profiles', {});
@@ -2904,8 +2473,8 @@ $('pb-connect').onclick = async () => {
 
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || dlg.open || e.target.closest?.('textarea, input, select')) return;
-  if (worldOn) exitWorld();
-  else if (open) { cancelAdvance(); open = null; render(); } else if (spaceOn) exitSpace();
+  if (!$('d-pop').hidden) { showPop(false); return; }
+  if (open) { cancelAdvance(); open = null; render(); }
 });
 
 // ---------- pane widths: drag an edge, arrow keys on the edge, double-click to reset ----------
@@ -2946,14 +2515,13 @@ function edge(grip, pane, fixed, set) {
     set(pane.offsetWidth + ((e.key === 'ArrowLeft') === (fixed === 'right') ? 32 : -32));
   });
 }
-// Space view's floating panel leaves the sky 480px; the rail leaves the open session 520px.
+// The open session leaves the rest 480px; the rail leaves the open session 520px.
 edge($('d-grip'), $('drawer'), 'right', widthOf('acp.drawerWidth', '--drawer-user', () => [360, Math.max(360, innerWidth - 480)]));
-edge($('r-grip'), $('board'), 'left', widthOf('acp.railWidth', '--rail-user', () => [240, Math.max(240, Math.min(560, innerWidth - 520))]));
+edge($('r-grip'), $('board'), 'left', widthOf('acp.railWidth', '--rail-user', () => [220, Math.max(220, Math.min(560, innerWidth - 520))]));
 // The details column leaves the chat 480px of the panel.
 edge($('s-grip'), $('d-side'), 'right', widthOf('acp.sideWidth', '--side-user', () => [240, Math.max(240, Math.min(600, $('drawer').clientWidth - 480))]));
 
 connect();
-if (window.ACP_VIEW === 'world') enterWorld();
 setInterval(() => { if (snap) { snap.now += 1000; render(); } }, 1000);
 </script>
 </body>

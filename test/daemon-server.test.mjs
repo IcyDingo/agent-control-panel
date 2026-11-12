@@ -1,4 +1,4 @@
-// The server as launchd runs it: ACP_DAEMON=1 opens World at boot and waits for a taken port. Spawns real processes.
+// The server as launchd runs it: ACP_DAEMON=1 waits for a taken port instead of exiting. Spawns real processes.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import net from 'node:net';
@@ -16,21 +16,13 @@ function start(port, prefsDir, extraEnv = {}) {
   return { child, log: () => out, stop };
 }
 
-test('under ACP_DAEMON the server opens World at boot, with no button pressed', async (t) => {
+test('under ACP_DAEMON the server starts and serves the board', async (t) => {
   const port = await freePort(), prefs = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-'));
   const s = start(port, prefs); t.after(s.stop);
   assert.ok(await until(() => answers(port)), s.log());
-  const file = path.join(prefs, 'world', 'world.json');
-  assert.ok(await until(() => fs.existsSync(file)), 'world.json was not written');
-  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).v, 2);
-});
-
-test('without ACP_DAEMON nothing is written until World is opened', async (t) => {
-  const port = await freePort(), prefs = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-'));
-  const s = start(port, prefs, { ACP_DAEMON: '' }); t.after(s.stop);
-  assert.ok(await until(() => answers(port)), s.log());
-  await new Promise((r) => setTimeout(r, 500));
-  assert.equal(fs.existsSync(path.join(prefs, 'world', 'world.json')), false);
+  const html = await fetch(`http://127.0.0.1:${port}/`).then((r) => r.text());
+  assert.match(html, /Agent panel/);
+  assert.doesNotMatch(html, /__ACP_TOKEN__/, 'the token placeholder was not filled in');
 });
 
 test('a taken port makes the daemon wait, not exit; it answers once the port frees up', async (t) => {
@@ -46,11 +38,10 @@ test('a taken port makes the daemon wait, not exit; it answers once the port fre
   assert.equal(s.child.exitCode, null, 'it exited: ' + s.log());
   await free();
   assert.ok(await until(() => answers(port)), s.log());
-  assert.ok(await until(() => fs.existsSync(path.join(prefs, 'world', 'world.json'))), 'World did not open after the port freed up: ' + s.log());
 });
 
 test('an argument runs the CLI instead of the server', async () => {
   const r = await new Promise((resolve) => { const c = spawn(process.execPath, [SERVER, 'nonsense'], { env: process.env }); let out = ''; c.stdout.on('data', (d) => { out += d; }); c.stderr.on('data', (d) => { out += d; }); c.on('exit', (code) => resolve({ code, out })); });
   assert.equal(r.code, 2);
-  assert.match(r.out, /daemon install \[--program <path>\]\|remove\|status/);
+  assert.match(r.out, /daemon install\|remove\|status/);
 });

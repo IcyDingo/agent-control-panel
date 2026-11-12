@@ -5,24 +5,7 @@ them without switching terminals.
 
 ## Get started
 
-You need a Mac (macOS 14 or newer) with Node 20 or newer. Open https://universe.cashegg.com/download, sign
-in with GitHub, and paste the one line it shows into Terminal:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/IcyDingo/agent-control-panel/main/hub/public/install.sh | sh
-```
-
-It installs a small background service that counts your agents' work and keeps your galaxy up to date, and
-links this Mac to your account. The script runs from GitHub, not from the hub, and installs only a release that is on
-`main` and signed by the maintainer's key. Your galaxy page is the whole interface; the Mac app below is optional.
-
-Updates are daily, only to a release signed by the project's key on the maintainer's Mac, never to an older one, and a version that cannot start is rolled back; to turn them off:
-`printf '{ "auto": false }\n' > "$HOME/Library/Application Support/Agent Panel/worker/update.json"`
-
-### The session board (optional)
-
-The board is the Mac app's own interface, and the rest of this README describes it. You need Claude Code
-2.1.303 or newer as well.
+You need a Mac (macOS 14 or newer) with Node 20 or newer, and Claude Code 2.1.303 or newer.
 
 ```bash
 git clone https://github.com/IcyDingo/agent-control-panel.git
@@ -40,31 +23,37 @@ Panel.app** into `~/Applications`. Then:
 3. Click **Connect this profile**. It adds the panel's hooks to that profile's `settings.json` (and
    keeps a copy of the old file). Sessions you start after that show up on the board.
 
-`install.sh` also installs a background service, so World keeps counting your work when the app isn't open;
-`./install.sh --no-daemon` skips it. If the worker above is already installed, this service takes over
-from it: the background service then runs from your clone, and says so while it installs.
+`install.sh` also installs a background service, so the panel keeps holding requests and answering hooks when the app
+isn't open; `./install.sh --no-daemon` skips it.
 
 Keep the folder where you cloned it: the service and the app run the panel from there. To update, `git pull`
-and run `./install.sh` again: it rebuilds the app and restarts the service on the new code. Signed in to the hub,
-the board also says when the hub runs a newer signed release than your clone (it asks a minute after start, then
-every 6 hours) and offers **Update**: it fetches `main` and fast-forwards to that release, rebuilds the app where it
-is, and the panel restarts on the new code. A release no known key signed is never offered. It won't touch a clone on
-another branch or with uncommitted edits, and says so; then update it yourself as above. To use it without the app,
+and run `./install.sh` again: it rebuilds the app and restarts the service on the new code. To use it without the app,
 see [Run it](#run-it). To take it out again, see [Uninstall](#uninstall).
 
-The panel's own work (sessions, decisions, World) stays on your Mac whether or not you sign in: its server
-listens on 127.0.0.1 only, and the page fetches nothing but its typeface (from Google Fonts). The Mac sends
-nothing to the hub until it is signed in: by the one line run from the Download page while signed in, by
-`node server.mjs login`, or from the panel's Profile box.
+Everything stays on your Mac: the server listens on 127.0.0.1 only, and the page fetches nothing but its typeface
+(from Google Fonts).
 
 **The board** stacks four queues in a rail on the left: **Needs you**, **Working**, **Idle** and
 **Finished**. Needs you is always open. Click any other queue's header to fold it to one line, which
 keeps its count and the name of its newest session; the panel remembers what you folded, and starts
 with Idle and Finished folded. Drag the rail's right edge to widen it (double-click for the default).
-Each session is a tile with its name, how many subagents it's running, its age, and one line saying
-what it's doing or what it last said. Click a tile to open its panel in the rest of the window. The
-panel reads like a chat: its name and what you can do on top, the conversation in the middle, and
-what it's asking, what it's doing now and the box to write in pinned along the bottom. The chat keeps
+Each session is one row: its state square, its name, what it is doing (the tool it runs, or what it asks
+for: `Bash`, `Asks`, `Plan`, with `sub:` in front when a subagent is asking) and its age. Hover a row for its
+branch, folder and the full text; hover its right end for Interrupt, End or Remove. A session with
+subagents gets a chevron, and while one of them runs or waits its tree is open under the row: each
+subagent with its own square, title and age, `asks you` in amber when a request waits on it, and
+`done` when it has finished. The tree folds by itself 20 seconds after the last one finishes; the chevron
+(or → and ←) wins until a new subagent starts. Click a subagent row to open its session with that
+subagent marked in the details.
+
+The keys move you: ↑ and ↓ step through the rows and open each session as they go (into an open tree
+too), → and ← unfold and fold the selected session's subagents, `n` jumps to the next session that
+needs you, and `/` opens a find field that filters the rows by name (Esc clears it). None of them fire
+while you type. Click a row to open its panel in the rest of the window. The
+panel reads like a chat: one line on top with its name, state, kind, mode and age (Expand and Close
+are the two icons at its right), the conversation in the middle, and what it's asking and the box to
+write in pinned along the bottom. The box carries one chip for its mode, model and effort; click it to
+change any of them. What the box will do is the Send button's tooltip. The chat keeps
 to reading width on a big screen. Its details sit in a column on the right: its folder and branch, the
 command that reopens it, its subagents (each titled with the task its parent gave it) and the buttons that
 stop it. The column's **Details** tab folds it to a strip, and dragging its left edge widens it (double-click
@@ -73,28 +62,14 @@ the whole window (**Collapse** brings the board back). When the open session goe
 close it yourself and the space offers that one instead. On a narrow window the rail takes the width
 and an open session covers it.
 
-Each tile also shows the session's **branch**: a branch mark when it works in a repository's main
-checkout, a folder mark when it is in a worktree. The panel says which worktree of which repository, and
+Each row's tooltip names the session's **branch**: which branch, in a repository's main checkout or in a
+worktree. The panel says which worktree of which repository, and
 names the other live sessions in the same checkout, since they share its branch and files (one that
 switches the branch switches it for all of them). Where a session works comes from its transcript, so it
 follows a session that moves into a worktree after it starts, which `claude agents` doesn't (it keeps the
 folder the session started in). When a session edits files in other checkouts, its panel lists those too
 ("Also edits files in agent-control-panel (main)"). Branches are read from the files under `.git`, never
 by running git.
-
-**Space view** shows the same sessions full screen, as satellites orbiting you, each one a body in its
-state's colour between two solar wings, flying along its orbit. Its orbit is its state: the inner
-orbit needs you, then working, idle and finished. Background sessions carry a dish, subagents are
-small satellites circling their session's, and a request shows as an amber tether to you. Click a satellite
-for the same panel, click the centre to jump to the next request, and press Esc to go back.
-**Earth**, bottom left, launches a new agent: a rocket lifts off and flies to a free slot on its
-orbit, and the satellite appears where the rocket arrives and opens its wings. Its panel then opens,
-unless you are typing in the open one. With reduced motion there is no flight: the satellite simply
-appears.
-
-**World**, next to Space view, is a world your agents' work builds (see World, below). Once it has
-started, its button shows the credit you have to spend; hover it for today's lines, commits, active time and
-credit earned.
 
 When a session or subagent asks for something, the request appears in its panel:
 
@@ -154,7 +129,7 @@ its own icon. Open it like any app, or keep it in the Dock.
 - The Dock icon counts the requests waiting on you, and bounces when a new one arrives while you're
   in another app. Closing the window keeps the panel connected: the count stays live and requests are
   still held. Click the Dock icon to bring the window back; ⌘Q quits.
-- **Turn on desktop alerts** gives you the Mac's own notifications. Clicking one opens that session.
+- the bell (**Turn on desktop alerts**) gives you the Mac's own notifications. Clicking one opens that session.
 - The title bar follows the panel's theme.
 - **File › New Agent** (⌘T) opens the launcher, and the **New agent** button shows the shortcut. In a
   browser ⌘T opens a new tab, so there the button shows none.
@@ -204,7 +179,7 @@ without touching your settings, run a single session with the hooks:
 
 - A permission request appears here **and** in the session's terminal at the same time.
   Whichever answers first wins.
-- The panel holds a request only while a panel tab is open and **Answer prompts here** is on.
+- The panel holds a request only while a panel tab is open and **Answering here** is on.
   Otherwise it answers nothing and the terminal decides as usual. A reload (yours, or the app's when
   its health check is slow) isn't a closed tab: held requests wait 15 seconds for a page to come back.
 - If the server isn't running, the hooks fail silently and Claude Code behaves as if they weren't there.
@@ -246,12 +221,14 @@ your words.
 
 ## Messaging a session
 
-Every session's panel has a **Chat**: the conversation so far, read from its transcript, with a message
-box with the session's mode and **Send** along its bottom. Each of your messages shows with the reply
-Claude ended on (not its running commentary between tool calls); **Show earlier** reads further back,
-and a compacted stretch shows as a note. It opens at the newest message and keeps it in view as more
-arrive, unless you scrolled up to read. When its last reply ends with a numbered or lettered list,
-each option shows as a chip that fills the box; add to it if you like.
+Every session's panel has a **Chat**, with a message box along its bottom that shows the session's
+mode and has **Send**. The Chat follows the session's transcript as it is written: what you typed,
+each piece Claude writes, every tool it calls with its state and how long it took, and a short look at
+what the tool returned (click the tool's line to unfold it). A new line is on screen within a fraction
+of a second of Claude Code writing it. Thinking and a tool's full output stay in the terminal. **Show
+earlier** reads further back, and a compacted stretch shows as a note. It opens at the newest message
+and keeps it in view as more arrive, unless you scrolled up to read. When its last reply ends with a
+numbered or lettered list, each option shows as a chip that fills the box; add to it if you like.
 
 **Enter** sends at once: the message leaves the box and shows in the chat as sending. If it doesn't
 go through, it goes back into the box (ahead of anything you typed since) and the panel says why.
@@ -385,236 +362,12 @@ Full Disk Access doesn't help. A restart on the installed version does.
 Every minute the panel checks each running session, in every profile, and the processes it was started from
 (`versions.mjs`: one `ps` and one `lsof`, comparing each program file with what is on disk now).
 
-- **A banner** over the board lists every one it finds, other profiles' sessions too: the one that loses access is
-  often not the one on screen. A **toast** says when it finds a new one.
-- **Its tile** says **restart**, and **its panel** says why and how.
+- **A banner** over the board counts them, other profiles' sessions too: the one that loses access is often not the
+  one on screen. **Show which** unfolds the list with each one's restart command; **×** puts the banner away until the
+  list changes. A **toast** says when it finds a new one.
+- **Its row** carries a small amber mark before its age, and **its panel** says why and how.
 - **To restart**: a terminal session quits in its terminal and resumes with the command the panel gives you to copy.
   A background job is ended in the panel, then sent a message, and comes back on the installed version.
-
-## World
-
-World starts when the service is installed, or, without the service, the first time you open it, as a bare rock called Home in the dark, and terraforms on the days you work
-from then on, with lit space widening around Home when you zoom out (scroll, or **Home** and **Map**; drag to look
-around). No agents in it: their work only arrives as credit. While it is open, its top bar says how many sessions need
-you, and takes you back to the board at the first.
-
-Beside Home sits its **sun**, placed by your world's seed: it lights Home's day side and the colonies', and marks your
-galaxy in the Universe.
-
-**Credit** is earned per calendar day, from the work you did that day:
-
-    work   = lines changed + 20 × commits + 60 × active hours      (active hours count at most 10 a day)
-    credit = round(65 × log2(1 + work ÷ 50))
-
-Added and removed lines count the same, each of your commits is worth 20 lines on its own, and every active hour is
-worth 60. The curve means more work always pays more, and each doubling of the work adds the same credit, so a big
-day earns somewhat more, not many times more: 100 times the work is about 3 to 4 times the credit. There is no daily cap
-beyond that. Some days:
-
-| A day | Work | Credit |
-|---|---|---|
-| 15 minutes of anything | 15 | about 25 |
-| 3 hours and one careful 30-line fix | 230 | about 160 |
-| 4 hours investigating with an agent, nothing committed | 240 | about 165 |
-| A typical full day: 8 active hours, 150 lines, 3 commits | 690 | about 250 |
-| A huge day: 3,000 lines, 10 commits, 8 hours | 3,680 | about 400 |
-
-Whether an agent or you wrote the code does not matter: the same work earns the same. **Tokens earn nothing.** They are
-still counted and shown in the panel's today numbers, and a reply still marks its time active, but they add no credit
-by themselves. Nothing needs to be committed for a day to count: a day spent on work that isn't committed yet still
-earns for its active time.
-
-**Active time** is counted in 5-minute slots of the local day, at most 10 hours (120 slots) a day. A slot counts when an
-agent replied in it, or when the uncommitted files of a repository World counts changed in it. A slot counts once,
-whatever moved in it, and an agent left running (a `/loop`, a scheduled job, a background session) marks its slots like
-any other, so the 10 hours are the limit. **Time spent reading code, in a debugger or reviewing in a browser, with no
-file changing and no agent working, is not counted**: World does not watch your editor, terminal or keyboard.
-
-**Home levels up with XP** from the days you work. XP is never spent; credit is what you spend. A day's XP is a third of
-its credit, rounded: about 85 for a typical full day, about 135 for a huge one. A day off pauses it, and XP never goes
-back. The levels:
-
-| Level | Home | XP |
-|---|---|---|
-| 1–3 | bare rock, clouds (within the first hour), oceans | 0, 15, 100 |
-| 4–6 | continents, green coasts, forests | 300, 500, 800 |
-| 7–9 | settlements with lights at night, cities under an atmosphere, terraformed with a moon | 1,200, 1,600, 2,000 |
-| 10–12 | an orbital ring, a star port on it, twin moons | 2,600, 3,300, 4,000 |
-| 13 and on | one small new feature at Home each, named after it | every 1,000 XP more |
-
-Terraformed (level 9) takes about five weeks of typical weekdays, and Twin moons about ten. Past it Home keeps growing
-(about 12 typical working days per level): Satellite, Bright air, Ring of lights, Near star, Aurora, Beacon, Second sun
-glow, Comet trail, Moon base, Shield halo, Sky lanterns and Far lighthouse, then round again with a numeral (Beacon
-II). Home's light on the map grows a little with each of them too. The box at World's top left shows the level, the XP
-toward the next, and today's XP; the board says so when Home reaches a new level.
-
-**Colonies grow by themselves.** A colony has six stages, from Landing site to City: Landing site, Outpost, Domes,
-Green patches, Township, City. It is fed by half the XP Home earns after the colony landed, with nothing to feed by hand:
-Outpost at 100 colony XP, Domes at 300, Green patches at 700, Township at 1,300 and City at 2,000, about 8 to 10 weeks
-of typical work. After City it gains a feature every 1,000 colony XP more (Beacon tower, Orbital mirror, Harbour
-lights, Rail ring, Garden roofs, Space lift, then round again with a numeral). A colony keeps its planet's look
-(rust, ice, sand, violet) with the stages drawn on top, and builds sit on top of the stage. A colony founded earlier
-grows from the XP earned since its own landing, so it can show up already grown. Claude's build prompt describes the
-colony's stage as it does Home's level.
-
-**What it costs.** A build costs 150, pushing the frontier 300, a probe 400 and a rocket 1,200: a build is under a day
-of typical work, a push about a day, a probe a day and a half and a rocket about a working week. Every price is the
-same however many of a kind you bought. A pushed region is fully lit after 600 more credit earned, and a probe arrives
-after 500 more.
-
-**Credit already earned is kept.** The first time this version runs, World records the day it switched, which is the
-local day after it first runs (a World started fresh under this version uses the new formula from its first day). Days before it keep the credit and XP the old formula gave them, for good; days from it
-on use the one above, so your balance never drops at the switch (it is the old earnings plus the new, minus everything
-spent). A purchase keeps the price it was bought at, and a push or probe already under way keeps the light or travel credit it
-was bought with (3,000 for one bought before this change), so it finishes as it was promised.
-
-World counts the tokens, lines and commits like this:
-
-- **Tokens** come from the transcripts of every Claude Code profile on this Mac, sessions and subagents: what was
-  sent and written, once per reply. Cache reads don't count. There is one World, whichever profile the board shows.
-- **Which repositories count**: World finds them from your agent sessions. When a session works in a folder, World takes
-  that folder's git repository (a linked worktree counts as its main repository) and counts it from then on. There is
-  no way to add a repository by hand, so someone who never uses an agent has none counted. In a counted repository
-  everything counts, whoever made it: your commits (below), and its uncommitted file changes for active time.
-- **Lines and commits** come from your commits in those repositories: commits whose
-  author and committer are the `user.email` git uses there, on any branch or remote. Others' commits, merges, the
-  stash, and squashes GitHub makes for you don't count, and neither do lockfiles; a file counts at most 2,000 lines
-  each way per commit. A repository where git has no `user.email` counts nothing, and World says so; so does one
-  whose history git doesn't read out in time.
-- Each repository's lines per day are the most any count has seen there. So deleting a branch after it was merged
-  keeps its credit, and an amended, reworded or rebased commit replaces its old count instead of adding to it. (A
-  `fixup!` commit squashed away after World counted it keeps its lines.) Git is asked for the last 30 days; older
-  days keep what was counted.
-- Work from before the first open doesn't count. World is kept in
-  `~/Library/Application Support/Agent Panel/world/world.json`. Git is only read.
-
-**The rail** on World's right has a button for each thing you can do or look at: **Profile**, **Build**, **Send a
-rocket**, **Push the frontier**, **Send a probe** (signed in to the hub), **Moments** and **Today's work**. Each opens its card beside the rail, one at a time;
-click its button again, or ×, and the map has the whole window. World opens on Build the first time, then on the card
-you had open last. A dot on the rocket means the frontier found a planet for a colony. Profile shows your last 100
-days as a mosaic, a square a day and amber when your agents worked, signed in or not.
-
-**Push the frontier** to spend credit. Pick where it leaves from, Home or one of your colonies (a chip each; the map
-flies there), then a direction (from the list, or **Aim on the map**) and the dark that way lights up as you keep
-working: a push opens 150 px of map and is fully lit after 600 more credit earned, about two or three normal days. A push
-from a colony starts at the colony, so the map grows branches out to where you settled. A push from the same place
-within 20° of an earlier one makes that stretch longer. Dark that the light walls in all round counts as lit, so
-three branches that close a triangle fill it. The first push always finds a planet and each later one finds one half
-the time; it shows once the light reaches it, and a click flies there. A push costs 300, every time. Light never
-goes back.
-
-**Moments** mark the map where they happened: each finished week with work (Monday to Sunday), each finished day that
-removed 500 lines or more and more than it added ("Big cleanup", though removing no longer pays extra), and each Home level from 3 up. The Moments card lists
-the newest; a click on one, or on its star, opens it there with what was done and flies to it.
-
-**Send a rocket** to a bare planet the frontier found, and name the colony it lands (up to 24 letters, digits,
-spaces, apostrophes or hyphens; not Home, and not another colony's name). The view pulls out, the rocket flies from
-where you are, and the view flies in to the colony; with reduced motion it goes straight there. Colonies have a
-button each beside **Home** and **Map**. A rocket costs 1,200, every time.
-
-**Build** on Home or a colony: pick it in the Build card (a chip each, or its button beside **Home** and **Map**; either
-flies there), describe it (up to 300 characters) and press **Build on** it, or Enter. Claude turns the
-words into pieces World can draw: moons, rings, a ring city, city lights, land and ocean colours, an atmosphere,
-mountains, domes, space stations, a space elevator, aurora and beacons, each with a colour, size, place and count.
-Every build costs 150, wherever it goes and however many came before. Credit is taken only when the answer draws:
-if Claude can't be reached, the profile isn't signed in, or the answer doesn't fit, nothing is spent and the Build
-card says why. One build at a time.
-
-That call is the only time World uses Claude: `claude -p --model haiku` with a JSON schema, under the profile the
-board shows, with hooks off, no tools, MCP servers or slash commands, and no session saved. It runs in
-`~/Library/Application Support/Agent Panel/world/build`, and the board leaves it out
-([design](docs/superpowers/specs/2026-10-21-world-design.md)).
-
-## Hub
-
-The hub is a small website that gives each panel a page of its own: your galaxy, drawn the way World draws it, which
-anyone with your handle or link can open. Your galaxy has fixed coordinates on the hub, shown on your page, and
-other people's galaxies are out there around it, to be found with probes (below).
-You choose whether to sign in. The Mac sends nothing to the hub until it is signed in (by the one line run from the
-Download page while signed in, by `node server.mjs login`, or from the panel's Profile box), except the worker's
-daily release check: a plain GET with no token, followed by a download from GitHub. The panel's own work stays local
-either way.
-
-**Sign in** from the **Profile** card in World's rail (**Sign in with GitHub**), or from a terminal:
-
-```
-node server.mjs login      # prints a code and a link, and opens the link
-node server.mjs status     # signed in as whom, whether the site may place orders, and whether the background service runs
-node server.mjs logout     # revokes this Mac's token on the hub and forgets it
-```
-
-Either way you get a code like `BKQT-7W3N` and a link. Open the link, sign in to the hub with GitHub if it asks, and
-approve the code; the panel notices and says who you are. The code runs out after 15 minutes. **Sign out** in the
-Profile card does what `logout` does. Your sign-in is kept in `hub.json`, beside `prefs.json` in
-`~/Library/Application Support/Agent Panel`. If you sign in from a terminal while the background service runs, the
-service picks it up.
-
-**What is shared** is the shape of your galaxy, and only that:
-
-- Your planets, the colonies on them with their names, your builds with their captions and pieces, your moments (with
-  their day and kind), Home's level and stage, how many days you have been active, which of the last 100 days had work in them, and your sun.
-- Your probes: the direction each was sent, how far along it is, and, once it has arrived, the galaxy it found. Your
-  page shows its own Universe, so anyone on it sees the galaxies you found. To aim a probe the hub is told its
-  direction and the galaxies you have already found.
-- A small profile you write on the hub: your name, a bio, a link. Your GitHub handle and picture come with it. On the
-  same page you can set your galaxy to **unlisted**: it still opens for anyone with the link, but search engines are
-  told to leave it out and it cannot be found by its coordinates.
-
-**What never leaves your Mac**: your repositories and their paths, build prompts, and any time finer than a day. Of how
-World has grown, only Home's level and each colony's stage go on your public page (as numbers; the hub names them
-itself). Tokens, lines, credit, XP, active time and prices are never on it.
-
-Your Mac also tells the hub its own state so your page can show it to you and nobody else: your balance and XP, the
-prices, today's numbers (credit, lines, commits, tokens, active time), whether a build is running, and the Mac's name.
-That is shown only to you, signed in.
-
-The panel sends about ten seconds after something changes, a second after a purchase or an order, and once every
-30 minutes otherwise, so your page knows the Mac is still there. A hub that is down never slows the panel: it tries again later.
-
-**The Universe** is the zoom past **Map**, signed in: your galaxy, drawn as a small spiral, in the dark. You start
-alone and find the others by sending probes from the **Send a probe** card. Pick a direction (from the list, or **Aim
-on the map**) and the hub aims the probe at the nearest galaxy that way you haven't found: the nearest within 60° of
-where you pointed, or if there is none, the nearest anywhere. A probe costs 400 and arrives after 500 more credit
-earned; on its way it shows as a dot heading out the way you sent it. When it arrives that galaxy appears, with its
-handle, and a click opens its page. A probe always finds someone; if there is no one left to find, the card says so
-and nothing is spent. Unlisted galaxies are never found, and a galaxy that is found isn't told. Signed out, there is
-no Universe.
-
-**Your page** is `<hub>/@handle`. `<hub>/me` is where you edit your profile: handle, name, bio, link, and whether you are
-listed. Unlisted asks search engines not to index your page; a link still opens it.
-
-**Spending from your page.** Signed in on the hub, you can push the frontier, send a rocket, build and send a probe
-from your page, and your Mac does it: **Your orders** on the page's rail, which only you see, has Build, Rocket, Push
-and Probe as tabs, and the Build and Push chips fly the map to the place the build goes on or the push leaves from.
-A Mac whose panel predates probes is asked for neither a probe nor a push from a colony: update it first. An order from the site goes through the same code as the panel's buttons, so the same prices
-and rules apply, and the page shows what happened, or the Mac's own sentence when it said no ("It costs 400 credit,
-and you have 320."). One order at a time. With two Macs signed in to one account, an order is run by whichever
-signed-in Mac claims it first, and an order whose Mac went away while running it is released after an hour. If the
-Mac is asleep or offline, the order waits and runs when it wakes (the background service does this with no panel
-open); an order not picked up within 24 hours expires.
-
-**Your Mac decides what the site may do.** The hub only queues orders; the Mac runs them, and only within limits kept
-on the Mac, in `web-orders.json` beside `prefs.json`, which nothing from the hub can change. It runs the four kinds above
-and nothing else. A build asks Claude, on this Mac's account, for drawing pieces only: the call has no tools (each one
-that could read, write, run or fetch is also denied by name), no MCP servers, hooks or skills, and an answer that shows
-Claude tried anything more is thrown away. At most 10 builds a day come from the site (set `"buildsPerDay"` in the
-file to change it), and every order the Mac runs or refuses shows a notification, so one you didn't place is seen at
-once. To stop the site placing orders on this Mac at all, or allow it again:
-
-```
-node server.mjs orders off   # orders from the site are refused here, with a sentence the page shows
-node server.mjs orders on
-node server.mjs orders       # on or off, and today's builds
-```
-
-**Only want World?** Open `http://127.0.0.1:4747/world`: the page opens straight into World, without the board. A
-bookmark can point there.
-
-**Which hub.** The panel talks to the Universe at `https://universe.cashegg.com` (`DEFAULT_HUB` in `hub.mjs`). To
-use another, such as a hub on this machine while developing (`http://127.0.0.1:4848`), set `ACP_HUB` in the
-environment of whatever runs the panel or `node server.mjs login`. A
-sign-in belongs to the hub that issued it: pointed at a different hub, the panel shows you as signed out, and your old
-sign-in is still in `hub.json` for when you point back. To run a hub of your own, see [`hub/README.md`](hub/README.md).
 
 ## Security
 
@@ -640,36 +393,8 @@ An endpoint that approves commands is worth protecting, even on localhost:
   process is still `claude`, and never the session the panel server itself runs in.
 - `claude` is started without the `CLAUDE*` variables of the session that started the server
   (except `CLAUDE_CONFIG_DIR`), so a launched session doesn't take itself for a child of it.
-- The hub token is kept in `hub.json` beside `prefs.json` (mode 0600) and is sent only as a bearer to the hub you signed
-  in to. The page in your browser never talks to the hub: the local server does, for the page, behind the same token
-  and Origin checks as everything else. There is no CORS on either side.
-- Nothing leaves your Mac until it is signed in to the hub; after that, what leaves is an allow-list projection of
-  World, copied key by key (a field added later stays private until it is listed) and checked again on the hub before
-  it is stored. The hub stores tokens and session ids hashed; the one exception is a token you have just approved,
-  which the hub holds in clear only until your Mac collects it or the code runs out (15 minutes).
-- The worker only ever installs a commit the hub names that is signed by a key listed in `release-keys.mjs` (the
-  private half lives on the maintainer's Mac, encrypted), is on the repository's `main` **and descends from the release
-  it runs**, so neither a stolen key nor a stolen server can send it back to older code; downloaded from GitHub over
-  https, verified before the download.
-- The hub rate-limits every sign-in, upload and order, per visitor address or per account, and answers `429` with a
-  `retry-after` when a limit is reached (`hub/README.md` has the table). A galaxy set to unlisted is reached by its link
-  only: crawlers are told not to index it and a scan of the map's coordinates does not find it.
-
 ## Uninstall
 
-### The worker alone
-
-Sign out first, so the hub forgets this Mac's token, then remove the worker:
-
-```bash
-node "$HOME/Library/Application Support/Agent Panel/worker/current/server.mjs" logout
-curl -fsSL https://raw.githubusercontent.com/IcyDingo/agent-control-panel/main/hub/public/install.sh | sh -s -- --uninstall
-```
-
-### The app too
-
-Run `./install.sh --uninstall` from the clone: it removes the background service and
-`~/Applications/Agent Panel.app`. If you signed in to the hub, run `node server.mjs logout` before it: it revokes the
-hub token. Then remove the hook entries that point at `127.0.0.1:4747` from each profile's settings, and delete
-`~/Library/Application Support/Agent Panel` and `~/Library/Logs/Agent Panel`. Deleting the Application Support folder
-also removes what the worker left there, including `hub.json` and your World file.
+Run `./install.sh --uninstall` from the clone: it removes the background service and `~/Applications/Agent Panel.app`.
+Then remove the hook entries that point at `127.0.0.1:4747` from each profile's settings, and delete
+`~/Library/Application Support/Agent Panel` and `~/Library/Logs/Agent Panel`.
