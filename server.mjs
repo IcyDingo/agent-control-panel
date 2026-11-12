@@ -24,6 +24,7 @@ import { UNTRUSTED, trustKey, isTrusted, trustScript } from './trust.mjs';
 import { prefsPath } from './cli.mjs';
 import { createGithub } from './github.mjs';
 import { createOverseer } from './overseer.mjs';
+import { createWatcher } from './watcher.mjs';
 
 // `node server.mjs <command>` runs the CLI (cli.mjs) and never starts the server.
 if (process.argv.length > 2) { const { main } = await import('./cli.mjs'); process.exit(await main(process.argv.slice(2))); }
@@ -1596,9 +1597,9 @@ const github = createGithub({
   }).filter(Boolean),
   notify,
   onEvent: (ev) => onGithubEvent(ev),
-  onChange: () => broadcast(),
+  onChange: () => { broadcast(); watcherCheck(); },
 });
-let onGithubEvent = () => {};
+let onGithubEvent = () => {}, watcherCheck = () => {};
 /** The failing log of a run or check the panel shows, trimmed, with the message that would hand it to an agent. */
 async function githubLog(body) {
   const slug = String(body?.slug ?? ''), runId = String(body?.runId ?? '');
@@ -1702,6 +1703,22 @@ const overseer = createOverseer({
   onChange: () => broadcast(),
 });
 onGithubEvent = (ev) => overseer.note(ev.type, { slug: ev.slug, text: ev.text });
+// The PR watcher: tells the agent on a pull request's branch to fix it when it fails, conflicts, gets changes requested or
+// sticks, until it goes in (watcher.mjs). A background session is told at once, through the same reply() as the page.
+const watcher = createWatcher({
+  file: path.join(dataDir, 'watcher.json'), github: () => github.state(),
+  session: (id) => {
+    const s = sessions.get(id);
+    if (!s) return null;
+    const kind = s.kind === 'background' && BG_ID.test(s.id ?? '') && s.inRoster ? 'background'
+      : s.kind === 'interactive' && s.inRoster && !isEnded(s) ? 'interactive' : null;
+    return { kind, name: labelOf(s) };
+  },
+  send: (sessionId, text) => reply({ sessionId, text }),
+  suggest: (sessionId, text, why, say) => overseer.suggest({ sessionId, text, why, say }),
+  failedLog: (q) => github.failedLog(q), notify, note: (type, f) => overseer.note(type, f), onChange: () => broadcast(),
+});
+watcherCheck = () => { watcher.check().catch((e) => console.error('watcher:', e?.message ?? e)); };
 /** The overseer keeps one conversation per profile, by an id it accepts: the profile's own when it is plain, else one
  *  made from its folder, so two accounts never share a conversation. */
 const overseerId = (p) => (/^(?!\.{1,2}$)[\w.-]{1,40}$/.test(p.id) ? p.id : 'p-' + crypto.createHash('sha256').update(p.dir).digest('hex').slice(0, 16));
@@ -1733,7 +1750,7 @@ function snapshot() {
       subagents: [...s.subagents.values()].map((a) => ({ ...a, stopping: !a.stoppedAt && stops.has(stopKey(s.sessionId, a.agentId)) })),
     }; }),
     pending: [...shownPending().map(({ res, timer, profileDir, ...p }) => p), ...openRequests()],
-    github: github.state(), overseer: overseer.status(),
+    github: github.state(), overseer: overseer.status(), watcher: watcher.status(),
     _ts: now,
   };
 }
@@ -1861,7 +1878,8 @@ async function handle(req, res) {
                       '/api/answer-open': answerOpen, '/api/history': history, '/api/follow': followSession,
                       '/api/trust-terminal': openTrustTerminal,
                       '/api/github/refresh': () => { github.refresh(); return { ok: true, github: github.state() }; },
-                      '/api/github/log': githubLog, '/api/github/hand': githubHand, ...OVERSEER };
+                      '/api/github/log': githubLog, '/api/github/hand': githubHand, ...OVERSEER,
+                      '/api/watcher/enabled': (b) => watcher.setEnabled(b?.on) };
     if (Object.hasOwn(ACTIONS, url.pathname)) {
       let r;
       try { r = await ACTIONS[url.pathname](body); } catch (err) { r = { ok: false, error: String(err?.message ?? err).slice(0, 300) }; }
@@ -1908,4 +1926,5 @@ server.listen(PORT, '127.0.0.1', () => {
   setInterval(() => { prune(); broadcast(); }, 10_000);
   // GitHub: one beat every 15 s, each repository on its own pace; the first a little after start, once the roster is in.
   setTimeout(() => { github.tick({ watched: clients.size > 0 }); setInterval(() => github.tick({ watched: clients.size > 0 }), 15_000); }, 20_000);
+  setInterval(() => watcherCheck(), 60_000); // checks that stick become a problem with time, with nothing new from GitHub
 });

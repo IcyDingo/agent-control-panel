@@ -680,7 +680,11 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .msg.feed .fd { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--fg-faint); transform: translateY(-1px); }
 .msg.feed[data-t="needs-you"] .fd { background: var(--amber); }
 .msg.feed[data-t="started"] .fd, .msg.feed[data-t="launched"] .fd, .msg.feed[data-t="pr-opened"] .fd { background: var(--run); }
-.msg.feed[data-t="ci-failed"] .fd, .msg.feed[data-t="main-failed"] .fd, .msg.feed[data-t="failed"] .fd { background: var(--stop); }
+.msg.feed[data-t="ci-failed"] .fd, .msg.feed[data-t="main-failed"] .fd, .msg.feed[data-t="failed"] .fd, .msg.feed[data-t="fix-failed"] .fd, .msg.feed[data-t="fix-capped"] .fd { background: var(--stop); }
+.msg.feed[data-t="fix-sent"] .fd { background: var(--run); }
+.msg.feed[data-t="fix-alert"] .fd { background: var(--amber); }
+.fixm { flex: none; font: 500 11px var(--mono); color: var(--run); }
+.gh-auto { flex: none; font-size: 12px; }
 .msg.feed[data-t="ci-failed"], .msg.feed[data-t="main-failed"] { color: var(--stop); }
 .msg.feed[data-t="ci-recovered"] .fd, .msg.feed[data-t="main-recovered"] .fd, .msg.feed[data-t="pr-merged"] .fd, .msg.feed[data-t="done"] .fd, .msg.feed[data-t="finished"] .fd { background: var(--ok); }
 .msg.feed .ft { flex: none; margin-left: auto; font: 11.5px var(--mono); color: var(--fg-faint); }
@@ -2532,6 +2536,7 @@ function ghItemState(checks, since) {
   const long = since ? snap.now - since : 0;
   return long > STUCK_MS ? { st: 'stuck', word: `stuck ${ago(long)}` } : { st: 'running', word: since ? `running ${ago(long)}` : 'running' };
 }
+const FIX_WHAT = { failing: 'checks failing', conflict: 'merge conflicts', changes: 'changes requested', stuck: 'checks stuck' };
 /** An open pull request's state: failing, stuck or running from its checks, else draft, ready or passing, else open. */
 function ghPrState(p) {
   const s = ghItemState(p.checks, p.runningSince);
@@ -2543,7 +2548,7 @@ function ghPrState(p) {
 /** What the GitHub list shows for one repository, worst first. */
 function ghActive(r) {
   const items = [
-    ...r.prs.map((p) => ({ p, s: ghPrState(p) })).map(({ p, s }) => ({ kind: 'pr', ...s, n: '#' + p.number, title: p.title, url: p.url,
+    ...r.prs.map((p) => ({ p, s: ghPrState(p) })).map(({ p, s }) => ({ kind: 'pr', ...s, n: '#' + p.number, title: p.title, url: p.url, fix: snap.watcher?.prs?.[`${r.slug}#${p.number}`] ?? null,
       tip: `${p.title}\n${p.branch}${p.mine ? ', yours' : ''}\n${s.st === 'failing' && p.failing?.length ? 'Failing: ' + p.failing.map((f) => f.name).join(', ') : s.st === 'stuck' ? 'Its checks have run for more than 30 minutes.' : CHECKS[p.checks]}${p.mergeState ? ` · ${MERGE[p.mergeState] ?? p.mergeState}` : ''}`, sessions: p.sessions })),
     ...mainRuns(r).map((x) => ({ x, s: ghItemState(x.state, x.started) })).filter((y) => y.s).map(({ x, s }) => ({ kind: 'run', ...s, n: r.defaultBranch ?? 'main', title: x.workflow, url: x.url,
       tip: `${x.workflow} on ${r.defaultBranch ?? 'the default branch'}${x.pr ? `, after #${x.pr}` : ''}: ${x.title}`, sessions: x.sessions })),
@@ -2573,6 +2578,7 @@ function acrossNodes(head) {
     r.error ? el('p', { class: 'h-err', text: r.error.text }) : null,
     ...items.map((it) => el('a', { class: 'h-li', 'data-c': it.st, href: it.url, target: '_blank', rel: 'noopener', title: it.tip + (who(it.sessions) ? `\n${who(it.sessions)}` : '') },
       el('span', { class: 'tci', 'data-c': it.st }), el('span', { class: 'hn', text: it.n }), el('span', { class: 'ht', text: it.title }),
+      it.fix?.fixes ? el('span', { class: 'fixm', title: `The PR watcher: ${it.fix.result} (${FIX_WHAT[it.fix.kind] ?? it.fix.kind}), ${ago(snap.now - it.fix.at)} ago`, text: `fix ${it.fix.fixes}/${snap.watcher.max}` }) : null,
       el('span', { class: 'st-word', 'data-c': it.st, text: it.word }))),
   ))];
 }
@@ -2593,8 +2599,10 @@ function renderGhBtn() {
   setText($('gh-n'), String(failing));
   setAttr($('gh-btn'), 'title', gh.hint ?? (failing ? `${failing} failing on GitHub` : stuck ? 'Checks have run for more than 30 minutes on GitHub' : state === 'running' ? 'Checks are running on GitHub' : `GitHub: ${gh.repos.length} ${gh.repos.length === 1 ? 'repository' : 'repositories'} watched`));
   const open = prs.length;
-  if (!$('gh-pop').hidden) patch($('gh-pop'), acrossSig() + ghRefreshing, () => acrossNodes(el('div', { class: 'gh-pop-h' }, el('h3', { text: 'GitHub' }),
+  if (!$('gh-pop').hidden) patch($('gh-pop'), acrossSig() + ghRefreshing + JSON.stringify(snap.watcher), () => acrossNodes(el('div', { class: 'gh-pop-h' }, el('h3', { text: 'GitHub' }),
     el('span', { class: 'gh-sub', text: open ? `${open} open pull request${open === 1 ? '' : 's'}` : '' }),
+    snap.watcher ? el('label', { class: 'switch gh-auto', title: 'The PR watcher: when a pull request on an agent\u2019s branch fails, conflicts, gets changes requested or has checks stuck, it asks that agent to fix it and push again, at most 3 times' },
+      el('input', { type: 'checkbox', checked: snap.watcher.enabled, onchange: (e) => api('/api/watcher/enabled', { on: e.target.checked }) }), el('i'), 'Auto-fix') : null,
     el('button', { class: 'btn quiet small', type: 'button', disabled: ghRefreshing, text: ghRefreshing ? 'Refreshing…' : 'Refresh', title: 'Ask GitHub again now',
       onclick: async () => { ghRefreshing = true; render(); await api('/api/github/refresh', {}); setTimeout(() => { ghRefreshing = false; render(); }, 1500); } }),
     el('button', { class: 'btn icon', type: 'button', 'aria-label': 'Close GitHub', title: 'Close (Esc)', onclick: () => { showGhPop(false); $('gh-btn').focus(); } }, svgIcon('M6 6l12 12M18 6L6 18')))));
