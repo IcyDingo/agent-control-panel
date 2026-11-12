@@ -148,8 +148,9 @@ rebuilt app may ask again.
 
 Each Claude Code profile is a config folder: `~/.claude` for plain `claude`, `~/.claude-<name>` for
 one started with `CLAUDE_CONFIG_DIR=~/.claude-<name>`. The panel shows one profile at a time.
-**Profile** in the header lists them by folder name (`claude`, `claude-work`), with each one's
-account and plan from `claude auth status`, and switches between them.
+The header shows them as tabs by folder name (`claude`, `claude-work`); a tab's tooltip gives its
+account and plan from `claude auth status`, and a dot marks one whose hooks don't point at the panel.
+Click a tab to switch. With one profile, there are no tabs.
 
 - Switching swaps the board to that profile's sessions, and new agents launch in it.
 - A request held for the old profile's sessions stays held, out of sight, and shows again when that
@@ -165,6 +166,57 @@ them, the panel shows **Connect this profile**. Clicking it adds the entries fro
 `hooks.example.json` that the profile's `settings.json` lacks. It changes nothing else in the file,
 and keeps a dated copy of the old file beside it. Requests from a profile the panel isn't showing are
 left to their terminals.
+
+## The rail
+
+Needs you comes first. Below it, every other live session sits under the repository it works in, in
+name order so the sections hold still while agents work: the header names the repository, the folder
+it sits in, and, when one checkout of it is in use, that checkout and its branch. With two or more
+checkouts in use (the main one and worktrees), a quiet label heads each checkout's sessions. Sessions
+outside any repository are under Other folders, and ended ones under Finished. A session under Needs
+you names its repository on its row. The open session's header shows its repository, checkout and
+branch as chips, its folder beneath (a click copies it), and its pull request when it has one.
+
+## GitHub
+
+The panel watches the GitHub repositories agents work in, through your own `gh` CLI. It stores no
+token: when `gh` is missing or signed out, it says so once and shows nothing else.
+
+- A repository is found from `origin` in its git config (github.com only); the panel never runs git
+  in it, and calls `gh` with `-R github.com/<owner>/<repo>` from its own folder.
+- It shows open pull requests on the branches agents are on (not forks), the latest runs on the
+  default branch, and the last few merges. A repository section gets a CI pill, a session row a dot
+  for its PR's checks, and Details a Pull request block with the checks, the failing ones by name,
+  whether it can merge, and its review state.
+- It polls each repository every minute while a page is open, every 20 seconds while something
+  runs, and every 5 minutes with no page (1 minute while something runs). Errors back off to 15
+  minutes. At most six repositories, the most recently active first.
+- A failure notifies once, as a macOS notification, so it reaches you with no page open: a PR's
+  checks failing at a new commit, or a run on the default branch failing. After a restart it won't
+  repeat one, and only failures from the last 15 minutes notify.
+- **Send the failing log to** _the session_ fetches the failing steps' log, trims it, and shows the
+  exact message before it goes, through the same path as a reply typed here.
+- `ACP_GITHUB=off` turns it off.
+
+## The overseer
+
+With no session open, the panel shows the overseer: one chat that knows every session on the board.
+Ask what needs you, what everyone is doing, or what is failing, or say what you want done.
+
+- Each message is one headless `claude -p` call on the profile's own Claude Code login, with no
+  tools, from an empty folder of its own. It reads a digest of the board: each session's state,
+  repository, branch, current tool, what it asks you, its subagents, what it last said, its pull
+  request and checks, plus the folders a new session may start in and the feed of what happened. It
+  may ask to read a session's recent conversation, twice at most per answer.
+- It only proposes. A proposal (tell a session something, start one in a known folder, interrupt
+  one) shows as a card with its target and exact words, which you can change, and runs only when you
+  click it. It can't answer permission requests or approve plans, pick a model or a permission mode,
+  or send a message that starts with `/` or `!`. A card says when sending would restart a session
+  (for a terminal session, that closes Claude in its terminal). Proposals expire after an hour.
+- Its model is Sonnet unless you pick another under its box. Its conversation and feed are kept per
+  profile, in `overseer.json` beside `prefs.json`.
+- **What leaves the Mac:** the digest and the excerpts it reads go to the profile's own Claude
+  account, as any Claude Code session's prompts do. Nothing goes anywhere else.
 
 ## Wire the hooks (once)
 
@@ -393,6 +445,11 @@ An endpoint that approves commands is worth protecting, even on localhost:
   process is still `claude`, and never the session the panel server itself runs in.
 - `claude` is started without the `CLAUDE*` variables of the session that started the server
   (except `CLAUDE_CONFIG_DIR`), so a launched session doesn't take itself for a child of it.
+- What agents, CI and GitHub wrote reaches the overseer as reported data inside tags it is told never
+  to take as instructions, with `<` and `>` taken out; what it proposes still needs your click, and
+  the server checks every proposal again when you click (the session is live, the folder is one it
+  knows and this profile trusts, the text is not a command).
+- A remote URL can carry a token: the panel keeps only the owner and repository name it parsed.
 ## Uninstall
 
 Run `./install.sh --uninstall` from the clone: it removes the background service and `~/Applications/Agent Panel.app`.
