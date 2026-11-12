@@ -611,6 +611,16 @@ export function createOverseer({
   }
 
   return {
+    /** A card from outside a conversation turn, for the PR watcher: a turn of its own saying `say`, with one proposed
+     *  message to the session, checked as any proposal is and run only on a click. */
+    suggest({ sessionId, text, why, say }) {
+      const p = prof(), turnId = `t${p.seq + 1}`;
+      const action = propose({ type: 'tell', session: String(sessionId ?? '').slice(0, 8), text: String(text ?? ''), why: String(why ?? '') }, 0, turnId, objects(readBoard().sessions));
+      push(p, { id: `t${++p.seq}`, at: now(), who: 'overseer', text: clip(String(say ?? ''), 4000), model: 'PR watcher', ms: 0, looked: [], actions: [action] });
+      changed();
+      scheduleExpiry();
+      return action;
+    },
     /** Switch to a profile's conversation and feed. An answer on its way is dropped, and the old conversation says so. */
     use(id) {
       const next = typeof id === 'string' && PROFILE.test(id) ? id : 'default';

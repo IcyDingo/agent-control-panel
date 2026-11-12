@@ -108,6 +108,10 @@ await new Promise((resolve, reject) => {
 const token = (await (await fetch(BASE + '/')).text()).match(/[0-9a-f]{48}/)[0];
 const post = (p, body, t = token) => fetch(BASE + p, { method: 'POST', headers: { 'content-type': 'application/json', origin: BASE, 'x-acp-token': t }, body: JSON.stringify(body ?? {}) });
 const api = (p, body) => post(p, body).then((r) => r.json());
+// The PR watcher would ask the job to fix its failing PR by itself (test/watcher.test.mjs covers that): here it is off, so
+// what reaches claude is what the overseer's cards send. Turning it off goes through its route, behind the token.
+assert.equal((await post('/api/watcher/enabled', { on: false }, 'nope')).status, 403);
+assert.deepEqual(await api('/api/watcher/enabled', { on: false }), { ok: true, enabled: false });
 
 // A page watching: frames arrive as they are sent. Opened only once the session is on the board (below), since opening
 // it is what starts the first GitHub poll.
@@ -316,4 +320,21 @@ test('a proposed tell that starts with / is kept as invalid, and cannot be run',
   assert.match(r.error, /^The panel won't run this one\./);
   assert.equal(calls(claudeCalls).filter((c) => c.args[0] === '--bg').length, 1, 'nothing more was sent');
   assert.equal(fs.readFileSync(counter, 'utf8'), '3', 'three asks in all');
+});
+
+test('the PR watcher, turned on, asks the job on the failing branch to fix it, with the failing log', async () => {
+  const before = calls(claudeCalls).length;
+  assert.deepEqual(await api('/api/watcher/enabled', { on: true }), { ok: true, enabled: true });
+  const sent = await until(() => calls(claudeCalls).slice(before).find((c) => c.args[0] === '--bg' && /PR watcher/.test(c.args.at(-1))));
+  assert.ok(sent, 'the watcher sent a fix request: ' + JSON.stringify(calls(claudeCalls).slice(before)));
+  assert.deepEqual(sent.args.slice(0, 4), ['--bg', '--resume', SID, '--']);
+  assert.match(sent.args.at(-1), /^build failed on feat\/x \(pull request #7\) in o\/n\./, 'it carries the failing log');
+  assert.match(sent.args.at(-1), /fix 1 of 3/);
+  const st = await until(() => latest()?.watcher?.prs?.['o/n#7']);
+  assert.equal(st.fixes, 1);
+  assert.equal(st.kind, 'failing');
+  // Nothing is asked again for the same commit.
+  await api('/api/watcher/enabled', { on: true });
+  await pause(500);
+  assert.equal(calls(claudeCalls).slice(before).filter((c) => /PR watcher/.test(c.args.at(-1) ?? '')).length, 1);
 });

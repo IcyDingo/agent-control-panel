@@ -202,6 +202,24 @@ token: when `gh` is missing or signed out, it says so once and shows nothing els
   exact message before it goes, through the same path as a reply typed here.
 - `ACP_GITHUB=off` turns it off.
 
+## The PR watcher
+
+It sees each pull request on an agent's branch through to merging. When one **fails its checks**, **conflicts
+with its base**, gets **changes requested**, or has **checks stuck** running over 30 minutes, it tells the agent
+on that branch to fix it and push again: the failing steps' log, or what to do about the conflict, the review or
+the stuck run.
+
+- A background session is told at once, through the same path as a reply typed here. A terminal session Claude
+  Code lists gets a card in the overseer to confirm, since a message closes Claude in its terminal. One the panel
+  knows only from its hooks can't be messaged: you get a notification saying whom to tell.
+- Each problem is asked about once per commit (a changes-requested review once, until it changes), at most three
+  fixes per pull request; after that you are told it is over to you. A message that doesn't go through is tried
+  again five minutes later.
+- Every fix asked shows in the overseer's feed and as a macOS notification, and the GitHub panel marks the pull
+  request with how many fixes were asked (`fix 1/3`).
+- **Auto-fix** in the GitHub panel turns it off and on. What it asked is kept in `watcher.json` beside `prefs.json`,
+  so a restart never asks twice.
+
 ## The overseer
 
 With no session open, the panel shows the overseer: one chat that knows every session on the board.
