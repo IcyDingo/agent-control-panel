@@ -2516,29 +2516,33 @@ function renderAcross() {
   patch($('h-side'), acrossSig(), () => acrossNodes(el('h3', { text: 'Across everything' })));
 }
 const acrossSig = () => JSON.stringify([snap.github, snap.sessions.map((s) => [s.sessionId, label(s)])]);
-/** The list under a heading: shared by the overseer's side column and the GitHub button's dropdown. */
+/** The list under a heading, shared by the overseer's side column and the GitHub button's dropdown: only what needs an
+ *  eye, the pull requests and default-branch runs that are failing or still running, failures first. Passing ones and
+ *  merges are left out; a repository with nothing failing or running drops out too. */
 function acrossNodes(head) {
   const gh = snap.github, names = new Map(snap.sessions.map((s) => [s.sessionId, label(s)]));
-  {
-    if (!gh || gh.gh === 'off') return [head, el('p', { class: 'gh-hint', text: 'GitHub is turned off for this panel (ACP_GITHUB=off).' })];
-    const hint = gh.hint ? el('p', { class: 'gh-hint', text: gh.hint }) : null;
-    if (!gh.repos.length) return [head, hint ?? el('p', { class: 'gh-hint', text: gh.gh === 'unknown' ? 'Looking at GitHub…' : 'No agent works in a GitHub repository right now.' })];
-    const who = (ids) => (ids ?? []).map((id) => names.get(id)).filter(Boolean).join(', ');
-    return [head, hint, ...gh.repos.map((r) => {
-      const main = worst(r.runs.filter((x) => ['push', 'merge_group', 'schedule', 'workflow_dispatch'].includes(x.event) || !x.event).map((x) => x.state));
-      return el('section', { class: 'h-repo' },
-        el('div', { class: 'h-repo-h' }, el('a', { href: r.url, target: '_blank', rel: 'noopener', text: r.slug, title: r.slug }),
-          main ? el('span', { class: 'ci', 'data-c': main, text: `${r.defaultBranch ?? 'main'} ${main}` }) : null),
-        r.error ? el('p', { class: 'h-err', text: r.error.text }) : null,
-        r.prs.length ? [el('div', { class: 'h-sub', text: 'Pull requests' }), ...r.prs.map((p) => el('a', { class: 'h-li', href: p.url, target: '_blank', rel: 'noopener', title: `${p.title}\n${CHECKS[p.checks]}${p.draft ? ', draft' : ''}` },
-          el('span', { class: 'tci', 'data-c': p.checks }), el('span', { class: 'hn', text: '#' + p.number }), el('span', { class: 'ht', text: p.title }), el('span', { class: 'hw', text: who(p.sessions) })))] : null,
-        r.runs.length ? [el('div', { class: 'h-sub', text: `On ${r.defaultBranch ?? 'the default branch'}` }), ...r.runs.slice(0, 5).map((x) => el('a', { class: 'h-li', href: x.url, target: '_blank', rel: 'noopener', title: `${x.workflow}: ${x.title}` },
-          el('span', { class: 'tci', 'data-c': x.state }), el('span', { class: 'ht', text: x.workflow }), el('span', { class: 'hw', text: x.pr ? `#${x.pr}` : ago(snap.now - x.at) })))] : null,
-        r.merged.length ? [el('div', { class: 'h-sub', text: 'Recently merged' }), ...r.merged.slice(0, 3).map((m) => el('a', { class: 'h-li', href: m.url, target: '_blank', rel: 'noopener', title: m.title },
-          el('span', { class: 'hn', text: '#' + m.number }), el('span', { class: 'ht', text: m.title }), el('span', { class: 'hw', text: ago(snap.now - m.mergedAt) })))] : null,
-        !r.prs.length && !r.runs.length && !r.merged.length && !r.error ? el('p', { class: 'h-none', text: r.checkedAt ? 'Nothing open on the agents’ branches.' : 'Looking…' }) : null);
-    })];
+  if (!gh || gh.gh === 'off') return [head, el('p', { class: 'gh-hint', text: 'GitHub is turned off for this panel (ACP_GITHUB=off).' })];
+  const hint = gh.hint ? el('p', { class: 'gh-hint', text: gh.hint }) : null;
+  if (!gh.repos.length) return [head, hint ?? el('p', { class: 'gh-hint', text: gh.gh === 'unknown' ? 'Looking at GitHub…' : 'No agent works in a GitHub repository right now.' })];
+  const who = (ids) => (ids ?? []).map((id) => names.get(id)).filter(Boolean).join(', ');
+  const RANK = { failing: 0, running: 1 }, live = (st) => st in RANK, byState = (a, b) => RANK[a] - RANK[b];
+  const active = gh.repos.map((r) => ({ r, prs: r.prs.filter((p) => live(p.checks)).sort((a, b) => byState(a.checks, b.checks)),
+    runs: mainRuns(r).filter((x) => live(x.state)).sort((a, b) => byState(a.state, b.state)) }))
+    .filter((x) => x.prs.length || x.runs.length || x.r.error)
+    .sort((a, b) => Math.min(...[...a.prs.map((p) => RANK[p.checks]), ...a.runs.map((x) => RANK[x.state]), 2]) - Math.min(...[...b.prs.map((p) => RANK[p.checks]), ...b.runs.map((x) => RANK[x.state]), 2]));
+  if (!active.length) {
+    const open = gh.repos.reduce((n, r) => n + r.prs.length, 0), checked = gh.repos.some((r) => r.checkedAt);
+    return [head, hint, el('p', { class: 'h-none', text: !checked ? 'Looking at GitHub…'
+      : `Nothing failing or running across ${gh.repos.length} ${gh.repos.length === 1 ? 'repository' : 'repositories'}${open ? `; ${open} open pull request${open === 1 ? '' : 's'}, all quiet` : ''}.` })];
   }
+  return [head, hint, ...active.map(({ r, prs, runs }) => el('section', { class: 'h-repo' },
+    el('div', { class: 'h-repo-h' }, el('a', { href: r.url, target: '_blank', rel: 'noopener', text: r.slug, title: r.slug })),
+    r.error ? el('p', { class: 'h-err', text: r.error.text }) : null,
+    ...prs.map((p) => el('a', { class: 'h-li', href: p.url, target: '_blank', rel: 'noopener', title: `${p.title}\n${CHECKS[p.checks]}${p.failing?.length ? ': ' + p.failing.map((f) => f.name).join(', ') : ''}` },
+      el('span', { class: 'tci', 'data-c': p.checks }), el('span', { class: 'hn', text: '#' + p.number }), el('span', { class: 'ht', text: p.title }), el('span', { class: 'hw', text: who(p.sessions) }))),
+    ...runs.map((x) => el('a', { class: 'h-li', href: x.url, target: '_blank', rel: 'noopener', title: `${x.workflow} on ${r.defaultBranch ?? 'the default branch'}: ${x.title}` },
+      el('span', { class: 'tci', 'data-c': x.state }), el('span', { class: 'hn', text: r.defaultBranch ?? 'main' }), el('span', { class: 'ht', text: x.workflow }), el('span', { class: 'hw', text: x.pr ? `after #${x.pr}` : ago(snap.now - x.at) }))),
+  ))];
 }
 /** Runs on a default branch that count for it: pushes and merges, not a fork's PR named main. */
 const mainRuns = (r) => r.runs.filter((x) => ['push', 'merge_group', 'schedule', 'workflow_dispatch'].includes(x.event) || !x.event);
