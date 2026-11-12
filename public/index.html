@@ -207,7 +207,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .col-path .br > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .col-path .br::before { content: ""; flex: none; width: 11px; height: 11px; background: currentColor; -webkit-mask: var(--i-branch) center / contain no-repeat; mask: var(--i-branch) center / contain no-repeat; }
 .col-path .br.wt::before { -webkit-mask-image: var(--i-tree); mask-image: var(--i-tree); }
-.col-body { padding: 0 8px; display: grid; gap: 2px; align-content: start; }
+.col-body { padding: 0 8px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; align-content: start; } /* rows fit the rail: a long name shrinks, never the time */
 .col-empty { margin: 2px 8px 4px; color: var(--fg-dim); font-size: 12.5px; }
 .col-hint { margin: 0 8px 4px; }
 .board-empty { margin: 10px 16px; color: var(--fg-dim); font-size: 13px; }
@@ -219,7 +219,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .ck span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ck .br { flex: none; max-width: 60%; color: var(--fg-faint); }
 
-.tile-wrap { position: relative; }
+.tile-wrap { position: relative; min-width: 0; }
 /* One line per session: a chevron slot (filled when it has subagents), its state light, name, a short mono detail
    (the tool it runs, or what it asks for), and its age. The branch, folder and full text live in the tooltip. */
 .srow {
