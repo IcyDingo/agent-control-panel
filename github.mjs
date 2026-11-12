@@ -94,7 +94,8 @@ const FAILED = new Set(['FAILURE', 'TIMED_OUT', 'STARTUP_FAILURE']);
  * A pull request's checks as one state. The same check re-run is counted once, by its latest run. Skipped, neutral and
  * cancelled checks count for nothing.
  * @returns {{ checks: 'passing'|'failing'|'running'|'none', counts: {pass, fail, pending},
- *             failing: [{name, url, runId, jobId}], finishedAt: number|null }}
+ *             failing: [{name, url, runId, jobId}], finishedAt: number|null, runningSince: number|null }}
+ * `runningSince` is when the oldest check still running started: how long it has been going.
  */
 export function rollup(contexts) {
   const latest = new Map();
@@ -114,19 +115,20 @@ export function rollup(contexts) {
     // Anyone who can post a commit status picks its link: only an https one is kept, as the page makes it clickable.
     const raw = String((status ? c.targetUrl : c.detailsUrl) ?? ''), url = /^https:\/\//i.test(raw) ? raw : '', m = url.match(RUN_URL);
     latest.set(key, { at, kind, name, url: url || null, runId: m ? Number(m[1]) : null, jobId: m?.[2] ? Number(m[2]) : null,
-                      doneAt: ms(c.completedAt) ?? ms(c.startedAt) });
+                      doneAt: ms(c.completedAt) ?? ms(c.startedAt), startedAt: ms(c.startedAt) });
   }
   const counts = { pass: 0, fail: 0, pending: 0 }, failing = [];
-  let finishedAt = null;
+  let finishedAt = null, runningSince = null;
   for (const c of latest.values()) {
     if (c.kind === 'other') continue;
     counts[c.kind]++;
+    if (c.kind === 'pending' && c.startedAt && c.startedAt < (runningSince ?? Infinity)) runningSince = c.startedAt;
     if (c.kind !== 'fail') continue;
     failing.push({ name: clip(c.name, 120), url: c.url, runId: c.runId, jobId: c.jobId });
     if (c.doneAt && c.doneAt > (finishedAt ?? 0)) finishedAt = c.doneAt;
   }
   const checks = counts.fail ? 'failing' : counts.pending ? 'running' : counts.pass ? 'passing' : 'none';
-  return { checks, counts, failing, finishedAt };
+  return { checks, counts, failing, finishedAt, runningSince: counts.pending ? runningSince : null };
 }
 
 const SAY = {
@@ -421,7 +423,8 @@ export function createGithub({
       const roll = rollup(p.statusCheckRollup), sessions = g.branches.get(p.headRefName);
       const pr = { number: p.number, title: clip(p.title, 120), url: p.url, branch: p.headRefName, sha: p.headRefOid, draft: Boolean(p.isDraft),
                    checks: roll.checks, counts: roll.counts, failing: roll.failing.slice(0, 5), mergeable: p.mergeable ?? null,
-                   mergeState: p.mergeStateStatus ?? null, review: p.reviewDecision || null, updatedAt: ms(p.updatedAt), sessions };
+                   mergeState: p.mergeStateStatus ?? null, review: p.reviewDecision || null, updatedAt: ms(p.updatedAt),
+                   runningSince: roll.runningSince, sessions };
       prs.push(pr);
       const was = repo.known.get(pr.number), key = `${slug}#pr${pr.number}@${pr.sha}`;
       const ev = (type, text, extra = {}) => events.push({ type, slug, text, branch: pr.branch, pr: pr.number, url: pr.url, sessions, ...extra });
@@ -517,7 +520,7 @@ export function createGithub({
       gh: status, hint: HINTS[status] ?? null, more,
       repos: order.map((slug) => repos.get(slug)).filter(Boolean).map((r) => ({
         slug: r.slug, url: r.url, defaultBranch: r.defaultBranch, checkedAt: r.checkedAt, error: r.error, prs: r.prs,
-        runs: r.runs.map(({ id, attempt, workflow, title, state, event, sha, url, at, pr, sessions }) => ({ id, attempt, workflow, title, state, event, sha, url, at, pr, sessions })),
+        runs: r.runs.map(({ id, attempt, workflow, title, state, event, sha, url, at, started, pr, sessions }) => ({ id, attempt, workflow, title, state, event, sha, url, at, started, pr, sessions })),
         merged: r.merged,
       })),
     };
