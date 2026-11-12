@@ -14,50 +14,57 @@ catch { document.documentElement.dataset.theme = 'dark'; }
 /* The four state queues stack in a rail on the left; the open session fills the rest of the width.
    Matte graphite first, hairlines over shadows, soft corners:
    6px on controls, 8px on cards and tiles, 12px on the panel. */
+/* Tone separates, lines don't: the canvas, then islands (the rail, the session panel) a step lighter, then cards on
+   them, then controls. Hairlines stay only between regions of the same tone and as focus rings. */
 :root {
-  --bg: #0d0f12; --panel: #12151a; --raise: #171b21; --hover: #1e232b; --code: #0a0c0f;
-  --line: #252b33; --line-strong: #39414c;
-  --fg: #e3e7ed; --fg-dim: #8c96a4; --fg-faint: #5f6875;
-  --amber: #e3ab3e; --amber-dim: rgba(227, 171, 62, .1); --amber-line: rgba(227, 171, 62, .42);
-  --run: #7ea6e6; --run-dim: rgba(126, 166, 230, .12);
-  --ok: #55b985; --ok-solid: #2c8a59; --stop: #e8634f; --stop-line: rgba(232, 99, 79, .5);
+  --bg: #0c0e11; --panel: #14171c; --raise: #1a1e24; --hover: #20252c; --code: #0f1215;
+  --fill: #1f242b; --fill-strong: #2a3039;
+  --line: #232830; --line-strong: #353c46;
+  --fg: #e4e8ee; --fg-dim: #8f99a7; --fg-faint: #606976;
+  --amber: #e3ab3e; --amber-dim: rgba(227, 171, 62, .1); --amber-line: rgba(227, 171, 62, .42); --amber-fill: rgba(227, 171, 62, .13);
+  --run: #7ea6e6; --run-dim: rgba(126, 166, 230, .12); --run-fill: rgba(126, 166, 230, .14);
+  --ok: #55b985; --ok-solid: #2c8a59; --ok-fill: rgba(85, 185, 133, .13); --stop: #e8634f; --stop-line: rgba(232, 99, 79, .5); --stop-fill: rgba(232, 99, 79, .14);
   --del: rgba(232, 99, 79, .12); --add: rgba(85, 185, 133, .12);
-  --shade: rgba(0, 0, 0, .55); --on-solid: #ffffff; --top: #151c29;
+  --shade: rgba(0, 0, 0, .55); --on-solid: #ffffff;
+  --r-1: 8px; --r-2: 12px; --r-3: 16px; --r-pill: 999px;
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 24px; --s-6: 32px;
   --sans: "Geist", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   color-scheme: dark;
 }
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
-    --bg: #f3f4f6; --panel: #fafbfc; --raise: #ffffff; --hover: #eef0f3; --code: #f1f3f6; --line: #dfe2e7; --line-strong: #c4c9d1;
-    --fg: #111418; --fg-dim: #59616d; --fg-faint: #8a919c; --amber: #9a6500; --amber-dim: rgba(154, 101, 0, .07); --amber-line: rgba(154, 101, 0, .38);
-    --run: #2c5cae; --run-dim: rgba(44, 92, 174, .08); --ok: #1e7a4b; --ok-solid: #1e7a4b; --stop: #bf3d2b; --stop-line: rgba(191, 61, 43, .45);
-    --del: rgba(191, 61, 43, .08); --add: rgba(30, 122, 75, .08); --shade: rgba(17, 20, 24, .14); --top: #e4e9f1; color-scheme: light;
+    --bg: #eceef1; --panel: #f8f9fa; --raise: #ffffff; --hover: #eceff2; --code: #f1f3f5; --fill: #edf0f3; --fill-strong: #e0e4e9; --line: #e0e3e8; --line-strong: #c8cdd4;
+    --fg: #111418; --fg-dim: #56606c; --fg-faint: #8a919c; --amber: #9a6500; --amber-dim: rgba(154, 101, 0, .07); --amber-line: rgba(154, 101, 0, .38); --amber-fill: rgba(196, 135, 20, .12);
+    --run: #2c5cae; --run-dim: rgba(44, 92, 174, .08); --run-fill: rgba(44, 92, 174, .1); --ok: #1e7a4b; --ok-solid: #1e7a4b; --ok-fill: rgba(30, 122, 75, .1);
+    --stop: #bf3d2b; --stop-line: rgba(191, 61, 43, .45); --stop-fill: rgba(191, 61, 43, .1);
+    --del: rgba(191, 61, 43, .08); --add: rgba(30, 122, 75, .08); --shade: rgba(17, 20, 24, .14); color-scheme: light;
   }
 }
 :root[data-theme="light"] {
-  --bg: #f3f4f6; --panel: #fafbfc; --raise: #ffffff; --hover: #eef0f3; --code: #f1f3f6; --line: #dfe2e7; --line-strong: #c4c9d1;
-  --fg: #111418; --fg-dim: #59616d; --fg-faint: #8a919c; --amber: #9a6500; --amber-dim: rgba(154, 101, 0, .07); --amber-line: rgba(154, 101, 0, .38);
-  --run: #2c5cae; --run-dim: rgba(44, 92, 174, .08); --ok: #1e7a4b; --ok-solid: #1e7a4b; --stop: #bf3d2b; --stop-line: rgba(191, 61, 43, .45);
-  --del: rgba(191, 61, 43, .08); --add: rgba(30, 122, 75, .08); --shade: rgba(17, 20, 24, .14); --top: #e4e9f1; color-scheme: light;
+  --bg: #eceef1; --panel: #f8f9fa; --raise: #ffffff; --hover: #eceff2; --code: #f1f3f5; --fill: #edf0f3; --fill-strong: #e0e4e9; --line: #e0e3e8; --line-strong: #c8cdd4;
+  --fg: #111418; --fg-dim: #56606c; --fg-faint: #8a919c; --amber: #9a6500; --amber-dim: rgba(154, 101, 0, .07); --amber-line: rgba(154, 101, 0, .38); --amber-fill: rgba(196, 135, 20, .12);
+  --run: #2c5cae; --run-dim: rgba(44, 92, 174, .08); --run-fill: rgba(44, 92, 174, .1); --ok: #1e7a4b; --ok-solid: #1e7a4b; --ok-fill: rgba(30, 122, 75, .1);
+  --stop: #bf3d2b; --stop-line: rgba(191, 61, 43, .45); --stop-fill: rgba(191, 61, 43, .1);
+  --del: rgba(191, 61, 43, .08); --add: rgba(30, 122, 75, .08); --shade: rgba(17, 20, 24, .14); color-scheme: light;
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
-body { margin: 0; display: flex; flex-direction: column; background: var(--bg); color: var(--fg); font: 13.5px/1.45 var(--sans); -webkit-font-smoothing: antialiased; }
+body { margin: 0; display: flex; flex-direction: column; background: var(--bg); color: var(--fg); font: 14px/1.45 var(--sans); -webkit-font-smoothing: antialiased; }
 button, input, textarea, select { font: inherit; color: inherit; }
-:focus-visible { outline: 1px solid var(--fg); outline-offset: 1px; }
+:focus-visible { outline: 2px solid var(--run); outline-offset: 1px; }
 [hidden] { display: none !important; }
 .mono { font-family: var(--mono); }
 .grow { flex: 1; }
 
 /* ---------- top bar ---------- */
 .top {
-  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; min-height: 44px;
-  padding: 5px max(16px, env(safe-area-inset-right, 0px)) 5px max(16px, env(safe-area-inset-left, 0px)); border-bottom: 1px solid var(--line);
-  background: var(--panel);
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; min-height: 56px;
+  padding: 8px max(20px, env(safe-area-inset-right, 0px)) 8px max(20px, env(safe-area-inset-left, 0px));
+  background: var(--bg);
 }
 .brand { display: inline-flex; align-items: center; gap: 9px; font-weight: 600; font-size: 14px; letter-spacing: -0.01em; }
-.brand::before { content: ""; width: 9px; height: 9px; border-radius: 2px; background: var(--fg); }
+.brand::before { content: ""; width: 10px; height: 10px; border-radius: 3px; background: var(--fg); }
 .live { display: inline-flex; align-items: center; gap: 6px; color: var(--fg-dim); font-size: 12.5px; }
 .live::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
 .live.down::before { background: var(--stop); }
@@ -67,83 +74,92 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .paused { color: var(--amber); font-size: 12.5px; font-weight: 550; }
 .switch { position: relative; display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--fg-dim); cursor: pointer; user-select: none; }
 .switch input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
-.switch i { position: relative; width: 26px; height: 14px; border-radius: 3px; background: var(--line-strong); transition: background .15s; }
-.switch i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 2px; background: var(--on-solid); transition: transform .15s; }
+.switch i { position: relative; width: 28px; height: 16px; border-radius: var(--r-pill); background: var(--fill-strong); transition: background .15s; }
+.switch i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--on-solid); transition: transform .15s; }
 .switch input:checked + i { background: var(--ok-solid); }
 .switch input:checked + i::after { transform: translateX(12px); }
 .switch input:focus-visible + i { outline: 1px solid var(--fg); outline-offset: 2px; }
-.banner { flex: none; margin: 0; padding: 8px max(16px, env(safe-area-inset-left, 0px)); border-bottom: 1px solid var(--amber-line); color: var(--amber); font-size: 12.5px; }
-.banner.connect { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px 14px; min-height: 30px; padding-block: 4px; color: var(--fg-dim); }
+.banner { flex: none; margin: 0 8px 8px; padding: 8px 16px; border-radius: var(--r-2); background: var(--amber-fill); color: var(--amber); font-size: 12.5px; }
+.banner.connect { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px 14px; min-height: 36px; padding-block: 4px; background: var(--panel); color: var(--fg-dim); }
 .banner.connect > span:first-child { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .banner.connect b { color: var(--fg); font-weight: 600; }
 .banner.connect .mono { display: none; }
 /* Sessions on a Claude Code version deleted under them: macOS can refuse them ~/Documents at any moment. */
-.banner.old { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-height: 30px; padding-block: 4px; }
+.banner.old { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-height: 36px; padding-block: 4px; }
 .banner.old > .lead { flex: 1 1 auto; min-width: 0; }
-.banner.old .btn.small { height: 20px; padding: 0 7px; font-size: 11px; color: var(--amber); border-color: var(--amber-line); }
-.banner.old .btn.icon { border: 0; color: var(--amber); }
+.banner.old .btn.small { height: 24px; padding: 0 10px; font-size: 11.5px; color: var(--amber); background: var(--amber-dim); }
+.banner.old .btn.icon { background: none; color: var(--amber); }
 .banner.old ul { display: none; flex-basis: 100%; gap: 4px; margin: 2px 0 4px; padding: 0; list-style: none; color: var(--fg-dim); }
 .banner.old.open ul { display: grid; }
 .banner.old li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .banner.old li b, .note.old b { color: var(--fg); font-weight: 600; }
-.note.old { display: grid; gap: 8px; justify-items: start; border-color: var(--amber-line); color: var(--fg-dim); }
+.note.old { display: grid; gap: 8px; justify-items: start; background: var(--amber-fill); color: var(--fg-dim); }
 .note.old .lead { color: var(--amber); font-weight: 600; }
 .banner.old > *, .banner.old li > *, .note.old > * { min-width: 0; max-width: 100%; }
 .banner.old .btn, .note.old .btn { height: auto; min-height: 26px; white-space: normal; overflow-wrap: anywhere; text-align: left; }
 .told { color: var(--amber); }
 /* The profile: which Claude Code config folder's sessions the panel shows. */
 .prof { position: relative; }
-.prof-btn { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border: 1px solid var(--line-strong); border-radius: 6px; background: transparent; color: var(--fg-dim); font-size: 12.5px; cursor: pointer; }
-.prof-btn:hover, .prof-btn[aria-expanded="true"] { border-color: var(--line-strong); color: var(--fg); }
+.prof-btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border: 0; border-radius: var(--r-1); background: var(--fill); color: var(--fg-dim); font-size: 12.5px; cursor: pointer; }
+.prof-btn:hover, .prof-btn[aria-expanded="true"] { background: var(--fill-strong); color: var(--fg); }
 .prof-btn b { color: var(--fg); font-weight: 600; }
 .prof-btn::after { content: ""; width: 5px; height: 5px; margin: -3px 0 0 2px; border: solid currentColor; border-width: 0 1px 1px 0; transform: rotate(45deg); }
 .prof-menu {
   position: absolute; left: 0; top: calc(100% + 6px); z-index: 60; display: grid; width: max-content; min-width: 280px; max-width: min(420px, calc(100vw - 32px)); padding: 4px;
-  border: 1px solid var(--line-strong); border-radius: 10px; background: var(--panel); box-shadow: 0 18px 40px -20px var(--shade);
+  border: 1px solid var(--line); border-radius: var(--r-2); background: var(--raise); box-shadow: 0 18px 40px -20px var(--shade);
 }
-.prof-item { display: grid; gap: 2px; padding: 8px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--fg); text-align: left; cursor: pointer; }
+.prof-item { display: grid; gap: 2px; padding: 9px 12px; border: 0; border-radius: var(--r-1); background: transparent; color: var(--fg); text-align: left; cursor: pointer; }
 .prof-item:hover, .prof-item:focus-visible { background: var(--hover); outline: none; }
 .theme-menu { left: auto; right: 0; min-width: 190px; }
-.theme-btn { width: 28px; justify-content: center; padding: 0; }
+.theme-btn { width: 30px; justify-content: center; padding: 0; }
 .theme-btn::after { display: none; }
 .theme-btn::before { content: ""; width: 14px; height: 14px; background: currentColor; -webkit-mask: var(--i-theme) center / contain no-repeat; mask: var(--i-theme) center / contain no-repeat; }
 .theme-btn[data-shows="dark"] { --i-theme: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M13.6 10.1A6 6 0 0 1 5.9 2.4a6 6 0 1 0 7.7 7.7z'/%3E%3C/svg%3E"); }
 .theme-btn[data-shows="light"] { --i-theme: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' stroke='%23000' stroke-width='1.5' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='3'/%3E%3Cpath d='M8 1v1.6M8 13.4V15M1 8h1.6M13.4 8H15M3 3l1.1 1.1M11.9 11.9 13 13M3 13l1.1-1.1M11.9 4.1 13 3'/%3E%3C/svg%3E"); }
 .theme-btn[data-shows="system"] { --i-theme: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='5.6' fill='none' stroke='%23000' stroke-width='1.5'/%3E%3Cpath d='M8 2.4a5.6 5.6 0 0 1 0 11.2z'/%3E%3C/svg%3E"); }
-.prof-item[aria-checked="true"] { box-shadow: inset 2px 0 0 var(--fg); }
+.prof-item[aria-checked="true"] { background: var(--fill); }
 .prof-item .p1 { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
 .prof-item .p1 .prof-plan { margin-left: -2px; color: var(--fg-dim); font-weight: 400; }
 .prof-item .p2 { color: var(--fg-dim); font-size: 12px; }
 .prof-item .p3 { font: 11.5px var(--mono); color: var(--fg-faint); }
-.prof-item .chip { display: inline-flex; align-items: center; height: 17px; padding: 0 5px; border: 1px solid var(--line-strong); border-radius: 5px; color: var(--fg-dim); font-size: 11px; font-weight: 500; line-height: 1; }
-.prof-item .chip.off { border-color: var(--amber-line); color: var(--amber); }
+.prof-item .chip { display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border: 0; border-radius: var(--r-pill); background: var(--fill-strong); color: var(--fg-dim); font-size: 11px; font-weight: 500; line-height: 1; }
+.prof-item .chip.off { background: var(--amber-fill); color: var(--amber); }
 .prof-item.armed { background: var(--stop); color: var(--on-solid); }
 .prof-item.armed .p2, .prof-item.armed .p3 { color: var(--on-solid); }
+/* Profiles as tabs: each Claude Code config folder, the one shown raised. A dot marks one whose hooks don't reach this panel. */
+.ptabs { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border-radius: var(--r-pill); background: var(--fill); }
+.ptab { display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 12px; border: 0; border-radius: var(--r-pill); background: none; color: var(--fg-dim); font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+.ptab:hover { color: var(--fg); }
+.ptab[aria-selected="true"] { background: var(--raise); color: var(--fg); box-shadow: 0 1px 2px var(--shade); }
+.ptab.armed { background: var(--stop); color: var(--on-solid); }
+.pdot { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); }
 
-.btn { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 6px; background: transparent; color: var(--fg); font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap; }
-.btn:hover { background: var(--hover); }
-.btn:disabled { opacity: .4; cursor: default; background: transparent; }
-.btn.primary { background: var(--fg); border-color: var(--fg); color: var(--bg); }
-.btn.go { background: var(--ok-solid); border-color: var(--ok-solid); color: var(--on-solid); }
-.btn.danger { color: var(--stop); border-color: var(--stop-line); }
-.btn.danger::before { content: ""; width: 7px; height: 7px; border-radius: 1px; background: currentColor; }
-.btn.danger.armed { background: var(--stop); border-color: var(--stop); color: var(--on-solid); }
+.btn { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 14px; border: 0; border-radius: var(--r-1); background: var(--fill); color: var(--fg); font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+.btn:hover { background: var(--fill-strong); }
+.btn:disabled { opacity: .4; cursor: default; background: var(--fill); }
+.btn.primary { background: var(--fg); color: var(--bg); }
+.btn.primary:hover { background: var(--fg); opacity: .88; }
+.btn.go { background: var(--ok-solid); color: var(--on-solid); }
+.btn.danger { color: var(--stop); background: var(--stop-fill); }
+.btn.danger::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.btn.danger.armed { background: var(--stop); color: var(--on-solid); }
 /* Rarely used, so quiet until armed: grey, with the red mark saying what it does. */
-.btn.danger.soft { color: var(--fg-dim); border-color: var(--line-strong); }
+.btn.danger.soft { color: var(--fg-dim); background: var(--fill); }
 .btn.danger.soft::before { background: var(--stop); }
-.btn.danger.soft:hover { color: var(--fg); }
-.btn.danger.soft.armed { background: var(--stop); border-color: var(--stop); color: var(--on-solid); }
-.btn.quiet { border-color: transparent; color: var(--fg-dim); }
-.btn.icon { width: 24px; height: 24px; padding: 0; justify-content: center; color: var(--fg-dim); }
+.btn.danger.soft:hover { color: var(--fg); background: var(--fill-strong); }
+.btn.danger.soft.armed { background: var(--stop); color: var(--on-solid); }
+.btn.quiet { background: transparent; color: var(--fg-dim); }
+.btn.quiet:hover { background: var(--fill); }
+.btn.icon { width: 28px; height: 28px; padding: 0; justify-content: center; background: transparent; color: var(--fg-dim); }
+.btn.icon:hover { background: var(--fill); }
 .btn.icon svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .btn.icon:hover { color: var(--fg); }
 .btn kbd { font: 500 11.5px var(--sans); opacity: .55; }
 .btn.quiet:hover { color: var(--fg); }
-.btn.small { height: 24px; padding: 0 8px; font-size: 12px; }
-.linkish { border: 0; background: none; padding: 0; color: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; font-size: 12.5px; }
+.btn.small { height: 26px; padding: 0 10px; font-size: 12px; }
 
 /* state, as a small square light */
-.glyph { flex: none; width: 7px; height: 7px; border-radius: 1.5px; background: var(--fg-faint); }
+.glyph { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--fg-faint); }
 .glyph[data-s="waiting"] { background: var(--amber); }
 .glyph[data-s="busy"], .glyph[data-s="running"] { background: var(--run); animation: blink 1.6s ease-in-out infinite; }
 .glyph[data-s="stopping"] { background: var(--stop); animation: blink .7s ease-in-out infinite; }
@@ -151,74 +167,91 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .glyph[data-s="failed"] { background: var(--stop); }
 .glyph[data-s="stopped"] { background: transparent; box-shadow: inset 0 0 0 1px var(--fg-faint); }
 @keyframes blink { 50% { opacity: .3; } }
-.tag { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--fg-dim); }
-.tag[data-s="waiting"] { color: var(--amber); }
-.tag[data-s="busy"], .tag[data-s="running"] { color: var(--run); }
-.tag[data-s="stopping"], .tag[data-s="failed"] { color: var(--stop); }
-.tag[data-s="finished"] { color: var(--ok); }
+.tag { display: inline-flex; align-items: center; gap: 7px; height: 24px; padding: 0 10px 0 8px; border-radius: var(--r-pill); background: var(--fill); font-size: 12px; font-weight: 600; color: var(--fg-dim); }
+.tag[data-s="waiting"] { color: var(--amber); background: var(--amber-fill); }
+.tag[data-s="busy"], .tag[data-s="running"] { color: var(--run); background: var(--run-fill); }
+.tag[data-s="stopping"], .tag[data-s="failed"] { color: var(--stop); background: var(--stop-fill); }
+.tag[data-s="finished"] { color: var(--ok); background: var(--ok-fill); }
 
-/* ---------- the rail: Needs you always open, the other queues fold to their header ---------- */
-.stage { flex: 1; min-height: 0; position: relative; display: flex; overflow: clip; --rail-w: var(--rail-user, 260px); } /* clip: the panel slides in from 14px out */
-.board { flex: none; width: var(--rail-w); min-height: 0; overflow-y: auto; display: flex; flex-direction: column; background: var(--panel); border-right: 1px solid var(--line); }
-/* Open queues share what Needs you leaves, which takes what it needs up to half the rail. */
-.col { flex: 1 1 auto; min-height: 112px; min-width: 0; display: flex; flex-direction: column; border-bottom: 1px solid var(--line); }
-.col[data-col="waiting"] { flex: 0 1 auto; min-height: 0; max-height: 50%; }
-.col.folded { flex: none; min-height: 0; }
-.col.folded .col-body { display: none; }
+/* ---------- the rail: Needs you, then a section per repository, then other folders, then Finished ---------- */
+/* The rail and the session panel are islands on the canvas, a gap around them. */
+.stage { flex: 1; min-height: 0; position: relative; display: flex; gap: 8px; padding: 0 8px 8px; overflow: clip; --rail-w: var(--rail-user, 300px); } /* clip: the panel slides in from 14px out */
+.board { flex: none; width: var(--rail-w); min-height: 0; overflow-y: auto; display: flex; flex-direction: column; padding: 6px 0 0; background: var(--panel); border-radius: var(--r-3); }
+/* Sections take what they need and the whole rail scrolls: no queue scrolls inside another. */
+.col { flex: none; min-width: 0; display: flex; flex-direction: column; padding: 2px 0 10px; }
+.col.folded { padding-bottom: 2px; }
+.col.folded .col-body, .col.folded .col-path { display: none; }
 .col.folded .col-tools { opacity: 0; transition: opacity .12s; }
 .col.folded:hover .col-tools, .col.folded:focus-within .col-tools, .col.folded .col-tools:has(.armed) { opacity: 1; }
-.col-h { flex: none; display: flex; align-items: center; gap: 8px; height: 28px; padding-right: 8px; font-size: 11.5px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; color: var(--fg-dim); }
-.col-h .n { font: 500 11px var(--mono); color: var(--fg-dim); }
-.col-h .btn.small { height: 20px; padding: 0 7px; font-size: 11px; text-transform: none; letter-spacing: 0; }
+.col-h { flex: none; display: flex; align-items: center; gap: 8px; min-height: 34px; padding-right: 10px; font-size: 12.5px; font-weight: 600; color: var(--fg-dim); }
+.col-h .n { font: 500 11.5px var(--mono); color: var(--fg-dim); }
+.col-h .btn.small { height: 24px; padding: 0 9px; font-size: 11.5px; }
 .col[data-col="waiting"] .col-h { color: var(--amber); }
-.col-name { flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: 8px; padding: 0 0 0 12px; text-transform: inherit; letter-spacing: inherit; border: 0; background: none; font-weight: inherit; text-align: left; }
-.peek { text-transform: none; letter-spacing: 0; }
+.col[data-col="repo"] .col-h { color: var(--fg); font-size: 13px; }
+.col-name { flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: 8px; padding: 0 0 0 16px; border: 0; background: none; font-weight: inherit; text-align: left; }
+.col-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.col:not([data-col="repo"]) .col-title { flex: none; }
+.col-asks { flex: none; font-size: 11.5px; font-weight: 500; color: var(--amber); }
 .col-fold { cursor: pointer; }
 .col-fold:hover { color: var(--fg); }
 .col-fold:focus-visible { outline-offset: -2px; }
-.peek { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; color: var(--fg-faint); }
+.peek { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; color: var(--fg-dim); }
 .col:not(.folded) .peek { display: none; }
 .chev { flex: none; width: 16px; margin-left: auto; font-size: 16px; line-height: 1; text-align: center; color: var(--fg-dim); transition: transform .15s; }
 .col:not(.folded) .chev { transform: rotate(90deg); }
-.col-tools { display: flex; }
-.col-body { flex: 1; min-height: 0; overflow: auto; padding: 0 4px 6px; display: grid; gap: 0; align-content: start; }
-.col-empty { margin: 4px 2px; color: var(--fg-faint); font-size: 12.5px; }
-.col-hint { margin: 0 2px 4px; }
+.col-tools { display: flex; gap: 4px; }
+/* A repository's folder, and its branch when one checkout of it is in use, under its name. */
+.col-path { display: grid; gap: 3px; min-width: 0; margin: -5px 0 6px; padding: 0 16px; font: 11.5px var(--mono); color: var(--fg-dim); white-space: nowrap; }
+.col-path > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.col-path .br { display: flex; align-items: center; gap: 6px; }
+.col-path .br > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.col-path .br::before { content: ""; flex: none; width: 11px; height: 11px; background: currentColor; -webkit-mask: var(--i-branch) center / contain no-repeat; mask: var(--i-branch) center / contain no-repeat; }
+.col-path .br.wt::before { -webkit-mask-image: var(--i-tree); mask-image: var(--i-tree); }
+.col-body { padding: 0 8px; display: grid; gap: 2px; align-content: start; }
+.col-empty { margin: 2px 8px 4px; color: var(--fg-dim); font-size: 12.5px; }
+.col-hint { margin: 0 8px 4px; }
+.board-empty { margin: 10px 16px; color: var(--fg-dim); font-size: 13px; }
+/* With two or more checkouts of a repository in use, a quiet label names each: its worktree or the main checkout, and its branch. */
+.ck { display: flex; align-items: center; gap: 6px; min-width: 0; height: 24px; margin-top: 4px; padding: 0 8px; font: 11.5px var(--mono); color: var(--fg-dim); white-space: nowrap; }
+.ck:first-child { margin-top: 0; }
+.ck::before { content: ""; flex: none; width: 11px; height: 11px; background: currentColor; -webkit-mask: var(--i-branch) center / contain no-repeat; mask: var(--i-branch) center / contain no-repeat; }
+.ck.wt::before { -webkit-mask-image: var(--i-tree); mask-image: var(--i-tree); }
+.ck span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ck .br { flex: none; max-width: 60%; color: var(--fg-faint); }
 
 .tile-wrap { position: relative; }
-/* One line per session: a chevron slot (filled when it has subagents), its state square, name, a short mono detail
+/* One line per session: a chevron slot (filled when it has subagents), its state light, name, a short mono detail
    (the tool it runs, or what it asks for), and its age. The branch, folder and full text live in the tooltip. */
 .srow {
-  display: flex; align-items: center; gap: 7px; width: 100%; height: 26px; padding: 0 8px 0 6px; border: 0; border-radius: 5px;
+  display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 10px 0 6px; border: 0; border-radius: var(--r-1);
   background: none; color: var(--fg); text-align: left; cursor: pointer; white-space: nowrap;
 }
 .srow:hover { background: var(--hover); }
-.srow[aria-current="true"] { box-shadow: inset 0 0 0 1px var(--fg); }
-.srow[data-state="waiting"] { background: var(--amber-dim); }
+.srow[data-state="waiting"] { background: var(--amber-fill); }
+.srow[aria-current="true"] { background: var(--fill-strong); }
+.srow[aria-current="true"][data-state="waiting"] { background: var(--amber-fill); box-shadow: inset 0 0 0 1px var(--amber-line); }
 .chev-slot { flex: none; width: 12px; height: 12px; display: grid; place-items: center; color: var(--fg-dim); }
 .tname { flex: 1; min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tdetail { flex: none; max-width: 88px; overflow: hidden; text-overflow: ellipsis; font: 11.5px var(--mono); color: var(--fg-dim); }
+.trepo { flex: 0 1 auto; min-width: 0; max-width: 90px; overflow: hidden; text-overflow: ellipsis; font: 11.5px var(--mono); color: var(--fg-dim); }
+.tdetail { flex: none; max-width: 96px; overflow: hidden; text-overflow: ellipsis; font: 11.5px var(--mono); color: var(--fg-dim); }
 .srow[data-state="waiting"] .tdetail { color: var(--amber); }
 .srow[data-state="stopping"] .tdetail { color: var(--stop); }
-.tage { flex: none; width: 26px; text-align: right; font: 11.5px var(--mono); color: var(--fg-dim); }
+.tage { flex: none; width: 28px; text-align: right; font: 11.5px var(--mono); color: var(--fg-dim); }
 .told { flex: none; font: 600 10.5px var(--mono); color: var(--amber); }
-/* The drawer's branch line keeps its mark: a branch in a shared checkout, a folder in a worktree of its own. */
-.where-b::before { content: ""; flex: none; width: 11px; height: 11px; background: currentColor; -webkit-mask: var(--i-branch) center / contain no-repeat; mask: var(--i-branch) center / contain no-repeat; }
-.where-b.wt::before { -webkit-mask-image: var(--i-tree); mask-image: var(--i-tree); }
 .chev-slot svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; transition: transform .12s; }
 .chev-slot.open svg { transform: rotate(90deg); }
 @media (prefers-reduced-motion: reduce) { .chev-slot svg { transition: none; } }
-/* A session's subagents hang under its row as a small tree: each its own state square, title and age or outcome. */
+/* A session's subagents hang under its row as a small tree: each its own state light, title and age or outcome. */
 .sub {
-  position: relative; display: flex; align-items: center; gap: 7px; width: 100%; height: 24px; padding: 0 8px 0 24px; border: 0; border-radius: 5px;
+  position: relative; display: flex; align-items: center; gap: 7px; width: 100%; height: 26px; padding: 0 10px 0 26px; border: 0; border-radius: var(--r-1);
   background: none; color: var(--fg-dim); font-size: 12px; text-align: left; cursor: pointer; white-space: nowrap;
 }
-.sub::before { content: ""; position: absolute; left: 11px; top: -2px; bottom: 0; border-left: 1px solid var(--line-strong); }
-.sub::after { content: ""; position: absolute; left: 11px; top: 12px; width: 7px; border-top: 1px solid var(--line-strong); }
-.sub.last::before { bottom: 12px; }
+.sub::before { content: ""; position: absolute; left: 12px; top: -2px; bottom: 0; border-left: 1px solid var(--line-strong); }
+.sub::after { content: ""; position: absolute; left: 12px; top: 13px; width: 8px; border-top: 1px solid var(--line-strong); }
+.sub.last::before { bottom: 13px; }
 .sub:hover { background: var(--hover); color: var(--fg); }
-.sub.focus { box-shadow: inset 0 0 0 1px var(--fg); }
-.sd { flex: none; width: 5px; height: 5px; border-radius: 1px; background: var(--fg-faint); }
+.sub.focus { background: var(--fill-strong); color: var(--fg); }
+.sd { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--fg-faint); }
 .sub[data-state="running"] .sd, .sub[data-state="stopping"] .sd { background: var(--run); }
 .sub[data-state="waiting"] .sd { background: var(--amber); }
 .sub[data-state="done"] .sd { background: var(--ok); }
@@ -227,48 +260,45 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .sage { flex: none; font: 11.5px var(--mono); color: var(--fg-dim); }
 .sub[data-state="waiting"] .sage { color: var(--amber); }
 /* Find by name (/) and the keys, at the rail's top and bottom. */
-#rail-find { flex: none; box-sizing: border-box; height: 26px; margin: 4px 4px 2px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--raise); color: var(--fg); font: 12px var(--mono); outline: none; }
-#rail-find:focus { border-color: var(--fg-dim); }
+#rail-find { flex: none; box-sizing: border-box; height: 32px; margin: 4px 8px 6px; padding: 0 12px; border: 0; border-radius: var(--r-1); background: var(--fill); color: var(--fg); font: 12.5px var(--mono); outline: none; }
+#rail-find:focus { box-shadow: 0 0 0 2px var(--run); }
 #rail-find::placeholder { color: var(--fg-dim); }
-#rail-keys { flex: none; margin-top: auto; display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 6px 10px; border-top: 1px solid var(--line); font-size: 11px; color: var(--fg-dim); }
+#rail-keys { flex: none; margin-top: auto; display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 10px 16px 12px; font-size: 11px; color: var(--fg-dim); }
 #rail-keys span { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
-#rail-keys kbd { display: inline-block; min-width: 14px; padding: 0 4px; border: 1px solid var(--line-strong); border-radius: 4px; font: 500 10.5px var(--mono); color: var(--fg-dim); text-align: center; line-height: 16px; }
+#rail-keys kbd { display: inline-block; min-width: 16px; padding: 0 4px; border-radius: 5px; background: var(--fill); font: 500 10.5px var(--mono); color: var(--fg-dim); text-align: center; line-height: 17px; }
 .board.narrow #rail-keys { display: none; }
 /* Where it works: its branch, with a branch mark in a shared checkout and a folder mark in a worktree of its own. */
 :root {
   --i-branch: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6'%3E%3Ccircle cx='4.5' cy='3.5' r='1.7'/%3E%3Ccircle cx='4.5' cy='12.5' r='1.7'/%3E%3Ccircle cx='11.5' cy='4.5' r='1.7'/%3E%3Cpath d='M4.5 5.2v5.6M11.5 6.2c0 3.2-7 1.8-7 4.6'/%3E%3C/svg%3E");
   --i-tree: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linejoin='round'%3E%3Cpath d='M1.8 3.2h4.4l1.5 1.6h6.5v8H1.8z'/%3E%3C/svg%3E");
+  --i-repo: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linejoin='round'%3E%3Cpath d='M3.5 2.5h9v9h-9a1.5 1.5 0 0 0 0 3h9M3.5 2.5v10.5'/%3E%3C/svg%3E");
 }
 .qstop {
-  position: absolute; top: 2px; right: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  min-width: 22px; height: 22px; padding: 0 6px; border: 1px solid var(--stop-line); border-radius: 6px; background: var(--raise);
+  position: absolute; top: 4px; right: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-width: 22px; height: 22px; padding: 0 7px; border: 0; border-radius: var(--r-pill); background: var(--stop-fill);
   color: var(--stop); font-size: 12px; font-weight: 600; cursor: pointer; opacity: 0;
 }
-.qstop::before { content: ""; width: 7px; height: 7px; border-radius: 1px; background: currentColor; }
-.qstop.x { color: var(--fg-dim); border-color: var(--line-strong); }
+.qstop::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.qstop.x { color: var(--fg-dim); background: var(--fill-strong); }
 .qstop.x::before { content: "\00d7"; width: auto; height: auto; background: none; font-size: 15px; line-height: 1; }
-.qstop.armed, .qstop.x.armed { background: var(--stop); border-color: var(--stop); color: var(--on-solid); opacity: 1; }
+.qstop.armed, .qstop.x.armed { background: var(--stop); color: var(--on-solid); opacity: 1; }
 .tile-wrap:hover .qstop, .tile-wrap:focus-within .qstop { opacity: 1; }
 .tile-wrap.can-act:hover .tage, .tile-wrap.can-act:focus-within .tage, .tile-wrap:has(.qstop.armed) .tage { visibility: hidden; }
 
 /* ---------- the session panel ---------- */
 .drawer {
   position: absolute; top: 8px; right: 8px; bottom: 8px; z-index: 5; width: min(var(--drawer-w), calc(100% - 16px)); display: flex; flex-direction: column;
-  overflow: hidden; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: -28px 0 48px -36px var(--shade);
+  overflow: hidden; background: var(--panel); border: 0; border-radius: var(--r-3); box-shadow: -28px 0 48px -36px var(--shade);
 }
 .drawer.enter { animation: slide .18s ease-out; }
 /* Beside the rail it sits flat, filling the rest of the width. */
-.stage > .drawer { position: relative; inset: auto; flex: 1; width: auto; min-width: 0; margin: 0; border: 0; border-radius: 0; box-shadow: none; }
+.stage > .drawer { position: relative; inset: auto; flex: 1; width: auto; min-width: 0; margin: 0; border: 0; border-radius: var(--r-3); box-shadow: none; }
 .stage .d-grip { display: none; }
-.ws-empty { flex: 1; min-width: 0; margin: 8px; display: grid; place-content: center; justify-items: center; gap: 12px; padding: 24px; border: 1px dashed var(--line); border-radius: 12px; color: var(--fg-faint); text-align: center; }
-.ws-empty p { margin: 0; }
-.ws-empty b { color: var(--fg-dim); font-weight: 600; }
-.ws-empty .btn { border-color: var(--amber-line); color: var(--amber); }
 /* Drag an edge to size its pane: the rail's right edge. Double-click puts it back. */
 .d-grip, .r-grip, .s-grip { position: absolute; top: 0; bottom: 0; z-index: 6; width: 8px; cursor: col-resize; touch-action: none; }
 .d-grip { left: 0; }
 .s-grip { left: -4px; }
-.r-grip { left: calc(var(--rail-w) - 4px); }
+.r-grip { left: calc(var(--rail-w) + 8px); }
 .d-grip::after, .r-grip::after, .s-grip::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: transparent; transition: background .15s; }
 .d-grip:hover::after, .d-grip:focus-visible::after, .d-grip.drag::after, .r-grip:hover::after, .r-grip:focus-visible::after, .r-grip.drag::after, .s-grip:hover::after, .s-grip:focus-visible::after, .s-grip.drag::after { background: var(--line-strong); }
 .d-grip:focus-visible, .r-grip:focus-visible, .s-grip:focus-visible { outline: none; }
@@ -279,7 +309,7 @@ body.resizing .drawer { transition: none; }
 .d-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 /* One column at reading width, centred once the panel is wider than that. */
 .d-col { width: 100%; max-width: 760px; margin-inline: auto; padding-inline: 32px; }
-.d-top-band { flex: none; max-height: 45%; overflow: auto; padding-block: 14px 12px; border-bottom: 1px solid var(--line); }
+.d-top-band { flex: none; max-height: 45%; overflow: auto; padding-block: 18px 14px; border-bottom: 1px solid var(--line); }
 .d-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding-block: 28px 24px; }
 .d-foot { flex: none; max-height: 62%; overflow: auto; padding-block: 0 20px; }
 /* What it asks you, and the options its last reply offered, come at the end of the chat: one place to scroll. */
@@ -309,13 +339,13 @@ body.resizing .drawer { transition: none; }
 .d-side-body > .side-sec:first-child { padding-top: 4px; }
 .side-acts { flex: none; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: auto; padding-top: 18px; }
 .side-acts:empty { display: none; }
-.side-acts .btn { justify-content: center; min-width: 0; padding-inline: 8px; }
+.side-acts .btn { justify-content: center; min-width: 0; padding-inline: 10px; }
 .side-acts .hint { grid-column: 1 / -1; margin: 0; }
 .kv { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px 14px; margin: 0; font-size: 12.5px; }
 .kv dt { color: var(--fg-faint); }
 .kv dd { margin: 0; min-width: 0; color: var(--fg); overflow-wrap: anywhere; }
 .kv dd.mono { font-size: 12px; color: var(--fg-dim); }
-.kv .btn { height: auto; min-height: 26px; padding: 3px 8px; justify-content: flex-start; border-color: var(--line); font-size: 12px; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.kv .btn { height: auto; min-height: 28px; padding: 4px 10px; justify-content: flex-start; font-size: 12px; text-align: left; white-space: normal; overflow-wrap: anywhere; }
 /* Under the conversation, on a narrow panel */
 .d-subs-in .d-side-body { padding: 0; overflow: visible; }
 .d-subs-in:empty { display: none; }
@@ -337,10 +367,25 @@ body.wide-session .stage:has(> .drawer:not([hidden])) > .board, body.wide-sessio
 .d-meta .st[data-s="waiting"] { color: var(--amber); } .d-meta .st[data-s="busy"] { color: var(--run); } .d-meta .st[data-s="stopping"], .d-meta .st[data-s="failed"] { color: var(--stop); } .d-meta .st[data-s="finished"] { color: var(--ok); }
 .d-meta .bypass { color: var(--stop); }
 .where-b { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font: 12px var(--mono); color: var(--fg-dim); overflow-wrap: anywhere; }
+/* Where it works, under its name: repository, checkout and branch as chips; the full folder copies on a click. */
+.place { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 12px; min-width: 0; }
+.pl { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; height: 26px; padding: 0 10px; border: 0; border-radius: var(--r-pill); background: var(--fill); color: var(--fg); font: 12px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl::before { content: ""; flex: none; width: 12px; height: 12px; background: currentColor; opacity: .7; -webkit-mask: var(--i-repo) center / contain no-repeat; mask: var(--i-repo) center / contain no-repeat; }
+.pl.wt::before, .pl.dir::before { -webkit-mask-image: var(--i-tree); mask-image: var(--i-tree); }
+.pl.br::before { -webkit-mask-image: var(--i-branch); mask-image: var(--i-branch); }
+.pl.main { color: var(--fg-dim); }
+.pl.main::before { -webkit-mask-image: var(--i-tree); mask-image: var(--i-tree); }
+a.pl { text-decoration: none; }
+a.pl::before { display: none; }
+a.pl:hover, button.pl:hover { background: var(--fill-strong); }
+.pl-path { flex: 1 1 100%; min-width: 0; padding: 0; border: 0; background: none; font: 11.5px var(--mono); color: var(--fg-dim); text-align: left; cursor: copy; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; }
+.pl-path:hover { color: var(--fg); }
+.where-b::before { content: ""; flex: none; width: 11px; height: 11px; background: currentColor; -webkit-mask: var(--i-branch) center / contain no-repeat; mask: var(--i-branch) center / contain no-repeat; }
+.where-b.wt::before { -webkit-mask-image: var(--i-tree); mask-image: var(--i-tree); }
 .mode-pick { flex: 0 1 auto; width: auto; }
 .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
 .hint { margin: 8px 0 0; font-size: 12.5px; color: var(--stop); }
-.note { margin: 12px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 12.5px; }
+.note { margin: 12px 0 0; padding: 10px 14px; border-radius: var(--r-2); background: var(--fill); font-size: 12.5px; }
 .sec { margin-top: 26px; min-width: 0; }
 .rule { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; font-size: 12px; font-weight: 600; color: var(--fg-dim); }
 .rule .n { font: 500 11.5px var(--mono); color: var(--fg-faint); }
@@ -353,7 +398,7 @@ body.wide-session .stage:has(> .drawer:not([hidden])) > .board, body.wide-sessio
 .wait { color: var(--amber); font-size: 12.5px; }
 
 /* a request */
-.req { min-width: 0; padding: 14px 16px 16px; border: 1px solid var(--amber-line); border-radius: 10px; background: var(--raise); }
+.req { min-width: 0; padding: 16px 18px 18px; border-radius: var(--r-3); background: var(--amber-fill); }
 .req.busy { opacity: .55; pointer-events: none; }
 .req-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-bottom: 8px; }
 .req-tool { font: 600 13px var(--mono); color: var(--amber); }
@@ -362,9 +407,9 @@ body.wide-session .stage:has(> .drawer:not([hidden])) > .board, body.wide-sessio
 .req-from b { color: var(--fg); font-weight: 550; }
 .req-desc { margin: 0 0 8px; color: var(--fg-dim); font-size: 12.5px; }
 .req-path { margin: 0 0 8px; font: 12.5px var(--mono); overflow-wrap: anywhere; }
-textarea.cmd { display: block; width: 100%; min-height: 3em; resize: vertical; padding: 9px 11px; border: 1px solid var(--line); border-radius: 6px; background: var(--code); font: 12.5px/1.5 var(--mono); }
+textarea.cmd { display: block; width: 100%; min-height: 3em; resize: vertical; padding: 10px 12px; border: 1px solid transparent; border-radius: var(--r-1); background: var(--code); font: 12.5px/1.5 var(--mono); }
 textarea.cmd.edited { border-color: var(--amber); }
-pre.block { margin: 0 0 8px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 6px; background: var(--code); font: 12px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto; }
+pre.block { margin: 0 0 8px; padding: 10px 12px; border: 0; border-radius: var(--r-1); background: var(--code); font: 12px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto; }
 pre.del { background: var(--del); }
 pre.add { background: var(--add); }
 details.raw { margin: 8px 0 0; }
@@ -373,25 +418,26 @@ details.raw textarea { margin-top: 6px; min-height: 8em; }
 .remember { margin: 8px 0 0; }
 .remember ul { margin: 4px 0 0; padding-left: 18px; color: var(--fg-dim); font: 12px/1.5 var(--mono); overflow-wrap: anywhere; }
 .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 10px; }
-.field { flex: 1 1 160px; min-width: 0; height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font-size: 13px; }
+.field { flex: 1 1 160px; min-width: 0; height: 32px; padding: 0 12px; border: 1px solid transparent; border-radius: var(--r-1); background: var(--code); font-size: 13px; }
 textarea.field { flex-basis: 100%; height: auto; min-height: 3.4em; padding: 6px 9px; resize: vertical; }
 .err { margin: 8px 0 0; color: var(--stop); font-size: 12.5px; }
 .q { border: 0; margin: 0 0 12px; padding: 0; min-width: 0; }
 .q legend { padding: 0; margin-bottom: 8px; font-weight: 550; font-size: 14px; }
 .q-tag { margin-right: 8px; font: 500 11.5px var(--mono); color: var(--fg-faint); }
 .q-hint { color: var(--fg-dim); font-size: 12px; font-weight: 400; }
-.opt { display: grid; grid-template-columns: auto 1fr; gap: 1px 9px; padding: 7px 10px; border: 1px solid var(--line); cursor: pointer; }
-.opt + .opt { margin-top: -1px; }
-.opt:first-of-type { border-radius: 6px 6px 0 0; }
-.opt:last-of-type { border-radius: 0 0 6px 6px; }
-.opt:has(input:checked) { position: relative; z-index: 1; border-color: var(--run); background: var(--run-dim); }
+.opt { display: grid; grid-template-columns: auto 1fr; gap: 1px 9px; padding: 9px 12px; border-radius: 4px; background: var(--code); cursor: pointer; }
+.opt + .opt { margin-top: 2px; }
+.opt:first-of-type { border-radius: var(--r-1) var(--r-1) 4px 4px; }
+.opt:last-of-type { border-radius: 4px 4px var(--r-1) var(--r-1); }
+.opt:only-of-type { border-radius: var(--r-1); }
+.opt:has(input:checked) { background: var(--run-fill); box-shadow: inset 0 0 0 1px var(--run); }
 .opt input { margin: 3px 0 0; accent-color: var(--run); }
 .opt b { font-weight: 550; }
 .opt small { grid-column: 2; color: var(--fg-dim); font-size: 12px; }
 .opt pre.block { grid-column: 1 / -1; margin: 6px 0 0; }
 .opt:not(:has(input:checked)) pre.block { display: none; }
 .opt .other { grid-column: 2; margin-top: 4px; }
-.plan { max-height: 340px; overflow: auto; padding: 11px 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--code); font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
+.plan { max-height: 340px; overflow: auto; padding: 12px 16px; border: 0; border-radius: var(--r-1); background: var(--code); font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
 .plan > :first-child { margin-top: 0; }
 .plan > :last-child { margin-bottom: 0; }
 .plan h4, .plan h5 { margin: 12px 0 4px; font-size: 13px; font-weight: 600; }
@@ -414,7 +460,7 @@ textarea.field { flex-basis: 100%; height: auto; min-height: 3.4em; padding: 6px
 .branch[data-state="waiting"]::after { border-top-color: var(--amber); }
 .branch[data-state="stopping"]::after { border-top-color: var(--stop); }
 .b-head { display: flex; align-items: center; gap: 8px; min-height: 24px; }
-.branch.focus > .b-head { box-shadow: inset 0 0 0 1px var(--fg); border-radius: 6px; padding: 0 6px; margin-left: -6px; }
+.branch.focus > .b-head { background: var(--fill-strong); border-radius: var(--r-1); padding: 0 6px; margin-left: -6px; }
 .b-title { font-weight: 550; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .b-type { font: 11.5px var(--mono); color: var(--fg-faint); white-space: nowrap; }
 .b-head > :last-child { margin-left: auto; }
@@ -428,8 +474,8 @@ textarea.field { flex-basis: 100%; height: auto; min-height: 3.4em; padding: 6px
 .branch details p { margin: 4px 0 0; white-space: pre-wrap; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
-.chip { max-width: 100%; height: 26px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: transparent; font-size: 12.5px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chip:hover { background: var(--hover); }
+.chip { max-width: 100%; height: 30px; padding: 0 12px; border: 0; border-radius: var(--r-1); background: var(--fill); font-size: 12.5px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip:hover { background: var(--fill-strong); }
 .chip b { margin-right: 6px; font: 500 12px var(--mono); color: var(--fg-dim); }
 /* chat: the conversation straight on the panel, your messages in a soft bubble, then the box with its mode, model, effort
    and Send along the bottom */
@@ -447,12 +493,12 @@ textarea.field { flex-basis: 100%; height: auto; min-height: 3.4em; padding: 6px
 .msg.claude .m-body code { font: 13px var(--mono); }
 .msg.claude .m-body pre { margin: 0 0 9px; font: 13px/1.5 var(--mono); white-space: pre-wrap; }
 .msg.you { justify-self: end; max-width: 88%; }
-.msg.you .m-body { padding: 11px 16px; border: 1px solid transparent; border-radius: 12px; background: var(--hover); white-space: pre-wrap; }
+.msg.you .m-body { padding: 12px 16px; border: 1px solid transparent; border-radius: var(--r-3); background: var(--fill); white-space: pre-wrap; }
 .msg.you.waiting .m-body { border: 1px dashed var(--line-strong); background: transparent; }
 .msg.you.sending .m-body { opacity: .65; }
 .msg.note { justify-self: center; font-size: 12px; color: var(--fg-faint); }
 .msg.you .m-who { justify-content: flex-end; margin: 4px 0 0; }
-.msg.out .m-body { max-height: 260px; overflow: auto; margin: 0; padding: 10px 14px; border-radius: 10px; background: var(--raise); font: 12.5px/1.5 var(--mono); white-space: pre-wrap; }
+.msg.out .m-body { max-height: 260px; overflow: auto; margin: 0; padding: 10px 14px; border-radius: var(--r-2); background: var(--code); font: 12.5px/1.5 var(--mono); white-space: pre-wrap; }
 /* a tool call: one quiet line (its state as the small light, what it ran, how long it took), what it returned behind a
    disclosure. Calls in a row sit close together; failed and refused ones take the stop colour. */
 .msg.tool { font-size: 12.5px; color: var(--fg-dim); }
@@ -469,7 +515,7 @@ textarea.field { flex-basis: 100%; height: auto; min-height: 3.4em; padding: 6px
 .msg.tool .t-what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px var(--mono); color: var(--fg-faint); }
 .msg.tool .t-dur { flex: none; font: 11.5px var(--mono); color: var(--fg-faint); white-space: nowrap; }
 .msg.tool .t-note { margin: 1px 0 0 16px; font-size: 12px; color: var(--fg-faint); }
-.msg.tool pre.m-body { max-height: 260px; overflow: auto; margin: 6px 0 2px 16px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--code); font: 12px/1.5 var(--mono); white-space: pre-wrap; }
+.msg.tool pre.m-body { max-height: 260px; overflow: auto; margin: 6px 0 2px 16px; padding: 10px 12px; border: 0; border-radius: var(--r-1); background: var(--code); font: 12px/1.5 var(--mono); white-space: pre-wrap; }
 .msg.tool[data-state="running"] b { color: var(--run); }
 .msg.tool[data-state="waiting"] b, .msg.tool[data-state="waiting"] .t-dur { color: var(--amber); }
 .msg.tool[data-state="failed"] b, .msg.tool[data-state="refused"] b, .msg.tool[data-state="failed"] .t-what, .msg.tool[data-state="refused"] .t-what { color: var(--stop); }
@@ -477,11 +523,11 @@ textarea.field { flex-basis: 100%; height: auto; min-height: 3.4em; padding: 6px
 .turn { width: 100%; margin: 0; border: 0; border-top: 1px solid var(--line); }
 /* newer rows below: a small button at the bottom of the chat's view, which takes no room of its own */
 .d-newer-at { position: sticky; bottom: 0; height: 0; display: flex; justify-content: center; pointer-events: none; }
-.d-newer { pointer-events: auto; height: 26px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--raise); box-shadow: 0 2px 10px var(--shade); font-size: 12px; color: var(--fg-dim); cursor: pointer; transform: translateY(calc(-100% - 10px)); }
+.d-newer { pointer-events: auto; height: 28px; padding: 0 14px; border: 0; border-radius: var(--r-pill); background: var(--fill-strong); box-shadow: 0 2px 10px var(--shade); font-size: 12px; color: var(--fg-dim); cursor: pointer; transform: translateY(calc(-100% - 10px)); }
 .d-newer:hover { color: var(--fg); }
 .linkish { padding: 0; border: 0; background: none; color: var(--fg-dim); font-size: 11.5px; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
-.composer { border: 1px solid var(--line-strong); border-radius: 12px; background: var(--raise); }
-.composer:focus-within { border-color: var(--fg-dim); }
+.composer { border-radius: var(--r-3); background: var(--raise); box-shadow: 0 0 0 1px var(--line); }
+.composer:focus-within { box-shadow: 0 0 0 1px var(--line-strong); }
 .composer textarea { display: block; width: 100%; min-height: 3.1em; padding: 13px 16px 4px; border: 0; background: transparent; resize: none; outline: none; font-size: 14.5px; line-height: 1.5; }
 .c-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 0; padding: 4px 10px 10px 6px; }
 /* Mode, model and effort read as words, a hairline between them, each with a small chevron. */
@@ -500,10 +546,10 @@ textarea.field { flex-basis: 100%; height: auto; min-height: 3.4em; padding: 6px
 #d-opts { color: var(--fg-dim); font-weight: 400; }
 #d-opts::after { content: "\25BE"; margin-left: 2px; font-size: 9px; color: var(--fg-faint); }
 #d-opts[aria-expanded="true"], #d-opts:hover { color: var(--fg); }
-.c-pop { position: fixed; z-index: 40; display: grid; gap: 6px; min-width: 260px; padding: 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--raise); box-shadow: 0 12px 28px -16px var(--shade); }
+.c-pop { position: fixed; z-index: 40; display: grid; gap: 6px; min-width: 260px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r-2); background: var(--raise); box-shadow: 0 12px 28px -16px var(--shade); }
 .c-row { display: grid; grid-template-columns: 56px 1fr; align-items: center; gap: 8px; font-size: 12px; color: var(--fg-dim); }
-.c-pop .c-mode { width: 100%; border: 1px solid var(--line); border-radius: 6px; background-color: var(--panel); }
-.c-pop .c-mode + .c-mode { border-left: 1px solid var(--line); border-radius: 6px; }
+.c-pop .c-mode { width: 100%; height: 30px; border: 0; border-radius: var(--r-1); background-color: var(--fill); }
+.c-pop .c-mode + .c-mode { border-left: 0; border-radius: var(--r-1); }
 .lf-row { display: flex; gap: 6px; min-width: 0; }
 .lf-row input { flex: 1; }
 .advance { flex: none; position: relative; display: flex; align-items: center; gap: 14px; padding: 10px 20px; border-top: 1px solid var(--line-strong); background: var(--raise); font-size: 13px; font-weight: 550; }
@@ -512,25 +558,25 @@ textarea.field { flex-basis: 100%; height: auto; min-height: 3.4em; padding: 6px
 .advance .linkish { margin-left: auto; color: var(--fg-dim); }
 
 /* ---------- the launcher ---------- */
-dialog.launcher { width: min(560px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--panel); color: var(--fg); box-shadow: 0 30px 80px -30px var(--shade); }
+dialog.launcher { width: min(580px, calc(100vw - 32px)); padding: 0; border: 0; border-radius: var(--r-3); background: var(--panel); color: var(--fg); box-shadow: 0 30px 80px -30px var(--shade); }
 dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
-.launcher form { display: grid; gap: 12px; padding: 18px 20px; }
+.launcher form { display: grid; gap: 16px; padding: 24px; }
 .launcher h2 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
 .launcher .lead { margin: -6px 0 0; color: var(--fg-dim); font-size: 12.5px; }
 .lf { display: grid; gap: 4px; min-width: 0; }
 .lf > span { font-size: 12.5px; font-weight: 550; }
 .lf small { color: var(--fg-faint); font-weight: 400; }
-.lf input, .lf textarea, .lf select { width: 100%; min-width: 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font-size: 13px; }
+.lf input, .lf textarea, .lf select { width: 100%; min-width: 0; padding: 7px 12px; border: 1px solid transparent; border-radius: var(--r-1); background: var(--fill); font-size: 13px; }
+.lf input:focus, .lf textarea:focus, .lf select:focus, .field:focus, .wt-name:focus { outline: none; border-color: var(--line-strong); }
 .lf textarea { min-height: 7em; resize: vertical; }
 .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 /* the launcher's choices: a row of buttons for model and mode, a slider for effort */
-.seg { display: grid; grid-auto-columns: 1fr; grid-auto-flow: column; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--bg); }
+.seg { display: grid; grid-auto-columns: 1fr; grid-auto-flow: column; gap: 2px; padding: 3px; border-radius: var(--r-2); background: var(--fill); }
 .seg label { position: relative; display: grid; min-width: 0; }
 .seg input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; opacity: 0; cursor: pointer; }
-.seg span { padding: 6px 6px; border-left: 1px solid var(--line); text-align: center; font-size: 12.5px; color: var(--fg-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.seg label:first-child span { border-left: 0; }
-.seg label:hover span { background: var(--hover); color: var(--fg); }
-.seg input:checked + span { background: var(--run-dim); color: var(--fg); font-weight: 550; box-shadow: inset 0 -2px 0 var(--run); }
+.seg span { padding: 6px 6px; border-radius: 6px; text-align: center; font-size: 12.5px; color: var(--fg-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.seg label:hover span { color: var(--fg); }
+.seg input:checked + span { background: var(--raise); color: var(--fg); font-weight: 550; box-shadow: 0 1px 2px var(--shade); }
 .seg input:focus-visible + span { outline: 2px solid var(--run); outline-offset: -2px; }
 .seg-say { color: var(--fg-dim); font-size: 12px; }
 .slide { --thumb: 16px; padding: 2px 0 0; }
@@ -544,22 +590,124 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .wt-pick .switch { flex: none; color: var(--fg); }
 .switch:has(input:disabled) { color: var(--fg-faint); cursor: default; }
 .switch input:disabled + i { opacity: .45; }
-.wt-name { flex: 1; min-width: 0; height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font: 12.5px var(--mono); }
+.wt-name { flex: 1; min-width: 0; height: 32px; padding: 0 12px; border: 1px solid transparent; border-radius: var(--r-1); background: var(--fill); font: 12.5px var(--mono); }
 .l-note { margin: -6px 0 0; color: var(--fg-dim); font-size: 12px; overflow-wrap: anywhere; }
 .l-note code { font: 11.5px var(--mono); color: var(--fg); }
-.l-trust { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 8px 0 0; padding: 9px 12px; border-radius: 8px; background: var(--amber-dim); color: var(--fg); font-size: 12.5px; }
+.l-trust { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 8px 0 0; padding: 10px 14px; border-radius: var(--r-2); background: var(--amber-fill); color: var(--fg); font-size: 12.5px; }
 .launcher .row { justify-content: flex-end; }
 
 #toasts { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); display: grid; gap: 6px; z-index: 50; pointer-events: none; }
-.toast { max-width: min(560px, calc(100vw - 32px)); padding: 8px 13px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--raise); color: var(--fg); font-size: 12.5px; box-shadow: 0 12px 28px -16px var(--shade); }
-.toast.bad { border-color: var(--stop-line); color: var(--stop); }
+.toast { max-width: min(560px, calc(100vw - 32px)); padding: 10px 16px; border: 0; border-radius: var(--r-2); background: var(--fill-strong); color: var(--fg); font-size: 12.5px; box-shadow: 0 12px 28px -16px var(--shade); }
+.toast.bad { background: var(--raise); color: var(--stop); box-shadow: inset 0 0 0 1px var(--stop-line), 0 12px 28px -16px var(--shade); }
+
+/* ---------- GitHub marks: a repository's checks on its section, a session's PR on its row and in its place bar ---------- */
+.ci { flex: none; display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px 0 7px; border-radius: var(--r-pill); background: var(--fill); font: 500 11px var(--sans); color: var(--fg-dim); }
+.ci::before, .tci { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.ci[data-c="failing"] { background: var(--stop-fill); color: var(--stop); }
+.ci[data-c="running"] { background: var(--run-fill); color: var(--run); }
+.ci[data-c="passing"] { background: var(--ok-fill); color: var(--ok); }
+.ci[data-c="running"]::before, .tci[data-c="running"] { animation: blink 1.6s ease-in-out infinite; }
+.tci { display: inline-block; background: var(--fg-faint); }
+.tci[data-c="failing"] { background: var(--stop); }
+.tci[data-c="running"] { background: var(--run); }
+.tci[data-c="passing"] { background: var(--ok); }
+.pl.pr::before { display: none; }
+.pl.pr[data-c="failing"] { background: var(--stop-fill); color: var(--stop); }
+.pl.pr[data-c="running"] { background: var(--run-fill); color: var(--run); }
+.pl.pr[data-c="passing"] { background: var(--ok-fill); color: var(--ok); }
+.gh-fail { display: grid; gap: 4px; margin: 6px 0 0; padding: 0; list-style: none; font: 12px var(--mono); }
+.gh-fail a, .h-side a { color: inherit; text-decoration: none; }
+.gh-fail a:hover, .h-side a:hover { text-decoration: underline; text-underline-offset: 2px; }
+.gh-fail li { color: var(--stop); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hand { display: grid; gap: 8px; margin-top: 12px; }
+.hand pre.block { max-height: 180px; margin: 0; font-size: 11.5px; }
+.hand textarea.cmd { min-height: 6em; }
+.hand .row { margin-top: 0; }
+
+/* ---------- the overseer: the home view, beside the rail, with what GitHub shows in a column of its own ---------- */
+.home { flex: 1; min-width: 0; display: flex; overflow: hidden; background: var(--panel); border-radius: var(--r-3); }
+.h-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.h-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.h-head #h-tools { display: flex; gap: 6px; margin-left: auto; }
+.h-close { display: none; }
+/* Its mark: four sessions under one eye. */
+.ov-mark { flex: none; position: relative; width: 22px; height: 22px; border-radius: 7px; background: var(--fg); }
+.ov-mark::after { content: ""; position: absolute; inset: 7px; border-radius: 50%; background: var(--panel); box-shadow: 0 0 0 2px var(--panel); }
+.h-intro:empty { display: none; }
+.h-intro { margin: 8px 0 28px; }
+.h-intro h3 { margin: 0 0 8px; font-size: 22px; line-height: 1.25; font-weight: 600; letter-spacing: -0.02em; text-wrap: balance; }
+.h-intro p { max-width: 58ch; margin: 0; color: var(--fg-dim); font-size: 14px; line-height: 1.6; }
+#h-next:empty { display: none; }
+#h-next { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 24px; padding: 12px 16px; border-radius: var(--r-2); background: var(--amber-fill); color: var(--amber); font-size: 13px; font-weight: 550; }
+#h-next .btn { background: var(--amber-dim); color: var(--amber); }
+.msg.ov .m-who b { color: var(--fg); }
+.msg.ov.error .m-body { color: var(--stop); font-size: 13.5px; }
+/* A line from the feed: something that happened, quiet, between the turns. */
+.msg.feed { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; color: var(--fg-dim); }
+.msg.feed + .msg.feed, .msg.feed + .msg.tool, .msg.tool + .msg.feed { margin-top: -20px; }
+.msg.feed .fd { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--fg-faint); transform: translateY(-1px); }
+.msg.feed[data-t="needs-you"] .fd { background: var(--amber); }
+.msg.feed[data-t="started"] .fd, .msg.feed[data-t="launched"] .fd, .msg.feed[data-t="pr-opened"] .fd { background: var(--run); }
+.msg.feed[data-t="ci-failed"] .fd, .msg.feed[data-t="main-failed"] .fd, .msg.feed[data-t="failed"] .fd { background: var(--stop); }
+.msg.feed[data-t="ci-failed"], .msg.feed[data-t="main-failed"] { color: var(--stop); }
+.msg.feed[data-t="ci-recovered"] .fd, .msg.feed[data-t="main-recovered"] .fd, .msg.feed[data-t="pr-merged"] .fd, .msg.feed[data-t="done"] .fd, .msg.feed[data-t="finished"] .fd { background: var(--ok); }
+.msg.feed .ft { flex: none; margin-left: auto; font: 11.5px var(--mono); color: var(--fg-faint); }
+.msg.feed .fx { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* What it proposes: a card per action, the target and the exact words, which you can change before you run it. */
+.ov-acts { display: grid; gap: 10px; margin-top: 14px; }
+.ov-act { display: grid; gap: 8px; min-width: 0; padding: 14px 16px; border-radius: var(--r-2); background: var(--raise); box-shadow: 0 0 0 1px var(--line); }
+.ov-act[data-state="proposed"] { background: var(--run-fill); box-shadow: none; }
+.ov-act .a-head { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.ov-act .a-what { font-weight: 600; font-size: 13.5px; min-width: 0; overflow-wrap: anywhere; }
+.ov-act .a-why { color: var(--fg-dim); font-size: 12.5px; }
+.ov-act .a-how { color: var(--fg-dim); font-size: 12px; }
+.ov-act .a-how.warn { color: var(--amber); }
+.ov-act .a-text { margin: 0; white-space: pre-wrap; font-size: 13px; line-height: 1.55; }
+.ov-act textarea.cmd { font: 13px/1.55 var(--sans); }
+.ov-act .a-state { font-size: 12.5px; font-weight: 550; color: var(--fg-dim); }
+.ov-act[data-state="done"] .a-state { color: var(--ok); }
+.ov-act[data-state="failed"] .a-state, .ov-act[data-state="invalid"] .a-state { color: var(--stop); }
+.ov-act .row { margin-top: 2px; }
+.ov-act .lf-inline { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--fg-dim); }
+.ov-act .lf-inline input[type="text"] { flex: 1; min-width: 0; height: 30px; padding: 0 10px; border: 1px solid transparent; border-radius: var(--r-1); background: var(--code); font: 12.5px var(--mono); }
+/* Across everything: each repository's pull requests, default-branch runs and recent merges. */
+.h-side { flex: none; width: 320px; min-height: 0; overflow: auto; padding: 20px 20px 24px; border-left: 1px solid var(--line); }
+.h-side h3 { margin: 0 0 4px; font-size: 12.5px; font-weight: 600; color: var(--fg-dim); }
+.h-side .gh-hint { margin: 8px 0 0; color: var(--fg-dim); font-size: 12.5px; line-height: 1.5; }
+.h-repo { padding: 16px 0; }
+.h-repo + .h-repo { border-top: 1px solid var(--line); }
+.h-repo-h { display: flex; align-items: center; gap: 8px; min-width: 0; margin-bottom: 8px; font-weight: 600; font-size: 13px; }
+.h-repo-h a { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.h-repo-h .ci { margin-left: auto; }
+.h-sub { margin: 10px 0 4px; font-size: 11.5px; font-weight: 600; color: var(--fg-dim); }
+.h-li { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 26px; font-size: 12.5px; }
+.h-li .tci { background: var(--fg-faint); }
+.h-li .tci[data-c="failing"] { background: var(--stop); } .h-li .tci[data-c="running"] { background: var(--run); } .h-li .tci[data-c="passing"] { background: var(--ok); }
+.h-li .hn { flex: none; font: 12px var(--mono); color: var(--fg-dim); }
+.h-li .ht { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.h-li .hw { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11.5px var(--mono); color: var(--fg-dim); }
+.h-err { margin: 4px 0 0; color: var(--stop); font-size: 12px; }
+.h-none { margin: 4px 0 0; color: var(--fg-dim); font-size: 12.5px; }
+/* The overseer's own row, pinned at the top of the rail: it returns to the home view. */
+.srow.ov { height: 34px; margin: 0 8px 8px; width: calc(100% - 16px); padding-left: 10px; }
+.srow.ov .ov-mark { width: 14px; height: 14px; border-radius: 4px; }
+.srow.ov .ov-mark::after { inset: 4.5px; box-shadow: 0 0 0 1.5px var(--panel); background: var(--panel); }
+.srow.ov:hover .ov-mark::after { background: var(--hover); box-shadow: 0 0 0 1.5px var(--hover); }
+.srow.ov[aria-current="true"] .ov-mark::after { background: var(--fill-strong); box-shadow: 0 0 0 1.5px var(--fill-strong); }
+.srow.ov .tname { font-weight: 600; }
+.srow.ov[data-busy="1"] .tdetail { color: var(--run); }
+.srow.ov[data-proposed="1"] .tdetail { color: var(--run); font-weight: 600; }
+@media (max-width: 1180px) { .h-side { width: 280px; } }
+@media (max-width: 1000px) { .home { flex-direction: column; overflow: auto; } .h-main { flex: none; min-height: 100%; } .h-side { width: auto; border-left: 0; border-top: 1px solid var(--line); overflow: visible; } }
 
 /* Narrow, the rail takes the width and the open session covers it. */
 @media (max-width: 860px) {
-  .board { flex: 1; width: auto; border-right: 0; }
-  .col, .col[data-col="waiting"] { flex: none; min-height: auto; max-height: none; }
-  .col-body { overflow: visible; }
-  .r-grip, .ws-empty { display: none; }
+  .stage { padding: 0; gap: 0; }
+  .board { flex: 1; width: auto; border-radius: 0; }
+  .r-grip { display: none; }
+  .home { display: none; }
+  body.home-open .stage > .home:not([hidden]) { display: flex; position: absolute; inset: 0; z-index: 5; border-radius: 0; flex-direction: column; overflow: auto; }
+  body.home-open .h-close { display: inline-flex; }
   .drawer { width: 100%; border-left: 0; }
   .stage > .drawer { position: absolute; inset: 0; margin: 0; width: auto; }
 }
@@ -571,10 +719,7 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 <body>
 <header class="top">
   <span class="brand">Agent panel</span>
-  <div class="prof">
-    <button class="prof-btn" type="button" id="prof-btn" aria-haspopup="menu" aria-expanded="false" title="Which Claude Code profile's sessions this shows">Profile <b id="prof-name">…</b></button>
-    <div class="prof-menu" id="prof-menu" role="menu" aria-label="Profiles" hidden></div>
-  </div>
+  <div class="ptabs" id="prof-tabs" role="tablist" aria-label="Claude Code profiles: whose sessions this shows"></div>
   <span class="live down" id="conn">Connecting</span>
   <div class="counts" id="counts"></div>
   <span class="grow"></span>
@@ -595,9 +740,42 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
   <span class="mono" id="pb-file"></span>
 </div>
 <main class="stage">
-  <nav class="board" id="board" aria-label="Sessions by state"></nav>
+  <nav class="board" id="board" aria-label="Sessions"></nav>
   <div class="r-grip" id="r-grip" role="separator" aria-orientation="vertical" aria-label="Queue width" tabindex="0" title="Drag to resize. Double-click for the default width."></div>
-  <div class="ws-empty" id="empty" hidden></div>
+  <!-- With no session open: the overseer, one chat that knows every session and proposes what to do, with what GitHub
+       shows for the agents' repositories beside it. -->
+  <section class="home" id="home" aria-label="Overseer" hidden>
+    <div class="h-main">
+      <div class="d-top-band"><div class="d-col h-head">
+        <span class="ov-mark" aria-hidden="true"></span><h2 class="d-name">Overseer</h2>
+        <span class="d-meta" id="h-meta"></span>
+        <span id="h-tools"></span>
+        <button class="btn icon h-close" type="button" id="h-close" aria-label="Back to the sessions" title="Back to the sessions"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div></div>
+      <div class="d-scroll" id="h-scroll">
+        <div class="d-col">
+          <div id="h-next"></div>
+          <div class="h-intro" id="h-intro"></div>
+          <div class="thread" id="h-thread"></div>
+          <div class="chips" id="h-chips"></div>
+        </div>
+      </div>
+      <div class="d-foot">
+        <div class="d-col">
+          <div class="d-now" id="h-busy" hidden></div>
+          <div class="composer">
+            <textarea id="h-say" rows="2" placeholder="Ask about your agents, or say what you want done" aria-label="Your message to the overseer"></textarea>
+            <div class="c-bar">
+              <select class="c-mode" id="h-model" aria-label="The overseer's model" title="The model the overseer answers with"></select>
+              <span class="grow"></span>
+              <button class="btn primary small" type="button" id="h-send" disabled title="It reads your sessions and answers. Anything it proposes waits for your click.">Send</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <aside class="h-side" id="h-side" aria-label="Across everything"></aside>
+  </section>
   <aside class="drawer" id="drawer" aria-label="Session" hidden>
     <div class="d-grip" id="d-grip" role="separator" aria-orientation="vertical" aria-label="Panel width" tabindex="0" title="Drag to resize. Double-click for the default width."></div>
     <!-- The session in three bands: its name and facts on top, the conversation scrolling in the middle, and what needs you,
@@ -649,6 +827,7 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
         <button class="d-side-tab" type="button" id="d-side-tab" aria-expanded="true"><span>Details</span> <span class="n" id="d-side-n"></span></button>
         <div class="d-side-body" id="d-side-body">
           <div class="side-sec" id="d-info"></div>
+          <div class="side-sec" id="d-gh"></div>
           <div class="side-sec" id="d-subs"></div>
           <div class="side-acts" id="d-acts"></div>
         </div>
@@ -734,6 +913,7 @@ const HINT = {
   idle: 'Ends every idle background session. Terminal sessions stay open: end those one at a time, in case you are typing in one.',
   clear: 'Removes every finished session from the list. Transcripts are kept, and a worktree with unsaved work keeps its session.',
   sub: 'It stops at its next tool call. Its session carries on without it.',
+  ovclear: 'Clears this conversation with the overseer. The feed of what happened stays.',
 };
 const SETTLED = {
   allow: 'Allowed from the panel', deny: 'Denied from the panel', answer: 'Answered from the panel',
@@ -813,7 +993,7 @@ function connect() {
   const es = new EventSource('/events?t=' + encodeURIComponent(TOKEN) + '&c=' + CLIENT);
   const conn = $('conn');
   // The server forgets what a page follows when its stream closes: a stream that opens again asks for it again.
-  es.onopen = () => { conn.classList.remove('down'); conn.textContent = 'Live'; if (followed) followOpen(followed); };
+  es.onopen = () => { conn.classList.remove('down'); conn.textContent = 'Live'; if (followed) followOpen(followed); loadProfiles(); };
   es.addEventListener('thread', (m) => { const d = JSON.parse(m.data); applyThread(d.sessionId, d.events); });
   // Its transcript was cut or replaced, or the profile switched: what the page holds is gone, so it asks again.
   es.addEventListener('thread-reset', (m) => { const { sessionId } = JSON.parse(m.data); if (sessionId === followed) { threads.delete(sessionId); followOpen(sessionId); } });
@@ -976,26 +1156,71 @@ const setText = (n, v) => { if (n.textContent !== v) n.textContent = v; };
 const setAttr = (n, k, v) => { if (n.getAttribute(k) !== v) n.setAttribute(k, v); };
 // Which queues are folded, remembered in this browser. Needs you never folds.
 const FOLD_KEY = 'acp.folded';
-const folded = new Set((() => { try { const v = JSON.parse(localStorage.getItem(FOLD_KEY)); if (Array.isArray(v)) return v; } catch {} return ['idle', 'finished']; })());
+const folded = new Set((() => { try { const v = JSON.parse(localStorage.getItem(FOLD_KEY)); if (Array.isArray(v)) return v; } catch {} return ['finished']; })());
 function toggleFold(k) {
   folded.has(k) ? folded.delete(k) : folded.add(k);
   try { localStorage.setItem(FOLD_KEY, JSON.stringify([...folded])); } catch {}
   render();
 }
-const colEls = COLS.map(([k, name]) => {
-  const n = el('span', { class: 'n' }), body = el('div', { class: 'col-body', id: 'q-' + k });
-  const c = { k, n, body, hint: el('p', { class: 'hint col-hint', hidden: true }), empty: el('p', { class: 'col-empty' }) };
-  c.bulk = el('button', { class: 'btn danger soft small', type: 'button', hidden: true, onclick: () => c.b && confirmOr(c.b.key, c.b.run) });
-  if (k === 'waiting') c.head = el('span', { class: 'col-name' }, name, n);
+const tilde = (p) => (p ? p.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, '~') : '');
+// The rail's sections, kept by key and reused, so a click never lands on a rebuilt one: Needs you, one per repository
+// (in name order, so they hold still while agents work), other folders, Finished.
+const secs = new Map(); // key → its section
+let secSeq = 0;
+function sectionEl(key, kind) {
+  let c = secs.get(key);
+  if (c) return c;
+  const body = el('div', { class: 'col-body', id: 'q-' + ++secSeq });
+  c = { key, kind, body, n: el('span', { class: 'n' }), title: el('span', { class: 'col-title' }), asks: el('span', { class: 'col-asks', hidden: true }),
+        ci: el('span', { class: 'ci', hidden: true }), path: el('div', { class: 'col-path', hidden: true }), tools: el('span', { class: 'col-tools' }),
+        hint: el('p', { class: 'hint col-hint', hidden: true }), empty: el('p', { class: 'col-empty' }) };
+  if (kind === 'waiting') c.head = el('span', { class: 'col-name' }, c.title, c.n);
   else {
     c.peek = el('span', { class: 'peek' });
-    c.head = el('button', { class: 'col-name col-fold', type: 'button', 'aria-controls': body.id, onclick: () => toggleFold(k) },
-      name, n, c.peek, el('span', { class: 'chev', 'aria-hidden': 'true', text: '›' }));
+    c.head = el('button', { class: 'col-name col-fold', type: 'button', 'aria-controls': body.id, onclick: () => toggleFold(key) },
+      c.title, c.n, c.asks, c.ci, c.peek, el('span', { class: 'chev', 'aria-hidden': 'true', text: '›' }));
   }
-  c.sec = el('section', { class: 'col', 'data-col': k, 'aria-label': name }, el('div', { class: 'col-h' }, c.head, el('span', { class: 'col-tools' }, c.bulk)), body);
-  $('board').append(c.sec);
+  c.sec = el('section', { class: 'col', 'data-col': kind }, el('div', { class: 'col-h' }, c.head, c.tools), c.path, body);
+  secs.set(key, c);
   return c;
-});
+}
+const boardEmpty = el('p', { class: 'board-empty', text: 'No sessions yet. Press New agent, or run claude in a terminal, and it shows up here.' });
+/** Which checkout of its repository a session works in: '' for the main one, else its worktree's name. */
+const ckOf = (s) => s.git?.worktree ?? '';
+/** The rail's sections, each with the sessions it lists. A session that needs you is listed only under Needs you. */
+function sections(g) {
+  const out = [{ key: 'waiting', kind: 'waiting', title: 'Needs you', list: g.waiting }];
+  const repos = new Map(), loose = [], asks = new Map();
+  for (const s of [...g.busy, ...g.idle]) {
+    const r = s.git?.repo;
+    if (!r) { loose.push(s); continue; }
+    if (!repos.has(r)) repos.set(r, []);
+    repos.get(r).push(s);
+  }
+  for (const s of g.waiting) if (s.git?.repo) asks.set(s.git.repo, (asks.get(s.git.repo) ?? 0) + 1);
+  for (const r of asks.keys()) if (!repos.has(r)) repos.set(r, []);
+  const working = (s) => (['busy', 'stopping'].includes(stateOf(s)) ? 0 : 1);
+  for (const r of [...repos.keys()].sort((a, b) => base(a).localeCompare(base(b)) || a.localeCompare(b))) {
+    // The main checkout first, then worktrees by name; in each, working before idle, newest first.
+    const list = repos.get(r).sort((a, b) => (ckOf(a) ? 1 : 0) - (ckOf(b) ? 1 : 0) || ckOf(a).localeCompare(ckOf(b))
+      || working(a) - working(b) || (b.startedAt ?? 0) - (a.startedAt ?? 0) || a.sessionId.localeCompare(b.sessionId));
+    out.push({ key: 'repo:' + r, kind: 'repo', repo: r, title: base(r), list, asks: asks.get(r) ?? 0 });
+  }
+  if (loose.length) out.push({ key: 'loose', kind: 'loose', title: 'Other folders', list: loose });
+  if (g.finished.length) out.push({ key: 'finished', kind: 'finished', title: 'Finished', list: g.finished });
+  return out;
+}
+const ckEls = new Map(); // repo|checkout → its label
+function ckLabel(sec, s) {
+  const key = `${sec.repo}|${s.git.top}`;
+  let n = ckEls.get(key);
+  if (!n) { n = el('div', { class: 'ck' }, el('span'), el('span', { class: 'br' })); ckEls.set(key, n); }
+  n.classList.toggle('wt', Boolean(s.git.worktree));
+  setText(n.children[0], s.git.worktree ?? 'main checkout');
+  setText(n.children[1], s.git.branch ?? (s.git.commit ? `detached ${s.git.commit}` : ''));
+  setAttr(n, 'title', s.git.top);
+  return n;
+}
 // ---- find by name, and the keys that move you through the rail
 let railQuery = '';
 const railFind = el('input', { id: 'rail-find', type: 'search', placeholder: 'Find a session', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Find a session' });
@@ -1017,8 +1242,8 @@ railFind.onkeydown = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.st
 /** The rail's rows in visual order: sessions in unfolded sections, and the subagents of open trees, as filtered. */
 function railRows() {
   const rows = [];
-  for (const c of colEls) {
-    if (c.k !== 'waiting' && folded.has(c.k)) continue;
+  for (const c of shownSecs) {
+    if (c.kind !== 'waiting' && folded.has(c.key)) continue;
     for (const w of c.body.children) {
       const s = w.dataset?.sid && sessionOf(w.dataset.sid);
       if (!s) continue;
@@ -1188,9 +1413,9 @@ function tile(s) {
   let t = tiles.get(id);
   if (!t) {
     t = { chev: el('span', { class: 'chev-slot', 'aria-hidden': 'true' }), glyph: el('span', { class: 'glyph', 'aria-hidden': 'true' }), name: el('span', { class: 'tname' }),
-          detail: el('span', { class: 'tdetail' }), old: el('span', { class: 'told', text: '!' }), age: el('span', { class: 'tage' }) };
+          ci: el('span', { class: 'tci', hidden: true }), repo: el('span', { class: 'trepo' }), detail: el('span', { class: 'tdetail' }), old: el('span', { class: 'told', text: '!' }), age: el('span', { class: 'tage' }) };
     t.btn = el('button', { class: 'srow', type: 'button', onclick: () => { cancelAdvance(); selectNow(); subFocus = null; open = open === id ? null : id; render(); } },
-      t.chev, t.glyph, t.name, t.detail, t.old, t.age);
+      t.chev, t.glyph, t.name, t.ci, t.repo, t.detail, t.old, t.age);
     t.q = el('button', { class: 'qstop', type: 'button', onclick: () => t.act && confirmOr(t.key, t.act.run) });
     t.wrap = el('div', { class: 'tile-wrap', 'data-sid': id }, t.btn, t.q);
     t.subRows = [];
@@ -1208,6 +1433,13 @@ function tile(s) {
   setAttr(t.btn, 'title', tipOf(s, st));
   setAttr(t.glyph, 'data-s', st);
   setText(t.name, label(s));
+  // Under Needs you a row is away from its repository's section, so it names the repository.
+  const away = st === 'waiting' && repoOf(s.git);
+  setText(t.repo, away || '');
+  const ci = ciOf(s);
+  t.ci.hidden = !ci;
+  if (ci) { setAttr(t.ci, 'data-c', ci); setAttr(t.ci, 'title', `Pull request #${s.gh.pr.number}: ${CHECKS[ci]}`); }
+  t.repo.hidden = !away;
   const d = detailOf(s, st);
   setText(t.detail, d.text);
   t.detail.hidden = !d.text;
@@ -1228,44 +1460,81 @@ function tile(s) {
   }
   return t.wrap;
 }
-function renderBoard(g, vis) {
-  const working = g.busy.filter((s) => stateOf(s) === 'busy');
+let shownSecs = []; // the sections on the rail now, in order
+/** A section's bulk buttons: Interrupt all and End idle in a repository or other folders, Clear in Finished. */
+function bulksOf(sec) {
+  if (sec.kind === 'finished') return [{ key: 'clear:', text: 'Clear', armed: `Clear ${sec.list.length}`,
+    run: () => bulk(sec.list, doRemove, (n) => `Cleared ${sessions(n)}. Transcripts are kept.`) }];
+  if (sec.kind !== 'repo' && sec.kind !== 'loose') return [];
+  const working = sec.list.filter((s) => stateOf(s) === 'busy');
   // Bulk ending stays with background sessions: you may be typing in one of the terminal ones.
-  const idleBg = g.idle.filter((s) => s.kind === 'background' && canEnd(s));
-  const BULK = {
-    busy: working.length > 1 && { key: 'all:', text: 'Interrupt all', armed: `Interrupt ${working.length}`,
+  const idleBg = sec.list.filter((s) => stateOf(s) === 'idle' && s.kind === 'background' && canEnd(s));
+  return [
+    working.length > 1 && { key: `all:${sec.key}`, text: 'Interrupt all', armed: `Interrupt ${working.length}`,
       run: () => bulk(working, (s) => api('/api/interrupt', { sessionId: s.sessionId }), (n) => `Interrupting ${sessions(n)} at the next tool call.`) },
-    idle: idleBg.length > 0 && { key: 'idle:', text: 'End idle', armed: `End ${idleBg.length} background`,
+    idleBg.length > 0 && { key: `idle:${sec.key}`, text: 'End idle', armed: `End ${idleBg.length} background`,
       run: () => bulk(idleBg, doEnd, (n) => `Ended ${sessions(n)}. Conversations are kept.`) },
-    finished: g.finished.length > 0 && { key: 'clear:', text: 'Clear', armed: `Clear ${g.finished.length}`,
-      run: () => bulk(g.finished, doRemove, (n) => `Cleared ${sessions(n)}. Transcripts are kept.`) },
-  };
-  for (const c of colEls) {
-    const all = g[c.k], list = railQuery ? all.filter(matchesQuery) : all, b = BULK[c.k] || null, on = Boolean(b) && armed?.key === b.key;
-    setText(c.n, railQuery ? `${list.length}/${all.length}` : String(all.length));
+  ].filter(Boolean);
+}
+const hintOf = (key) => HINT[key.split(':')[0]];
+function renderBoard(g, vis) {
+  const board = $('board'), list = sections(g);
+  shownSecs = list.map((sec) => sectionEl(sec.key, sec.kind));
+  list.forEach((sec, i) => {
+    const c = shownSecs[i], rows = railQuery ? sec.list.filter(matchesQuery) : sec.list;
+    setText(c.title, sec.title);
+    setText(c.n, railQuery ? `${rows.length}/${sec.list.length}` : sec.list.length ? String(sec.list.length) : '');
+    c.asks.hidden = !sec.asks;
+    if (sec.asks) setText(c.asks, `${sec.asks} need${sec.asks === 1 ? 's' : ''} you`);
     if (c.peek) {
-      const shut = folded.has(c.k);
+      const shut = folded.has(sec.key);
       c.sec.classList.toggle('folded', shut);
       setAttr(c.head, 'aria-expanded', String(!shut));
-      setText(c.peek, list[0] ? label(list[0]) : '');
+      setText(c.peek, rows[0] ? label(rows[0]) : '');
     }
-    c.b = b;
-    c.bulk.hidden = !b;
-    if (b) {
-      c.bulk.className = 'btn danger soft small' + (on ? ' armed' : '');
-      setAttr(c.bulk, 'data-key', b.key);
-      setAttr(c.bulk, 'title', HINT[b.key.slice(0, -1)]);
-      setText(c.bulk, on ? b.armed : b.text);
+    setAttr(c.sec, 'aria-label', sec.kind === 'repo' ? `Repository ${sec.title}` : sec.title);
+    const ci = sec.kind === 'repo' ? ciSum(vis.filter((s) => s.git?.repo === sec.repo)) : { state: null };
+    c.ci.hidden = !ci.state;
+    if (ci.state) { setAttr(c.ci, 'data-c', ci.state); setText(c.ci, `CI ${ci.state}`); setAttr(c.ci, 'title', ci.title); }
+    // A repository's folder under its name, with its branch when only one checkout of it is in use.
+    const tops = sec.kind === 'repo' ? [...new Set(sec.list.map((s) => s.git.top))] : [];
+    c.path.hidden = sec.kind !== 'repo';
+    if (sec.kind === 'repo') {
+      const one = tops.length === 1 ? sec.list[0].git : null;
+      // The name is the folder's own: the line shows where it sits, then the checkout and branch in use.
+      patch(c.path, JSON.stringify([sec.repo, one?.worktree, one?.branch, one?.commit]), () => [el('span', { text: tilde(sec.repo.replace(/\/[^/]+\/?$/, '')) || '/' }),
+        one ? el('span', { class: 'br' + (one.worktree ? ' wt' : '') }, el('span', { text: (one.worktree ? `${one.worktree} · ` : '') + (one.branch ?? `detached ${one.commit ?? ''}`) })) : null]);
+      setAttr(c.path, 'title', sec.repo);
     }
-    c.hint.hidden = !on;
-    if (on) setText(c.hint, HINT[b.key.slice(0, -1)]);
-    c.empty.hidden = list.length > 0 || Boolean(railQuery);
-    setText(c.empty, c.k === 'waiting' ? 'Nothing needs you.' : c.k === 'busy' && !vis.length ? 'No sessions yet. Press New agent, or run claude in a terminal, and it shows up here.' : 'None.');
+    const bs = bulksOf(sec), armedB = bs.find((b) => armed?.key === b.key);
+    patch(c.tools, JSON.stringify(bs.map((b) => [b.key, b.text, b.armed, armed?.key === b.key])), () => bs.map((b) => el('button', {
+      class: 'btn danger soft small' + (armed?.key === b.key ? ' armed' : ''), type: 'button', 'data-key': b.key, title: hintOf(b.key),
+      text: armed?.key === b.key ? b.armed : b.text, onclick: () => confirmOr(b.key, b.run) })));
+    c.hint.hidden = !armedB;
+    if (armedB) setText(c.hint, hintOf(armedB.key));
+    c.empty.hidden = sec.kind !== 'waiting' || rows.length > 0 || Boolean(railQuery);
+    setText(c.empty, 'Nothing needs you.');
+    // Two or more checkouts of one repository: a label before each checkout's sessions.
+    const labelled = tops.length > 1;
+    const want = [c.hint];
+    let lastTop = null;
+    for (const s of rows) {
+      if (labelled && s.git.top !== lastTop) { want.push(ckLabel(sec, s)); lastTop = s.git.top; }
+      want.push(tile(s), ...tiles.get(s.sessionId).subRows);
+    }
+    want.push(c.empty);
     // Move only what is out of place.
-    const want = [c.hint, ...list.flatMap((s) => { const w = tile(s); return [w, ...tiles.get(s.sessionId).subRows]; }), c.empty];
-    want.forEach((n, i) => { if (c.body.children[i] !== n) c.body.insertBefore(n, c.body.children[i] ?? null); });
+    want.forEach((n, j) => { if (c.body.children[j] !== n) c.body.insertBefore(n, c.body.children[j] ?? null); });
     while (c.body.children.length > want.length) c.body.lastChild.remove();
-  }
+  });
+  // The sections in order, after the find field; the empty note and the keys strip close the rail.
+  const order = [railFind, ovRow, ...shownSecs.map((c) => c.sec), ...(vis.length ? [] : [boardEmpty]), $('rail-keys')];
+  order.forEach((n, j) => { if (board.children[j] !== n) board.insertBefore(n, board.children[j] ?? null); });
+  while (board.children.length > order.length) board.children[order.length].remove();
+  const keepSecs = new Set(list.map((x) => x.key));
+  for (const k of secs.keys()) if (!keepSecs.has(k)) secs.delete(k);
+  const keepCk = new Set(list.flatMap((x) => x.kind === 'repo' ? x.list.map((s) => `${x.repo}|${s.git.top}`) : []));
+  for (const k of ckEls.keys()) if (!keepCk.has(k)) ckEls.delete(k);
   const keep = new Set(vis.map((s) => s.sessionId));
   for (const [id, t] of tiles) if (!keep.has(id)) { t.wrap.remove(); tiles.delete(id); trees.delete(id); }
   const agents = new Set(vis.flatMap((s) => s.subagents.map((a) => a.agentId)));
@@ -1305,15 +1574,6 @@ function renderOld(list) {
       el('span', { text: `${o.shown ? '' : `${o.profile.label} profile, `}Claude Code ${o.version}.` }), ...restartHow(o)))),
   ]);
 }
-/** The workspace with nothing open: you closed it. It offers the top of Needs you, the one that has waited longest. */
-function renderEmpty(waiting) {
-  const e = $('empty'), next = waiting[0], n = waiting.length;
-  e.hidden = !$('drawer').hidden;
-  if (!e.hidden) patch(e, next ? `${next.sessionId}:${n}:${label(next)}` : '', () => next ? [
-    el('p', {}, el('b', { text: 'Nothing open.' }), ` ${n === 1 ? 'One session needs' : n + ' sessions need'} you.`),
-    el('button', { class: 'btn', type: 'button', id: 'empty-next', onclick: () => { cancelAdvance(); open = next.sessionId; render(); } }, 'Open ' + label(next)),
-  ] : [el('p', {}, el('b', { text: 'Nothing open.' })), el('p', { text: 'Pick a session on the left and it opens here.' })]);
-}
 const subNows = new Map(); // agentId → its "now" line in the subagent tree
 function renderDrawer(vis) {
   const d = $('drawer');
@@ -1336,7 +1596,7 @@ function renderDrawer(vis) {
   const where = whereOf(s.git), sharers = sharersOf(s);
   const elsewhere = (s.elsewhere ?? []).map((g) => elsewhereOf(g, s.git)), here = s.workCwd ?? s.cwd;
   const stateWord = s.leftRosterAt ? 'Closed' : s.state === 'stopped' ? 'Ended' : LABEL[st];
-  patch($('d-head'), JSON.stringify([s.sessionId, st, label(s), s.cwd, here, s.kind, s.inRoster, Boolean(s.leftRosterAt), s.state, noteText, s.hostsPanel, s.mode, s.git, sharers, elsewhere, s.oldVersion, snap.profile?.command, wideSession]), () => [
+  patch($('d-head'), JSON.stringify([s.sessionId, st, label(s), s.cwd, here, s.kind, s.inRoster, Boolean(s.leftRosterAt), s.state, noteText, s.hostsPanel, s.mode, s.git, s.gh, sharers, elsewhere, s.oldVersion, snap.profile?.command, wideSession]), () => [
     el('div', { class: 'd-top' }, glyph(st), el('h2', { class: 'd-name', text: label(s), title: label(s) }),
       el('span', { class: 'd-meta', title: where ? where.long : null },
         el('span', { class: 'st', 'data-s': st, text: stateWord }), ' · ', KIND[s.kind]?.replace(' session', '') || 'Headless',
@@ -1346,6 +1606,7 @@ function renderDrawer(vis) {
         title: wideSession ? 'Show the board beside it again' : 'Give it the whole window', onclick: () => setLayout('wideSession', !wideSession) },
         svgIcon(wideSession ? 'M10 4H4v6M14 20h6v-6M4 4l7 7M20 20l-7-7' : 'M4 10V4h6M20 14v6h-6M20 4l-7 7M4 20l7-7')),
       el('button', { class: 'btn icon', type: 'button', 'aria-label': 'Close', title: 'Close (Esc)', onclick: () => { cancelAdvance(); open = null; render(); } }, svgIcon('M6 6l12 12M18 6L6 18'))),
+    placeBar(s, here),
     noteText ? el('p', { class: 'note', text: noteText }) : null,
     s.oldVersion && !ended ? el('div', { class: 'note old', role: 'status' }, el('span', { class: 'lead', text: 'Restart this session.' }),
       el('span', { text: oldWhy(s.oldVersion) }), ...restartHow({ ...s, shown: true, profile: snap.profile })) : null,
@@ -1391,6 +1652,7 @@ function renderDrawer(vis) {
     armedHere ? el('p', { class: 'hint', text: HINT[armedHere.split(':')[0]] + (/^(end|close):/.test(armedHere) ? tasksStop(s) : '') }) : null,
   ]);
 
+  renderGh(s);
   // The tree's buttons only rebuild when its shape changes; each subagent's "now" line updates on its own.
   const subArmed = armed?.key.startsWith(`sub:${s.sessionId}:`) ? armed.key : null;
   const shape = s.subagents.map((a) => [a.agentId, subState(s, a), a.title, a.agentType, Boolean(a.task)]);
@@ -1405,6 +1667,20 @@ function renderDrawer(vis) {
     ? el('div', { class: 'advance', role: 'status' }, `Done here. Next: ${label(sessionOf(advance.to))}`,
       el('button', { class: 'linkish', type: 'button', text: 'Stay here', onclick: () => { cancelAdvance(); render(); } }))
     : null));
+}
+/** Where it works, under its name: repository, checkout and branch, then its folder, which a click copies. */
+function placeBar(s, here) {
+  const g = s.git, w = whereOf(g);
+  const copy = () => navigator.clipboard.writeText(here).then(() => toast('Copied ' + here), () => toast('Copy is blocked here. Select it: ' + here, true));
+  return el('div', { class: 'place' },
+    g ? [el('span', { class: 'pl', title: `Repository: ${g.repo}`, text: repoOf(g) }),
+      el('span', { class: 'pl ' + (g.worktree ? 'wt' : 'main'), title: g.worktree ? `Its own worktree: ${g.top}` : `The main checkout: ${g.top}`, text: g.worktree ?? 'main checkout' }),
+      el('span', { class: 'pl br', title: w.long, text: w.on })]
+      : here ? el('span', { class: 'pl dir', title: 'Not in a git repository', text: base(here) || here }) : null,
+    s.gh?.pr ? el('a', { class: 'pl pr', 'data-c': s.gh.pr.checks, href: s.gh.pr.url, target: '_blank', rel: 'noopener',
+      title: `Pull request #${s.gh.pr.number}${s.gh.pr.draft ? ', a draft' : ''}: ${CHECKS[s.gh.pr.checks]}. Opens on GitHub.`, text: `#${s.gh.pr.number} · ${CHECKS[s.gh.pr.checks]}` })
+      : s.gh?.main === 'failing' ? el('a', { class: 'pl pr', 'data-c': 'failing', href: s.gh.failed?.url ?? s.gh.url, target: '_blank', rel: 'noopener', title: 'The default branch’s latest run failed. Opens on GitHub.', text: 'default branch failing' }) : null,
+    here ? el('button', { class: 'pl-path', type: 'button', title: 'Copy this folder’s path', text: '\u200e' + tilde(here), onclick: copy }) : null);
 }
 function nowLine(s, st, rs) {
   if (st === 'stopping') return quiet('Stopping at its next tool call.');
@@ -1958,6 +2234,286 @@ function cancelAdvance() {
   advance = null;
 }
 
+// ---------- GitHub: checks on the rail, the PR in the place bar and Details, a failing log handed to its agent ----------
+/** The worst of some check states: failing, then running, then passing. Null when none is known. */
+const worst = (xs) => (xs.includes('failing') ? 'failing' : xs.includes('running') ? 'running' : xs.includes('passing') ? 'passing' : null);
+const ghRepo = (slug) => snap?.github?.repos?.find((r) => r.slug === slug) ?? null;
+const CHECKS = { failing: 'checks failing', running: 'checks running', passing: 'checks passing', none: 'no checks' };
+const MERGE = { CLEAN: 'Ready to merge', HAS_HOOKS: 'Ready to merge', UNSTABLE: 'Mergeable, with checks failing', BLOCKED: 'Blocked by a rule or review',
+  BEHIND: 'Behind its base branch', DIRTY: 'Has conflicts with its base', DRAFT: 'A draft', UNKNOWN: 'Not worked out yet by GitHub' };
+const REVIEW = { APPROVED: 'Approved', CHANGES_REQUESTED: 'Changes requested', REVIEW_REQUIRED: 'Needs a review' };
+/** A session's PR checks, for the dot on its row: failing, running or passing. */
+const ciOf = (s) => (s.gh?.pr && s.gh.pr.checks !== 'none' ? s.gh.pr.checks : null);
+/** What the dot on a repository's section sums up, in words for its tooltip. */
+function ciSum(list) {
+  const parts = [], states = [];
+  for (const s of list) {
+    if (!s.gh) continue;
+    if (s.gh.pr && s.gh.pr.checks !== 'none') { states.push(s.gh.pr.checks); parts.push(`#${s.gh.pr.number} (${label(s)}): ${CHECKS[s.gh.pr.checks]}`); }
+  }
+  const main = list.map((s) => s.gh?.main).filter(Boolean);
+  if (main.length) { states.push(main[0]); parts.push(`Default branch: ${main[0]}`); }
+  return { state: worst(states), title: [...new Set(parts)].join('\n') };
+}
+/** The hand-over in progress: { sessionId, slug, runId, jobId, loading, log, text, error, sending }. */
+let handing = null;
+async function startHand(s) {
+  const f = s.gh?.failed;
+  if (!f) return;
+  handing = { sessionId: s.sessionId, slug: s.gh.slug, runId: f.runId, jobId: f.jobId, loading: true };
+  render();
+  const r = await api('/api/github/log', { slug: s.gh.slug, runId: f.runId, jobId: f.jobId });
+  if (handing?.sessionId !== s.sessionId) return;
+  Object.assign(handing, { loading: false, error: r.ok ? null : r.error || 'The log did not load.', url: r.url ?? f.url, log: r.text ?? '', text: r.message ?? '', truncated: r.truncated });
+  render();
+}
+async function sendHand(s) {
+  const h = handing;
+  if (!h || h.sending || !h.text?.trim()) return;
+  h.sending = true;
+  render();
+  const r = await api('/api/github/hand', { slug: h.slug, runId: h.runId, jobId: h.jobId, sessionId: s.sessionId, text: h.text });
+  h.sending = false;
+  if (!r.ok) { toast(r.error || 'It was not sent.', true); render(); return; }
+  handing = null;
+  note(s.sessionId, r.queued ? 'The failing log waits until it is done.' : r.sent ? 'Sent the failing log. It reads it at its next step.' : 'Sent the failing log. It carries on in the background with it.');
+}
+/** What sending it a message does now, in the reply box's words. */
+function sendHow(s) {
+  const st = stateOf(s);
+  if (bgLive(s)) return s.working ? 'It reads this at its next step.' : 'It carries on with this.';
+  if (willQueue(s, st)) return 'It is working: this waits until it is done, then Claude closes in its terminal and carries on in the background with it.';
+  if (s.kind === 'interactive' && s.inRoster && !isOver(s)) return 'Claude closes in its terminal and carries on in the background with this.';
+  return 'It starts again in the background with this as its next prompt.';
+}
+function renderGh(s) {
+  const g = s.gh, repo = g && ghRepo(g.slug), pr = g?.pr && repo?.prs.find((p) => p.number === g.pr.number);
+  const h = handing?.sessionId === s.sessionId ? handing : null;
+  patch($('d-gh'), JSON.stringify([s.sessionId, g, pr, h && { ...h, text: null }, snap.github?.gh]), () => {
+    if (!g) return null;
+    const kv = [];
+    if (g.pr) {
+      const c = pr?.counts;
+      kv.push(el('dt', { text: 'Checks' }), el('dd', {}, el('span', { class: 'tci', 'data-c': g.pr.checks }), ' ',
+        c ? [c.fail && `${c.fail} failing`, c.pending && `${c.pending} running`, c.pass && `${c.pass} passing`].filter(Boolean).join(', ') || 'None' : CHECKS[g.pr.checks],
+        pr?.failing?.length ? el('ul', { class: 'gh-fail' }, ...pr.failing.map((f) => el('li', {}, f.url ? el('a', { href: f.url, target: '_blank', rel: 'noopener', text: f.name }) : f.name))) : null));
+      kv.push(el('dt', { text: 'Merge' }), el('dd', { text: g.pr.draft ? 'A draft' : MERGE[g.pr.mergeState] ?? (g.pr.mergeState || 'Not known') }));
+      if (g.pr.review) kv.push(el('dt', { text: 'Review' }), el('dd', { text: REVIEW[g.pr.review] ?? g.pr.review }));
+    }
+    if (g.main) kv.push(el('dt', { text: repo?.defaultBranch ?? 'Default' }), el('dd', {}, el('span', { class: 'tci', 'data-c': g.main }), ` Latest runs ${g.main}`));
+    const f = g.failed;
+    return el('section', { class: 'sec' },
+      el('h4', { class: 'rule' }, g.pr ? el('a', { href: g.pr.url, target: '_blank', rel: 'noopener', class: 'linkish', text: `Pull request #${g.pr.number}` }) : 'GitHub',
+        el('span', { class: 'n', text: g.slug })),
+      pr?.title ? el('p', { class: 'quiet', style: 'margin: -4px 0 10px', text: pr.title }) : null,
+      kv.length ? el('dl', { class: 'kv' }, ...kv) : quiet('No pull request for this branch yet.'),
+      f && !h ? el('div', { class: 'row' }, el('button', { class: 'btn small', type: 'button', title: `Shows the failing part of ${f.workflow}'s log, and the exact message, before anything is sent.`,
+        onclick: () => startHand(s) }, `Send the failing log to ${label(s)}`)) : null,
+      h ? el('div', { class: 'hand' },
+        h.loading ? quiet('Fetching the failing log…') : h.error ? [el('p', { class: 'err', text: h.error }), h.url ? el('a', { class: 'linkish', href: h.url, target: '_blank', rel: 'noopener', text: 'Open it on GitHub' }) : null] : [
+          el('span', { class: 'quiet', text: `This goes to ${label(s)}${h.truncated ? ', the log shortened to its failing steps' : ''}. Change it as you like.` }),
+          (() => { const ta = el('textarea', { class: 'cmd', 'aria-label': 'The message with the failing log', spellcheck: 'false' }); ta.value = h.text; ta.oninput = () => { h.text = ta.value; }; requestAnimationFrame(() => fit(ta)); return ta; })(),
+          el('span', { class: 'quiet', text: sendHow(s) })],
+        el('div', { class: 'row' },
+          !h.loading && !h.error ? el('button', { class: 'btn primary small', type: 'button', disabled: h.sending, onclick: () => sendHand(s), text: h.sending ? 'Sending…' : `Send to ${label(s)}` }) : null,
+          el('button', { class: 'btn quiet small', type: 'button', text: 'Cancel', onclick: () => { handing = null; render(); } }))) : null);
+  });
+}
+
+// ---------- the overseer: the home view, one chat over every session, its proposals confirmed one click at a time ----------
+const ov = { rev: -1, feedSeq: -1, turns: [], feed: [], more: false, tBusy: false, fBusy: false, profile: null };
+let homeOpen = false; // a narrow window shows the home view only when asked for
+const ovEdits = new Map(); // action id → what you changed in its card before running it
+/** Fetch the turns and the feed when the snapshot says they changed. They stay out of the snapshot, which is resent whole. */
+async function syncOverseer() {
+  const st = snap?.overseer;
+  if (!st) return;
+  if (ov.profile !== snap.profile?.id) { Object.assign(ov, { rev: -1, feedSeq: -1, turns: [], feed: [], profile: snap.profile?.id }); ovEdits.clear(); }
+  if (st.rev !== ov.rev && !ov.tBusy) {
+    ov.tBusy = true;
+    const r = await api('/api/overseer/turns', { limit: 60 });
+    ov.tBusy = false;
+    if (r.ok) { ov.turns = r.turns; ov.more = r.more; ov.rev = r.rev; render(); }
+    else ov.rev = st.rev;
+  }
+  if (st.feedSeq !== ov.feedSeq && !ov.fBusy) {
+    ov.fBusy = true;
+    const restart = st.feedSeq < ov.feedSeq;
+    const r = await api('/api/overseer/feed', { after: restart ? 0 : Math.max(0, ov.feedSeq) });
+    ov.fBusy = false;
+    if (r.ok) { ov.feed = [...(restart ? [] : ov.feed), ...r.events].slice(-200); ov.feedSeq = r.seq; render(); }
+    else ov.feedSeq = st.feedSeq;
+  }
+}
+const ovRow = el('button', { class: 'srow ov', type: 'button', title: 'The overseer: ask about your agents, and confirm what it proposes',
+  onclick: () => { cancelAdvance(); selectNow(); subFocus = null; open = null; homeOpen = true; render(); $('h-say').focus({ preventScroll: true }); } },
+  el('span', { class: 'chev-slot', 'aria-hidden': 'true' }), el('span', { class: 'ov-mark', 'aria-hidden': 'true' }), el('span', { class: 'tname', text: 'Overseer' }), el('span', { class: 'tdetail' }));
+function renderOvRow() {
+  const st = snap.overseer, n = st?.proposed ?? 0;
+  setAttr(ovRow, 'aria-current', String(open === null));
+  setAttr(ovRow, 'data-busy', st?.busy ? '1' : '0');
+  setAttr(ovRow, 'data-proposed', n ? '1' : '0');
+  setText(ovRow.lastChild, st?.busy ? (st.busy.phase === 'looking' ? 'reading' : 'thinking') : n ? `${n} to confirm` : '');
+}
+/** A short time of day, or a date when it is not today. */
+function clock(at) {
+  const d = new Date(at), today = new Date().toDateString() === d.toDateString();
+  return today ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+const sessionByShort = (id) => snap.sessions.find((s) => s.sessionId === id);
+/** One proposal: what it does, to whom, the exact words, and Run or Decline while it waits. */
+function actCard(t, a) {
+  const live = a.state === 'proposed' && !a.expired, s = a.sessionId ? sessionByShort(a.sessionId) : null, who = a.target || (s && label(s)) || 'a session';
+  const what = a.type === 'tell' ? `Tell ${who}` : a.type === 'launch' ? `Start a session in ${a.target || a.cwd}` : a.type === 'interrupt' ? `Interrupt ${who}` : a.type;
+  const edit = ovEdits.get(a.id) ?? {};
+  const field = (key, value, rows) => {
+    const ta = el('textarea', { class: 'cmd', rows: rows ?? 3, 'aria-label': key === 'prompt' ? 'Its task' : 'The message', spellcheck: 'true' });
+    ta.value = edit[key] ?? value ?? '';
+    ta.oninput = () => { ovEdits.set(a.id, { ...ovEdits.get(a.id), [key]: ta.value }); ta.classList.toggle('edited', ta.value !== (value ?? '')); };
+    requestAnimationFrame(() => fit(ta));
+    return ta;
+  };
+  const HOW = { send: ['It reads this at its next step.', false], queue: ['It is working, so this waits until it is done.', false],
+    restart: [s?.kind === 'interactive' && s.inRoster ? 'Sending closes Claude in its terminal; it carries on in the background with this.' : 'It restarts in the background with this as its next prompt.', true] };
+  const how = a.type === 'tell' && live ? HOW[a.how] : null;
+  const RUN = { tell: 'Send', launch: 'Start it', interrupt: 'Interrupt' };
+  const STATE = { running: 'Running…', declined: 'Declined', done: a.result || 'Done', failed: a.result || 'It failed', invalid: a.result || 'It cannot run' };
+  return el('div', { class: 'ov-act', 'data-state': live ? 'proposed' : a.state },
+    el('div', { class: 'a-head' }, el('span', { class: 'a-what', text: what })),
+    a.why ? el('div', { class: 'a-why', text: a.why }) : null,
+    a.type === 'tell' ? (live ? field('text', a.text) : el('p', { class: 'a-text', text: a.text ?? '' })) : null,
+    a.type === 'launch' ? (live ? [field('prompt', a.prompt, 4),
+      el('label', { class: 'lf-inline' }, 'Name', (() => { const i = el('input', { type: 'text', maxlength: '60', spellcheck: 'false' }); i.value = edit.name ?? a.name ?? ''; i.oninput = () => ovEdits.set(a.id, { ...ovEdits.get(a.id), name: i.value }); return i; })(),
+        el('label', { class: 'switch' }, (() => { const c = el('input', { type: 'checkbox' }); c.checked = edit.worktree ?? Boolean(a.worktree); c.onchange = () => ovEdits.set(a.id, { ...ovEdits.get(a.id), worktree: c.checked }); return c; })(), el('i'), 'Own worktree'))]
+      : el('p', { class: 'a-text', text: a.prompt ?? '' })) : null,
+    how ? el('div', { class: 'a-how' + (how[1] ? ' warn' : ''), text: how[0] }) : null,
+    live ? el('div', { class: 'row' },
+      el('button', { class: 'btn primary small', type: 'button', text: RUN[a.type] ?? 'Run', onclick: (e) => actOn(t, a, 'run', e.currentTarget) }),
+      el('button', { class: 'btn quiet small', type: 'button', text: 'Decline', onclick: (e) => actOn(t, a, 'decline', e.currentTarget) }))
+      : el('div', { class: 'a-state', text: a.expired && a.state === 'proposed' ? 'Expired: a proposal waits an hour at most.' : STATE[a.state] ?? a.state }));
+}
+async function actOn(t, a, decision, btn) {
+  if (btn) btn.disabled = true;
+  const e = ovEdits.get(a.id), edit = !e ? undefined : a.type === 'tell' ? { text: e.text ?? a.text } : { prompt: e.prompt ?? a.prompt, name: e.name ?? a.name, worktree: e.worktree ?? a.worktree };
+  const r = await api('/api/overseer/act', { turnId: t.id, actionId: a.id, decision, edit });
+  if (btn) btn.disabled = false;
+  if (!r.ok) { toast(r.error || 'It did not run.', true); return; }
+  ovEdits.delete(a.id);
+  if (r.action?.type === 'launch' && r.action.state === 'done') { const id = /\((\w+)\)/.exec(r.action.result ?? '')?.[1]; if (id) launchedId = id; }
+}
+const ovNodes = new Map(); // thread key → { sig, node }
+/** The thread: your messages, its answers with their proposals, and feed lines, in time order. Each item is rebuilt
+ *  only when it changes, so a card you are editing survives a new feed line. */
+function renderOvThread() {
+  const first = ov.turns[0]?.at ?? 0;
+  const items = [
+    ...ov.turns.map((t) => ({ at: t.at, key: t.id, sig: JSON.stringify(t), build: () => turnEl(t) })),
+    ...ov.feed.filter((f) => f.at >= first || !ov.turns.length).slice(-40).map((f) => ({ at: f.at, key: 'f' + f.seq, sig: f.text, build: () => feedEl(f) })),
+  ].sort((a, b) => a.at - b.at || (a.key < b.key ? -1 : 1));
+  const box = $('h-thread'), want = [];
+  for (const it of items) {
+    let n = ovNodes.get(it.key);
+    if (!n || n.sig !== it.sig) { n = { sig: it.sig, node: it.build() }; ovNodes.set(it.key, n); }
+    want.push(n.node);
+  }
+  const keep = new Set(items.map((i) => i.key));
+  for (const k of ovNodes.keys()) if (!keep.has(k)) ovNodes.delete(k);
+  const atEnd = $('h-scroll').scrollHeight - $('h-scroll').scrollTop - $('h-scroll').clientHeight < 40;
+  want.forEach((n, i) => { if (box.children[i] !== n) box.insertBefore(n, box.children[i] ?? null); });
+  while (box.children.length > want.length) box.lastChild.remove();
+  if (atEnd || ovPin) { $('h-scroll').scrollTop = $('h-scroll').scrollHeight; ovPin = false; }
+}
+let ovPin = true;
+function turnEl(t) {
+  if (t.who === 'you') return el('div', { class: 'msg you', title: new Date(t.at).toLocaleString() }, el('div', { class: 'm-body', text: t.text }));
+  const looked = t.looked?.length ? ` · read ${t.looked.map((l) => l.name).join(', ')}` : '';
+  return el('div', { class: 'msg claude ov' + (t.error ? ' error' : ''), title: new Date(t.at).toLocaleString() },
+    el('div', { class: 'm-who' }, el('b', { text: 'Overseer' }), `${t.model ?? ''}${t.ms ? ` · ${(t.ms / 1000).toFixed(1)} s` : ''}${looked}`),
+    el('div', { class: 'm-body' }, t.error ? t.error : md(t.text)),
+    t.actions?.length ? el('div', { class: 'ov-acts' }, ...t.actions.map((a) => actCard(t, a))) : null);
+}
+function feedEl(f) {
+  return el('div', { class: 'msg feed', 'data-t': f.type, title: new Date(f.at).toLocaleString() },
+    el('span', { class: 'fd', 'aria-hidden': 'true' }), el('span', { class: 'fx', text: f.text }), el('span', { class: 'ft', text: clock(f.at) }));
+}
+const STARTERS = ['What needs me right now?', 'What is everyone doing?', 'Is anything failing on GitHub?'];
+async function sayOverseer(text) {
+  text = text.trim();
+  if (!text) return;
+  const ta = $('h-say');
+  ta.value = ''; fit(ta); syncSay();
+  ovPin = true;
+  const r = await api('/api/overseer/say', { text });
+  if (!r.ok) { ta.value = ta.value ? `${text}\n${ta.value}` : text; fit(ta); syncSay(); toast(r.error || 'It did not go through.', true); }
+}
+function syncSay() { $('h-send').disabled = !$('h-say').value.trim() || Boolean(snap?.overseer?.busy); }
+$('h-say').addEventListener('input', () => { fit($('h-say')); syncSay(); });
+$('h-say').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); if (!$('h-send').disabled) sayOverseer($('h-say').value); } });
+$('h-send').onclick = () => sayOverseer($('h-say').value);
+$('h-model').onchange = async () => { const r = await api('/api/overseer/model', { model: $('h-model').value }); if (!r.ok) toast(r.error || 'The model did not change.', true); };
+$('h-close').onclick = () => { homeOpen = false; render(); };
+const MODEL_NAMES = { haiku: 'Haiku', sonnet: 'Sonnet', opus: 'Opus', fable: 'Fable' };
+function renderHome(g) {
+  const home = $('home'), st = snap.overseer;
+  if (open) homeOpen = false; // a session opened: closing it goes back to the rail on a narrow window
+  home.hidden = !$('drawer').hidden;
+  document.body.classList.toggle('home-open', homeOpen && !home.hidden);
+  renderOvRow();
+  if (home.hidden) return;
+  syncOverseer();
+  // Someone waits: the one that has waited longest, one click away.
+  const next = g.waiting[0], n = g.waiting.length;
+  patch($('h-next'), next ? `${next.sessionId}:${n}:${label(next)}` : '', () => next ? [
+    el('span', { text: `${n === 1 ? 'One session needs' : n + ' sessions need'} you.` }),
+    el('button', { class: 'btn small', type: 'button', onclick: () => { cancelAdvance(); open = next.sessionId; render(); } }, 'Open ' + label(next))] : null);
+  const busy = st?.busy;
+  setText($('h-meta'), st ? `${MODEL_NAMES[st.model] ?? st.model} · proposes, you confirm` : '');
+  patch($('h-tools'), JSON.stringify([ov.turns.length > 0, armed?.key === 'ovclear:']), () => ov.turns.length ? armBtn('ovclear:', 'Clear', 'Confirm clear', async () => {
+    const r = await api('/api/overseer/clear', {}); if (!r.ok) toast(r.error || 'It was not cleared.', true); ovNodes.clear(); }, 'soft small') : null);
+  patch($('h-intro'), String(ov.turns.length > 0), () => ov.turns.length ? null : [
+    el('h3', { text: 'Ask about everything at once.' }),
+    el('p', { text: 'The overseer reads every session on this board, its repository and branch, what it asks you, and what GitHub shows for its pull request. It can propose a message to an agent, a new session or an interrupt, and nothing runs until you click.' })]);
+  patch($('h-chips'), String(ov.turns.length > 0 || Boolean(busy)), () => ov.turns.length || busy ? null
+    : STARTERS.map((q) => el('button', { class: 'chip', type: 'button', text: q, onclick: () => sayOverseer(q) })));
+  renderOvThread();
+  $('h-busy').hidden = !busy;
+  if (busy) patch($('h-busy'), JSON.stringify([busy.phase, Math.floor((snap.now - busy.since) / 1000)]), () => [
+    el('span', { class: 'tag', 'data-s': 'busy' }, glyph('busy'), busy.phase === 'looking' ? 'Reading transcripts' : 'Thinking'),
+    el('span', { class: 'quiet', text: ago(snap.now - busy.since) }), el('span', { class: 'grow' }),
+    el('button', { class: 'btn quiet small', type: 'button', text: 'Stop', onclick: () => api('/api/overseer/stop', {}) })]);
+  if (st) {
+    patch($('h-model'), JSON.stringify(st.models), () => (st.models ?? []).map((m) => el('option', { value: m, text: MODEL_NAMES[m] ?? m })));
+    if ($('h-model').value !== st.model) $('h-model').value = st.model;
+  }
+  syncSay();
+  renderAcross();
+}
+/** Across everything: each watched repository's pull requests, default-branch runs and recent merges. */
+function renderAcross() {
+  const gh = snap.github, names = new Map(snap.sessions.map((s) => [s.sessionId, label(s)]));
+  patch($('h-side'), JSON.stringify([gh, [...names]]), () => {
+    const head = el('h3', { text: 'Across everything' });
+    if (!gh || gh.gh === 'off') return [head, el('p', { class: 'gh-hint', text: 'GitHub is turned off for this panel (ACP_GITHUB=off).' })];
+    const hint = gh.hint ? el('p', { class: 'gh-hint', text: gh.hint }) : null;
+    if (!gh.repos.length) return [head, hint ?? el('p', { class: 'gh-hint', text: gh.gh === 'unknown' ? 'Looking at GitHub…' : 'No agent works in a GitHub repository right now.' })];
+    const who = (ids) => (ids ?? []).map((id) => names.get(id)).filter(Boolean).join(', ');
+    return [head, hint, ...gh.repos.map((r) => {
+      const main = worst(r.runs.filter((x) => ['push', 'merge_group', 'schedule', 'workflow_dispatch'].includes(x.event) || !x.event).map((x) => x.state));
+      return el('section', { class: 'h-repo' },
+        el('div', { class: 'h-repo-h' }, el('a', { href: r.url, target: '_blank', rel: 'noopener', text: r.slug, title: r.slug }),
+          main ? el('span', { class: 'ci', 'data-c': main, text: `${r.defaultBranch ?? 'main'} ${main}` }) : null),
+        r.error ? el('p', { class: 'h-err', text: r.error.text }) : null,
+        r.prs.length ? [el('div', { class: 'h-sub', text: 'Pull requests' }), ...r.prs.map((p) => el('a', { class: 'h-li', href: p.url, target: '_blank', rel: 'noopener', title: `${p.title}\n${CHECKS[p.checks]}${p.draft ? ', draft' : ''}` },
+          el('span', { class: 'tci', 'data-c': p.checks }), el('span', { class: 'hn', text: '#' + p.number }), el('span', { class: 'ht', text: p.title }), el('span', { class: 'hw', text: who(p.sessions) })))] : null,
+        r.runs.length ? [el('div', { class: 'h-sub', text: `On ${r.defaultBranch ?? 'the default branch'}` }), ...r.runs.slice(0, 5).map((x) => el('a', { class: 'h-li', href: x.url, target: '_blank', rel: 'noopener', title: `${x.workflow}: ${x.title}` },
+          el('span', { class: 'tci', 'data-c': x.state }), el('span', { class: 'ht', text: x.workflow }), el('span', { class: 'hw', text: x.pr ? `#${x.pr}` : ago(snap.now - x.at) })))] : null,
+        r.merged.length ? [el('div', { class: 'h-sub', text: 'Recently merged' }), ...r.merged.slice(0, 3).map((m) => el('a', { class: 'h-li', href: m.url, target: '_blank', rel: 'noopener', title: m.title },
+          el('span', { class: 'hn', text: '#' + m.number }), el('span', { class: 'ht', text: m.title }), el('span', { class: 'hw', text: ago(snap.now - m.mergedAt) })))] : null,
+        !r.prs.length && !r.runs.length && !r.merged.length && !r.error ? el('p', { class: 'h-none', text: r.checkedAt ? 'Nothing open on the agents’ branches.' : 'Looking…' }) : null);
+    })];
+  });
+}
+
 // ---------- render ----------
 /** A 24-viewBox stroke icon from one path, for .btn.icon. */
 function svgIcon(d) {
@@ -1983,7 +2539,7 @@ function render() {
   for (const [id, c] of cards) if (!live.has(id)) { c.el.remove(); cards.delete(id); }
   renderBoard(g, vis);
   renderDrawer(vis);
-  renderEmpty(g.waiting);
+  renderHome(g);
   renderOld(snap.oldVersions ?? []);
   document.title = snap.pending.length ? `(${snap.pending.length}) Agent panel` : 'Agent panel';
   // A two-click control keeps the keyboard focus through a redraw.
@@ -2365,61 +2921,72 @@ function inline(node, text) {
   return node;
 }
 
-// ---------- the profile: which Claude Code config folder's sessions this shows, and switching to another ----------
-let profArmed = null; // a profile whose switch would send waiting requests back, awaiting a second click
+// ---------- the profile: which Claude Code config folder's sessions this shows, one tab each ----------
+let profs = null;      // the profiles the Mac has, from /api/profiles; until it answers, the one shown is the only tab
+let profsAt = 0;
+let profArmed = null;  // { id, queued, timer }: a profile whose switch would drop unsent messages, awaiting a second click
+async function loadProfiles() {
+  profsAt = Date.now();
+  const r = await api('/api/profiles', {});
+  if (r.ok) { profs = r.profiles; if (snap) renderProfile(); }
+}
+// A profile made or signed in to elsewhere shows up when you come back to the window.
+window.addEventListener('focus', () => { if (Date.now() - profsAt > 30_000) loadProfiles(); });
+function profTitle(p) {
+  const who = p.account === undefined ? null : p.account ? [p.account.email, p.account.org].filter(Boolean).join(', ') : 'Not signed in';
+  const plan = p.account?.plan ? `${p.account.plan[0].toUpperCase()}${p.account.plan.slice(1)} plan` : null;
+  return [who, plan, p.command, p.connected === false ? 'Its hooks don’t point at this panel yet, so its requests and tools don’t show as they happen.' : null].filter(Boolean).join('\n');
+}
 function renderProfile() {
   const p = snap.profile;
   if (!p) return;
   const name = p.label ?? p.id;
-  setText($('prof-name'), name);
   $('prof-banner').hidden = p.connected;
   setText($('pb-name'), name);
   setText($('pb-file'), `Adds its hooks to ${p.where}/settings.json and keeps a copy of the old file.`);
   setAttr($('pb-connect'), 'title', `Adds its hooks to ${p.where}/settings.json and keeps a copy of the old file.`);
-}
-async function openProfiles() {
-  const menu = $('prof-menu'), r = await api('/api/profiles', {});
-  if (!r.ok) { toast(r.error || 'The profiles did not load.', true); return; }
-  profArmed = null;
-  menu.replaceChildren(...r.profiles.map((p) => {
-    const who = p.account ? [p.account.email, p.account.org].filter(Boolean).join(', ') : 'Not signed in';
-    const plan = p.account?.plan ? p.account.plan[0].toUpperCase() + p.account.plan.slice(1) : null;
-    const item = el('button', { class: 'prof-item', type: 'button', role: 'menuitemradio', 'aria-checked': String(p.id === r.active), 'data-id': p.id },
-      el('span', { class: 'p1' }, p.label ?? p.id, plan ? el('span', { class: 'prof-plan', title: 'Its Claude plan', text: plan }) : null,
-        p.id === r.active ? el('span', { class: 'chip', text: 'Shown' }) : null,
-        p.connected ? null : el('span', { class: 'chip off', title: 'Its hooks don’t point at this panel', text: 'Not connected' })),
-      el('span', { class: 'p2', text: who }),
-      el('span', { class: 'p3', text: p.command }));
-    item.onclick = () => chooseProfile(p, item);
-    return item;
+  if (!profs && !profsAt) loadProfiles();
+  // The shown profile's own facts come with every snapshot, so its tab is right before the list answers.
+  const list = (profs?.some((x) => x.id === p.id) ? profs : [...(profs ?? []), p]).map((x) => (x.id === p.id ? { ...x, connected: p.connected } : x));
+  patch($('prof-tabs'), JSON.stringify([list, p.id, profArmed?.id, profArmed?.queued]), () => list.map((x) => {
+    const on = x.id === p.id, ask = profArmed?.id === x.id;
+    return el('button', { class: 'ptab' + (ask ? ' armed' : ''), type: 'button', role: 'tab', 'aria-selected': String(on), tabindex: on ? '0' : '-1', 'data-id': x.id,
+      title: ask ? `${profArmed.queued} unsent message${profArmed.queued > 1 ? 's are' : ' is'} dropped if you switch. Click again to switch.` : profTitle(x),
+      onclick: () => chooseProfile(x) },
+      ask ? `Switch anyway: drop ${profArmed.queued} unsent` : x.label ?? x.id,
+      x.connected === false && !ask ? el('i', { class: 'pdot', role: 'img', 'aria-label': 'Not connected' }) : null);
   }));
-  menu.hidden = false;
-  $('prof-btn').setAttribute('aria-expanded', 'true');
-  (menu.querySelector('[aria-checked="true"]') ?? menu.firstElementChild)?.focus();
+  // One profile: the tab bar says nothing a tab would, so it stays out of the way.
+  $('prof-tabs').hidden = list.length < 2;
 }
-function closeProfiles() {
-  $('prof-menu').hidden = true;
-  $('prof-btn').setAttribute('aria-expanded', 'false');
-  profArmed = null;
-}
-async function chooseProfile(p, item) {
-  if (p.id === snap.profile?.id) { closeProfiles(); return; }
-  const r = await api('/api/profile', { id: p.id, force: profArmed === p.id });
+function disarmProfile() { if (profArmed) { clearTimeout(profArmed.timer); profArmed = null; } }
+async function chooseProfile(p) {
+  if (p.id === snap.profile?.id) { disarmProfile(); renderProfile(); return; }
+  const force = profArmed?.id === p.id;
+  disarmProfile();
+  const r = await api('/api/profile', { id: p.id, force });
   if (r.confirm) {
     // Unsent messages belong to this profile's sessions: switching drops them. (Held requests stay held, and show
     // again when this profile is back.)
-    profArmed = p.id;
-    item.classList.add('armed');
-    item.querySelector('.p2').textContent = `Switch anyway: ${r.queued} unsent message${r.queued > 1 ? 's are' : ' is'} dropped.`;
+    profArmed = { id: p.id, queued: r.queued, timer: setTimeout(() => { profArmed = null; renderProfile(); }, 4000) };
+    renderProfile();
+    $('prof-tabs').querySelector('.armed')?.focus();
     return;
   }
-  closeProfiles();
-  if (!r.ok) { toast(r.error || 'It did not switch.', true); return; }
+  if (!r.ok) { renderProfile(); toast(r.error || 'It did not switch.', true); return; }
   open = undefined;
   drafts.clear();
+  loadProfiles();
   toast(`Showing the ${p.label ?? p.id} profile.`);
 }
-$('prof-btn').onclick = () => ($('prof-menu').hidden ? openProfiles() : closeProfiles());
+// Left and Right move between the tabs, as in any tab bar.
+$('prof-tabs').addEventListener('keydown', (e) => {
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+  const tabs = [...$('prof-tabs').children], i = tabs.indexOf(document.activeElement);
+  if (i < 0) return;
+  e.preventDefault();
+  tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length].focus();
+});
 
 // ---------- theme: dark unless you pick Light or Match the Mac; remembered in this browser (or the app) ----------
 const THEMES = [['dark', 'Dark', 'Always dark'], ['light', 'Light', 'Always light'], ['system', 'Match the Mac', 'Follows its Light or Dark appearance']];
@@ -2456,12 +3023,6 @@ $('theme-menu').addEventListener('keydown', (e) => {
   else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus(); }
 });
 applyTheme();
-document.addEventListener('pointerdown', (e) => { if (!$('prof-menu').hidden && !e.target.closest('.prof')) closeProfiles(); });
-$('prof-menu').addEventListener('keydown', (e) => {
-  const items = [...$('prof-menu').children], i = items.indexOf(document.activeElement);
-  if (e.key === 'Escape') { e.stopPropagation(); closeProfiles(); $('prof-btn').focus(); }
-  else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus(); }
-});
 $('pb-connect').onclick = async () => {
   const b = $('pb-connect');
   b.disabled = true;
