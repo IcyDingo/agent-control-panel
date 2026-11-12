@@ -25,7 +25,7 @@ fs.mkdirSync(path.dirname(prefs));
 fs.writeFileSync(prefs, JSON.stringify({ profile: 'default' }));
 
 const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('CLAUDE')));
-const server = spawn(process.execPath, [SERVER], { env: { ...env, HOME: home, PATH: `${bin}:${env.PATH}`, ACP_PORT: String(PORT), ACP_PREFS: prefs }, stdio: ['ignore', 'pipe', 'pipe'] });
+const server = spawn(process.execPath, [SERVER], { env: { ...env, HOME: home, PATH: `${bin}:${env.PATH}`, ACP_PORT: String(PORT), ACP_PREFS: prefs, ACP_GITHUB: 'off' }, stdio: ['ignore', 'pipe', 'pipe'] });
 let log = '';
 server.stdout.on('data', (d) => { log += d; });
 server.stderr.on('data', (d) => { log += d; });
@@ -50,7 +50,8 @@ fetch(`${BASE}/events?t=${token}`, { signal: watcher.signal }).then(async (r) =>
 }).catch(() => {});
 const latest = async () => { await api('/api/arm', { armed: true }); await new Promise((r) => setTimeout(r, 250)); return frames.at(-1); };
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
-after(() => { watcher.abort(); server.kill(); fs.rmSync(home, { recursive: true, force: true }); });
+// The server writes what it has not saved yet as it goes: its folder is removed once it has exited.
+after(async () => { watcher.abort(); if (server.exitCode === null && server.signalCode === null) await new Promise((r) => { server.once('exit', r); server.kill(); }); fs.rmSync(home, { recursive: true, force: true }); });
 
 /** Posts a permission request as Claude Code would, from a session of `profileDir`. Resolves when the panel answers. */
 function hook(sessionId, profileDir) {

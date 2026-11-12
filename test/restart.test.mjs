@@ -45,7 +45,7 @@ fs.mkdirSync(path.dirname(prefs));
 fs.writeFileSync(prefs, JSON.stringify({ profile: 'default' }));
 
 const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('CLAUDE')));
-const server = spawn(process.execPath, [SERVER], { env: { ...env, HOME: home, PATH: `${bin}:${env.PATH}`, ACP_PORT: String(PORT), ACP_PREFS: prefs }, stdio: ['ignore', 'pipe', 'pipe'] });
+const server = spawn(process.execPath, [SERVER], { env: { ...env, HOME: home, PATH: `${bin}:${env.PATH}`, ACP_PORT: String(PORT), ACP_PREFS: prefs, ACP_GITHUB: 'off' }, stdio: ['ignore', 'pipe', 'pipe'] });
 let log = '';
 server.stdout.on('data', (d) => { log += d; });
 server.stderr.on('data', (d) => { log += d; });
@@ -63,7 +63,8 @@ const snapshot = async () => {
   let buf = '';
   for (;;) { const { value } = await reader.read(); buf += Buffer.from(value).toString(); const m = buf.match(/^data: (.*)$/m); if (m) { c.abort(); return JSON.parse(m[1]); } }
 };
-after(() => { server.kill(); fs.rmSync(home, { recursive: true, force: true }); });
+// The server writes what it has not saved yet as it goes: its folder is removed once it has exited.
+after(async () => { if (server.exitCode === null && server.signalCode === null) await new Promise((r) => { server.once('exit', r); server.kill(); }); fs.rmSync(home, { recursive: true, force: true }); });
 
 test('a job in its own worktree restarts on another model as a copy there, with its record and worktree kept', async () => {
   // The roster is read every 3 s; wait for the job to be on the board.

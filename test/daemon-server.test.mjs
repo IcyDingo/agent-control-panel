@@ -9,7 +9,7 @@ const freePort = () => new Promise((r) => { const s = net.createServer().listen(
 const until = async (check, ms = 8000) => { const end = Date.now() + ms; while (Date.now() < end) { if (await check()) return true; await new Promise((r) => setTimeout(r, 150)); } return false; };
 const answers = (port) => fetch(`http://127.0.0.1:${port}/`).then((r) => r.ok, () => false);
 function start(port, prefsDir, extraEnv = {}) {
-  const child = spawn(process.execPath, [SERVER], { env: { ...process.env, ACP_PORT: String(port), ACP_PREFS: path.join(prefsDir, 'prefs.json'), ACP_DAEMON: '1', ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, [SERVER], { env: { ...process.env, ACP_PORT: String(port), ACP_PREFS: path.join(prefsDir, 'prefs.json'), ACP_DAEMON: '1', ACP_GITHUB: 'off', ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = ''; child.stdout.on('data', (d) => { out += d; }); child.stderr.on('data', (d) => { out += d; });
   // A child that already exited never emits 'exit' again, so stop resolves at once for it.
   const stop = () => new Promise((r) => { if (child.exitCode !== null || child.signalCode !== null) return r(); child.once('exit', r); child.kill(); });

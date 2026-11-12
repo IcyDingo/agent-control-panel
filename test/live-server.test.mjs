@@ -29,7 +29,7 @@ async function setup(t) {
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('CLAUDE') && !k.startsWith('ACP_')));
   // No `claude` on PATH: the roster reads as an error instead of this machine's real sessions.
   Object.assign(env, { HOME: home, PATH: '/usr/bin:/bin:/usr/sbin:/sbin', CLAUDE_CONFIG_DIR: path.join(home, '.claude-a'),
-                       ACP_PORT: String(port), ACP_PREFS: path.join(home, 'prefs.json'), ACP_RECONNECT_MS: '300' });
+                       ACP_PORT: String(port), ACP_PREFS: path.join(home, 'prefs.json'), ACP_RECONNECT_MS: '300', ACP_GITHUB: 'off' });
   const child = spawn(process.execPath, [SERVER], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = ''; child.stdout.on('data', (d) => { out += d; }); child.stderr.on('data', (d) => { out += d; });
   const streams = [];

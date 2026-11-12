@@ -22,6 +22,8 @@ import { createFollow } from './follow.mjs';
 import { createThread } from './thread.mjs';
 import { UNTRUSTED, trustKey, isTrusted, trustScript } from './trust.mjs';
 import { prefsPath } from './cli.mjs';
+import { createGithub } from './github.mjs';
+import { createOverseer } from './overseer.mjs';
 
 // `node server.mjs <command>` runs the CLI (cli.mjs) and never starts the server.
 if (process.argv.length > 2) { const { main } = await import('./cli.mjs'); process.exit(await main(process.argv.slice(2))); }
@@ -260,6 +262,7 @@ function onHookEvent(e) {
       s.note = null;
       stops.delete(stopKey(e.session_id, null));
       setTimeout(pollRoster, 1500); // a message waiting for this turn to end can go now
+      if (!e.agent_id) feed('finished', s, `${labelOf(s)} finished its turn${s.lastMessage ? `: ${String(s.lastMessage).replace(/\s+/g, ' ').slice(0, 140)}` : '.'}`);
       break;
     }
     case 'SessionEnd':
@@ -291,6 +294,8 @@ async function readRoster() {
   try { return { list: JSON.parse(r.stdout) }; } catch { return { error: 'claude agents --json returned non-JSON' }; }
 }
 
+// The first roster after a start or a profile switch is what was already there: no "started" lines for it.
+let rosterSeeded = false;
 async function pollRoster() {
   const gen = profileGen;
   const { list, error } = await readRoster();
@@ -304,13 +309,18 @@ async function pollRoster() {
     const over = r.state === 'done' || r.state === 'failed' || r.state === 'stopped';
     if (dismissed.has(r.sessionId)) { if (over) continue; dismissed.delete(r.sessionId); }
     seen.add(r.sessionId);
-    const s = session(r.sessionId);
+    const s = session(r.sessionId), was = { inRoster: s.inRoster, state: s.state, status: s.status };
     // The roster moving it (into its worktree, say) is newer than the folder its last hook event named.
     if (r.cwd && r.cwd !== s.rosterCwd) { s.rosterCwd = r.cwd; s.hereCwd = null; }
     Object.assign(s, { id: r.id ?? null, name: r.name ?? null, cwd: r.cwd ?? s.cwd, kind: r.kind ?? null,
                        status: r.status ?? null, state: r.state ?? null, waitingFor: r.waitingFor ?? null,
                        pid: r.pid ?? null, startedAt: r.startedAt ?? null, inRoster: true, leftRosterAt: null });
     if (!over) Object.assign(s, { ended: false, closedByPanel: false }); // running again, e.g. resumed with a reply
+    if (rosterSeeded) {
+      if (!was.inRoster && !over) feed('started', s, `${labelOf(s)} started.`);
+      else if (over && was.state !== r.state && was.inRoster) feed(r.state === 'done' ? 'done' : r.state, s, `${labelOf(s)} is ${r.state === 'done' ? 'done' : r.state}.`);
+      if (r.status === 'waiting' && was.status !== 'waiting' && was.inRoster) feed('needs-you', s, `${labelOf(s)} waits for you${r.waitingFor ? ` (${r.waitingFor})` : ''}.`);
+    }
     // What it last said comes from the Stop hook; a session that ended its turn before this server started
     // gets it from its transcript instead.
     if (!saidRead.has(s.sessionId)) {
@@ -333,11 +343,13 @@ async function pollRoster() {
   for (const s of sessions.values()) s.atPrompt = atPrompt(s);
   const tasks = [...sessions.values()].some((s) => s.atPrompt) ? await backgroundTasks() : new Map();
   for (const s of sessions.values()) s.bgTasks = s.atPrompt ? tasks.get(s.pid) ?? 0 : 0;
+  rosterSeeded = true;
   if (inbox.size) deliverQueued();
   // Gone from the roster = closed or removed: drop its last status so it can't still read "needs you".
   for (const s of sessions.values()) {
     if (seen.has(s.sessionId) || !s.inRoster) continue;
     Object.assign(s, { inRoster: false, leftRosterAt: Date.now(), ended: true, status: null, waitingFor: null });
+    feed('closed', s, `${labelOf(s)} closed.`);
     settleSubagents(s);
     clearStops(s.sessionId);
   }
@@ -385,6 +397,7 @@ function holdPermission(e, res) {
   pending.set(id, p);
   if (e.session_id && profileDir === configDir) {
     session(e.session_id).lastEventAt = Date.now();
+    feed('needs-you', sessions.get(e.session_id), `${labelOf(sessions.get(e.session_id))} asks: ${askOf(p)}`);
     // A subagent's call is not in this thread.
     try { if (!e.agent_id) threadOf(e.session_id).request(e, { waiting: true }); }
     catch (err) { console.error('thread:', err?.message ?? err); }
@@ -407,6 +420,7 @@ function settle(id, decision, why) {
   // Also runs from timers (HOLD_MS, the last page closing), where a throw would stop the server.
   try { if (!p.agentId) threads.get(p.sessionId)?.request({ tool_use_id: p.toolUseId, tool_name: p.toolName, tool_input: p.toolInput }, { why }); }
   catch (err) { console.error('thread:', err?.message ?? err); }
+  if (['allow', 'deny', 'answer', 'approve-plan'].includes(why) && sessions.has(p.sessionId)) feed('answered', sessions.get(p.sessionId), `${labelOf(sessions.get(p.sessionId))}: ${p.toolName} ${why === 'allow' ? 'allowed' : why === 'deny' ? 'denied' : why === 'answer' ? 'answered' : 'plan approved'} from the panel.`);
   broadcast({ type: 'settled', id, why });
   return true;
 }
@@ -1308,6 +1322,8 @@ function switchProfile(body) {
   for (const m of [inbox, sessions, stops, files, turns]) m.clear();
   for (const s of [dismissed, saidRead]) s.clear();
   useProfile(p);
+  overseer.use(p.id);
+  rosterSeeded = false;
   rosterError = null;
   try { fs.mkdirSync(path.dirname(PREFS), { recursive: true }); fs.writeFileSync(PREFS, JSON.stringify({ profile: p.id }) + '\n'); } catch {}
   broadcast();
@@ -1554,6 +1570,146 @@ async function followSession(body) {
   return { ok: true, items: threadOf(id).items().map(bare), more: f.more };
 }
 
+// ---------------------------------------------------------------- GitHub: pull requests and checks for the branches agents are on
+
+/** A macOS notification, which shows with no page open. Title and text go in as arguments, never as script. */
+function notify(title, text) {
+  if (process.platform !== 'darwin') return;
+  run('osascript', ['-e', 'on run argv', '-e', 'display notification (item 2 of argv) with title (item 1 of argv)', '-e', 'end run',
+    String(title).slice(0, 120), String(text).slice(0, 400)], { timeout: 10_000 }).then((r) => { if (r.err) console.error('notify:', firstLine(r)); });
+}
+/** The gh CLI, as the panel's PATH finds it, else where Homebrew puts it: the app and the daemon bake a PATH that can lack it. */
+const ghPath = () => [...String(childEnv.PATH ?? '').split(':').filter(Boolean).map((d) => path.join(d, 'gh')), '/opt/homebrew/bin/gh', '/usr/local/bin/gh']
+  .find((f) => { try { fs.accessSync(f, fs.constants.X_OK); return fs.statSync(f).isFile(); } catch { return false; } }) ?? null;
+/** Where a session works, as git sees it: the checkout its tools ran in, else the one it started in. */
+const placeOf = (s) => gitPlace(s.ranCwd ?? s.hereCwd ?? s.cwd);
+const dataDir = path.dirname(PREFS);
+try { fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 }); } catch {}
+const github = createGithub({
+  file: path.join(dataDir, 'github.json'), run, read: small, ghPath, cwd: dataDir, env: baseEnv,
+  off: process.env.ACP_GITHUB === 'off',
+  // Every session on the board, a finished background job waiting on its checks included.
+  targets: () => [...sessions.values()].filter((s) => s.inRoster || !isEnded(s)).map((s) => {
+    const p = placeOf(s);
+    return p?.common ? { sessionId: s.sessionId, common: p.common, branch: p.branch, at: s.lastEventAt ?? s.startedAt ?? 0 } : null;
+  }).filter(Boolean),
+  notify,
+  onEvent: (ev) => onGithubEvent(ev),
+  onChange: () => broadcast(),
+});
+let onGithubEvent = () => {};
+/** The failing log of a run or check the panel shows, trimmed, with the message that would hand it to an agent. */
+async function githubLog(body) {
+  const slug = String(body?.slug ?? ''), runId = String(body?.runId ?? '');
+  if (!/^\d+$/.test(runId) || !github.knows(slug, runId)) return { ok: false, error: 'That run is not one the panel shows any more. Refresh and try again.' };
+  return github.failedLog({ slug, runId, jobId: /^\d+$/.test(String(body?.jobId ?? '')) ? String(body.jobId) : undefined });
+}
+/** Sends a failing log to the agent on that branch, through the same path as a reply typed in the panel. */
+async function githubHand(body) {
+  const s = sessions.get(body?.sessionId);
+  if (!s) return { ok: false, error: 'That session is gone.' };
+  const p = placeOf(s), gh = p && github.forSession(p.common, p.branch);
+  if (!gh || gh.slug !== body?.slug) return { ok: false, error: 'That run is from another repository than this session works in.' };
+  let text = typeof body?.text === 'string' ? body.text.trim() : '';
+  if (!text) {
+    const log = await githubLog(body);
+    if (!log.ok) return log;
+    text = log.message;
+  } else if (!github.knows(String(body.slug), String(body.runId ?? ''))) return { ok: false, error: 'That run is not one the panel shows any more. Refresh and try again.' };
+  if (text.length > 40_000) return { ok: false, error: 'That message is too long to send. Shorten the log first.' };
+  if (/^[/!]/.test(text)) return { ok: false, error: 'A message that starts with / or ! would run as a command. Start it with words.' };
+  const r = await reply({ sessionId: s.sessionId, text });
+  return { ...r, chars: text.length };
+}
+
+// ---------------------------------------------------------------- the overseer: one chat that knows every session
+
+const labelOf = (s) => s.name || path.basename(s.cwd ?? '') || s.sessionId.slice(0, 8);
+/** Its state in the page's words: waiting, busy, idle, finished or failed. */
+function boardState(s) {
+  if (isEnded(s)) return s.state === 'failed' ? 'failed' : 'finished';
+  if (shownPending().some((p) => p.sessionId === s.sessionId) || s.status === 'waiting') return 'waiting';
+  return isWorking(s) ? 'busy' : 'idle';
+}
+/** What a held request asks, in a line. */
+function askOf(p) {
+  const i = p.toolInput ?? {};
+  if (p.toolName === 'ExitPlanMode') return 'A plan, ready for review';
+  if (p.toolName === 'AskUserQuestion') return `A question: ${String(i.questions?.[0]?.question ?? '').slice(0, 200)}`;
+  return `${p.agentId ? 'Its subagent: ' : ''}${p.toolName}: ${String(i.command ?? i.file_path ?? i.url ?? i.pattern ?? i.description ?? '').replace(/\s+/g, ' ').slice(0, 200)}`;
+}
+/** The sessions the board shows, as the page picks them. */
+const onBoard = () => { const now = Date.now(); return [...sessions.values()].filter((s) => s.inRoster || shownPending().some((p) => p.sessionId === s.sessionId)
+  || (s.leftRosterAt ? now - s.leftRosterAt < 600_000 : now - s.lastEventAt < 3_600_000)); };
+/** The folders a proposed launch may use: where the board's sessions work, and their repositories. */
+function overseerFolders() {
+  const out = new Set();
+  for (const s of onBoard()) {
+    const p = placeOf(s), here = s.ranCwd ?? s.hereCwd ?? s.cwd;
+    for (const d of [p?.repo, p?.top, here]) if (d && path.isAbsolute(d) && d !== os.homedir()) out.add(d);
+    if (out.size >= 12) break;
+  }
+  return [...out].filter((d) => { try { return fs.statSync(d).isDirectory(); } catch { return false; } }).slice(0, 12);
+}
+function overseerBoard() {
+  return { folders: overseerFolders(), sessions: onBoard().map((s) => {
+    const p = placeOf(s), held = shownPending().filter((q) => q.sessionId === s.sessionId);
+    return { sessionId: s.sessionId, name: labelOf(s), kind: s.kind, state: boardState(s), since: s.startedAt ?? s.lastEventAt,
+      repo: p ? path.basename(p.repo) : null, worktree: p?.worktree ?? null, branch: p?.branch ?? null, folder: s.ranCwd ?? s.hereCwd ?? s.cwd ?? null,
+      mode: s.mode ?? null, tool: isWorking(s) && s.lastTool ? `${s.lastTool.tool}: ${s.lastTool.text}` : null, asks: held.map(askOf),
+      subagents: [...s.subagents.values()].map((a) => ({ type: a.agentType ?? null, title: a.title ?? null, running: !a.stoppedAt })),
+      said: s.lastMessage ?? null, gh: p ? github.forSession(p.common, p.branch) : null };
+  }) };
+}
+/** What a message to it does now: goes in at once, waits until it is done, or restarts it in the background (which,
+ *  for a terminal session, closes Claude in its terminal). The same split as reply(). */
+function tellEffect(sessionId) {
+  const s = sessions.get(sessionId);
+  if (!s) return 'restart';
+  const bgUp = s.kind === 'background' && s.inRoster && BG_ID.test(s.id ?? '') && !['stopped', 'failed'].includes(s.state) && s.pid != null;
+  if (bgUp && !isWorking(s)) return 'send';
+  if ((s.kind === 'interactive' || bgUp) && isWorking(s)) return bgUp ? 'send' : 'queue';
+  return 'restart';
+}
+/** One headless, tool-less Claude Code call on the profile's own login, from an empty folder of its own. Hooks are off
+ *  in its arguments, so it never shows on the board. Never rejects. */
+const overseerCwd = path.join(dataDir, 'overseer', 'cwd');
+function askModel(args, { timeout = 90_000, signal } = {}) {
+  try { fs.mkdirSync(overseerCwd, { recursive: true, mode: 0o700 }); } catch {}
+  return new Promise((resolve) => {
+    try {
+      const child = execFile('claude', args, { cwd: overseerCwd, env: childEnv, timeout, signal, maxBuffer: 8_000_000 },
+        (err, stdout, stderr) => resolve({ err, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') }));
+      child.stdin?.end();
+    } catch (err) { resolve({ err, stdout: '', stderr: '' }); }
+  });
+}
+const overseer = createOverseer({
+  file: path.join(dataDir, 'overseer.json'), ask: askModel, board: overseerBoard, github: () => github.state(),
+  history: (sessionId, limit) => history({ sessionId, limit }),
+  actions: {
+    reply: (body) => reply(body), launch: (body) => launch(body), interrupt: (body) => interrupt(body),
+    live: (id) => { const s = sessions.get(id); return s && s.inRoster && !isEnded(s) ? s : null; },
+    tellEffect, folders: overseerFolders,
+    trusted: (cwd) => isTrusted(profile.config, trustKey(cwd, gitPlace(cwd)?.top)) === true,
+  },
+  onChange: () => broadcast(),
+});
+overseer.use(profile.id);
+onGithubEvent = (ev) => overseer.note(ev.type, { slug: ev.slug, text: ev.text });
+/** A line in the overseer's feed about a session. */
+const feed = (type, s, text) => { try { overseer.note(type, { sessionId: s?.sessionId, name: s ? labelOf(s) : undefined, text }); } catch {} };
+for (const sig of ['SIGTERM', 'SIGINT']) process.once(sig, () => { try { overseer.flush(); } catch {} process.exit(0); });
+const OVERSEER = {
+  '/api/overseer/say': (b) => overseer.say({ text: b?.text }),
+  '/api/overseer/turns': (b) => overseer.turns({ limit: Number(b?.limit) || 50 }),
+  '/api/overseer/feed': (b) => overseer.feed({ after: Number(b?.after) || 0 }),
+  '/api/overseer/act': (b) => overseer.act({ turnId: b?.turnId, actionId: b?.actionId, decision: b?.decision, edit: b?.edit }),
+  '/api/overseer/stop': () => overseer.stop(),
+  '/api/overseer/model': (b) => overseer.setModel(b?.model),
+  '/api/overseer/clear': () => overseer.clear(),
+};
+
 // ---------------------------------------------------------------- snapshot + SSE
 
 function snapshot() {
@@ -1561,14 +1717,15 @@ function snapshot() {
   return {
     now, armed, rosterError, port: PORT, profile: profileInfo, oldVersions,
     sessions: [...sessions.values()].map(({ spawns, hereCwd, rosterCwd, ranCwd, editTops, ...s }) => {
-      const here = ranCwd ?? hereCwd ?? s.cwd, git = placeOut(gitPlace(here));
+      const here = ranCwd ?? hereCwd ?? s.cwd, place = gitPlace(here), git = placeOut(place);
       return {
-      ...s, git, workCwd: here, elsewhere: (editTops ?? []).filter((t) => t !== git?.top).slice(0, 3).map((t) => placeOut(gitPlace(t))).filter(Boolean),
+      ...s, git, workCwd: here, gh: place ? github.forSession(place.common, place.branch) : null, elsewhere: (editTops ?? []).filter((t) => t !== git?.top).slice(0, 3).map((t) => placeOut(gitPlace(t))).filter(Boolean),
       stopping: stops.has(stopKey(s.sessionId, null)), hostsPanel: hostPids.has(s.pid),
       queued: inbox.get(s.sessionId) ?? [], working: isWorking(s),
       subagents: [...s.subagents.values()].map((a) => ({ ...a, stopping: !a.stoppedAt && stops.has(stopKey(s.sessionId, a.agentId)) })),
     }; }),
     pending: [...shownPending().map(({ res, timer, profileDir, ...p }) => p), ...openRequests()],
+    github: github.state(), overseer: overseer.status(),
     _ts: now,
   };
 }
@@ -1652,6 +1809,7 @@ async function handle(req, res) {
     const client = CLIENT.test(url.searchParams.get('c') ?? '') ? url.searchParams.get('c') : null;
     if (client) clientRes.set(client, res);
     if (DAEMON && setRosterPace(true)) pollRoster().then(checkVersions); // back from idle: catch up at once
+    github.tick({ watched: true }); // a page that opens sees checks as fresh as the next poll
     clearTimeout(releaseTimer);
     releaseTimer = null;
     const ping = setInterval(() => res.write(': ping\n\n'), 20_000);
@@ -1681,17 +1839,21 @@ async function handle(req, res) {
     }
     if (url.pathname === '/api/launch') {
       const r = await launch(body);
+      if (r.ok) feed('launched', null, `You started a session in ${tilde(r.cwd ?? '')}.`);
       return send(res, r.ok ? 200 : 422, r);
     }
     if (url.pathname === '/api/interrupt') {
       const r = interrupt(body);
+      if (r.ok && sessions.has(body?.sessionId)) feed('interrupted', sessions.get(body.sessionId), `You interrupted ${labelOf(sessions.get(body.sessionId))}.`);
       return send(res, r.ok ? 200 : 422, r);
     }
     const ACTIONS = { '/api/end': end, '/api/remove': remove, '/api/reply': reply, '/api/unqueue': unqueue, '/api/mode': switchMode,
                       '/api/folders': listFolders, '/api/folder': folderInfo, '/api/pick-folder': pickFolder,
                       '/api/profiles': profiles, '/api/profile': switchProfile, '/api/profile/connect': connectProfile,
                       '/api/answer-open': answerOpen, '/api/history': history, '/api/follow': followSession,
-                      '/api/trust-terminal': openTrustTerminal };
+                      '/api/trust-terminal': openTrustTerminal,
+                      '/api/github/refresh': () => { github.refresh(); return { ok: true, github: github.state() }; },
+                      '/api/github/log': githubLog, '/api/github/hand': githubHand, ...OVERSEER };
     if (Object.hasOwn(ACTIONS, url.pathname)) {
       let r;
       try { r = await ACTIONS[url.pathname](body); } catch (err) { r = { ok: false, error: String(err?.message ?? err).slice(0, 300) }; }
@@ -1735,4 +1897,6 @@ server.listen(PORT, '127.0.0.1', () => {
   setRosterPace(looking());
   setInterval(() => { if (looking()) checkVersions(); }, VERSIONS_MS);
   setInterval(() => { prune(); broadcast(); }, 10_000);
+  // GitHub: one beat every 15 s, each repository on its own pace; the first a little after start, once the roster is in.
+  setTimeout(() => { github.tick({ watched: clients.size > 0 }); setInterval(() => github.tick({ watched: clients.size > 0 }), 15_000); }, 20_000);
 });
