@@ -2271,7 +2271,9 @@ function snapshot(wsId) {
       queued: inbox.get(s.sessionId) ?? [], working: isWorking(s),
       subagents: [...s.subagents.values()].map((a) => ({ ...a, stopping: !a.stoppedAt && stops.has(stopKey(s.sessionId, a.agentId)) })),
     }; }),
-    pending: [...[...pending.values()].filter((p) => p.ws === wsId).map(({ res, timer, ...p }) => p), ...openRequests(wsId)],
+    // A held request's folder stays here: the page never reads it, and for a session in another workspace's repository
+    // it would be that repository's.
+    pending: [...[...pending.values()].filter((p) => p.ws === wsId).map(({ res, timer, cwd, ...p }) => p), ...openRequests(wsId)],
     github: githubFor(wsId), overseer: overseerOf(wsId)?.status() ?? null, watcher: watcherOf(wsId),
     _ts: now,
   };

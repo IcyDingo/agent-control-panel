@@ -450,6 +450,37 @@ test('a session in another workspace\'s repository shows nothing of it', async (
   assert.equal(folders.includes('~/code/n'), false, folders);
 });
 
+test('a held request on that session carries nothing of the repository either', async () => {
+  const e = { session_id: SID_R, transcript_path: path.join(home, '.claude', 'projects', 'p', `${SID_R}.jsonl`), cwd: repoN,
+              hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'echo held' }, permission_mode: 'default' };
+  const reply = hookPost('permission', e).then((r) => r.text());
+  const n = A.frames.length;
+  const frame = await until(() => A.frames.slice(n).findLast((f) => f?.pending?.some((p) => p.sessionId === SID_R && p.toolInput?.command === 'echo held')));
+  assert.ok(frame, 'page A lists the request');
+  // The whole frame, not only the session: the request sits beside it.
+  const text = JSON.stringify(frame);
+  for (const bit of [repoN, 'o/n', 'feat/x']) assert.equal(text.includes(bit), false, `page A's frame carries ${bit}`);
+  const p = frame.pending.find((x) => x.sessionId === SID_R);
+  assert.equal((await api('/api/decide', { id: p.id, behavior: 'deny', message: 'not now' }, A.client)).ok, true);
+  assert.match(await reply, /"behavior":"deny"/);
+});
+
+test('a page may sort an unsorted repository into another workspace, but not claim one', async () => {
+  const dirU = path.join(home, 'code', 'u'), key = `dir:${dirU}`;
+  fs.mkdirSync(dirU, { recursive: true });
+  // "It's claude-contract" from the default page, on a repository in no workspace.
+  assert.deepEqual(await api('/api/workspace/assign', { key, ws: ['contract'] }, A.client), { status: 200, ok: true });
+  assert.deepEqual((await assignedOf(B.client)).find((a) => a.key === key), { key, ws: ['contract'] });
+  // Now it is contract's: the default page can't add itself to it.
+  for (const ws of [['default'], ['contract', 'default']]) {
+    const r = await api('/api/workspace/assign', { key, ws }, A.client);
+    assert.equal(r.ok, false, JSON.stringify(r));
+    assert.equal(r.error, REFUSE);
+  }
+  assert.deepEqual((await assignedOf(B.client)).find((a) => a.key === key), { key, ws: ['contract'] });
+  assert.equal((await assignedOf(A.client)).some((a) => a.key === key), false);
+});
+
 test('a machine with no profile yet keeps no workspace for the stand-in', async (t) => {
   const h = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-ws0-')), port = PORT + 100;
   const b = path.join(h, 'bin');
