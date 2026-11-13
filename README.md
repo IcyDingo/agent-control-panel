@@ -54,8 +54,8 @@ profile choice, the overseer's conversation, the PR watcher's memory) and `~/Lib
 again for your Documents folder and for notifications, and the app's own view settings (theme, folded queues) start
 fresh. The `ACP_*` environment variables keep their names. The repository is still `agent-control-panel`.
 
-Everything stays on your Mac: the server listens on 127.0.0.1 only, and the page fetches nothing but its typeface
-(from Google Fonts).
+Everything stays on your computer: the server listens on 127.0.0.1 only, and the page fetches nothing from anywhere
+else (its typeface, Geist, comes with it).
 
 **The board** stacks four queues in a rail on the left: **Needs you**, **Working**, **Idle** and
 **Finished**. Needs you is always open. Click any other queue's header to fold it to one line, which

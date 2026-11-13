@@ -172,6 +172,18 @@ test('the last page letting go hangs it up after the grace', async () => {
   assert.equal((await api('/api/term/input', { client: CLIENT, sessionId: BG, data: 'x' })).ok, false, 'closed');
 });
 
+test('the fonts come from the panel itself, and the page asks no other site for anything', async () => {
+  for (const f of ['Geist-Variable.woff2', 'GeistMono-Variable.woff2']) {
+    const r = await fetch(`${BASE}/vendor/geist/${f}`);
+    assert.equal(r.status, 200, f);
+    assert.equal(r.headers.get('content-type'), 'font/woff2');
+    assert.equal(Buffer.from(await r.arrayBuffer()).subarray(0, 4).toString(), 'wOF2', f + ' is not a font file');
+  }
+  const html = await (await fetch(BASE + '/')).text();
+  assert.doesNotMatch(html, /<(?:link|script)[^>]+(?:href|src)="https?:/, 'the page loads something from another site');
+  for (const f of ['Geist-Variable.woff2', 'GeistMono-Variable.woff2']) assert.ok(html.includes(`url("/vendor/geist/${f}")`), f + ' is not in the page');
+});
+
 test('the terminal routes need the token, and only the three library files are served', async () => {
   for (const p of ['/api/term/open', '/api/term/input', '/api/term/resize', '/api/term/close']) assert.equal((await post(p, { client: CLIENT, sessionId: BG }, 'nope')).status, 403);
   const js = await fetch(BASE + '/vendor/xterm/xterm.js');

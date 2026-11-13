@@ -7,12 +7,17 @@
 <!-- The tab's icon: app/icon.svg in small (the overseer's mark on its dark tile). Inline, so the page fetches nothing. -->
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='2' y='2' width='60' height='60' rx='14' fill='%2314171c'/%3E%3Crect x='14' y='14' width='36' height='36' rx='11.5' fill='%23e4e8ee'/%3E%3Ccircle cx='32' cy='32' r='9.8' fill='%2314171c'/%3E%3C/svg%3E">
 <script>
-// Dark unless you picked Light or Match the Mac (the theme menu, top right). Set before the page paints.
+// Dark unless you picked Light or the system's own (the theme menu, top right). Set before the page paints.
 try { const t = localStorage.getItem('acp.theme'); if (t !== 'system') document.documentElement.dataset.theme = t === 'light' ? 'light' : 'dark'; }
 catch { document.documentElement.dataset.theme = 'dark'; }
+// A Mac hides its scrollbars until you scroll. Elsewhere they always show, so there they are drawn thin (below).
+if (!/Mac|iPhone|iPad/.test(navigator.platform)) document.documentElement.classList.add('bars');
 </script>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
 <style>
+/* Geist and Geist Mono, served by the panel (public/vendor/geist, SIL Open Font License): the page looks the same
+   with no network, and asks no other site for anything. One variable file each carries every weight. */
+@font-face { font-family: "Geist"; src: url("/vendor/geist/Geist-Variable.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: "Geist Mono"; src: url("/vendor/geist/GeistMono-Variable.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
 /* The four state queues stack in a rail on the left; the open session fills the rest of the width.
    Matte graphite first, hairlines over shadows, soft corners:
    6px on controls, 8px on cards and tiles, 12px on the panel. */
@@ -51,6 +56,7 @@ catch { document.documentElement.dataset.theme = 'dark'; }
   --del: rgba(191, 61, 43, .08); --add: rgba(30, 122, 75, .08); --shade: rgba(17, 20, 24, .14); color-scheme: light;
 }
 * { box-sizing: border-box; }
+.bars, .bars * { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
 html, body { height: 100%; }
 body { margin: 0; display: flex; flex-direction: column; background: var(--bg); color: var(--fg); font: 14px/1.45 var(--sans); -webkit-font-smoothing: antialiased; }
 button, input, textarea, select { font: inherit; color: inherit; }

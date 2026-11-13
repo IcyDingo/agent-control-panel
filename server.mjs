@@ -2017,12 +2017,15 @@ async function handle(req, res) {
     return send(res, 404, '');
   }
 
-  // The embedded terminal's library, vendored: these three files and nothing else under it.
-  const VENDOR = { '/vendor/xterm/xterm.js': 'text/javascript', '/vendor/xterm/addon-fit.js': 'text/javascript', '/vendor/xterm/xterm.css': 'text/css' };
+  // What the page loads besides itself, vendored: the embedded terminal's library and the two typefaces. These files
+  // and nothing else under public/vendor.
+  const VENDOR = { '/vendor/xterm/xterm.js': 'text/javascript; charset=utf-8', '/vendor/xterm/addon-fit.js': 'text/javascript; charset=utf-8',
+                   '/vendor/xterm/xterm.css': 'text/css; charset=utf-8',
+                   '/vendor/geist/Geist-Variable.woff2': 'font/woff2', '/vendor/geist/GeistMono-Variable.woff2': 'font/woff2' };
   if (req.method === 'GET' && Object.hasOwn(VENDOR, url.pathname)) {
     let body;
     try { body = fs.readFileSync(new URL('./public' + url.pathname, import.meta.url)); } catch { return send(res, 404, { error: 'not found' }); }
-    res.writeHead(200, { 'content-type': `${VENDOR[url.pathname]}; charset=utf-8`, 'cache-control': 'max-age=86400' });
+    res.writeHead(200, { 'content-type': VENDOR[url.pathname], 'cache-control': 'max-age=86400' });
     return res.end(body);
   }
   if (req.method === 'GET' && url.pathname === '/') {
