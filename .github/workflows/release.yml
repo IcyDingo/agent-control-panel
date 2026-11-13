@@ -1,0 +1,115 @@
+# Builds the Linux app (an AppImage and a .deb, for x64 and arm64), starts each one to see that it works, and on a
+# version tag drafts a release with them. A person publishes the draft: nothing here makes a release public.
+#
+# To release: set "version" in package.json, merge, then push the tag v<that version>.
+name: Linux app
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    paths:
+      - desktop/**
+      - public/**
+      - app/icons/**
+      - '*.mjs'
+      - '*.py'
+      - package.json
+      - package-lock.json
+      - electron-builder.yml
+      - .github/workflows/release.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-app-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and start (${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, arch: x64 }
+          - { os: ubuntu-24.04-arm, arch: arm64 }
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: The tag is this version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version="v$(node -p "require('./package.json').version")"
+          [ "$TAG" = "$version" ] || { echo "::error::The tag is $TAG but package.json says $version"; exit 1; }
+
+      - run: npm ci
+      - run: npm test
+      - name: Build the AppImage and the .deb
+        run: npx electron-builder --linux --publish never
+
+      # The app needs Claude Code to start its server. This stands in for it: a version, and no sessions.
+      - name: A stand-in for Claude Code
+        run: |
+          printf '%s\n' '#!/bin/sh' 'case "$1" in --version) echo "2.1.400 (Claude Code)";; agents) echo "[]";; *) echo "{}";; esac' | sudo tee /usr/local/bin/claude >/dev/null
+          sudo chmod +x /usr/local/bin/claude
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb fuse3
+          mkdir -p shots
+
+      # ACP_SMOKE=1: the app loads the panel, checks its bridge, title and typeface, saves a picture and exits 0.
+      # The .deb runs as installed, with Chromium's sandbox on: that is what its AppArmor profile is for.
+      - name: The installed .deb starts
+        run: |
+          sudo apt-get install -y -qq ./dist/Glue-*.deb
+          ACP_SMOKE=1 ACP_SMOKE_SHOT="$PWD/shots/deb-${{ matrix.arch }}.png" timeout 180 xvfb-run -a -s "-screen 0 1440x900x24" glue
+          ! curl -fs -o /dev/null --max-time 2 http://127.0.0.1:4747/ || { echo "::error::The server outlived the app"; exit 1; }
+
+      - name: The AppImage starts
+        run: |
+          chmod +x dist/Glue-*.AppImage
+          ACP_PORT=4748 ACP_SMOKE=1 ACP_SMOKE_SHOT="$PWD/shots/appimage-${{ matrix.arch }}.png" timeout 180 xvfb-run -a -s "-screen 0 1440x900x24" ./dist/Glue-*.AppImage
+          ! curl -fs -o /dev/null --max-time 2 http://127.0.0.1:4748/ || { echo "::error::The server outlived the app"; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: glue-linux-${{ matrix.arch }}
+          if-no-files-found: error
+          path: |
+            dist/Glue-*.AppImage
+            dist/Glue-*.deb
+            dist/latest-linux*.yml
+            shots/*.png
+
+  # One job drafts the release, so two builds finishing together can't each make their own.
+  release:
+    name: Draft the release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: glue-linux-*
+          merge-multiple: true
+      - name: Draft it, with both architectures' files
+        run: |
+          ls -la artifacts/dist
+          gh release create "$TAG" --draft --verify-tag --title "Glue ${TAG#v}" --generate-notes \
+            artifacts/dist/Glue-*.AppImage artifacts/dist/Glue-*.deb artifacts/dist/latest-linux*.yml
