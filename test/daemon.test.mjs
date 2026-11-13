@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { LABEL, plistPath, logPath, launchdPlist, install, remove, status } from '../daemon.mjs';
+import { LABEL, plistPath, logPath, launchdPlist, install, remove, status, restart } from '../daemon.mjs';
 
 const uid = String(process.getuid());
 const fakeRun = (answers = {}) => { const calls = []; const run = async (cmd, args) => { calls.push([cmd, ...args]); return answers[args[0]] ?? { stdout: '', stderr: '', err: null }; }; return Object.assign(run, { calls }); };
@@ -99,4 +99,15 @@ test('status reads the pid from launchctl print, and says not loaded when it fai
   assert.deepEqual(await status({ port: 4747, run: up }), { loaded: true, pid: 4242 });
   const down = fakeRun({ print: { stdout: '', stderr: 'Could not find service', err: new Error('exit 113') } });
   assert.deepEqual(await status({ port: 4747, run: down }), { loaded: false, pid: null });
+});
+
+test('restart kicks the service', async () => {
+  const run = fakeRun();
+  assert.deepEqual(await restart({ port: 4747, run }), { label: 'local.glue' });
+  assert.deepEqual(run.calls, [['launchctl', 'kickstart', '-k', `gui/${uid}/local.glue`]]);
+  const other = fakeRun();
+  await restart({ port: 4800, run: other });
+  assert.deepEqual(other.calls, [['launchctl', 'kickstart', '-k', `gui/${uid}/local.glue.4800`]]);
+  const refused = fakeRun({ kickstart: { stdout: '', stderr: 'Could not find service', err: new Error('exit 113') } });
+  await assert.rejects(restart({ port: 4747, run: refused }), /Could not find service/);
 });

@@ -549,8 +549,9 @@ test('a page shown one workspace can read no other workspace\'s account, by any 
   }
   seen.push(await fetch(BASE + '/api/workspaces', { headers: { 'x-acp-token': token, 'x-acp-client': A.client } }).then((x) => x.json()));
   for (const f of A.frames) seen.push(f);
-  assert.equal(seen[3].error, REFUSE, 'page A may not connect the contract profile\'s hooks');
-  assert.equal(fs.readFileSync(path.join(home, '.claude-contract', 'settings.json'), 'utf8'), '{}', 'its settings are untouched');
+  // Connecting another workspace's hooks is allowed on purpose (Settings' Logins tab), and says nothing of its account.
+  assert.equal(seen[3].ok, true, 'page A may connect the contract profile\'s hooks: ' + JSON.stringify(seen[3]));
+  assert.ok(fs.readFileSync(path.join(home, '.claude-contract', 'settings.json'), 'utf8').includes('/hook/'), 'its settings gained the hooks');
   const text = JSON.stringify(seen);
   assert.equal(text.includes(EMAIL_C), false, 'page A read the contract profile\'s email');
   assert.equal(text.includes('Contract Org'), false, 'page A read the contract profile\'s organisation');
@@ -615,12 +616,14 @@ test('renaming a workspace shows in both pages\' snapshots', async () => {
   assert.equal((await api('/api/workspace/update', { id: 'contract', name: before.name, color: before.color }, B.client)).ok, true);
 });
 
-test('a page cannot rename or recolour the other workspace', async () => {
-  const r = await api('/api/workspace/update', { id: 'default', name: 'Mine now' }, B.client);
-  assert.equal(r.ok, false);
-  assert.equal(r.error, 'That belongs to another workspace. Switch to it to do this.');
-  assert.notEqual(A.latest().workspace.name, 'Mine now');
-  assert.equal((await api('/api/workspace/update', { id: 'default', color: 'rose' }, B.client)).ok, false);
+test('a page can rename or recolour the other workspace (Settings lists them all)', async () => {
+  const before = A.latest().workspace;
+  const r = await api('/api/workspace/update', { id: 'default', name: 'Mine now', color: 'rose' }, B.client);
+  assert.deepEqual(r, { status: 200, ok: true });
+  assert.ok(await until(() => A.latest()?.workspace.name === 'Mine now' && A.latest().workspace.color === 'rose'), 'the other workspace\'s page sees it');
+  // Put it back, so the next test meets the name it was written for.
+  assert.equal((await api('/api/workspace/update', { id: 'default', name: before.name, color: before.color }, B.client)).ok, true);
+  assert.ok(await until(() => A.latest()?.workspace.name === before.name));
 });
 
 test('an invalid name or colour is refused with the store\'s error', async () => {

@@ -106,3 +106,10 @@ export async function status({ port, run = execRun }) {
   const pid = /^\s*pid = (\d+)/m.exec(stdout)?.[1];
   return { loaded: true, pid: pid ? Number(pid) : null };
 }
+
+/** Restarts the loaded agent in place (`kickstart -k` kills it, launchd starts it again). Throws with launchctl's message if it refuses. */
+export async function restart({ port, run = execRun }) {
+  const r = await run('launchctl', ['kickstart', '-k', `${domain()}/${LABEL(port)}`]);
+  if (r.err) throw new Error(`launchctl kickstart failed: ${r.stderr.trim() || r.err.message}`);
+  return { label: LABEL(port) };
+}

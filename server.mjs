@@ -23,11 +23,13 @@ import { createThread } from './thread.mjs';
 import { UNTRUSTED, trustKey, isTrusted, trustScript } from './trust.mjs';
 import { prefsPath } from './cli.mjs';
 import { createGithub, slugOf } from './github.mjs';
-import { createOverseer, migrateFrom } from './overseer.mjs';
+import { createOverseer, migrateFrom, MODELS as OVERSEER_MODELS } from './overseer.mjs';
 import { createWatcher } from './watcher.mjs';
 import { parseClaudeAuth, parseGhAuth, claudeLoginCommand, loginScript, LOGIN_ERROR } from './setup.mjs';
 import { migrateFolders } from './migrate.mjs';
 import { createStore, countOnly, repoKey } from './workspaces.mjs';
+import { sanitizeGlue, mergeGlue } from './glue-prefs.mjs';
+import * as daemon from './daemon.mjs';
 
 // `node server.mjs <command>` runs the CLI (cli.mjs) and never starts the server.
 if (process.argv.length > 2) { const { main } = await import('./cli.mjs'); process.exit(await main(process.argv.slice(2))); }
@@ -111,6 +113,14 @@ function listProfiles() {
 }
 /** The command that runs Claude Code on a profile. */
 const cliOf = (p) => (p.plain ? 'claude' : `CLAUDE_CONFIG_DIR=~/${path.basename(p.dir)} claude`);
+/** The hook entries hooks.example.json asks for, pointed at this panel's port. */
+const wantedHooks = () => structuredClone(wantedMemo ??= JSON.parse(fs.readFileSync(new URL('./hooks.example.json', import.meta.url), 'utf8').replaceAll('127.0.0.1:4747/', HOOK_URL.replace(/hook\/$/, ''))).hooks);
+let wantedMemo = null;
+/** Whether a settings object's `hooks` already has an entry for `event` that posts to this panel. */
+const hookPresent = (hooks, event) => (Array.isArray(hooks?.[event]) ? hooks[event] : []).some((m) => (m?.hooks ?? []).some((h) => typeof h?.url === 'string' && h.url.includes(HOOK_URL)));
+/** Whether a settings object is connected to this panel: every event hooks.example.json asks for has such an entry
+ *  (what connectProfile adds until nothing is left to add). Mentioning the URL anywhere else in the file doesn't count. */
+const hooksConnected = (settings) => Object.keys(wantedHooks()).every((event) => hookPresent(settings?.hooks, event));
 /** What the picker shows: whose account it is, and whether its sessions report to this panel. */
 function describeProfile(p) {
   let account = null;
@@ -118,8 +128,9 @@ function describeProfile(p) {
   let connected = false, effort = null;
   try {
     const text = small(path.join(p.dir, 'settings.json'), 4 << 20);
-    connected = text.includes(HOOK_URL);
-    effort = JSON.parse(text).effortLevel ?? null; // its default for new sessions, which /effort saves there
+    const parsed = JSON.parse(text);
+    connected = hooksConnected(parsed);
+    effort = parsed.effortLevel ?? null; // its default for new sessions, which /effort saves there
   } catch {}
   return { id: p.id, label: path.basename(p.dir).slice(1), dir: p.dir, where: p.dir.startsWith(HOME + path.sep) ? '~' + p.dir.slice(HOME.length) : p.dir, account, connected,
            effort: EFFORTS.has(effort) ? effort : null,
@@ -166,7 +177,7 @@ function syncWorkspaces() {
     changed = true;
   }
   if (!W.has(shownId)) shownId = W.keys().next().value ?? null;
-  if (changed && serverUp) { broadcast(); checkSetup(true); }
+  if (changed && serverUp) { broadcast(); checkSetup(true); settingsChanged(); }
 }
 function dropWorkspace(ws) {
   W.delete(ws.id);
@@ -662,7 +673,7 @@ function launch(body, ws = shownWs()) {
     const repo = repoOf(cwd);
     let inWs = sortedIn(repo.key);
     if (!inWs.length) {
-      if (W.size === 1) store.assign(repo.key, [ws.id]); // the stand-in for no profile is not in the store: nothing kept
+      if (W.size === 1) { store.assign(repo.key, [ws.id]); settingsChanged(); } // the stand-in for no profile is not in the store: nothing kept
       else if (body.assign === undefined) return resolve({ ok: false, ask: { ...repo, suggest: suggestFor(repo.key) } });
       else {
         const ids = body.assign;
@@ -671,6 +682,7 @@ function launch(body, ws = shownWs()) {
         if (!r.ok) return fail(r.error);
         inWs = sortedIn(repo.key);
         broadcast();
+        settingsChanged();
       }
     }
     if (W.size > 1 && !inWs.includes(ws.id)) {
@@ -1491,17 +1503,40 @@ function assignRepo(body, ctx) {
   const r = store.assign(key, [...kept, ...ids]);
   if (!r.ok) return r;
   broadcast(); // its pull requests and runs move between the workspaces' GitHub panels
+  settingsChanged();
+  return { ok: true };
+}
+/** `{ key, ws }`: Settings' Repositories tab, which shows every repository and every workspace, so none of the page
+ *  route's rules apply: it may take a repository out of any workspace and put it in any. [] on a key that was never
+ *  sorted (one known only from a session or from GitHub) changes nothing. */
+function settingsAssign(body) {
+  const key = String(body?.key ?? ''), ids = body?.ws;
+  if (!REPO_KEY.test(key)) return { ok: false, error: 'That is not a repository or folder the panel knows.' };
+  if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string' || !store.get(id))) return { ok: false, error: 'No such workspace.' };
+  if (!ids.length && !store.reposOf(key).length) return { ok: true };
+  const r = store.assign(key, ids);
+  if (!r.ok) return r;
+  broadcast();
+  settingsChanged();
   return { ok: true };
 }
 
-/** `{ id, name?, color? }`: rename or recolour a workspace. Only the page's own: another workspace's name is not this
- *  page's to change (the checklist shows the others, read-only). Every page's switch follows. */
-function updateWorkspace(body, ctx) {
+/** `{ id, name?, color? }`: rename or recolour any workspace (Settings lists them all). Every page's switch follows. */
+function updateWorkspace(body) {
   const id = String(body?.id ?? '');
   if (!store.get(id)) return { ok: false, error: 'No such workspace.' };
-  if (id !== ctx?.focus) return { ok: false, error: REFUSE };
   const r = store.update(id, { name: body?.name, color: body?.color });
-  if (r.ok) broadcast();
+  if (r.ok) { broadcast(); settingsChanged(); }
+  return r;
+}
+/** `{ ids }`: the live workspaces in a new order, each once. A profile that has gone keeps its place after them. */
+function reorderWorkspaces(body) {
+  const ids = body?.ids, live = wsOrder();
+  const same = Array.isArray(ids) && ids.length === live.length && new Set(ids).size === ids.length && ids.every((id) => typeof id === 'string' && W.has(id));
+  if (!same) return { ok: false, error: 'The order must name every workspace once.' };
+  const stored = store.list().map((w) => w.id);
+  const r = store.reorder([...ids.filter((id) => stored.includes(id)), ...stored.filter((id) => !ids.includes(id))]);
+  if (r.ok) { broadcast(); settingsChanged(); }
   return r;
 }
 
@@ -1601,17 +1636,17 @@ function connectProfile(body) {
     if (!settings || typeof settings !== 'object' || Array.isArray(settings)) return { ok: false, error: `${tilde(file)} isn't a settings object, so it was left as it is.` };
   }
   if (settings.hooks != null && (typeof settings.hooks !== 'object' || Array.isArray(settings.hooks))) return { ok: false, error: `Its "hooks" setting isn't an object, so it was left as it is.` };
-  const want = JSON.parse(fs.readFileSync(new URL('./hooks.example.json', import.meta.url), 'utf8').replaceAll('127.0.0.1:4747/', HOOK_URL.replace(/hook\/$/, ''))).hooks;
+  const want = wantedHooks();
   settings.hooks ??= {};
   let added = 0;
   for (const [event, entries] of Object.entries(want)) {
     const list = Array.isArray(settings.hooks[event]) ? settings.hooks[event] : (settings.hooks[event] = []);
-    if (list.some((m) => (m?.hooks ?? []).some((h) => typeof h?.url === 'string' && h.url.includes(HOOK_URL)))) continue;
+    if (hookPresent(settings.hooks, event)) continue;
     list.push(...entries);
     added++;
   }
   const fresh = () => { const ws = wsById(p.id); if (ws) ws.info = describeProfile(ws.profile); };
-  if (!added) { fresh(); broadcast(); return { ok: true, added: 0 }; }
+  if (!added) { fresh(); broadcast(); settingsChanged(); return { ok: true, added: 0 }; }
   let backup = null;
   if (fs.existsSync(file)) {
     backup = `${file}.before-glue-${new Date().toISOString().replace(/[:.]/g, '-')}`;
@@ -1622,6 +1657,7 @@ function connectProfile(body) {
   fs.renameSync(tmp, file);
   fresh();
   broadcast();
+  settingsChanged();
   return { ok: true, added, backup: backup && tilde(backup) };
 }
 
@@ -1630,13 +1666,173 @@ function connectProfile(body) {
 /** The prefs file holds more than one choice: a write keeps the others. */
 function readPrefs() { try { const v = JSON.parse(small(PREFS, 65536)); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; } catch { return {}; } }
 function savePrefs(change) {
-  try { fs.mkdirSync(path.dirname(PREFS), { recursive: true }); fs.writeFileSync(PREFS, JSON.stringify({ ...readPrefs(), ...change }) + '\n'); } catch {}
+  const tmp = `${PREFS}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+  try {
+    fs.mkdirSync(path.dirname(PREFS), { recursive: true });
+    fs.writeFileSync(tmp, JSON.stringify({ ...readPrefs(), ...change }) + '\n', { mode: 0o600 });
+    fs.renameSync(tmp, PREFS);
+  } catch { try { fs.rmSync(tmp, { force: true }); } catch {} }
 }
-// Whether each workspace's profile is signed in to Claude Code (its `setup.claude`), and gh to GitHub: the checklist, the
+// ---------------------------------------------------------------- Glue-wide prefs and Settings
+
+/** The Glue-wide prefs (glue-prefs.mjs), kept under `glue` in prefs.json; anything bad there reads as its default. */
+const glue = () => sanitizeGlue(readPrefs().glue);
+/** Tells every page that something Settings shows has changed, and nothing more: the event carries no data, so no page
+ *  learns from it what changed or whose it was. A page with Settings open fetches /api/settings again. */
+function settingsChanged() {
+  for (const res of clients.keys()) if (!res.writableEnded && !res.destroyed) res.write('event: settings\ndata: {}\n\n');
+}
+/** A route's result, after the nudge when it worked: for the routes whose change Settings shows. */
+function nudgeIfOk(r) { if (r?.ok) settingsChanged(); return r; }
+/** `{ theme?, folded? }`: what the page kept in its own storage before Glue kept prefs, taken once. */
+function seedGlue(body) {
+  const now = glue();
+  if (now.seeded) return { ok: false, error: 'Glue already has its settings.' };
+  const patch = { seeded: true };
+  for (const k of ['theme', 'folded']) if (body?.[k] !== undefined) patch[k] = body[k];
+  const r = mergeGlue(now, patch);
+  if (!r.ok) return r;
+  savePrefs({ glue: r.glue });
+  settingsChanged();
+  return { ok: true, glue: r.glue };
+}
+/** `{ patch }`: change Glue prefs from Settings. Whether the page has seeded them is the server's to keep. */
+function patchGlue(body) {
+  const now = glue(), patch = body?.patch;
+  const r = mergeGlue(now, patch && typeof patch === 'object' && !Array.isArray(patch) ? Object.fromEntries(Object.entries(patch).filter(([k]) => k !== 'seeded')) : patch);
+  if (!r.ok) return r;
+  r.glue.seeded = now.seeded;
+  savePrefs({ glue: r.glue });
+  settingsChanged();
+  return { ok: true, glue: r.glue };
+}
+/** Whether a profile's hooks point at this panel, read now. */
+const hooksHere = (p) => { try { return hooksConnected(JSON.parse(small(path.join(p.dir, 'settings.json'), 4 << 20))); } catch { return false; } };
+const signedInOf = (ws) => (ws.setup.claude.state === 'ok' ? true : ws.setup.claude.state === 'signed-out' ? false : null);
+/** What Settings calls a repository: a GitHub one by its slug, else its folder's name (`hint`, the page's name for it,
+ *  when a session knows one). */
+function repoLabel(key, hint) {
+  if (key.startsWith('gh:')) return key.slice(3);
+  if (hint) return hint;
+  const p = key.slice(4), b = path.basename(p);
+  return (b === '.git' ? path.basename(path.dirname(p)) : b) || p;
+}
+/** The repositories live sessions work in: key to the label the page shows for it. */
+function sessionRepos() {
+  const out = new Map();
+  for (const s of sessions.values()) {
+    if (!W.has(s.ws) || !(s.inRoster || !isEnded(s))) continue;
+    const d = s.ranCwd ?? s.hereCwd ?? s.cwd;
+    if (typeof d !== 'string' || !path.isAbsolute(d) || d === os.homedir()) continue;
+    const r = repoOf(d);
+    if (!out.has(r.key)) out.set(r.key, r.label);
+  }
+  return out;
+}
+/** Settings lists the repositories sessions work in, so a session in a new one changes it. Checked with each snapshot
+ *  (repoOf is cached for it), and told only when the set of repositories changes, never on every tick. */
+let lastRepoKeys = null;
+function noteRepos() {
+  const keys = [...sessionRepos().keys()].filter((k) => REPO_KEY.test(k)).sort().join('\n');
+  const was = lastRepoKeys;
+  lastRepoKeys = keys;
+  if (was !== null && was !== keys) settingsChanged();
+}
+/** Every repository Glue knows, for Settings: those sorted into a workspace, those live sessions work in, and those
+ *  the GitHub poller watches. Of each, only its key, its name and the workspaces it is in; `stored` when it is sorted. */
+function settingsRepos() {
+  const out = new Map();
+  const add = (key, hint) => { if (REPO_KEY.test(key) && !out.has(key)) out.set(key, repoLabel(key, hint)); };
+  for (const [key, label] of sessionRepos()) add(key, label);
+  for (const a of store.assigned()) add(a.key);
+  for (const r of github.state().repos) add('gh:' + r.slug);
+  return [...out].map(([key, label]) => { const ws = store.reposOf(key); return { key, label, ws, stored: ws.length > 0 }; })
+    .sort((a, b) => a.label.localeCompare(b.label) || (a.key < b.key ? -1 : 1));
+}
+/** GET /api/settings for a page shown `focus`: the one place a page learns more of another workspace than
+ *  { id, name, color, waiting }, and only this: its order, sign-in state, hooks and the command that signs it in. The
+ *  account is the focus's only. Never put any of it in a snapshot or an SSE frame. */
+function settingsFor(focus, about = {}) {
+  const g = glue();
+  return {
+    ok: true,
+    workspaces: wsOrder().map((id, order) => {
+      const ws = W.get(id), here = id === focus;
+      const out = { ...wsView(id), order, here, signedIn: signedInOf(ws), connected: hooksHere(ws.profile), loginCommand: claudeLoginCommand(ws.profile) };
+      if (here) out.account = { email: describeProfile(ws.profile).account?.email ?? ws.setup.claude.email ?? null, plan: ws.setup.claude.plan ?? null };
+      return out;
+    }),
+    repos: settingsRepos(),
+    glue: g,
+    github: { state: setup.github.state, login: setup.github.login ?? null },
+    watcher: { enabled: watcher.status(focus).enabled },
+    overseer: { model: overseerOf(focus)?.status().model ?? g.overseerModel, models: [...OVERSEER_MODELS] },
+    about,
+  };
+}
+/** The short sha the checkout is at, read from its .git files as gitPlace does (never a git process); null when it
+ *  isn't a checkout. A linked worktree's .git is a file naming its git dir, and its branches live in the common one. */
+function shortCommit() {
+  try {
+    const top = path.dirname(fileURLToPath(import.meta.url)), dot = path.join(top, '.git');
+    let gitDir = dot, common = dot;
+    if (fs.statSync(dot).isFile()) {
+      const m = small(dot).match(/^gitdir:\s*(.+)$/m);
+      if (!m) return null;
+      gitDir = common = path.resolve(top, m[1].trim());
+      try { common = path.resolve(gitDir, small(path.join(gitDir, 'commondir'))); } catch {}
+    }
+    const head = small(path.join(gitDir, 'HEAD')), sha = /^[0-9a-f]{40,64}$/;
+    if (sha.test(head)) return head.slice(0, 7);
+    const ref = head.match(/^ref:\s*(refs\/.+)$/)?.[1];
+    if (!ref || ref.includes('..')) return null;
+    for (const d of [gitDir, common]) {
+      try { const v = small(path.join(d, ref)); if (sha.test(v)) return v.slice(0, 7); } catch {}
+    }
+    for (const line of small(path.join(common, 'packed-refs'), 4 << 20).split('\n')) {
+      const [h, name] = line.split(' ');
+      if (name === ref && sha.test(h)) return h.slice(0, 7);
+    }
+  } catch {}
+  return null;
+}
+const VERSION = (() => { try { return JSON.parse(fs.readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version ?? null; } catch { return null; } })();
+const COMMIT = shortCommit();
+/** About & maintenance: what is running, whether the background service is installed and running (launchd is asked
+ *  even when this server isn't the service, so the app's own server can show the installed one), whether this server is
+ *  the service (`self`: only then does Restart restart what the page talks to), and where the files are. */
+async function aboutInfo() {
+  const installed = fs.existsSync(daemon.plistPath(PORT));
+  let st = { loaded: false, pid: null };
+  try { st = await daemon.status({ port: PORT, run: runPlain }); } catch {}
+  return {
+    version: VERSION, commit: COMMIT, service: { installed, running: st.loaded && st.pid != null, pid: st.pid, self: DAEMON },
+    dataDir, logDir: path.dirname(daemon.logPath(PORT)), update: 'git pull && ./install.sh', uninstall: './install.sh --uninstall',
+  };
+}
+const NO_SERVICE = "The background service isn't installed.";
+/** Restarts the background service, which is this server (it kills it, so the answer goes out first). A server started
+ *  without it (the app's own, or a terminal's) refuses: the service it would restart is not the one this page talks to. */
+async function restartService() {
+  if (!fs.existsSync(daemon.plistPath(PORT))) return { ok: false, error: NO_SERVICE };
+  if (!DAEMON) return { ok: false, error: "This window isn't using the background service." };
+  setTimeout(() => { daemon.restart({ port: PORT, run: runPlain }).catch((e) => console.error('restart:', e?.message ?? e)); }, 200);
+  return { ok: true };
+}
+/** `{ what: 'data'|'logs' }`: shows that folder's file in Finder. */
+async function revealIn(body) {
+  const target = body?.what === 'data' ? [PREFS, dataDir] : body?.what === 'logs' ? [daemon.logPath(PORT), path.dirname(daemon.logPath(PORT))] : null;
+  if (!target) return { ok: false, error: 'Pick data or logs.' };
+  const at = target.find((f) => fs.existsSync(f));
+  if (!at) return { ok: false, error: 'There is nothing there yet.' };
+  const r = await runPlain('open', ['-R', at], { timeout: 10_000 });
+  return r.err ? { ok: false, error: firstLine(r) } : { ok: true };
+}
+// Whether each workspace's profile is signed in to Claude Code (its `setup.claude`), and gh to GitHub: Settings, the
 // sign-in banner and the profile tab show it. Read when the panel starts, when a workspace appears or is shown, every few
-// minutes while a page is open, when a page asks (while the checklist waits on a sign-in, and when you come back to its
+// minutes while a page is open, when a page asks (while Settings is open, and when you come back to its
 // window), and when Claude Code fails with what reads as a login error. Never on the 1 s tick: each read starts a
-// process. gh and the checklist being done are one for all workspaces: one GitHub login, one checklist.
+// process. gh and setup being done are one for all workspaces: one GitHub login, one first run.
 const setup = { github: { state: process.env.ACP_GITHUB === 'off' ? 'off' : 'unknown' }, done: readPrefs().setupDone === true, checkedAt: 0 };
 let setupCheck = null;
 function checkSetup(force) {
@@ -1649,6 +1845,7 @@ function checkSetup(force) {
       : gh ? run(gh, ['auth', 'status', '--hostname', 'github.com'], { env: baseEnv, cwd: path.dirname(PREFS), timeout: 8000 }).then(parseGhAuth) : { state: 'missing' },
   ]).then(([claudes, gh]) => {
     const seen = () => JSON.stringify([list.map((ws) => ws.setup.claude), setup.github]), was = seen();
+    const signedWas = list.map(signedInOf).join(), ghWas = JSON.stringify([setup.github.state, setup.github.login ?? null]);
     list.forEach((ws, i) => {
       // A read that timed out says nothing new: a sign-in already seen stays.
       if (claudes[i].state !== 'unknown' || ws.setup.claude.state === 'unknown') ws.setup.claude = claudes[i];
@@ -1659,6 +1856,7 @@ function checkSetup(force) {
     // Signed in to gh again: the GitHub poller waits five minutes after a signed-out answer, so it looks now instead.
     if (gh.state === 'ok' && github.state().gh === 'signed-out') github.refresh();
     if (seen() !== was) broadcast();
+    if (list.map(signedInOf).join() !== signedWas || JSON.stringify([setup.github.state, setup.github.login ?? null]) !== ghWas) settingsChanged();
   }).finally(() => { setupCheck = null; });
   return setupCheck;
 }
@@ -1674,6 +1872,8 @@ function setupDone(body) {
 }
 /** Terminal, running Claude Code's own sign-in on this profile, or gh's: the panel never sees a password or token. */
 async function openLoginTerminal(body, ctx) {
+  // `ws`: Settings signs in any workspace; without it, the page's own (its sign-in banner).
+  if (body?.ws !== undefined && !(typeof body.ws === 'string' && W.has(body.ws))) return { ok: false, error: 'No such workspace.' };
   if (process.platform !== 'darwin') return { ok: false, error: 'Opening Terminal is macOS only. Run the command shown in a terminal.' };
   const what = body?.what === 'gh' ? 'gh' : 'claude';
   const bin = what === 'gh' ? ghPath() : claudePath();
@@ -1682,7 +1882,7 @@ async function openLoginTerminal(body, ctx) {
   fs.mkdirSync(where, { recursive: true, mode: 0o700 });
   for (const n of fs.readdirSync(where)) try { const f = path.join(where, n); if (Date.now() - fs.statSync(f).mtimeMs > 3_600_000) fs.unlinkSync(f); } catch {}
   const file = path.join(where, `login-${what}-${crypto.randomBytes(4).toString('hex')}.command`);
-  const ws = ctx?.ws ?? shownWs(); // the sign-in banner and checklist on this page are its workspace's
+  const ws = body?.ws !== undefined ? wsById(body.ws) : ctx?.ws ?? shownWs();
   fs.writeFileSync(file, loginScript({ what, bin, configDir: ws.profile.plain ? null : ws.profile.dir, label: profileLabel(ws) }), { mode: 0o700 });
   const r = await run('open', ['-a', 'Terminal', file], { timeout: 10_000, env: baseEnv });
   return r.err ? { ok: false, error: firstLine(r) } : { ok: true };
@@ -1972,7 +2172,9 @@ const slugUsableIn = (slug, wsId) => repoShownIn(slug, wsId) || (!reposIn(slug).
 /** A desktop notification about something in workspaces `ids`: as given when one of them is in focus (or there is only
  *  one workspace), else only the first one's name and a count. In none (a repository nobody sorted, with no session in
  *  it), no name at all. */
-function notifyIn(ids, title, text, { waits = false } = {}) {
+function notifyIn(ids, title, text, { waits = false, kind = null } = {}) {
+  const n = glue().notify; // Settings: a CI failure and the PR watcher each have a switch
+  if ((kind === 'ci' && !n.ci) || (kind === 'watcher' && !n.watcher)) return;
   if (W.size === 1 || ids.includes(store.focus())) return notify(title, text);
   const id = wsOrder().find((w) => ids.includes(w));
   if (!id) return notify('Glue', 'A check failed in a repository that is in no workspace yet.');
@@ -1982,7 +2184,7 @@ function notifyIn(ids, title, text, { waits = false } = {}) {
 /** A CI failure in repository `slug`: told in the workspaces it is sorted into, else those whose sessions work in it. */
 function notifyFor(slug, title, text) {
   const ws = typeof slug === 'string' && slug ? reposIn(slug) : [];
-  return notifyIn(ws.length ? ws : typeof slug === 'string' && slug ? wsWorkingIn(slug) : [], title, text);
+  return notifyIn(ws.length ? ws : typeof slug === 'string' && slug ? wsWorkingIn(slug) : [], title, text, { kind: 'ci' });
 }
 /** The failing log of a run or check the panel shows, trimmed, with the message that would hand it to an agent. */
 async function githubLog(body, ctx) {
@@ -2097,7 +2299,7 @@ function overseerOf(id) {
   if (o) return o;
   const ws = () => wsById(id), key = overseerId(ws().profile), file = path.join(dataDir, `overseer-${id}.json`);
   let seed = null;
-  try { if (!fs.existsSync(file)) seed = migrateFrom(OLD_OVERSEER, key); } catch {}
+  try { if (!fs.existsSync(file)) seed = migrateFrom(OLD_OVERSEER, key) ?? { model: glue().overseerModel }; } catch {} // else: Glue's default model
   o = createOverseer({
     file, profile: key, seed,
     ask: (args, opts) => askModel(args, { ...opts, env: envOf(ws()) }), board: () => overseerBoard(id), github: () => githubFor(id),
@@ -2152,7 +2354,7 @@ const watcher = createWatcher({
   // that a card waits for you) there.
   failedLog: (q) => github.failedLog(q), notify: (title, text, about) => {
     const w = typeof about?.sessionId === 'string' ? wsIdOfSession(about.sessionId) : null;
-    notifyIn(w ? [w] : typeof about?.slug === 'string' ? reposIn(about.slug) : [], title, text, { waits: about?.waits === true });
+    notifyIn(w ? [w] : typeof about?.slug === 'string' ? reposIn(about.slug) : [], title, text, { waits: about?.waits === true, kind: 'watcher' });
   }, note: (type, f) => overseerOfSession(f?.sessionId)?.note(type, f), onChange: () => broadcast(),
 });
 watcherCheck = () => { watcher.check().catch((e) => console.error('watcher:', e?.message ?? e)); };
@@ -2171,7 +2373,7 @@ const OVERSEER = {
   '/api/overseer/feed': withOverseer((o, b) => o.feed({ after: Number(b?.after) || 0 })),
   '/api/overseer/act': withOverseer((o, b) => o.act({ turnId: b?.turnId, actionId: b?.actionId, decision: b?.decision, edit: b?.edit })),
   '/api/overseer/stop': withOverseer((o) => o.stop()),
-  '/api/overseer/model': withOverseer((o, b) => o.setModel(b?.model)),
+  '/api/overseer/model': withOverseer((o, b) => nudgeIfOk(o.setModel(b?.model))),
   '/api/overseer/clear': withOverseer((o) => o.clear()),
 };
 
@@ -2309,6 +2511,7 @@ function broadcast(event) {
     queued = false;
     const evs = events, frames = new Map();
     events = [];
+    try { noteRepos(); } catch {}
     for (const [res, client] of clients) {
       const wsId = focusOf(client);
       if (!frames.has(wsId)) frames.set(wsId, `data: ${JSON.stringify({ ...snapshot(wsId), events: evs.filter((e) => e.ws == null || e.ws === wsId).map(({ ws, ...e }) => e) })}\n\n`);
@@ -2421,6 +2624,18 @@ async function handle(req, res) {
     return send(res, 200, { ok: true, workspaces: store.list(), assigned: store.assigned().filter((a) => a.ws.includes(focus)) });
   }
 
+  // Settings: the one route that tells a page more of the other workspaces than their name, colour and waiting count
+  // (settingsFor says exactly what). Fetched when the dialog opens and after each `settings` event; never in a frame.
+  if (req.method === 'GET' && url.pathname === '/api/settings') {
+    if (req.headers['x-acp-token'] !== TOKEN) return send(res, 403, { error: 'forbidden' });
+    return send(res, 200, settingsFor(focusOf(hdrClient), await aboutInfo()));
+  }
+  // The Glue-wide prefs, which every page applies (the theme, folded queues, the title count).
+  if (req.method === 'GET' && url.pathname === '/api/glue') {
+    if (req.headers['x-acp-token'] !== TOKEN) return send(res, 403, { error: 'forbidden' });
+    return send(res, 200, { ok: true, glue: glue() });
+  }
+
   // The repositories GitHub found that no workspace holds, by name: the one place they are named, because the page is
   // asking where they belong. A repository that any workspace holds is never listed (that would be its repository to
   // show), nor one that only another workspace's sessions work in (that would tell what they work on). With one
@@ -2459,14 +2674,17 @@ async function handle(req, res) {
     const ACTIONS = { '/api/end': end, '/api/remove': remove, '/api/reply': reply, '/api/unqueue': unqueue, '/api/mode': switchMode,
                       '/api/folders': listFolders, '/api/folder': folderInfo, '/api/pick-folder': pickFolder,
                       '/api/workspace/focus': focusWorkspace, '/api/workspace/assign': assignRepo, '/api/workspace/update': updateWorkspace,
-                      // Only the profile the page shows: another workspace's settings are not this page's to change.
-                      '/api/profile/connect': (b, c) => (b?.id === c.focus ? connectProfile(b) : { ok: false, error: REFUSE }),
+                      '/api/workspace/reorder': reorderWorkspaces, '/api/settings/assign': settingsAssign,
+                      '/api/glue/seed': seedGlue, '/api/settings/glue': patchGlue,
+                      // Any workspace's: Settings' Logins tab connects each of them.
+                      '/api/profile/connect': (b) => (typeof b?.id === 'string' && W.has(b.id) ? connectProfile(b) : { ok: false, error: 'No such workspace.' }),
                       '/api/answer-open': answerOpen, '/api/history': history, '/api/follow': followSession,
                       '/api/trust-terminal': openTrustTerminal,
                       '/api/setup/check': setupCheckNow, '/api/setup/done': setupDone, '/api/setup/login': openLoginTerminal,
                       '/api/github/refresh': (b, c) => { github.refresh(); return { ok: true, github: githubFor(c.focus) }; },
                       '/api/github/log': githubLog, '/api/github/hand': githubHand, ...OVERSEER,
-                      '/api/watcher/enabled': (b, c) => watcher.setEnabled(b?.on, c.focus),
+                      '/api/watcher/enabled': (b, c) => nudgeIfOk(watcher.setEnabled(b?.on, c.focus)),
+                      '/api/settings/restart': restartService, '/api/settings/reveal': revealIn,
                       '/api/term/open': termOpen, '/api/term/input': termInput, '/api/term/resize': termResize, '/api/term/close': termClose };
     if (Object.hasOwn(ACTIONS, url.pathname)) {
       let r;
@@ -2511,7 +2729,7 @@ server.listen(PORT, '127.0.0.1', () => {
   // Each workspace's overseer, here and not at load (its state is declared further down): a missing file is seeded now.
   for (const id of W.keys()) overseerOf(id);
   serverUp = true;
-  checkSetup(true); // the checklist, and later the sign-in banner, say what it finds
+  checkSetup(true); // Settings, and later the sign-in banner, say what it finds
   pollAll().then(() => { if (looking()) checkVersions(); });
   setRosterPace(looking());
   setInterval(() => { if (looking()) checkVersions(); }, VERSIONS_MS);

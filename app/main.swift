@@ -77,7 +77,7 @@ final class Panel: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
       WKUserScript(source: notificationShim(permission), injectionTime: .atDocumentStart, forMainFrameOnly: true))
     // Tells the page it runs in the app, whose menu has shortcuts a browser keeps for itself (⌘T opens a tab there).
     config.userContentController.addUserScript(
-      WKUserScript(source: "window.glueApp = { newAgent: '⌘T' };", injectionTime: .atDocumentStart, forMainFrameOnly: true))
+      WKUserScript(source: "window.glueApp = { newAgent: '⌘T', settings: '⌘,' };", injectionTime: .atDocumentStart, forMainFrameOnly: true))
     config.userContentController.add(self, name: "notify")
     config.userContentController.add(self, name: "theme")
     config.userContentController.addScriptMessageHandler(self, contentWorld: .page, name: "notifyPermission")
@@ -331,6 +331,10 @@ final class Panel: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
     window.makeKeyAndOrderFront(nil)
     web.evaluateJavaScript("document.dispatchEvent(new CustomEvent('glue:new-agent'))")
   }
+  @objc func openSettings(_ sender: Any?) {
+    window.makeKeyAndOrderFront(nil)
+    web.evaluateJavaScript("document.dispatchEvent(new CustomEvent('glue:settings'))")
+  }
   @objc func showPanel(_ sender: Any?) { window.makeKeyAndOrderFront(nil) }
   @objc func zoomIn(_ sender: Any?) { setZoom(web.pageZoom + 0.1) }
   @objc func zoomOut(_ sender: Any?) { setZoom(web.pageZoom - 0.1) }
@@ -356,6 +360,7 @@ final class Panel: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
     }
     _ = menu("Glue", [
       item("About Glue", #selector(NSApplication.orderFrontStandardAboutPanel(_:))), .separator(),
+      item("Settings…", #selector(openSettings(_:)), ","), .separator(),
       item("Hide Glue", #selector(NSApplication.hide(_:)), "h"),
       item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
       item("Show All", #selector(NSApplication.unhideAllApplications(_:))), .separator(),
