@@ -74,7 +74,8 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .counts { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--fg-dim); }
 .counts b { font: 500 12.5px var(--mono); color: var(--fg); margin-right: 5px; }
 .counts .hot, .counts .hot b { color: var(--amber); }
-.paused { color: var(--amber); font-size: 12.5px; font-weight: 550; }
+.paused { padding: 0; border: 0; background: none; color: var(--amber); font: inherit; font-size: 12.5px; font-weight: 550; cursor: pointer; }
+.paused:hover { text-decoration: underline; text-underline-offset: 2px; }
 .switch { position: relative; display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--fg-dim); cursor: pointer; user-select: none; }
 .switch input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
 .switch i { position: relative; width: 28px; height: 16px; border-radius: var(--r-pill); background: var(--fill-strong); transition: background .15s; }
@@ -850,7 +851,6 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 .tour-card p { margin: 0; color: var(--fg-dim); font-size: 13px; line-height: 1.55; }
 .tour-foot { display: flex; align-items: center; gap: 6px; margin-top: 14px; }
 .tour-n { margin-right: auto; color: var(--fg-faint); font-size: 12px; font-variant-numeric: tabular-nums; }
-.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 #h-next:empty { display: none; }
 #h-next { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 24px; padding: 12px 16px; border-radius: var(--r-2); background: var(--amber-fill); color: var(--amber); font-size: 13px; font-weight: 550; }
 #h-next .btn { background: var(--amber-dim); color: var(--amber); }
@@ -944,7 +944,7 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
   <span class="live down" id="conn">Connecting</span>
   <div class="counts" id="counts"></div>
   <span class="grow"></span>
-  <span class="paused" id="paused" hidden>Paused: the terminal answers everything</span>
+  <button class="paused" type="button" id="paused" title="Settings › Glue › Answering & alerts" hidden>Paused: the terminal answers everything</button>
   <div class="gh-wrap" id="gh-wrap" hidden>
     <button class="btn gh-btn" type="button" id="gh-btn" aria-expanded="false" aria-controls="gh-pop"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="18" r="2.2"/><path d="M6 8.2v7.6M18 15.8V10a3 3 0 0 0-3-3h-4"/><path d="M13 4.6 10.6 7 13 9.4"/></svg>GitHub<span class="gh-n" id="gh-n" hidden></span></button>
   </div>
@@ -1247,8 +1247,10 @@ const shortTool = (t) => t.startsWith('mcp__') ? t.split('__').pop() : t;
 const toolLine = (t) => el('div', { class: 'tool-line', title: `${t.tool}: ${t.text}` }, el('span', { class: 't', text: shortTool(t.tool) }), el('span', { class: 'what', text: t.text }));
 function toast(text, bad) {
   const t = el('div', { class: 'toast' + (bad ? ' bad' : ''), text });
-  // Over an open dialog (Settings, the launcher) the toasts go into it: the page under its backdrop can't be seen.
-  const box = $('toasts'), host = document.querySelector('dialog[open]') ?? document.body;
+  // Over an open dialog (Settings, the launcher) the toasts go into it: the page under its backdrop can't be seen. Over
+  // two, into the top one: the one holding focus (the last opened), else the last in the page.
+  const box = $('toasts');
+  const host = document.activeElement?.closest?.('dialog[open]') ?? [...document.querySelectorAll('dialog[open]')].at(-1) ?? document.body;
   if (box.parentNode !== host) host.append(box);
   box.append(t);
   setTimeout(() => t.remove(), bad ? 6000 : 4000);
@@ -1456,14 +1458,34 @@ async function bulk(list, act, done) {
 // ---------- the board: tiles are kept and updated in place, so a click never lands on a rebuilt one ----------
 const setText = (n, v) => { if (n.textContent !== v) n.textContent = v; };
 const setAttr = (n, k, v) => { if (n.getAttribute(k) !== v) n.setAttribute(k, v); };
-// Which queues are folded: Glue's `folded`, the same in every page. This browser keeps a copy to draw from until the
-// server's arrives. Needs you never folds.
-const FOLD_KEY = 'acp.folded';
-const folded = new Set((() => { try { const v = JSON.parse(localStorage.getItem(FOLD_KEY)); if (Array.isArray(v)) return v; } catch {} return ['finished']; })());
-const foldList = () => [...folded].filter((k) => typeof k === 'string' && k.length <= 100).slice(-50); // what Glue keeps
+// Which queues are folded. Other folders and Finished: Glue's `folded`, the same in every page; this browser keeps a
+// copy to draw from until the server's arrives. A repository's section: this page's own, kept in this browser per
+// workspace and never sent (Glue's prefs reach every page, and a repository's name must not reach another workspace's).
+// Needs you never folds.
+const FOLD_KEY = 'acp.folded', FOLDABLE = ['loose', 'finished'];
+const folded = new Set((() => { try { const v = JSON.parse(localStorage.getItem(FOLD_KEY)); if (Array.isArray(v)) return v.filter((k) => FOLDABLE.includes(k)); } catch {} return ['finished']; })());
+const foldList = () => FOLDABLE.filter((k) => folded.has(k)); // what Glue keeps
+const repoFoldKey = () => 'acp.foldedRepos.' + (snap?.workspace?.id ?? 'default');
+let repoFolds = null, repoFoldsAt = null; // the repository folds of the workspace in view, read when it changes
+function repoFolded() {
+  const at = repoFoldKey();
+  if (at !== repoFoldsAt) {
+    repoFoldsAt = at;
+    repoFolds = new Set((() => { try { const v = JSON.parse(localStorage.getItem(at)); if (Array.isArray(v)) return v.filter((k) => typeof k === 'string' && k.startsWith('repo:')); } catch {} return []; })());
+  }
+  return repoFolds;
+}
+const isFolded = (k) => (k.startsWith('repo:') ? repoFolded().has(k) : folded.has(k));
 function toggleFold(k) {
+  if (k.startsWith('repo:')) {
+    const set = repoFolded();
+    set.has(k) ? set.delete(k) : set.add(k);
+    try { localStorage.setItem(repoFoldKey(), JSON.stringify([...set].slice(-200))); } catch {}
+    render();
+    return;
+  }
   folded.has(k) ? folded.delete(k) : folded.add(k);
-  try { localStorage.setItem(FOLD_KEY, JSON.stringify([...folded])); } catch {}
+  try { localStorage.setItem(FOLD_KEY, JSON.stringify(foldList())); } catch {}
   render();
   writeGlue({ folded: foldList() }).then((r) => { if (!r.ok) toast(r.error || 'The fold did not save.', true); });
 }
@@ -1548,7 +1570,7 @@ railFind.onkeydown = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.st
 function railRows() {
   const rows = [];
   for (const c of shownSecs) {
-    if (c.kind !== 'waiting' && folded.has(c.key)) continue;
+    if (c.kind !== 'waiting' && isFolded(c.key)) continue;
     for (const w of c.body.children) {
       const s = w.dataset?.sid && sessionOf(w.dataset.sid);
       if (!s) continue;
@@ -1815,7 +1837,7 @@ function renderBoard(g, vis) {
     c.asks.hidden = !sec.asks;
     if (sec.asks) setText(c.asks, `${sec.asks} need${sec.asks === 1 ? 's' : ''} you`);
     if (c.peek) {
-      const shut = folded.has(sec.key);
+      const shut = isFolded(sec.key);
       c.sec.classList.toggle('folded', shut);
       setAttr(c.head, 'aria-expanded', String(!shut));
       setText(c.peek, rows[0] ? label(rows[0]) : '');
@@ -3277,7 +3299,8 @@ if (appInfo?.newAgent) {
   $('new-agent').append(el('kbd', { text: appInfo.newAgent }));
   setAttr($('new-agent'), 'title', `New agent (${appInfo.newAgent})`);
 }
-for (const ev of ['glue:new-agent', 'agent-panel:new-agent']) document.addEventListener(ev, () => { if (dlg.open) $('l-prompt').focus(); else openLauncher(); });
+// Not over another dialog (Settings open, say): it waits until that one is closed.
+for (const ev of ['glue:new-agent', 'agent-panel:new-agent']) document.addEventListener(ev, () => { if (dlg.open) $('l-prompt').focus(); else if (!modalOpen()) openLauncher(); });
 // Effort: Default leaves it to the profile's own default (its effortLevel), and launches without --effort.
 const EFFORT_STOPS = [['', 'Default'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['xhigh', 'Extra high'], ['max', 'Max']];
 const MODE_SAY = { default: 'Asks you before each tool that needs permission.', acceptEdits: 'Edits files without asking; asks for the rest.',
@@ -3825,9 +3848,9 @@ function applyGlue(g) {
   glue = g;
   if (g.theme !== theme) { theme = g.theme; applyTheme(); }
   try { localStorage.setItem('acp.theme', theme); } catch {}
-  folded.clear();
-  for (const k of g.folded) folded.add(k);
-  try { localStorage.setItem(FOLD_KEY, JSON.stringify(g.folded)); } catch {}
+  folded.clear(); // the fixed queues only: a repository's fold is this page's own (repoFolded)
+  for (const k of g.folded) if (FOLDABLE.includes(k)) folded.add(k);
+  try { localStorage.setItem(FOLD_KEY, JSON.stringify(foldList())); } catch {}
   render();
 }
 /** Changes Glue's prefs (`patch`: only what changes). While two are on their way, the first's answer is not drawn. */
@@ -3837,10 +3860,14 @@ async function writeGlue(change) {
   const r = await api('/api/settings/glue', { patch: change });
   glueWrites--;
   if (glueWrites) return r;
-  if (r.ok && !glueStale) applyGlue(r.glue);
-  else { glueStale = false; loadGlue(); } // refused (what this page drew goes back), or nudged meanwhile
+  // Not seeded yet (a change made before the first fetch was answered): what the server holds is still its defaults,
+  // and drawing them would overwrite what this browser remembered before the seed reads it. Fetching seeds first.
+  if (r.ok && !glueStale && r.glue.seeded !== false) applyGlue(r.glue);
+  else { glueStale = false; loadGlue(); } // refused (what this page drew goes back), nudged meanwhile, or not seeded
   return r;
 }
+// Paused: the switch that turns answering back on is in Settings › Glue › Answering & alerts.
+$('paused').onclick = () => { if (!tour) openSettings('glue', 'alerts'); };
 $('pb-connect').onclick = () => connectThisProfile($('pb-connect'));
 $('ab-login').onclick = () => openLogin('claude', $('ab-login'));
 $('ab-copy').onclick = () => snap?.setup && copyCmd(snap.setup.loginCommand);
@@ -3884,9 +3911,12 @@ let setRestartTimer = null;
 const setRows = new Map(); // workspace id → its row, kept across redraws so a name being typed survives a refetch
 $('set-tabs').append(...SET_TABS.map((t) => el('button', { class: 'set-tab', type: 'button', role: 'tab', id: 'set-tab-' + t.id, 'aria-controls': 'set-panel',
   text: t.name, onclick: () => showSetTab(t.id) })));
-/** Opens Settings (on `tab`, else the one it showed last), or moves an open one to `tab`. */
-function openSettings(tab) {
+let setScrollTo = null;     // a group of the Glue tab to scroll to once it is drawn with its data (`alerts`)
+/** Opens Settings (on `tab`, else the one it showed last), or moves an open one to `tab`; on the Glue tab, scrolled to
+ *  `group` when one is given. */
+function openSettings(tab, group = null) {
   if (SET_TABS.some((t) => t.id === tab)) setTab = tab;
+  setScrollTo = group;
   if (setDlg.open) { showSetTab(setTab); return; }
   setBack = document.activeElement;
   setData = null; setMoving = null; setAskedFor = null; setRestart = null;
@@ -3905,7 +3935,7 @@ function showSetTab(id) {
   $('set-tab-' + id).focus();
 }
 setDlg.addEventListener('close', () => {
-  setData = null; setSeq++; setMoving = null; setRows.clear(); setAskedFor = null; setRestart = null; clearTimeout(setRestartTimer);
+  setData = null; setSeq++; setMoving = null; setRows.clear(); setAskedFor = null; setRestart = null; setScrollTo = null; clearTimeout(setRestartTimer);
   const panel = $('set-panel');
   panel.replaceChildren(); panel._tab = null;
   if (setBack?.isConnected) setBack.focus({ preventScroll: true });
@@ -3930,8 +3960,8 @@ document.addEventListener('keydown', (e) => {
   e.preventDefault();
   openSettings();
 });
-// The app's Glue › Settings… (⌘,).
-document.addEventListener('glue:settings', () => { if (!tour) openSettings(); });
+// The app's Glue › Settings… (⌘,): not during the tour, nor over another dialog (an open Settings stays as it is).
+document.addEventListener('glue:settings', () => { if (!tour && !modalOpen()) openSettings(); });
 async function loadSettings() {
   const seq = ++setSeq;
   let r = null;
@@ -4293,12 +4323,13 @@ function setGlueTab(panel) {
   const several = setData.workspaces.length > 1;
   $('set-g-repos').hidden = !several;
   if (several) setGlueRepos(box('repos'));
+  if (setScrollTo) { $('set-g-' + setScrollTo)?.scrollIntoView({ block: 'start' }); setScrollTo = null; }
 }
 function setGlueLook(box, g) {
   const app = window.glueApp;
   const keys = [[['↑', '↓'], 'Move through the sessions in the rail'], [['→', '←'], 'Open or close a session’s subagents'], [['n'], 'The next session that needs you'],
     [['/'], 'Find a session by name'], [['⌃1–9'], 'Show that workspace'], [[','], 'Open Settings'], [['Esc'], 'Close what is open'],
-    ...(app ? [[[app.newAgent ?? '⌘T'], 'Start a new agent'], [[app.settings ?? '⌘,'], 'Open Settings, from the Glue menu']] : [])];
+    ...(app ? [[[app.newAgent ?? '⌘T'], 'Start a new agent']] : []), ...(app?.settings ? [[[app.settings], 'Open Settings, from the Glue menu']] : [])];
   const fold = (k) => g.folded.includes(k);
   setPatch(box, JSON.stringify([g.theme, fold('loose'), fold('finished'), Boolean(app)]), () => [
     setOpt('Theme', 'Dark, Light, or the Mac’s own appearance, as it changes.',
@@ -4356,7 +4387,9 @@ function setGlueAgents(box, g) {
 function setGlueAbout(box, ab) {
   const sv = ab.service ?? {};
   const service = !sv.installed ? 'Not installed: Glue runs while the app or a terminal runs it.' : sv.running ? `Running${sv.pid ? `, process ${sv.pid}` : ''}.` : 'Installed, not running.';
-  const restart = el('button', { class: 'btn small', type: 'button', 'data-f': 'restart', disabled: setRestart === 'busy', text: setRestart === 'busy' ? 'Restarting…' : 'Restart', onclick: setRestartNow });
+  // Restart only where it restarts what this page talks to: a server started without the service (the app's own, or a
+  // terminal's) would restart another one.
+  const restart = sv.installed && sv.self ? el('button', { class: 'btn small', type: 'button', 'data-f': 'restart', disabled: setRestart === 'busy', text: setRestart === 'busy' ? 'Restarting…' : 'Restart', onclick: setRestartNow }) : null;
   const folder = (what, label, dir) => setOpt(label, el('code', { text: tilde(dir ?? '') }),
     el('button', { class: 'btn small', type: 'button', text: 'Show in Finder', 'data-f': 'reveal-' + what, onclick: (e) => setReveal(what, e.currentTarget) }));
   const kick = `launchctl kickstart -k gui/$UID/${svcLabel()}`;

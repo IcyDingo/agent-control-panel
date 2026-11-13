@@ -260,11 +260,14 @@ test('glue prefs: seed once, then patch', async () => {
   assert.equal(g.glue.seeded, false);
   assert.equal(g.glue.theme, 'dark');
   const a = A.raw.length;
-  const s = await api('/api/glue/seed', { theme: 'light' }, A.client);
+  // Page B seeds what its browser remembered, a repository section's fold among it: only the fixed queues are kept.
+  const s = await api('/api/glue/seed', { theme: 'light', folded: ['repo:secret', 'finished'] }, B.client);
   assert.equal(s.ok, true, JSON.stringify(s));
   assert.equal(s.glue.theme, 'light');
   assert.equal(s.glue.seeded, true);
+  assert.deepEqual(s.glue.folded, ['finished']);
   assert.ok(await until(() => A.raw.slice(a).includes(SETTINGS_EVENT)), 'a seed nudges');
+  assert.doesNotMatch(JSON.stringify(await get('/api/glue', A.client)), /repo:/, 'page A never reads the seeded repository fold');
   const again = await api('/api/glue/seed', { theme: 'dark' }, A.client);
   assert.equal(again.ok, false, JSON.stringify(again));
   assert.equal((await get('/api/glue', A.client)).glue.theme, 'light');
@@ -272,6 +275,20 @@ test('glue prefs: seed once, then patch', async () => {
   assert.equal(p.ok, true, JSON.stringify(p));
   assert.equal(p.glue.theme, 'system');
   assert.equal((await get('/api/settings', A.client)).glue.theme, 'system');
+  // Page B folds a repository section and Other folders: the repository's name is dropped, Other folders kept.
+  const mixed = await api('/api/settings/glue', { patch: { folded: ['repo:secret', 'loose'] } }, B.client);
+  assert.equal(mixed.ok, true, JSON.stringify(mixed));
+  assert.deepEqual(mixed.glue.folded, ['loose']);
+  const only = await api('/api/settings/glue', { patch: { folded: ['repo:secret'] } }, B.client);
+  assert.equal(only.ok, false, JSON.stringify(only));
+  assert.equal(only.error, 'folded can name only loose and finished.');
+  const readA = await get('/api/glue', A.client);
+  assert.deepEqual(readA.glue.folded, ['loose']);
+  assert.doesNotMatch(JSON.stringify(readA), /repo:/, 'page A never reads a repository fold');
+  assert.doesNotMatch(JSON.stringify(await get('/api/settings', A.client)).replace(/"repos":\[.*?\]/s, ''), /repo:secret/);
+  assert.doesNotMatch(fs.readFileSync(prefs, 'utf8'), /repo:/, 'nor is one kept');
+  assert.doesNotMatch(A.raw, /repo:secret/, 'nor sent in a frame');
+  assert.equal((await api('/api/settings/glue', { patch: { folded: ['finished'] } }, B.client)).ok, true);
   const bad = await api('/api/settings/glue', { patch: { armed: false } }, A.client);
   assert.equal(bad.ok, false);
   assert.equal(bad.error, 'armed is not a Glue setting.');
@@ -290,7 +307,7 @@ test('about: the version, the commit, the folders and the service (none installe
   assert.equal(r.about.version, pkg.version);
   assert.equal(r.about.dataDir, path.dirname(prefs), 'the prefs folder');
   assert.equal(r.about.logDir, path.join(home, 'Library', 'Logs', 'Glue'));
-  assert.deepEqual(r.about.service, { installed: false, running: false, pid: null });
+  assert.deepEqual(r.about.service, { installed: false, running: false, pid: null, self: false });
   assert.equal(r.about.update, 'git pull && ./install.sh');
   assert.equal(r.about.uninstall, './install.sh --uninstall');
   // The short sha, read from the .git files (this checkout may be a linked worktree), as git itself says.
@@ -300,20 +317,23 @@ test('about: the version, the commit, the folders and the service (none installe
   assert.ok(calledOf(home, 'launchctl').every((a) => a[0] === 'print'), 'only asked launchd about the service');
 });
 
-test('restart is refused without an installed service, and kicks it when there is one', async () => {
+test('restart is refused without an installed service, and by a server that is not the service', async () => {
   const none = await api('/api/settings/restart', {}, A.client);
   assert.equal(none.ok, false);
   assert.equal(none.error, "The background service isn't installed.");
-  assert.equal(calledOf(home, 'launchctl').some((a) => a[0] === 'kickstart'), false, 'nothing was kicked');
   const plist = path.join(home, 'Library', 'LaunchAgents', `local.glue.${PORT}.plist`);
   fs.mkdirSync(path.dirname(plist), { recursive: true });
   fs.writeFileSync(plist, '<plist/>');
   try {
-    assert.equal((await get('/api/settings', A.client)).about.service.installed, true, 'installed is the plist');
-    assert.deepEqual(await api('/api/settings/restart', {}, A.client), { status: 200, ok: true });
-    const kick = await until(() => calledOf(home, 'launchctl').find((a) => a[0] === 'kickstart'));
-    assert.deepEqual(kick, ['kickstart', '-k', `gui/${process.getuid()}/local.glue.${PORT}`]);
+    // Installed, but this server was started without it (the app's own, or a terminal's): the page shows no Restart.
+    const sv = (await get('/api/settings', A.client)).about.service;
+    assert.equal(sv.installed, true, 'installed is the plist');
+    assert.equal(sv.self, false, 'this server is not the service');
+    const other = await api('/api/settings/restart', {}, A.client);
+    assert.equal(other.ok, false);
+    assert.equal(other.error, "This window isn't using the background service.");
   } finally { fs.rmSync(plist, { force: true }); }
+  assert.equal(calledOf(home, 'launchctl').some((a) => a[0] === 'kickstart'), false, 'nothing was kicked');
 });
 
 test('reveal shows the data or the logs in Finder', async () => {
@@ -392,7 +412,7 @@ test('a session that first works in a new repository nudges once, not on every t
 let nextPort = 48200 + Math.floor(Math.random() * 600);
 /** A throwaway home with one profile (a single workspace) and stand-ins on PATH, started on a spare port. `gh` adds a
  *  stand-in GitHub CLI that reports the pull requests in `open.json`. */
-function solo({ gh = false } = {}) {
+function solo({ gh = false, daemon = false } = {}) {
   const h = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-solo-'));
   const dir = path.join(h, 'code', 'p');
   fs.mkdirSync(path.join(dir, '.git'), { recursive: true });
@@ -436,7 +456,7 @@ process.exit(1);
   fs.writeFileSync(prefsFile, JSON.stringify({ profile: 'default', setupDone: true }));
   return { home: h, dir, bin: b, prefs: prefsFile, running: null, async start() {
     const port = nextPort++, base = `http://127.0.0.1:${port}`;
-    const e = { ...env, HOME: h, PATH: `${b}:${env.PATH}`, ACP_PORT: String(port), ACP_PREFS: prefsFile, ...(gh ? {} : { ACP_GITHUB: 'off' }) };
+    const e = { ...env, HOME: h, PATH: `${b}:${env.PATH}`, ACP_PORT: String(port), ACP_PREFS: prefsFile, ...(gh ? {} : { ACP_GITHUB: 'off' }), ...(daemon ? { ACP_DAEMON: '1' } : {}) };
     const proc = spawn(process.execPath, [SERVER], { env: e, stdio: ['ignore', 'pipe', 'pipe'] });
     process.on('exit', () => { try { proc.kill(); } catch {} });
     const s = { port, base, proc, log: '', pages: [] };
@@ -505,6 +525,45 @@ test('the notification toggles silence their events', { skip: process.platform !
     const told = await until(() => calledOf(s.home, 'osascript').find((a) => a.at(-2) === 'Glue · CI failed'), 20_000);
     assert.ok(told, 'it logs as before: ' + JSON.stringify(calledOf(s.home, 'osascript')) + srv.log);
     assert.match(told.at(-1), /#4/);
+  } finally { await s.done(); }
+});
+
+test('the service restarts itself from Settings', async () => {
+  const s = solo({ daemon: true });
+  try {
+    const srv = await s.start();
+    const plist = path.join(s.home, 'Library', 'LaunchAgents', `local.glue.${srv.port}.plist`);
+    fs.mkdirSync(path.dirname(plist), { recursive: true });
+    fs.writeFileSync(plist, '<plist/>');
+    const about = (await (await fetch(srv.base + '/api/settings', { headers: { 'x-acp-token': srv.token, 'x-acp-client': 'solo-page' } })).json()).about;
+    assert.equal(about.service.installed, true);
+    assert.equal(about.service.self, true, 'this server is the service');
+    assert.deepEqual(await srv.api('/api/settings/restart', {}), { status: 200, ok: true });
+    const kick = await until(() => calledOf(s.home, 'launchctl').find((a) => a[0] === 'kickstart'));
+    assert.deepEqual(kick, ['kickstart', '-k', `gui/${process.getuid()}/local.glue.${srv.port}`]);
+  } finally { await s.done(); }
+});
+
+test('the PR watcher toggle silences its notifications', { skip: process.platform !== 'darwin' && 'notifications are macOS only' }, async () => {
+  const s = solo({ gh: true });
+  try {
+    const srv = await s.start();
+    // CI alerts off throughout, so what notifies is the watcher alone; the watcher on (as it starts), its alerts off.
+    assert.equal((await srv.api('/api/settings/glue', { patch: { notify: { ci: false, watcher: false } } })).ok, true);
+    const page = srv.page();
+    assert.ok(await until(() => page.latest()?.github?.repos?.some((r) => r.prs?.length), 20_000), 'GitHub was polled: ' + srv.log);
+    const acted = () => { try { return JSON.parse(fs.readFileSync(path.join(s.home, 'panel', 'watcher.json'), 'utf8')).last ?? {}; } catch { return {}; } };
+    assert.ok(await until(() => acted()['o/p#3'], 20_000), 'the watcher acted on #3: ' + JSON.stringify(acted()) + srv.log);
+    await pause(1500);
+    assert.deepEqual(calledOf(s.home, 'osascript'), [], 'nothing is logged with watcher alerts off');
+    // On again, and a new pull request to act on.
+    assert.equal((await srv.api('/api/settings/glue', { patch: { notify: { watcher: true } } })).ok, true);
+    fs.writeFileSync(path.join(s.home, 'open.json'), '[3, 4]');
+    assert.equal((await srv.api('/api/github/refresh')).ok, true);
+    const told = await until(() => calledOf(s.home, 'osascript').find((a) => /^Glue · (fix|PR)/.test(a.at(-2) ?? '')), 20_000);
+    assert.ok(told, 'the watcher notifies: ' + JSON.stringify(calledOf(s.home, 'osascript')) + srv.log);
+    assert.match(told.at(-1), /#4/);
+    assert.equal(calledOf(s.home, 'osascript').some((a) => a.at(-2) === 'Glue · CI failed'), false, 'not the CI alert');
   } finally { await s.done(); }
 });
 

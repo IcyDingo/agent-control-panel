@@ -1799,20 +1799,23 @@ function shortCommit() {
 const VERSION = (() => { try { return JSON.parse(fs.readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version ?? null; } catch { return null; } })();
 const COMMIT = shortCommit();
 /** About & maintenance: what is running, whether the background service is installed and running (launchd is asked
- *  even when this server isn't the service, so the app's own server can show the installed one), and where the files are. */
+ *  even when this server isn't the service, so the app's own server can show the installed one), whether this server is
+ *  the service (`self`: only then does Restart restart what the page talks to), and where the files are. */
 async function aboutInfo() {
   const installed = fs.existsSync(daemon.plistPath(PORT));
   let st = { loaded: false, pid: null };
   try { st = await daemon.status({ port: PORT, run: runPlain }); } catch {}
   return {
-    version: VERSION, commit: COMMIT, service: { installed, running: st.loaded && st.pid != null, pid: st.pid },
+    version: VERSION, commit: COMMIT, service: { installed, running: st.loaded && st.pid != null, pid: st.pid, self: DAEMON },
     dataDir, logDir: path.dirname(daemon.logPath(PORT)), update: 'git pull && ./install.sh', uninstall: './install.sh --uninstall',
   };
 }
 const NO_SERVICE = "The background service isn't installed.";
-/** Restarts the background service. It kills this server when this is the service, so the answer goes out first. */
+/** Restarts the background service, which is this server (it kills it, so the answer goes out first). A server started
+ *  without it (the app's own, or a terminal's) refuses: the service it would restart is not the one this page talks to. */
 async function restartService() {
   if (!fs.existsSync(daemon.plistPath(PORT))) return { ok: false, error: NO_SERVICE };
+  if (!DAEMON) return { ok: false, error: "This window isn't using the background service." };
   setTimeout(() => { daemon.restart({ port: PORT, run: runPlain }).catch((e) => console.error('restart:', e?.message ?? e)); }, 200);
   return { ok: true };
 }

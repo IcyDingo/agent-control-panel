@@ -27,10 +27,12 @@ test('the defaults match the page and the server', () => {
     titleCount: true, agentDefaults: { model: '', effort: '', mode: 'default', worktree: false }, overseerModel: 'sonnet', seeded: false });
 });
 
-test('sanitize bounds folded and checks each agent default', () => {
+test('sanitize keeps only the fixed queues in folded and checks each agent default', () => {
+  // A repository section's fold names the repository, which another workspace's page must not read: never kept.
   const many = Array.from({ length: 80 }, (_, i) => `repo:r${i}`);
-  assert.equal(sanitizeGlue({ folded: many }).folded.length, 50);
-  assert.deepEqual(sanitizeGlue({ folded: ['finished', 7, 'x'.repeat(101), 'loose', 'loose'] }).folded, ['finished', 'loose']);
+  assert.deepEqual(sanitizeGlue({ folded: many }).folded, []);
+  assert.deepEqual(sanitizeGlue({ folded: ['repo:secret', 'finished', 'repo:o/x'] }).folded, ['finished']);
+  assert.deepEqual(sanitizeGlue({ folded: ['finished', 7, 'x'.repeat(101), 'loose', 'loose', 'idle', 'waiting'] }).folded, ['finished', 'loose']);
   assert.deepEqual(sanitizeGlue({ folded: [] }).folded, []);
   const a = sanitizeGlue({ agentDefaults: { model: 'opus[1m]', effort: 'max', mode: 'plan', worktree: true } }).agentDefaults;
   assert.deepEqual(a, { model: 'opus[1m]', effort: 'max', mode: 'plan', worktree: true });
@@ -77,17 +79,30 @@ test('merge accepts a valid patch and refuses a bad one', () => {
   assert.equal(mergeGlue(GLUE_DEFAULTS, { seeded: true }).glue.seeded, true);
   assert.equal(mergeGlue(GLUE_DEFAULTS, { seeded: 'yes' }).ok, false);
   assert.equal(mergeGlue(GLUE_DEFAULTS, { titleCount: false }).glue.titleCount, false);
-  assert.deepEqual(mergeGlue(GLUE_DEFAULTS, { folded: ['idle', 'finished'] }).glue.folded, ['idle', 'finished']);
+  assert.deepEqual(mergeGlue(GLUE_DEFAULTS, { folded: ['loose', 'finished'] }).glue.folded, ['loose', 'finished']);
+  assert.deepEqual(mergeGlue(GLUE_DEFAULTS, { folded: [] }).glue.folded, []);
+});
+
+test('merge keeps only the fixed queues in folded: a mixed list is filtered, one with none of them refused', () => {
+  const mixed = mergeGlue(GLUE_DEFAULTS, { folded: ['repo:secret', 'loose', 'idle', 'repo:o/x'] });
+  assert.equal(mixed.ok, true, JSON.stringify(mixed));
+  assert.deepEqual(mixed.glue.folded, ['loose']);
+  for (const only of [['repo:secret'], ['idle', 'repo:o/x'], ['waiting']]) {
+    const r = mergeGlue(GLUE_DEFAULTS, { folded: only });
+    assert.equal(r.ok, false, JSON.stringify(only));
+    assert.equal(r.error, 'folded can name only loose and finished.');
+  }
+  assert.doesNotMatch(JSON.stringify(mergeGlue({ folded: ['repo:old', 'finished'] }, { theme: 'light' }).glue), /repo:/, 'a stored one is dropped on any write');
 });
 
 test('merge neither mutates nor aliases its inputs', () => {
   const cur = clone(GLUE_DEFAULTS);
-  const patch = { notify: { ci: false }, folded: ['a'] };
+  const patch = { notify: { ci: false }, folded: ['loose'] };
   const r = mergeGlue(cur, patch);
   assert.deepEqual(cur, GLUE_DEFAULTS);
-  r.glue.folded.push('b');
+  r.glue.folded.push('finished');
   r.glue.notify.ci = true;
-  assert.deepEqual(patch, { notify: { ci: false }, folded: ['a'] });
+  assert.deepEqual(patch, { notify: { ci: false }, folded: ['loose'] });
   assert.deepEqual(GLUE_DEFAULTS.folded, ['finished']);
   assert.deepEqual(sanitizeGlue(undefined).folded, ['finished']);
   assert.notEqual(sanitizeGlue(undefined).folded, GLUE_DEFAULTS.folded);

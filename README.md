@@ -63,10 +63,12 @@ fresh. The `ACP_*` environment variables keep their names. The repository is sti
 Everything stays on your Mac: the server listens on 127.0.0.1 only, and the page fetches nothing but its typeface
 (from Google Fonts).
 
-**The board** stacks four queues in a rail on the left: **Needs you**, **Working**, **Idle** and
-**Finished**. Needs you is always open. Click any other queue's header to fold it to one line, which
-keeps its count and the name of its newest session; the panel remembers what you folded, and starts
-with Idle and Finished folded (Settings › Glue › Look & keys changes which start folded). Drag the rail's right edge to widen it (double-click for the default).
+**The board** is a rail on the left: **Needs you**, then a section for each repository agents work in,
+**Other folders** and **Finished** (see [The rail](#the-rail)). Needs you is always open. Click any other
+section's header to fold it to one line, which keeps its count and the name of its newest session.
+Finished starts folded; Settings › Glue › Look & keys offers Other folders and Finished, and what you
+fold there is the same in every window. A repository's section you fold stays folded in that browser
+(or the app) only. Drag the rail's right edge to widen it (double-click for the default).
 Each session is one row: its state square, its name, what it is doing (the tool it runs, or what it asks
 for: `Bash`, `Asks`, `Plan`, with `sub:` in front when a subagent is asking) and its age. Hover a row for its
 branch, folder and the full text; hover its right end for Interrupt, End or Remove. A session with
@@ -269,8 +271,8 @@ before, and nothing else changes the seal.
 
 **First run.** While setup isn't done, Settings opens by itself on **Logins & connection** and marks the two required
 steps for the workspace in view (Claude sign-in and Connect) as **Needed**. A footer has **Skip for now** and **Done**
-(primary once both are in place); either one ends the first run, closes the dialog and starts the tour. Esc or ✕ closes
-it for that page load only. If the workspace in view is already signed in and connected, setup is marked done quietly
+(primary once both are in place); either one ends the first run, closes the dialog and starts the tour if this browser
+hasn't seen it. Esc or ✕ closes it for that page load only. If the workspace in view is already signed in and connected, setup is marked done quietly
 and nothing opens. Anyone who finished setup before is not interrupted.
 
 ## The rail

@@ -12,11 +12,12 @@ const AGENT_EFFORTS = ['', 'low', 'medium', 'high', 'xhigh', 'max'];
 const AGENT_MODES = ['default', 'acceptEdits', 'plan', 'auto'];
 const THEMES = ['dark', 'light', 'system'];
 
-const FOLDED_MAX = 50;       // queues remembered as folded
-const FOLDED_KEY_MAX = 100;  // characters in one queue's key (`repo:<name>`)
+// The rail's fixed queues that fold: Other folders and Finished. Needs you never folds, and a repository section's fold
+// (`repo:<name>`) stays in its own page: kept here, every page of every workspace would read the repository's name.
+const FOLDABLE = ['loose', 'finished'];
+const FOLDED_MAX = 50;       // names one patch may carry (the page's list, before what isn't foldable is dropped)
 
-/** What Glue starts from. `folded` is the page's own default today: its fold keys are `waiting` (never folded),
- *  `repo:<name>`, `loose` and `finished`, and only `finished` starts folded. */
+/** What Glue starts from. Only Finished starts folded. */
 export const GLUE_DEFAULTS = Object.freeze({
   theme: 'dark',
   folded: Object.freeze(['finished']),
@@ -29,7 +30,7 @@ export const GLUE_DEFAULTS = Object.freeze({
 
 const isBool = (v) => typeof v === 'boolean';
 const oneOf = (list) => (v) => typeof v === 'string' && list.includes(v);
-const isKey = (v) => typeof v === 'string' && v.length <= FOLDED_KEY_MAX;
+const isKey = (v) => typeof v === 'string';
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const own = (o, k) => isObj(o) && Object.hasOwn(o, k);
 
@@ -52,6 +53,8 @@ const copyDefault = (k) => {
 };
 
 const dedupe = (a) => a.filter((k, i) => a.indexOf(k) === i);
+/** The fixed queues named in `a`, once each: anything else (a repository's `repo:<name>` among it) is dropped. */
+const foldable = (a) => dedupe(a.filter((k) => FOLDABLE.includes(k)));
 
 /** Any bad or missing field falls back to its default; unknown fields are dropped. Never throws. */
 export function sanitizeGlue(raw) {
@@ -59,7 +62,7 @@ export function sanitizeGlue(raw) {
   for (const k of NAMES) {
     const check = SHAPE[k];
     if (k === 'folded') {
-      out.folded = own(raw, k) && Array.isArray(raw[k]) ? dedupe(raw[k].filter(isKey)).slice(0, FOLDED_MAX) : copyDefault(k);
+      out.folded = own(raw, k) && Array.isArray(raw[k]) ? foldable(raw[k]) : copyDefault(k);
     } else if (typeof check === 'function') {
       out[k] = own(raw, k) && check(raw[k]) ? raw[k] : copyDefault(k);
     } else {
@@ -79,10 +82,11 @@ export function mergeGlue(current, patch) {
     const v = patch[k];
     const check = SHAPE[k];
     if (k === 'folded') {
-      if (!Array.isArray(v) || v.length > FOLDED_MAX || !v.every(isKey)) {
-        return { ok: false, error: `folded must be at most ${FOLDED_MAX} names of ${FOLDED_KEY_MAX} characters or fewer.` };
-      }
-      glue.folded = dedupe(v);
+      if (!Array.isArray(v) || v.length > FOLDED_MAX || !v.every(isKey)) return { ok: false, error: `folded must be at most ${FOLDED_MAX} names.` };
+      // A mixed list (the page's own folds beside the fixed queues) keeps the fixed queues; one naming none is refused.
+      const keep = foldable(v);
+      if (v.length && !keep.length) return { ok: false, error: `folded can name only ${FOLDABLE.join(' and ')}.` };
+      glue.folded = keep;
     } else if (typeof check === 'function') {
       if (!check(v)) return { ok: false, error: `${k} has a value that is not allowed.` };
       glue[k] = v;
