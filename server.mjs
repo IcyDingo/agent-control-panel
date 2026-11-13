@@ -1918,6 +1918,11 @@ function githubFor(wsId) {
   }
   return { ...g, repos, unsorted };
 }
+/** The repositories GitHub found that are in no workspace, as `{ key, label }`: what `githubFor` counts as `unsorted`. */
+function unsortedRepos() {
+  if (W.size === 1) return [];
+  return github.state().repos.filter((r) => !reposIn(r.slug).length).map((r) => ({ key: 'gh:' + r.slug, label: r.slug }));
+}
 /** GitHub's side of a session working at `place`, as workspace `wsId` sees it: none for a repository that only other
  *  workspaces hold. One in no workspace is the session's own to see. */
 function sessionGh(place, wsId) {
@@ -2385,6 +2390,14 @@ async function handle(req, res) {
     if (req.headers['x-acp-token'] !== TOKEN) return send(res, 403, { error: 'forbidden' });
     const focus = focusOf(hdrClient);
     return send(res, 200, { ok: true, workspaces: store.list(), assigned: store.assigned().filter((a) => a.ws.includes(focus)) });
+  }
+
+  // The repositories GitHub found that no workspace holds, by name: the one place they are named, because the page is
+  // asking where they belong. A repository that any workspace holds is never listed (that would be its repository to
+  // show). With one workspace there is nothing to sort them into.
+  if (req.method === 'GET' && url.pathname === '/api/workspace/unsorted') {
+    if (req.headers['x-acp-token'] !== TOKEN) return send(res, 403, { error: 'forbidden' });
+    return send(res, 200, { ok: true, repos: unsortedRepos() });
   }
 
   if (req.method === 'POST' && url.pathname.startsWith('/api/')) {

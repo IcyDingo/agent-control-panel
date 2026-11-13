@@ -227,3 +227,74 @@ test('each overseer reads only its own workspace\'s GitHub', async () => {
   assert.ok(prompt.includes('o/p'), prompt);
   for (const bit of ['o/n', 'o/q', 'Contract feature', 'Stray change']) assert.equal(prompt.includes(bit), false, `the default overseer's prompt carries ${bit}`);
 });
+
+test('Auto-fix is set for the focused workspace only', async () => {
+  const on = (pg) => pg.latest()?.watcher?.enabled;
+  assert.equal(on(A), true);
+  assert.equal(on(B), true);
+  const r = await api('/api/watcher/enabled', { on: false }, A.client);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.ok(await until(() => on(A) === false), 'page A shows it off: ' + JSON.stringify(A.latest()?.watcher));
+  assert.equal(on(B), true, 'page B still shows it on');
+  assert.equal((await api('/api/watcher/enabled', { on: true }, A.client)).ok, true);
+  assert.ok(await until(() => on(A) === true && on(B) === true));
+});
+
+const unsortedOf = (client) => fetch(BASE + '/api/workspace/unsorted', { headers: { 'x-acp-token': token, 'x-acp-client': client } })
+  .then(async (x) => ({ status: x.status, ...(await x.json()) }));
+
+test('the list of unsorted repositories names those in no workspace, and no other', async () => {
+  const q = [{ key: 'gh:o/q', label: 'o/q' }];
+  for (const pg of [A, B]) {
+    const r = await unsortedOf(pg.client);
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.deepEqual(r.repos, q, `page ${pg.client}`);
+    assert.equal(JSON.stringify(r).includes('o/p'), false, 'it names o/p, which default holds');
+    assert.equal(JSON.stringify(r).includes('o/n'), false, 'it names o/n, which contract holds');
+  }
+  assert.equal((await fetch(BASE + '/api/workspace/unsorted')).status, 403, 'not without the token');
+  // Sorted into the other workspace, it is no longer unsorted: it is that workspace's, and not named to this page.
+  assert.equal((await api('/api/workspace/assign', { key: 'gh:o/q', ws: ['contract'] }, A.client)).ok, true);
+  assert.deepEqual((await unsortedOf(A.client)).repos, []);
+  assert.deepEqual((await unsortedOf(B.client)).repos, []);
+  assert.ok(await until(() => A.latest()?.github?.unsorted === 0), JSON.stringify(A.latest()?.github));
+  assert.equal(JSON.stringify(A.latest()).includes('o/q'), false, 'page A names o/q');
+  // Sorted into this one too (by the workspace that holds it: a page may not claim another's), it is both workspaces' and
+  // still not unsorted.
+  assert.equal((await api('/api/workspace/assign', { key: 'gh:o/q', ws: ['contract', 'default'] }, A.client)).ok, false);
+  assert.equal((await api('/api/workspace/assign', { key: 'gh:o/q', ws: ['contract', 'default'] }, B.client)).ok, true);
+  assert.deepEqual((await unsortedOf(A.client)).repos, []);
+  assert.ok(await until(() => A.latest()?.github?.repos.some((r) => r.slug === 'o/q')));
+});
+
+test('with one workspace there is nothing to sort into: the list is empty', async (t) => {
+  const h = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-wsgh1-')), port = PORT + 100;
+  fs.mkdirSync(path.join(h, '.claude'));
+  fs.writeFileSync(path.join(h, '.claude', 'settings.json'), '{}');
+  const pf = path.join(h, 'panel', 'prefs.json');
+  fs.mkdirSync(path.dirname(pf));
+  fs.writeFileSync(pf, JSON.stringify({ profile: 'default' }));
+  const child = spawn(process.execPath, [SERVER], { env: { ...env, HOME: h, PATH: `${bin}:${env.PATH}`, ACP_PORT: String(port), ACP_PREFS: pf }, stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '';
+  child.stdout.on('data', (d) => { out += d; });
+  child.stderr.on('data', (d) => { out += d; });
+  const ctl = new AbortController();
+  t.after(async () => { ctl.abort(); if (child.exitCode === null && child.signalCode === null) await new Promise((r) => { child.once('exit', r); child.kill(); }); fs.rmSync(h, { recursive: true, force: true }); });
+  assert.ok(await until(() => out.includes(`127.0.0.1:${port}`)), 'it started: ' + out);
+  const base = `http://127.0.0.1:${port}`, tok = (await (await fetch(base + '/')).text()).match(/[0-9a-f]{48}/)[0];
+  // A page open starts the poll, which finds o/q (your own pull request).
+  let last = null;
+  fetch(`${base}/events?t=${tok}&c=page-solo`, { signal: ctl.signal }).then(async (r) => {
+    let buf = '';
+    for await (const chunk of r.body) {
+      buf += Buffer.from(chunk).toString();
+      for (const m of buf.matchAll(/^data: (.*)$/gm)) { try { const f = JSON.parse(m[1]); if (Array.isArray(f?.sessions)) last = f; } catch {} }
+      buf = buf.slice(buf.lastIndexOf('\n\n') + 2);
+    }
+  }).catch(() => {});
+  assert.ok(await until(() => last?.github?.repos?.some((r) => r.slug === 'o/q'), 30_000), `the lone workspace's page shows o/q: ${JSON.stringify(last?.github)} | ${out}`);
+  assert.equal(last.workspaces.length, 1);
+  assert.equal(last.github.unsorted, 0);
+  const r = await fetch(base + '/api/workspace/unsorted', { headers: { 'x-acp-token': tok, 'x-acp-client': 'page-solo' } }).then((x) => x.json());
+  assert.deepEqual(r, { ok: true, repos: [] });
+});

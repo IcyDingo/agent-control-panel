@@ -776,6 +776,11 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 /* The GitHub panel's lists: each repository's pull requests and default-branch runs, with their states. */
 .gh-side .gh-hint { margin: 8px 0 0; color: var(--fg-dim); font-size: 12.5px; line-height: 1.5; }
 .gh-side .gh-hint p { margin: 0; }
+.gh-sort { margin: 8px 0 0; font-size: 12.5px; color: var(--fg-dim); }
+.gh-sort-l { margin: 0; }
+.gh-sort-list { display: grid; gap: 8px; margin-top: 8px; }
+.gh-sort-r { display: grid; gap: 4px; }
+.gh-sort-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); font-weight: 550; }
 .h-repo { padding: 16px 0; }
 .h-repo + .h-repo { border-top: 1px solid var(--line); }
 .h-repo-h { display: flex; align-items: center; gap: 8px; min-width: 0; margin-bottom: 8px; font-weight: 600; font-size: 13px; }
@@ -2989,6 +2994,43 @@ function ghPrState(p) {
   if (p.checks === 'passing') return { st: 'passing', word: ['CLEAN', 'HAS_HOOKS'].includes(p.mergeState) ? 'ready' : 'passing' };
   return { st: 'open', word: 'open' };
 }
+/** Repositories GitHub found that are in no workspace: a count, and Sort, which names them (only here, because you are
+ *  choosing where they belong) with the launcher's choice for each. `ghSort` is the open list: null shut, [] still loading. */
+let ghSort = null;
+async function openSort() {
+  if (ghSort) { ghSort = null; render(); return; }
+  ghSort = [];
+  render();
+  try {
+    const r = await (await fetch('/api/workspace/unsorted', { headers: { 'x-acp-token': TOKEN, 'x-acp-client': CLIENT } })).json();
+    ghSort = r.ok ? r.repos : null;
+    if (!r.ok) toast(r.error || 'The list did not load. Try again.', true);
+  } catch { ghSort = null; toast('No answer from the panel server.', true); }
+  render();
+}
+async function sortFromPanel(key, ws) {
+  const r = await api('/api/workspace/assign', { key, ws });
+  if (!r.ok) { toast(r.error || 'That did not save. Try again.', true); return; }
+  ghSort = ghSort?.filter((x) => x.key !== key) ?? null;
+  if (ghSort && !ghSort.length) ghSort = null;
+  render();
+}
+function sortLine() {
+  const n = snap.github?.unsorted ?? 0, all = snap.workspaces ?? [], focus = snap.workspace?.id;
+  if (n < 1 || all.length < 2 || !all.some((w) => w.id === focus)) return null;
+  const list = [all.find((w) => w.id === focus), ...all.filter((w) => w.id !== focus)];
+  const names = list.map((w) => w.name);
+  return el('div', { class: 'gh-sort' },
+    el('p', { class: 'gh-sort-l' },
+      el('span', { text: n === 1 ? "1 repository isn't in a workspace yet" : `${n} repositories aren't in a workspace yet` }), ' \u00b7 ',
+      el('button', { class: 'btn quiet small', type: 'button', text: 'Sort', 'aria-expanded': String(ghSort != null), onclick: openSort })),
+    ghSort?.length ? el('div', { class: 'gh-sort-list' }, ...ghSort.map((r) => el('div', { class: 'gh-sort-r', role: 'radiogroup', 'aria-label': `Which workspace ${r.label} belongs to` },
+      el('span', { class: 'gh-sort-n', text: r.label, title: r.label }),
+      el('div', { class: 'seg' },
+        ...list.map((w) => el('label', {}, el('input', { type: 'radio', name: 'gs-' + r.key, value: w.id, onchange: () => sortFromPanel(r.key, [w.id]) }), el('span', { text: w.name, title: w.name }))),
+        el('label', { class: 'both' }, el('input', { type: 'radio', name: 'gs-' + r.key, value: list.map((w) => w.id).join(','), onchange: () => sortFromPanel(r.key, list.map((w) => w.id)) }),
+          el('span', { text: names.length === 2 ? 'Both' : 'All' })))))) : null);
+}
 /** What the GitHub list shows for one repository, worst first. */
 function ghActive(r) {
   const items = [
@@ -3005,6 +3047,10 @@ function ghActive(r) {
  *  or on an agent's branch, default-branch runs that are failing or running, and what merged in the last day, each with
  *  its state in its colour, worst first. A repository with nothing to show drops out. */
 function acrossNodes(head) {
+  const [h, ...rest] = acrossBody(head), line = sortLine();
+  return line ? [h, line, ...rest] : [h, ...rest];
+}
+function acrossBody(head) {
   const gh = snap.github, names = new Map(snap.sessions.map((s) => [s.sessionId, label(s)]));
   if (!gh || gh.gh === 'off') return [head, el('p', { class: 'gh-hint', text: 'GitHub is turned off for this panel (ACP_GITHUB=off).' })];
   // Signed out of gh (the poller found it, or the sign-in check did): the way back in, right here.
@@ -3048,7 +3094,7 @@ function renderGhBtn() {
   setText($('gh-n'), String(failing));
   setAttr($('gh-btn'), 'title', out ? 'The GitHub CLI is signed out. Open this to sign in again.' : gh.hint ?? (failing ? `${failing} failing on GitHub` : stuck ? 'Checks have run for more than 30 minutes on GitHub' : state === 'running' ? 'Checks are running on GitHub' : `GitHub: ${gh.repos.length} ${gh.repos.length === 1 ? 'repository' : 'repositories'} watched`));
   const open = prs.length;
-  if (!$('gh-pop').hidden) patch($('gh-pop'), acrossSig() + ghRefreshing + JSON.stringify(snap.watcher), () => acrossNodes(el('div', { class: 'gh-pop-h' }, el('h3', { text: 'GitHub' }),
+  if (!$('gh-pop').hidden) patch($('gh-pop'), acrossSig() + ghRefreshing + JSON.stringify([snap.watcher, ghSort, snap.workspaces, snap.workspace?.id]), () => acrossNodes(el('div', { class: 'gh-pop-h' }, el('h3', { text: 'GitHub' }),
     el('span', { class: 'gh-sub', text: open ? `${open} open pull request${open === 1 ? '' : 's'}` : '' }),
     snap.watcher ? el('label', { class: 'switch gh-auto', title: 'The PR watcher: when a pull request on an agent\u2019s branch fails, conflicts, gets changes requested or has checks stuck, it asks that agent to fix it and push again, at most 3 times' },
       el('input', { type: 'checkbox', checked: snap.watcher.enabled, onchange: (e) => api('/api/watcher/enabled', { on: e.target.checked }) }), el('i'), 'Auto-fix') : null,
