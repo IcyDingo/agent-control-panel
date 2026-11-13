@@ -43,7 +43,9 @@ console.log(process.argv[2] === 'agents' ? '[]' : '{}');
   server.stderr.on('data', (d) => { log += d; });
   t.after(async () => {
     if (server.exitCode === null && server.signalCode === null) await new Promise((r) => { server.once('exit', r); server.kill(); });
-    fs.rmSync(home, { recursive: true, force: true });
+    // A stand-in claude the server started may still be writing its note: try again rather than fail on a folder
+    // that filled while it was being emptied.
+    fs.rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
   assert.ok(await until(() => log.includes(base)), 'the server did not start: ' + log);
   const title = async () => (await (await fetch(base + '/')).text()).match(/<title>(.*?)<\/title>/)[1];

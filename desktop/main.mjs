@@ -32,6 +32,9 @@ app.setName('Glue');
 app.setPath('userData', path.dirname(SETTINGS)); // Chromium's files, apart from the server's in DATA
 if (LINUX) app.setDesktopName('glue.desktop'); // the launcher entry the window and its badge belong to
 if (!app.requestSingleInstanceLock()) process.exit(0); // the one already running shows its window (second-instance)
+// The check runs on a build machine with a virtual display and no graphics card: drawn in software, its picture can
+// be taken there.
+if (SMOKE) app.disableHardwareAcceleration();
 
 let win = null, tray = null;
 let server = null;        // the server process, when this run of the app started it
@@ -471,7 +474,9 @@ async function smoke() {
       : !seen.font ? 'Geist did not load' : !seen.button ? 'the New agent button shows no shortcut' : null;
     if (process.env.ACP_SMOKE_SHOT) {
       await new Promise((r) => setTimeout(r, 1500)); // the first snapshot, drawn
-      fs.writeFileSync(process.env.ACP_SMOKE_SHOT, (await win.webContents.capturePage()).toPNG());
+      // The picture is for a person to look at. A display that can't give one doesn't make the app wrong.
+      try { fs.writeFileSync(process.env.ACP_SMOKE_SHOT, (await win.webContents.capturePage()).toPNG()); }
+      catch (err) { console.log(`smoke: no picture (${err.message})`); }
     }
     smokeDone(wrong);
   } catch (err) { smokeDone(err.stack ?? String(err)); }

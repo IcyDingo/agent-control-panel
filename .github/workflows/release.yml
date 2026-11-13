@@ -80,7 +80,7 @@ jobs:
           ! curl -fs -o /dev/null --max-time 2 http://127.0.0.1:4748/ || { echo "::error::The server outlived the app"; exit 1; }
 
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: ${{ !cancelled() && hashFiles('dist/Glue-*.AppImage') != '' }} # also when a package failed to start, to look at it
         with:
           name: glue-linux-${{ matrix.arch }}
           if-no-files-found: error
