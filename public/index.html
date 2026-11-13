@@ -688,7 +688,52 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 .set-line .d { color: var(--fg-dim); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
 .set-line .acts { grid-column: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
 .set-line.off { opacity: .55; }
+.set-block.off { opacity: .55; }
+.set-block.off .set-line { opacity: 1; }
+/* GitHub, Providers and Glue: a setting a row, its words on the left and its control on the right */
+.set-opt { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 20px; padding: 11px 16px; }
+.set-opt + .set-opt { border-top: 1px solid var(--line); }
+.set-opt-t { display: grid; gap: 1px; min-width: 0; }
+.set-opt .t { font-size: 13px; font-weight: 550; line-height: 20px; }
+.set-opt .d { max-width: 62ch; color: var(--fg-dim); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.set-opt .d code { font: 12px var(--mono); color: var(--fg-dim); }
+.set-opt-c { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; min-width: 0; }
+.set-opt.wide { grid-template-columns: minmax(0, 1fr); }
+.set-opt.wide .set-opt-c { justify-content: flex-start; }
+.set-group .set-box { border-radius: var(--r-2); background: var(--raise); }
+.set-group:first-of-type > .set-h4 { margin-top: 0; }
+.set-sub { padding: 12px 16px 2px; }
+.set-sel { height: 30px; min-width: 9.5em; max-width: 100%; padding: 0 28px 0 10px; border: 0; border-radius: var(--r-1); font-size: 12.5px; color: var(--fg); cursor: pointer; appearance: none; -webkit-appearance: none;
+  background: var(--fill) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10' fill='none' stroke='%237a8491' stroke-width='1.3'%3E%3Cpath d='M2.5 4l2.5 2.5L7.5 4'/%3E%3C/svg%3E") right 9px center / 10px no-repeat; }
+.set-sel:hover { background-color: var(--fill-strong); }
+.set-sel:focus-visible { outline: 2px solid var(--run); outline-offset: 1px; }
+.set-seg { min-width: 270px; }
+.set-checks { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.set-check { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; cursor: pointer; }
+.set-check input { width: 15px; height: 15px; margin: 0; accent-color: var(--ok-solid); cursor: pointer; }
+.set-keys { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 7px 20px; width: 100%; margin: 4px 0 2px; }
+.set-keys > div { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.set-keys dt { flex: none; display: inline-flex; gap: 3px; min-width: 4.6em; }
+.set-keys dd { margin: 0; color: var(--fg-dim); font-size: 12.5px; }
+.set-keys kbd { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 5px; background: var(--fill); font: 500 11px var(--mono); color: var(--fg); text-align: center; line-height: 19px; }
+.set-ok { color: var(--ok); font-size: 12.5px; font-weight: 550; }
+.set-err { color: var(--stop); }
+.set-val { font: 12.5px var(--mono); color: var(--fg); }
+/* Repositories: a row each, a pill for each workspace it is in */
+.set-box > .set-all { padding: 6px 0 8px; gap: 0; }
+.set-all .su-ws-r { padding: 8px 16px; }
+.set-all .su-ws-r b { flex: 1 1 10em; }
+.set-all .su-ws-r .seg { margin-top: 4px; }
+.set-pills { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.set-pill { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 2px 0 8px; border-radius: var(--r-pill); background: var(--fill); font-size: 11.5px; font-weight: 500; color: var(--fg); }
+.set-pill.none { padding: 0 9px; color: var(--fg-faint); font-weight: 400; }
+.set-pill .set-dot { width: 7px; height: 7px; }
+.set-pill-x { display: inline-grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--fg-faint); font-size: 13px; line-height: 1; cursor: pointer; }
+.set-pill-x:hover, .set-pill-x:focus-visible { background: var(--fill-strong); color: var(--fg); }
 @media (max-width: 620px) {
+  .set-opt { grid-template-columns: minmax(0, 1fr); }
+  .set-opt-c { justify-content: flex-start; }
+  .set-seg { min-width: 0; width: 100%; }
   .set-shell { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
   .set-nav { flex-direction: row; flex-wrap: wrap; padding: 14px 52px 10px 14px; border-right: 0; border-bottom: 1px solid var(--line); border-radius: var(--r-3) var(--r-3) 0 0; }
   .set-nav h2 { width: 100%; margin-bottom: 6px; }
@@ -3889,12 +3934,19 @@ const setDlg = $('settings');
 const SET_TABS = [
   { id: 'workspaces', name: 'Workspaces', build: setWorkspacesTab },
   { id: 'logins', name: 'Logins & connection', build: setLoginsTab },
+  { id: 'github', name: 'GitHub, alerts & Auto-fix', build: setGithubTab },
+  { id: 'providers', name: 'Providers', build: setProvidersTab },
+  { id: 'glue', name: 'Glue', build: setGlueTab },
 ];
 let setTab = 'workspaces'; // the tab it shows, and opens on next time (within this page)
 let setData = null;        // GET /api/settings while it is open: null loading, false could not be read
 let setSeq = 0;            // the latest fetch: an answer to an older one is dropped
 let setMoving = null;      // the repository whose Move choice is open
 let setBack = null;        // what had the focus before it opened
+let setAskedFor = null;    // the focus it last asked again for, after this page moved: asked once, never in a loop
+let setOrderWant = null;   // the workspace order it is saving (ids): a refetch meanwhile shows this order, not the old one
+let setReorders = Promise.resolve(), setReorderN = 0; // reorders go to the server one after another
+let setRestart = null;     // Restart: null, 'busy' (sent: the page reconnects by itself), or the refusal's text
 const setRows = new Map(); // workspace id → its row, kept across redraws so a name being typed survives a refetch
 $('set-tabs').append(...SET_TABS.map((t) => el('button', { class: 'set-tab', type: 'button', role: 'tab', id: 'set-tab-' + t.id, 'aria-controls': 'set-panel',
   text: t.name, onclick: () => showSetTab(t.id) })));
@@ -3903,7 +3955,7 @@ function openSettings(tab) {
   if (SET_TABS.some((t) => t.id === tab)) setTab = tab;
   if (setDlg.open) { showSetTab(setTab); return; }
   setBack = document.activeElement;
-  setData = null; setMoving = null;
+  setData = null; setMoving = null; setAskedFor = null; setRestart = null;
   closeThemes();
   renderSettings();
   setDlg.showModal();
@@ -3913,12 +3965,13 @@ function openSettings(tab) {
 }
 function closeSettings() { if (setDlg.open) setDlg.close(); }
 function showSetTab(id) {
+  if (id !== setTab) setMoving = null;
   setTab = id;
   renderSettings();
   $('set-tab-' + id).focus();
 }
 setDlg.addEventListener('close', () => {
-  setData = null; setSeq++; setMoving = null; setRows.clear();
+  setData = null; setSeq++; setMoving = null; setRows.clear(); setAskedFor = null; setRestart = null;
   const panel = $('set-panel');
   panel.replaceChildren(); panel._tab = null;
   if (setBack?.isConnected) setBack.focus({ preventScroll: true });
@@ -3950,6 +4003,10 @@ async function loadSettings() {
   let r = null;
   try { r = await (await fetch('/api/settings', { headers: { 'x-acp-token': TOKEN, 'x-acp-client': CLIENT } })).json(); } catch {}
   if (seq !== setSeq || !setDlg.open) return; // a newer fetch, or it closed meanwhile
+  // A reorder still on its way: the rows keep the order it is saving until the server has it.
+  if (r?.ok && setOrderWant && r.workspaces.length === setOrderWant.length && r.workspaces.every((w) => setOrderWant.includes(w.id))) {
+    r.workspaces.sort((a, b) => setOrderWant.indexOf(a.id) - setOrderWant.indexOf(b.id));
+  }
   setData = r?.ok ? r : (setData || false); // a failed refetch keeps what it showed
   renderSettings();
 }
@@ -3964,7 +4021,7 @@ function renderSettings() {
   if (panel._tab !== tab.id) { panel._tab = tab.id; panel.replaceChildren(); panel.scrollTop = 0; setRows.clear(); }
   // This page was moved to another workspace while it was open: what it marks "you're here" is asked for again.
   const here = setData?.workspaces?.find((w) => w.here)?.id;
-  if (here && snap?.workspace?.id && here !== snap.workspace.id && setData._askedFor !== snap.workspace.id) { setData._askedFor = snap.workspace.id; loadSettings(); }
+  if (here && snap?.workspace?.id && here !== snap.workspace.id && setAskedFor !== snap.workspace.id) { setAskedFor = snap.workspace.id; loadSettings(); }
   tab.build(panel);
 }
 /** "Loading…" or "could not be read" in `box` until the data is in; true when it is. */
@@ -4038,7 +4095,7 @@ function setWsRow() {
     const ok = await saveWorkspace(w.id, { name: v });
     row.sent = null;
     if (!ok) name.value = row.w.name; // refused (taken, empty, too long): back to the name it has
-    else loadSettings();
+    else { row.w = { ...row.w, name: v }; loadSettings(); } // saved: a blur that follows Enter has nothing to send
   };
   name.addEventListener('change', commit); // on blur
   name.addEventListener('keydown', (e) => {
@@ -4071,13 +4128,23 @@ function setWsRow() {
   };
   return row;
 }
+// The swap shows at once, and is what the next click starts from, so quick clicks each move one more place.
 async function setMoveWs(id, by) {
-  const ids = setData.workspaces.map((w) => w.id), i = ids.indexOf(id), j = i + by;
-  if (i < 0 || j < 0 || j >= ids.length) return;
-  [ids[i], ids[j]] = [ids[j], ids[i]];
-  const r = await api('/api/workspace/reorder', { ids });
-  if (!r.ok) toast(r.error || 'The order did not save. Try again.', true);
-  loadSettings();
+  if (!setData?.workspaces) return;
+  const list = [...setData.workspaces], i = list.findIndex((w) => w.id === id), j = i + by;
+  if (i < 0 || j < 0 || j >= list.length) return;
+  [list[i], list[j]] = [list[j], list[i]];
+  setData.workspaces = list;
+  const ids = list.map((w) => w.id);
+  setOrderWant = ids;
+  renderSettings();
+  setReorderN++;
+  setReorders = setReorders.then(async () => {
+    const r = await api('/api/workspace/reorder', { ids });
+    if (!r.ok) toast(r.error || 'The order did not save. Try again.', true);
+  });
+  await setReorders;
+  if (--setReorderN === 0) { setOrderWant = null; loadSettings(); }
 }
 async function setAssign(key, ws) {
   const now = setData?.repos?.find((r) => r.key === key)?.ws ?? [];
@@ -4099,10 +4166,12 @@ function setLoginsTab(panel) {
   const list = setData.workspaces;
   patch(box, JSON.stringify(list.map((w) => [w.id, w.name, w.color, w.here, w.signedIn, w.connected, w.loginCommand, w.account])), () => list.map((w) => setLoginBlock(w, list.length > 1)));
 }
+/** One line of a block: a mark (✓ ✗ ·), what it is, a sentence on it, and what you can do. */
+const setLine = (s, mark, t, d, acts, cls) => el('div', { class: 'set-line' + (cls ? ' ' + cls : ''), 'data-s': s },
+  el('span', { class: 'set-mark', 'aria-hidden': 'true', text: mark }), el('span', { class: 't', text: t }),
+  d ? el('span', { class: 'd', text: d }) : null, acts ? el('span', { class: 'acts' }, acts) : null);
 function setLoginBlock(w, several) {
-  const line = (s, mark, t, d, acts, cls) => el('div', { class: 'set-line' + (cls ? ' ' + cls : ''), 'data-s': s },
-    el('span', { class: 'set-mark', 'aria-hidden': 'true', text: mark }), el('span', { class: 't', text: t }),
-    d ? el('span', { class: 'd', text: d }) : null, acts ? el('span', { class: 'acts' }, acts) : null);
+  const line = setLine;
   const a = w.here ? w.account : null;
   const claude = w.signedIn === true ? line('ok', '✓', 'Signed in to Claude', a?.email ? a.email + setPlan(a.plan) : a?.plan ? setPlan(a.plan).slice(3) : null)
     : w.signedIn === false ? line('todo', '✗', 'Not signed in to Claude', `The overseer and new agents in ${w.name} can’t start until it signs in.`)
@@ -4134,6 +4203,260 @@ async function setConnect(w, b) {
   if (!r.ok) return toast(r.error || 'It did not connect.', true);
   toast(r.added ? `${w.name} is connected. Sessions you start in it from now on report here; one already running keeps asking in its terminal until it restarts.${r.backup ? ' The old file is kept at ' + r.backup + '.' : ''}` : `${w.name} was already connected.`);
   loadSettings();
+}
+
+// ---- the controls the GitHub, Providers and Glue tabs are made of
+/** patch, and the control that had the focus (by its data-f) has it again after its box is rebuilt. Only the boxes of
+ *  the GitHub, Providers and Glue tabs use it. */
+function setPatch(box, sig, build) {
+  const a = box.contains(document.activeElement) ? document.activeElement : null;
+  patch(box, sig, build);
+  if (!a || box.contains(document.activeElement)) return;
+  // The control itself, else the one it names to fall back on (a pill's ×, gone with its pill: that row's Move).
+  for (const f of [a.dataset.f, a.dataset.fb]) {
+    const n = f && box.querySelector(`[data-f="${CSS.escape(f)}"]`);
+    if (n) { n.focus({ preventScroll: true }); return; }
+  }
+}
+/** Its boxes are drawn again from setData: after a refused change, a control shows what is saved, not what was clicked. */
+function setRedraw() {
+  for (const n of $('set-panel').querySelectorAll('.set-box, .set-blocks')) n._sig = null;
+  renderSettings();
+}
+/** One setting: what it is, a sentence on what it does, and its control (below them when `wide`). */
+const setOpt = (title, detail, control, wide) => el('div', { class: 'set-opt' + (wide ? ' wide' : '') },
+  el('div', { class: 'set-opt-t' }, el('span', { class: 't', text: title }), detail ? el('span', { class: 'd' }, detail) : null),
+  el('div', { class: 'set-opt-c' }, control));
+const setSwitch = (f, label, on, change, disabled) => el('label', { class: 'switch' },
+  el('input', { type: 'checkbox', role: 'switch', 'data-f': f, 'aria-label': label, checked: on, disabled, onchange: (e) => change(e.target.checked) }), el('i'));
+const setCheck = (f, label, on, change) => el('label', { class: 'set-check' },
+  el('input', { type: 'checkbox', 'data-f': f, checked: on, onchange: (e) => change(e.target.checked) }), el('span', { text: label }));
+function setSelect(f, label, options, value, change) {
+  const s = el('select', { class: 'set-sel', 'data-f': f, 'aria-label': label, onchange: (e) => change(e.target.value) },
+    ...options.map(([v, t]) => el('option', { value: v, text: t })));
+  s.value = value;
+  return s;
+}
+/** A block's heading: a workspace's (its colour, its name, "you're here") or a plain one, with an optional tag. */
+const setBlockHead = (w, text, tag) => el('div', { class: 'set-block-h', style: w ? `--sw:${WS_COLORS[w.color]}` : null },
+  w ? el('span', { class: 'set-dot', 'aria-hidden': 'true' }) : null, el('span', { text: w ? w.name : text }), tag ? el('span', { class: 'set-here', text: tag }) : null);
+/** Changes Glue's own prefs (every page's). The server answers with all of them, and nudges every page. */
+async function setGlue(change) {
+  const r = await api('/api/settings/glue', { patch: change });
+  if (!r.ok) { toast(r.error || 'That did not save. Try again.', true); setRedraw(); return; }
+  if (setData) setData.glue = r.glue;
+  renderSettings();
+}
+
+// The GitHub, alerts & Auto-fix tab: gh's sign-in (one for every workspace), then Auto-fix and the overseer's model of
+// the workspace this page is on, the same switches as the GitHub panel's and the composer's.
+function setGithubTab(panel) {
+  if (!panel.firstChild) panel.append(
+    el('h3', { text: 'GitHub, alerts & Auto-fix' }),
+    el('p', { class: 'set-lead', text: 'Glue reads pull requests and CI through the GitHub CLI, on gh’s own login: it stores no token. One sign-in serves every workspace.' }),
+    el('div', { class: 'set-blocks' }));
+  const box = panel.children[2];
+  if (!setReady(box)) return;
+  const gh = setData.github ?? { state: 'unknown' }, list = setData.workspaces, focus = list.find((w) => w.here), several = list.length > 1;
+  setPatch(box, JSON.stringify([gh, setData.watcher, setData.overseer, focus?.name, focus?.color, several]), () => {
+    const login = gh.state === 'ok' ? setLine('ok', '✓', gh.login ? `Signed in as ${gh.login}` : 'Signed in', 'Pull requests and CI show for the repositories your agents work in.')
+      : gh.state === 'signed-out' ? setLine('todo', '✗', 'Not signed in', 'Sign the GitHub CLI in to see pull requests and CI here, and to let Auto-fix tell an agent when its checks fail.',
+        [el('button', { class: 'btn primary small', type: 'button', text: 'Sign in in Terminal…', 'data-f': 'gh-login', onclick: (e) => openLogin('gh', e.currentTarget) }), cmdChip('gh auth login')])
+      : gh.state === 'missing' ? setLine('todo', '✗', 'Not installed', 'Install the GitHub CLI to see pull requests and CI here.', [cmdChip('brew install gh')])
+      : gh.state === 'off' ? setLine('off', '·', 'Turned off', 'GitHub is turned off for this panel (ACP_GITHUB=off).')
+      : setLine('wait', '·', 'Checking…', 'Looking at whether the GitHub CLI is signed in.');
+    const models = setData.overseer?.models ?? [];
+    return [
+      el('section', { class: 'set-block', 'aria-label': 'GitHub CLI' }, setBlockHead(null, 'GitHub CLI'), login),
+      el('section', { class: 'set-block', 'aria-label': several && focus ? focus.name : 'This workspace' },
+        setBlockHead(several ? focus : null, 'Auto-fix and the overseer', several ? 'you’re here' : null),
+        el('div', { class: 'set-opts' },
+          setOpt('Auto-fix', 'When a pull request on an agent’s branch fails, conflicts, gets changes requested or has checks stuck, the PR watcher asks that agent to fix it and push again, at most 3 times. The GitHub panel has the same switch.',
+            setSwitch('autofix', 'Auto-fix', Boolean(setData.watcher?.enabled), setAutofix, gh.state === 'off')),
+          setOpt('Overseer model', 'The model the overseer answers with. The same choice sits under its composer.',
+            setSelect('ov-model', 'The overseer’s model', models.map((m) => [m, MODEL_NAMES[m] ?? m]), setData.overseer?.model, setOverseerModel)))),
+      el('p', { class: 'set-note' }, 'Which of these alert you, CI failures and the PR watcher among them, is under ',
+        el('button', { class: 'linkish', type: 'button', text: 'Glue › Answering & alerts', 'data-f': 'to-alerts', onclick: () => { showSetTab('glue'); $('set-g-alerts')?.scrollIntoView({ block: 'start' }); } }), '.'),
+    ];
+  });
+}
+async function setAutofix(on) {
+  const r = await api('/api/watcher/enabled', { on });
+  if (!r.ok) { toast(r.error || 'Auto-fix did not change.', true); setRedraw(); return; }
+  if (setData?.watcher) setData.watcher.enabled = on;
+  renderSettings();
+}
+async function setOverseerModel(model) {
+  const r = await api('/api/overseer/model', { model });
+  if (!r.ok) { toast(r.error || 'The model did not change.', true); setRedraw(); return; }
+  if (setData?.overseer) setData.overseer.model = model;
+  renderSettings();
+}
+
+// The Providers tab: what runs the agents. Claude Code today, with each workspace's sign-in; two places kept for later.
+function setProvidersTab(panel) {
+  if (!panel.firstChild) panel.append(
+    el('h3', { text: 'Providers' }),
+    el('p', { class: 'set-lead', text: 'A provider is what runs your agents and the overseer. Today that is Claude Code, on each workspace’s own login. More are on the way.' }),
+    el('div', { class: 'set-blocks' }));
+  const box = panel.children[2];
+  if (!setReady(box)) return;
+  const list = setData.workspaces;
+  setPatch(box, JSON.stringify(list.map((w) => [w.id, w.name, w.color, w.signedIn])), () => {
+    const soon = (name, text) => el('section', { class: 'set-block off', 'aria-label': name, 'aria-disabled': 'true' },
+      setBlockHead(null, name), setLine('off', '·', text, null));
+    return [
+      el('section', { class: 'set-block', 'aria-label': 'Claude Code' }, setBlockHead(null, 'Claude Code', 'Active'),
+        ...list.map((w) => {
+          const name = list.length > 1 ? w.name : 'This workspace';
+          return w.signedIn === true ? setLine('ok', '✓', name, 'Signed in')
+            : w.signedIn === false ? setLine('todo', '✗', name, 'Not signed in',
+              [el('button', { class: 'btn small', type: 'button', text: 'Logins & connection', 'data-f': 'to-logins-' + w.id, onclick: () => showSetTab('logins') })])
+            : setLine('wait', '·', name, 'Checking…');
+        })),
+      soon('Codex', "Coming next: run agents with OpenAI's Codex"),
+      soon('OpenRouter', 'Coming next: any model, through your OpenRouter key'),
+    ];
+  });
+}
+
+// The Glue tab: what applies to every workspace and every page, kept on the server (prefs.json › glue), and every
+// repository Glue knows of with the workspaces it is in: the one list of them all, and it stays in this dialog.
+const SET_GLUE = [['look', 'Look & keys'], ['alerts', 'Answering & alerts'], ['agents', 'Agent defaults'], ['about', 'About & maintenance'], ['repos', 'Repositories']];
+const AGENT_MODELS = [['', 'Default'], ['opus', 'Opus'], ['opus[1m]', 'Opus 1M'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku'], ['fable', 'Fable']];
+const AGENT_MODES = [['default', 'Ask each tool'], ['acceptEdits', 'Accept edits'], ['plan', 'Plan first'], ['auto', 'Auto']];
+function setGlueTab(panel) {
+  if (!panel.firstChild) panel.append(
+    el('h3', { text: 'Glue' }),
+    el('p', { class: 'set-lead', text: 'These apply to every workspace, in the app and in any browser tab.' }),
+    el('div', {}),
+    ...SET_GLUE.map(([id, name]) => el('section', { class: 'set-group', id: 'set-g-' + id, 'aria-labelledby': 'set-gh-' + id },
+      el('h4', { class: 'set-h4', id: 'set-gh-' + id, text: name }), el('div', { class: 'set-box' }))));
+  const wait = panel.children[2], ready = setReady(wait);
+  wait.hidden = ready;
+  for (const [id] of SET_GLUE) $('set-g-' + id).hidden = !ready;
+  if (!ready) return;
+  const box = (id) => $('set-g-' + id).lastChild, g = setData.glue;
+  setGlueLook(box('look'), g);
+  setGlueAlerts(box('alerts'), g);
+  setGlueAgents(box('agents'), g);
+  setGlueAbout(box('about'), setData.about ?? {});
+  const several = setData.workspaces.length > 1;
+  $('set-g-repos').hidden = !several;
+  if (several) setGlueRepos(box('repos'));
+}
+function setGlueLook(box, g) {
+  const app = window.glueApp;
+  const keys = [[['↑', '↓'], 'Move through the sessions in the rail'], [['→', '←'], 'Open or close a session’s subagents'], [['n'], 'The next session that needs you'],
+    [['/'], 'Find a session by name'], [['⌃1–9'], 'Show that workspace'], [[','], 'Open Settings'], [['Esc'], 'Close what is open'],
+    ...(app ? [[[app.newAgent ?? '⌘T'], 'Start a new agent'], [[app.settings ?? '⌘,'], 'Open Settings, from the Glue menu']] : [])];
+  const fold = (k) => g.folded.includes(k);
+  setPatch(box, JSON.stringify([g.theme, fold('loose'), fold('finished'), Boolean(app)]), () => [
+    setOpt('Theme', 'Dark, Light, or the Mac’s own appearance, as it changes.',
+      el('div', { class: 'seg set-seg', role: 'radiogroup', 'aria-label': 'Theme' },
+        ...THEMES.map(([k, name, say]) => el('label', { title: say },
+          el('input', { type: 'radio', name: 'set-theme', value: k, 'data-f': 'theme-' + k, checked: g.theme === k, onchange: () => setGlue({ theme: k }) }), el('span', { text: name }))))),
+    setOpt('Start folded', 'Which queues in the rail start folded. Needs you never folds.',
+      el('div', { class: 'set-checks' }, setCheck('fold-loose', 'Other folders', fold('loose'), (on) => setFold('loose', on)),
+        setCheck('fold-finished', 'Finished', fold('finished'), (on) => setFold('finished', on)))),
+    setOpt('Keys', 'None of them fire while you type.',
+      el('dl', { class: 'set-keys' }, ...keys.map(([ks, what]) => el('div', {}, el('dt', {}, ...kb(...ks)), el('dd', { text: what })))), true),
+  ]);
+}
+function setFold(key, on) {
+  const now = setData.glue.folded.filter((k) => k !== key);
+  setGlue({ folded: on ? [...now, key] : now });
+}
+function setGlueAlerts(box, g) {
+  const perm = 'Notification' in window ? Notification.permission : 'none';
+  const alerts = perm === 'granted' ? el('span', { class: 'set-ok', text: '✓ On' })
+    : perm === 'denied' ? el('span', { class: 'set-quiet', text: 'Blocked — turn them on in System Settings › Notifications.' })
+    : perm === 'default' ? el('button', { class: 'btn small', type: 'button', text: 'Turn on', 'data-f': 'alerts-on',
+      onclick: () => Notification.requestPermission().then(() => { notifyBtn.hidden = Notification.permission !== 'default'; render(); }) })
+    : el('span', { class: 'set-quiet', text: 'This browser can’t show them.' });
+  const n = g.notify;
+  setPatch(box, JSON.stringify([snap?.armed, perm, n, g.titleCount]), () => [
+    setOpt('Answering here', 'A request shows here and in its own terminal at once, and whichever answers first wins. Off, the terminal answers everything. It is on again whenever Glue starts.',
+      setSwitch('armed', 'Answering here', snap?.armed !== false, setArm)),
+    setOpt('Desktop alerts', 'A notification when something needs you while you’re in another app.', alerts),
+    setOpt('Requests waiting on you', 'A permission, a question or a plan.', setSwitch('n-requests', 'Alert for requests waiting on you', n.requests, (on) => setGlue({ notify: { requests: on } }))),
+    setOpt('CI failures', 'A check fails on a pull request or on the default branch.', setSwitch('n-ci', 'Alert for CI failures', n.ci, (on) => setGlue({ notify: { ci: on } }))),
+    setOpt('The PR watcher', 'Auto-fix asked an agent for a fix, needs your click, or gave up.', setSwitch('n-watcher', 'Alert for the PR watcher', n.watcher, (on) => setGlue({ notify: { watcher: on } }))),
+    setOpt('Count in the title and Dock', 'How many requests wait, as (2) before the window’s name and on the Dock icon.', setSwitch('title-count', 'Count in the title and Dock', g.titleCount, (on) => setGlue({ titleCount: on }))),
+  ]);
+}
+/** Answering here: the server's switch, never remembered. The snapshot says what it is now. */
+async function setArm(on) {
+  const r = await api('/api/arm', { armed: on });
+  if (!r.ok) { toast(r.error || 'It did not change.', true); setRedraw(); }
+}
+function setGlueAgents(box, g) {
+  const a = g.agentDefaults, models = setData.overseer?.models ?? [];
+  setPatch(box, JSON.stringify([a, g.overseerModel, models]), () => [
+    el('p', { class: 'set-quiet set-sub', text: 'What New agent starts with. You can still change each one when you start an agent.' }),
+    setOpt('Model', null, setSelect('ad-model', 'Model a new agent starts with', AGENT_MODELS, a.model, (v) => setGlue({ agentDefaults: { model: v } }))),
+    setOpt('Effort', null, setSelect('ad-effort', 'Effort a new agent starts with', EFFORT_STOPS, a.effort, (v) => setGlue({ agentDefaults: { effort: v } }))),
+    setOpt('Permissions', null, setSelect('ad-mode', 'Permissions a new agent starts with', AGENT_MODES, a.mode, (v) => setGlue({ agentDefaults: { mode: v } }))),
+    setOpt('Its own worktree', 'A new branch in a folder of its own, off the one you are on.', setSwitch('ad-wt', 'Its own worktree', a.worktree, (on) => setGlue({ agentDefaults: { worktree: on } }))),
+    setOpt('Overseer model for a new workspace', 'What the overseer of a workspace added from now on answers with.',
+      setSelect('ad-ov', 'Overseer model for a new workspace', models.map((m) => [m, MODEL_NAMES[m] ?? m]), g.overseerModel, (v) => setGlue({ overseerModel: v }))),
+  ]);
+}
+function setGlueAbout(box, ab) {
+  const sv = ab.service ?? {};
+  const service = !sv.installed ? 'Not installed: Glue runs while the app or a terminal runs it.' : sv.running ? `Running${sv.pid ? `, process ${sv.pid}` : ''}.` : 'Installed, not running.';
+  const restart = el('button', { class: 'btn small', type: 'button', 'data-f': 'restart', disabled: setRestart === 'busy', text: setRestart === 'busy' ? 'Restarting…' : 'Restart', onclick: setRestartNow });
+  const folder = (what, label, dir) => setOpt(label, el('code', { text: tilde(dir ?? '') }),
+    el('button', { class: 'btn small', type: 'button', text: 'Show in Finder', 'data-f': 'reveal-' + what, onclick: (e) => setReveal(what, e.currentTarget) }));
+  setPatch(box, JSON.stringify([ab, setRestart]), () => [
+    setOpt('Version', null, el('span', { class: 'set-val', text: (ab.version ?? 'unknown') + (ab.commit ? ` (${ab.commit})` : '') })),
+    setOpt('Background service', setRestart && setRestart !== 'busy' ? el('span', { class: 'set-err', role: 'alert', text: setRestart })
+      : setRestart === 'busy' ? 'Restarting… This page reconnects by itself.' : service, restart),
+    folder('data', 'Settings and data', ab.dataDir),
+    folder('logs', 'Logs', ab.logDir),
+    setOpt('Update', null, ab.update ? cmdChip(ab.update) : null),
+    setOpt('Uninstall', null, ab.uninstall ? cmdChip(ab.uninstall) : null),
+  ]);
+}
+async function setRestartNow() {
+  setRestart = 'busy';
+  renderSettings();
+  const r = await api('/api/settings/restart', {});
+  if (!r.ok && setDlg.open) { setRestart = r.error || 'It did not restart.'; renderSettings(); }
+  // Sent: the server goes away and comes back, and the page's own reconnect takes it from there.
+}
+async function setReveal(what, b) {
+  b.disabled = true;
+  const r = await api('/api/settings/reveal', { what });
+  b.disabled = false;
+  if (!r.ok) toast(r.error || 'Finder did not open.', true);
+}
+/** Every repository, with a pill for each workspace it is in (× takes it out of that one), Move, and Forget. */
+function setGlueRepos(box) {
+  const list = setData.workspaces, repos = setData.repos ?? [], byId = new Map(list.map((w) => [w.id, w]));
+  setPatch(box, JSON.stringify([list.map((w) => [w.id, w.name, w.color]), repos, setMoving]), () => {
+    const head = el('p', { class: 'set-quiet set-sub', text: 'Every repository Glue knows of, and the workspaces it belongs to. Each workspace sees only its own. Forget leaves one unsorted, and Glue asks again the next time you start an agent in it.' });
+    if (!repos.length) return [head, el('p', { class: 'set-quiet', text: 'Glue doesn’t know of a repository yet.' })];
+    return [head, el('div', { class: 'set-repos set-all' }, ...repos.map((r) => {
+      const ws = r.ws.filter((id) => byId.has(id));
+      return el('div', { class: 'su-ws-r' },
+        el('div', {}, el('b', { text: r.label, title: r.label }),
+          el('span', { class: 'set-pills' }, ...(ws.length ? ws.map((id) => {
+            const w = byId.get(id);
+            return el('span', { class: 'set-pill', style: `--sw:${WS_COLORS[w.color]}` }, el('span', { class: 'set-dot', 'aria-hidden': 'true' }), el('span', { text: w.name }),
+              el('button', { class: 'set-pill-x', type: 'button', 'data-f': `x:${r.key}:${id}`, 'data-fb': 'mv:' + r.key, 'aria-label': `Take ${r.label} out of ${w.name}`, title: `Take it out of ${w.name}`, text: '×',
+                onclick: () => setAssign(r.key, r.ws.filter((x) => x !== id)) }));
+          }) : [el('span', { class: 'set-pill none', text: 'unsorted' })])),
+          el('button', { class: 'btn quiet small', type: 'button', text: 'Move', 'data-f': 'mv:' + r.key, 'aria-expanded': String(setMoving === r.key),
+            onclick: () => { setMoving = setMoving === r.key ? null : r.key; renderSettings(); } }),
+          r.stored ? el('button', { class: 'btn quiet small', type: 'button', text: 'Forget', 'data-f': 'fg:' + r.key, 'data-fb': 'mv:' + r.key, title: `${r.label} leaves every workspace. Glue asks again the next time you start an agent in it.`,
+            onclick: () => setAssign(r.key, []) }) : null),
+        setMoving === r.key ? el('div', { class: 'seg', role: 'radiogroup', 'aria-label': `Which workspace ${r.label} belongs to` },
+          ...list.map((w) => el('label', {}, commitRadio({ name: 'set-all-' + r.key, 'data-f': `mvr:${r.key}:${w.id}`, 'data-fb': 'mv:' + r.key, value: w.id, checked: ws.length === 1 && ws[0] === w.id }, () => setAssign(r.key, [w.id])), el('span', { text: w.name, title: w.name }))),
+          el('label', { class: 'both' }, commitRadio({ name: 'set-all-' + r.key, 'data-f': `mvr:${r.key}:both`, 'data-fb': 'mv:' + r.key, value: 'both', checked: list.every((w) => ws.includes(w.id)) }, () => setAssign(r.key, list.map((w) => w.id))),
+            el('span', { text: list.length === 2 ? 'Both' : 'All' }))) : null);
+    }))];
+  });
 }
 
 // ---------- pane widths: drag an edge, arrow keys on the edge, double-click to reset ----------
