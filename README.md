@@ -19,26 +19,32 @@ Panel.app** into `~/Applications`. Then:
 
 1. Open **Glue**. macOS may ask whether it may use your Documents folder: the panel reads the
    repositories your sessions work in.
-2. If you use more than one Claude Code profile, each is a workspace, and the switch in the top bar moves between them (see [Workspaces](#workspaces)).
-3. Follow **Set up the panel**, the checklist the panel opens with. Each step ticks itself as it's done:
+2. The first time, **Settings** opens by itself on **Logins & connection**. Open it yourself any time with the gear (⚙)
+   in the top bar, **⌘,** in the app (**Glue › Settings…**), or `,` in a browser when you aren't typing. It is where
+   everything is set, for every workspace and for Glue itself (see [Settings](#settings)). A first run needs two things,
+   for the workspace in view, marked **Needed**:
    - **Sign in to Claude.** The panel has no login of its own: the overseer and new agents run on the
      profile's Claude Code login. **Sign in in Terminal…** opens Terminal running `claude auth login` on that
      profile (or copy the command).
-   - **Connect this profile.** It adds the panel's hooks to that profile's `settings.json` (and keeps a copy of
+   - **Connect.** It adds the panel's hooks to that profile's `settings.json` (and keeps a copy of
      the old file). Sessions you start after that show up on the board; one already running keeps asking in its
      terminal until it restarts.
-   - **Start your first agent**, with **New agent** or `claude` in any terminal.
-   - Optional: **GitHub** (`gh auth login`, again in Terminal; the panel stores no token), **Desktop alerts**, and, with more than one
-     profile, **Workspaces**, where you name each one and pick its colour.
 
-   **Done** (or **Hide for now**) puts it away, remembered in `prefs.json`; **Setup** in the overseer's header
-   brings it back.
+   If you use more than one Claude Code profile, each is a workspace, and Settings does both steps for every one of
+   them, without switching (see [Workspaces](#workspaces)). **Done** at the foot of the dialog (or **Skip for now**) ends
+   the first run, remembered in `prefs.json`. Esc or ✕ just closes it, and it opens again the next time the page loads,
+   until you press one. Everything else in Settings is optional: GitHub, desktop alerts, naming and colouring the
+   workspaces. Then start your first agent, with **New agent** or `claude` in any terminal.
+
    Later on, a lapsed login shows by itself. Signed out of Claude, an amber banner says so with **Sign in in
-   Terminal…** and **Copy command**, and goes once you're back in. The banner is about the workspace in view. With `gh` signed out, the GitHub button turns amber and its panel has the same
-   Terminal sign-in. The panel looks every few minutes while a page is open, when you come back to its window, and
-   at once when the overseer, a launch or a reply fails with a login error.
-4. The first **Done** starts a short tour: the rail, **Answering here**, **New agent**, the overseer, GitHub and the
-   keys, one at a time (→ or Enter next, ← back, Esc ends it). **Take the tour** under the checklist runs it again.
+   Terminal…**, **Copy command** and **Open Settings**, and goes once you're back in. The banner is about the workspace
+   in view. A profile without the hooks gets a **Connect this profile** banner the same way. With `gh` signed out, the
+   GitHub button turns amber and its panel has the same Terminal sign-in. The panel looks every few minutes while a page
+   is open, when you come back to its window, while Settings is open, and at once when the overseer, a launch or a reply
+   fails with a login error.
+3. The first **Done** starts a short tour: the rail, **Settings**, **New agent**, the overseer, GitHub and the
+   keys, one at a time (→ or Enter next, ← back, Esc ends it). **Take the tour**, under Settings › Glue › Look & keys,
+   runs it again.
 
 `install.sh` also installs a background service, so the panel keeps holding requests and answering hooks when the app
 isn't open; `./install.sh --no-daemon` skips it.
@@ -60,7 +66,7 @@ Everything stays on your Mac: the server listens on 127.0.0.1 only, and the page
 **The board** stacks four queues in a rail on the left: **Needs you**, **Working**, **Idle** and
 **Finished**. Needs you is always open. Click any other queue's header to fold it to one line, which
 keeps its count and the name of its newest session; the panel remembers what you folded, and starts
-with Idle and Finished folded. Drag the rail's right edge to widen it (double-click for the default).
+with Idle and Finished folded (Settings › Glue › Look & keys changes which start folded). Drag the rail's right edge to widen it (double-click for the default).
 Each session is one row: its state square, its name, what it is doing (the tool it runs, or what it asks
 for: `Bash`, `Asks`, `Plan`, with `sub:` in front when a subagent is asking) and its age. Hover a row for its
 branch, folder and the full text; hover its right end for Interrupt, End or Remove. A session with
@@ -153,8 +159,10 @@ its own icon. Open it like any app, or keep it in the Dock.
 - The Dock icon counts the requests waiting on you, and bounces when a new one arrives while you're
   in another app. Closing the window keeps the panel connected: the count stays live and requests are
   still held. Click the Dock icon to bring the window back; ⌘Q quits.
-- the bell (**Turn on desktop alerts**) gives you the Mac's own notifications. Clicking one opens that session.
-- The title bar follows the panel's theme.
+- **Desktop alerts** are turned on in Settings › Glue › Answering & alerts, which is also where you choose which events
+  notify. They are the Mac's own notifications, and clicking one opens that session.
+- The title bar follows the panel's theme, and the Dock badge reads the count in the window title (Settings can turn that count off).
+- **Glue › Settings…** (⌘,) opens Settings. In a browser the same dialog opens with the ⚙ button or `,`.
 - **File › New Agent** (⌘T) opens the launcher, and the **New agent** button shows the shortcut. In a
   browser ⌘T opens a new tab, so there the button shows none.
 - Links to other sites open in your browser. ⌘R reloads, and starts a server if none answers;
@@ -172,7 +180,7 @@ rebuilt app may ask again.
 
 A workspace is one Claude Code profile with a name and a colour: `~/.claude` for plain `claude`, `~/.claude-<name>` for
 one started with `CLAUDE_CONFIG_DIR=~/.claude-<name>`. Every profile the panel finds becomes a workspace, named after its
-folder (`claude`, `claude-work`) until you rename it in the setup checklist. With one profile there is no switch and the
+folder (`claude`, `claude-work`) until you rename it in Settings. With one profile there is no switch and the
 panel looks as it always has.
 
 - **The switch.** With two or more, the top bar shows a switch naming each workspace (`Work | Private`). Click one, or press
@@ -183,11 +191,11 @@ panel looks as it always has.
 - **Every workspace keeps working.** Switching changes what you see, not what runs. A request held for the other workspace stays
   held and shows when you switch back, its overseer and PR watcher carry on, and messages waiting for a busy agent still go
   out. A message you were typing stays with its session. Each workspace's agents run on its own profile's login.
-- **The seal.** The page is sent the workspace in view and, for each other, only its name, colour and that count. No session,
+- **The seal.** Outside Settings, the page is sent the workspace in view and, for each other, only its name, colour and that count. No session,
   conversation, repository, pull request, branch or check of the other reaches the page, a desktop notification (which says
   only `Private: 2 needs you`, with the count, or `Private: a check failed`), the overseer's digest or a model call. Every action on a session
   is refused for a page that is not in its workspace: "That belongs to another workspace. Switch to it to do this." The Dock
-  badge counts what waits across all of them, since it is only a number.
+  badge counts what waits across all of them, since it is only a number. Settings is the one exception (see [Settings](#settings)).
 - **Folders: Glue asks.** A repository belongs to the workspaces you sort it into (a GitHub one by its `owner/name`, so every clone and
   worktree follows; any other by its git directory or folder). The first time you start an agent in one that is in no workspace,
   the launcher asks which, preselecting the workspace in view, or the only one whose sessions have worked there. A terminal
@@ -199,19 +207,71 @@ panel looks as it always has.
   anywhere are cut the same way. Repositories GitHub found that no workspace holds show only as a count, "3 repositories aren't
   in a workspace yet", with **Sort**, which names them and asks for each with the same choice as the launcher. **Auto-fix** is a
   switch per workspace, and a failing pull request is handed to the session on its branch, through that session's login.
-- **Renaming, colours and repositories.** In **Set up the panel**, the **Workspaces** step (shown with two or more) has the name
-  and five colours of the workspace in view, and lists its repositories, each with **Move** (the launcher's choice) and
-  **Forget** (it is asked again next time). Another workspace's name is changed from its own side: switch to it first. The
-  step is optional and never blocks **Done**; **Setup** in the overseer's header brings it back.
+- **Renaming, colours, order and repositories.** These live in [Settings](#settings): its **Workspaces** tab has a row per
+  workspace for its name, colour and place in the switch, and the repositories of the workspace in view, each with **Move**
+  (the launcher's choice) and **Forget** (it is asked again next time).
 - **What is kept.** Names, colours, order, repositories and the workspace last in view are in
   `~/Library/Application Support/Glue/workspaces.json` (beside `prefs.json`; for a second panel on another port, `ACP_PREFS`
   names another prefs file, and `workspaces.json` sits in that file's folder, so give each panel a folder of its own).
   A page opens on the workspace last in view and keeps its own after that.
 
 A profile's sessions report here only once its settings have the hooks. When a profile doesn't have
-them, the panel shows **Connect this profile**. Clicking it adds the entries from
+them, the panel shows a **Connect this profile** banner, and Settings shows **Connect** for every workspace. Either adds the entries from
 `hooks.example.json` that the profile's `settings.json` lacks. It changes nothing else in the file,
 and keeps a dated copy of the old file beside it.
+
+## Settings
+
+One dialog holds every setting, for every workspace and for Glue itself. Open it with the gear (⚙) in the top bar, **⌘,**
+in the app (**Glue › Settings…**), or `,` in a browser when focus isn't in a text field. Esc or ✕ closes it; it remembers
+the last tab while the page is open. It has five tabs:
+
+- **Workspaces.** A row for each workspace: its name (1–24 characters, unique), one of five colours, and up and down
+  buttons that set its place in the switch (⌃1, ⌃2…). Every row can be edited from either workspace; the one you are in is
+  marked "you're here". With two or more, below the rows are the repositories of the workspace in view, each with
+  **Move** and **Forget**, and the "N repositories aren't in a workspace yet · Sort" line. With one workspace there is just
+  its row, and a note that a second Claude Code profile (`~/.claude-<name>`) becomes a second workspace.
+- **Logins & connection.** A block per workspace, each acting on its own profile without switching: **Claude** signed in or
+  not (**Sign in in Terminal…** and **Copy command**, for that workspace's own `CLAUDE_CONFIG_DIR`), and **Connected** or
+  not (**Connect**, which keeps a dated copy of `settings.json`). The account's email and plan show for the workspace in
+  view only. A "Codex: coming next" line is a placeholder.
+- **GitHub, alerts & Auto-fix.** The GitHub CLI sign-in (shared: one `gh` login), then, for the workspace in view,
+  **Auto-fix** and the **overseer's model**. They are the same switch and select as the GitHub panel's and the overseer's
+  box, and show the same state.
+- **Providers.** Claude Code, active, with each workspace's sign-in status; **Codex** and **OpenRouter** are listed as
+  coming next and do nothing yet.
+- **Glue.** Settings that apply to every workspace and every page, kept on the server in `prefs.json` so the app and any
+  browser tab agree:
+  - **Look & keys:** the theme (Dark, Light, or the Mac's own appearance), which queues start folded (Other folders,
+    Finished), **Take the tour**, and a read-only list of the keyboard shortcuts. The pre-paint colours still come from the
+    browser's own copy of the theme, and a change on one page reaches the others at once. The first page to connect after
+    an upgrade hands the server what its browser remembered.
+  - **Answering & alerts:** **Answering here** on or off, **Desktop alerts** (turn them on, or a note that they are blocked
+    in System Settings › Notifications), three toggles for which events notify (requests waiting on you, CI failures, the
+    PR watcher; both the page's alerts and the Mac's notifications follow them), and whether the count appears in the
+    window title and the Dock badge. **Answering here is never remembered**: it is on again whenever the server starts,
+    and the top bar's "Paused" notice shows whenever it is off.
+  - **Agent defaults:** the model, effort, permissions and "its own worktree" the New agent launcher starts with (you can
+    still change them per launch), and the overseer model a new workspace starts with.
+  - **About & maintenance:** the version and commit, whether the background service runs (**Restart** runs
+    `launchctl kickstart -k`, and the page reconnects by itself), where Glue keeps its files and logs with **Show in
+    Finder**, and the commands to update (`git pull && ./install.sh`) and uninstall (`./install.sh --uninstall`).
+  - **Repositories** (shown with two or more workspaces): every repository Glue knows of, with its workspaces or
+    "unsorted", and **Move** and **Forget** for each. Inside Settings these act on any repository and any workspace.
+
+**The exceptions are inside Settings only.** It is the one place that shows the other workspace's name, colour, order and
+whether it is signed in and connected, and the full map of repositories to workspaces, because those are what it exists to
+change. It still never shows another workspace's sessions, account email, pull requests, branches or conversations. Its
+data comes from a route of its own, fetched when the dialog opens, and is never part of the stream the rest of the page
+reads, which is told only that "something in Settings changed" so an open dialog refetches. Closing the dialog drops the
+data. The board, the GitHub panel, the overseer, notifications, the title and the Dock badge stay exactly as sealed as
+before, and nothing else changes the seal.
+
+**First run.** While setup isn't done, Settings opens by itself on **Logins & connection** and marks the two required
+steps for the workspace in view (Claude sign-in and Connect) as **Needed**. A footer has **Skip for now** and **Done**
+(primary once both are in place); either one ends the first run, closes the dialog and starts the tour. Esc or ✕ closes
+it for that page load only. If the workspace in view is already signed in and connected, setup is marked done quietly
+and nothing opens. Anyone who finished setup before is not interrupted.
 
 ## The rail
 
@@ -264,7 +324,7 @@ the stuck run.
   again five minutes later.
 - Every fix asked shows in the overseer's feed and as a macOS notification, and the GitHub panel marks the pull
   request with how many fixes were asked (`fix 1/3`).
-- **Auto-fix** in the GitHub panel turns it off and on, for the workspace in view only. What it asked is kept in
+- **Auto-fix**, in the GitHub panel and in Settings › GitHub, alerts & Auto-fix (one switch, shown in both), turns it off and on, for the workspace in view only. What it asked is kept in
   `watcher.json` beside `prefs.json`, so a restart never asks twice, even for a repository two workspaces share.
 
 ## The overseer
@@ -282,7 +342,7 @@ Ask what needs you, what everyone is doing, or what is failing, or say what you 
   click it. It can't answer permission requests or approve plans, pick a model or a permission mode,
   or send a message that starts with `/` or `!`. A card says when sending would restart a session
   (for a terminal session, that closes Claude in its terminal). Proposals expire after an hour.
-- Its model is Sonnet unless you pick another under its box. There is one overseer per workspace, each on its own login, and it
+- Its model is Sonnet unless you pick another under its box (or in Settings › GitHub, alerts & Auto-fix; Settings › Glue sets the one a new workspace starts with). There is one overseer per workspace, each on its own login, and it
   reads only that workspace's sessions. Its conversation and feed are kept per workspace, in `overseer-<workspace>.json`
   beside `prefs.json` (an `overseer.json` from before workspaces seeds each one once, and is left as it was).
 - **What leaves the Mac:** the digest and the excerpts it reads go to the profile's own Claude
@@ -290,7 +350,7 @@ Ask what needs you, what everyone is doing, or what is failing, or say what you 
 
 ## Wire the hooks (once)
 
-Click **Connect this profile** in the panel, or merge `hooks.example.json` into your user settings
+Click **Connect** in Settings (or **Connect this profile** in its banner), or merge `hooks.example.json` into your user settings
 yourself (`~/.claude/settings.json`, or `$CLAUDE_CONFIG_DIR/settings.json`). Sessions started after
 that report to the panel; one that
 was already running keeps asking in its terminal until you restart it. To try it
@@ -301,8 +361,9 @@ without touching your settings, run a single session with the hooks:
 
 - A permission request appears here **and** in the session's terminal at the same time.
   Whichever answers first wins.
-- The panel holds a request only while a panel tab is open and **Answering here** is on.
-  Otherwise it answers nothing and the terminal decides as usual. A reload (yours, or the app's when
+- The panel holds a request only while a panel tab is open and **Answering here** is on (Settings › Glue › Answering &
+  alerts). It is never remembered: it is on again whenever the server starts, so a paused panel never stays paused
+  unnoticed, and while it is off the top bar says "Paused: the terminal answers everything". Otherwise it answers nothing and the terminal decides as usual. A reload (yours, or the app's when
   its health check is slow) isn't a closed tab: held requests wait 15 seconds for a page to come back.
 - If the server isn't running, the hooks fail silently and Claude Code behaves as if they weren't there.
 - **Allow edited command** sends your edit as the tool's input. **Edit full input** does the same

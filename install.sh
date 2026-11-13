@@ -117,8 +117,8 @@ if (( daemon )); then
 Done. The panel runs in the background from now on, also after a restart. Next:
   1. Open Glue ($shown, or Spotlight). macOS may ask whether it may use your Documents folder:
      the panel reads the repositories your sessions work in.
-  2. If you use more than one Claude Code profile, pick yours under Profile, top right.
-  3. Click Connect this profile. Sessions you start after that show up on the board.
+  2. Open Settings (⚙, or ⌘, in the app) to sign in and Connect each workspace (each Claude Code profile is
+     one). Sessions you start after that show up on the board.
 
 Keep this folder where it is: the service runs the panel from here. After a git pull, run ./install.sh again: it
 restarts the service on the new code (requests the panel was holding go back to their terminals for a moment).
@@ -130,8 +130,8 @@ else
 Done. Next:
   1. Open Glue ($shown, or Spotlight). macOS may ask whether it may use your Documents folder:
      the panel reads the repositories your sessions work in.
-  2. If you use more than one Claude Code profile, pick yours under Profile, top right.
-  3. Click Connect this profile. Sessions you start after that show up on the board.
+  2. Open Settings (⚙, or ⌘, in the app) to sign in and Connect each workspace (each Claude Code profile is
+     one). Sessions you start after that show up on the board.
 
 Keep this folder where it is: the app runs the panel from here. After a git pull, run ./install.sh again, then quit
 the app (⌘Q) and open it again.
