@@ -830,6 +830,18 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 .tci[data-c="open"], .tci[data-c="draft"], .h-li .tci[data-c="open"], .h-li .tci[data-c="draft"] { background: var(--fg-faint); }
 .h-li .tci[data-c="passing"] { background: var(--ok); }
 @media (max-width: 1180px) { .gh-side { width: 340px; } }
+/* Collapsed, the GitHub panel is a slim strip like the rail's: a state light per item, a hairline between repositories. */
+.gh-pop-h .gh-fold { margin-left: -8px; }
+.gh-fold::before { transform: scaleX(-1); }
+.gh-side.slim { width: 44px; padding: 4px 0 8px; overflow-x: hidden; scrollbar-width: none; }
+.gh-side.slim::-webkit-scrollbar { display: none; }
+.gh-strip { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.gh-strip .gh-fold { margin-bottom: 4px; }
+.gh-strip hr { flex: none; width: 20px; height: 1px; margin: 4px 0; border: 0; background: var(--line-strong); }
+.gh-dot { position: relative; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--r-1); background: none; cursor: pointer; }
+.gh-dot:hover { background: var(--fill); }
+.gh-dot .tci { width: 9px; height: 9px; }
+.gh-dot-t { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .gh-pop-h { display: flex; align-items: center; gap: 8px; }
 /* Each item's state in its colour: failing red, stuck amber, running blue, merged purple. */
 .st-word { flex: none; height: 20px; padding: 0 8px; border-radius: var(--r-pill); background: var(--fill); font: 500 11px/20px var(--mono); color: var(--fg-dim); white-space: nowrap; }
@@ -950,12 +962,15 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 .srow.ov[data-proposed="1"] .tdetail { color: var(--run); font-weight: 600; }
 
 /* Collapsed, the rail is a slim strip: a state light per session, a hairline between sections, and nothing that needs
-   you out of sight (Needs you never folds). Folded sections leave the strip; the name stays in the row for screen readers. */
+   you out of sight (Needs you never folds). A folded section keeps only its live rows there (an agent working, a pull
+   request failing) and leaves the strip when it has none; the name stays in the row for screen readers. */
 @media (min-width: 861px) {
   body.rail-slim .board { width: 44px; overflow-x: hidden; scrollbar-width: none; }
   body.rail-slim .board::-webkit-scrollbar { display: none; }
-  body.rail-slim :is(.r-grip, #rail-find, #rail-keys, .col-path, .ck, .col-hint, .col-empty, .board-empty, .sub, .rask, .qstop, .col.folded),
-  body.rail-slim .col[data-col="waiting"]:not(:has(.tile-wrap)) { display: none; }
+  body.rail-slim :is(.r-grip, #rail-find, #rail-keys, .col-path, .ck, .col-hint, .col-empty, .board-empty, .sub, .rask, .qstop),
+  body.rail-slim .col[data-col="waiting"]:not(:has(.tile-wrap)), body.rail-slim .col.folded:not(:has(.tile-wrap.rail-live)),
+  body.rail-slim .col.folded .tile-wrap:not(.rail-live) { display: none; }
+  body.rail-slim .col.folded .col-body { display: grid; }
   body.rail-slim .rail-head { justify-content: center; padding: 4px 0 2px; }
   body.rail-slim .rail-title { display: none; }
   body.rail-slim .col { padding: 0; }
@@ -965,7 +980,9 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
   body.rail-slim .col-body { gap: 4px; }
   body.rail-slim .srow, body.rail-slim .srow.ov { width: 28px; height: 28px; margin: 0; padding: 0; gap: 0; justify-content: center; }
   body.rail-slim .srow.ov { margin: 0 8px 2px; }
-  body.rail-slim .srow > :not(.glyph, .ov-mark, .tname) { display: none; }
+  body.rail-slim .srow > :not(.glyph, .ov-mark, .tname, .tci[data-c="failing"]) { display: none; }
+  body.rail-slim .srow { position: relative; }
+  body.rail-slim .srow > .tci[data-c="failing"] { position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; box-shadow: 0 0 0 1.5px var(--panel); }
   body.rail-slim .srow > .tname { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   body.rail-slim .srow .glyph { width: 9px; height: 9px; }
 }
@@ -1657,10 +1674,11 @@ railFind.onkeydown = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.st
 function railRows() {
   const rows = [];
   for (const c of shownSecs) {
-    if (c.kind !== 'waiting' && isFolded(c.key)) continue;
+    const shut = c.kind !== 'waiting' && isFolded(c.key);
+    if (shut && !slimShown()) continue;
     for (const w of c.body.children) {
       const s = w.dataset?.sid && sessionOf(w.dataset.sid);
-      if (!s) continue;
+      if (!s || (shut && !w.classList.contains('rail-live'))) continue;
       if (w.classList.contains('tile-wrap')) rows.push({ kind: 'session', s, el: w.firstChild });
       else if (w.classList.contains('sub') && !slimShown()) { const a = s.subagents.find((x) => x.agentId === w.dataset.aid); if (a) rows.push({ kind: 'sub', s, a, el: w }); }
     }
@@ -1714,6 +1732,7 @@ function railKeys(e) {
   else if (e.key === 'n' && !e.shiftKey) { e.preventDefault(); nextNeedsYou(); }
   else if (e.key === '/') { e.preventDefault(); if (slimShown()) setRailSlim(false); showFind(true); }
   else if (e.key === '[' && wideEnough.matches) { e.preventDefault(); setRailSlim(!railSlim); }
+  else if (e.key === ']' && wideEnough.matches && !$('gh-pop').hidden) { e.preventDefault(); setGhSlim(!ghSlim); }
 }
 document.addEventListener('keydown', railKeys);
 function tileAction(s, st) {
@@ -1869,6 +1888,8 @@ function tile(s) {
   setText(t.age, s.startedAt ? ago(snap.now - s.startedAt) : '');
   t.act = tileAction(s, st);
   t.wrap.classList.toggle('can-act', Boolean(t.act));
+  // Working, or its pull request failing: it stays in the slim rail even when its section is folded.
+  t.wrap.classList.toggle('rail-live', st === 'busy' || st === 'stopping' || ci === 'failing');
   t.q.hidden = !t.act;
   if (t.act) {
     const q = t.act, on = armed?.key === `tile-${q.kind}:${id}`;
@@ -3305,8 +3326,7 @@ function acrossBody(head) {
     : gh.hint ? el('p', { class: 'gh-hint', text: gh.hint }) : null;
   if (!gh.repos.length) return [head, hint ?? el('p', { class: 'gh-hint', text: gh.gh === 'unknown' ? 'Looking at GitHub…' : 'No agent works in a GitHub repository right now.' })];
   const who = (ids) => (ids ?? []).map((id) => names.get(id)).filter(Boolean).join(', ');
-  const active = gh.repos.map((r) => ({ r, items: ghActive(r) })).filter((x) => x.items.length || x.r.error)
-    .sort((a, b) => (GH_RANK[a.items[0]?.st] ?? 4) - (GH_RANK[b.items[0]?.st] ?? 4));
+  const active = ghActiveRepos(gh);
   if (!active.length) {
     const open = gh.repos.reduce((n, r) => n + r.prs.length, 0), checked = gh.repos.some((r) => r.checkedAt);
     return [head, hint, el('p', { class: 'h-none', text: !checked ? 'Looking at GitHub…'
@@ -3321,6 +3341,27 @@ function acrossBody(head) {
       el('span', { class: 'st-word', 'data-c': it.st, text: it.word }))),
   ))];
 }
+/** The repositories with something to show, worst first, each with its items. */
+const ghActiveRepos = (gh) => gh.repos.map((r) => ({ r, items: ghActive(r) })).filter((x) => x.items.length || x.r.error)
+  .sort((a, b) => (GH_RANK[a.items[0]?.st] ?? 4) - (GH_RANK[b.items[0]?.st] ?? 4));
+/** Collapsed, the GitHub panel is a slim strip like the rail's: a state light per item, each opening on GitHub, a
+ *  hairline between repositories. Signed out or with nothing to show, one quiet light that opens the panel again. */
+function ghStrip() {
+  const gh = snap.github, fold = ghFoldBtn();
+  const active = gh && gh.gh !== 'off' && !ghSignedOut() ? ghActiveRepos(gh) : [];
+  if (!active.length) return el('div', { class: 'gh-strip' }, fold,
+    el('button', { class: 'gh-dot', type: 'button', title: ghSignedOut() ? 'The GitHub CLI is signed out. Show the panel to sign in again.' : 'Nothing to show. Show the panel.',
+      onclick: () => setGhSlim(false) }, el('span', { class: 'tci', 'data-c': ghSignedOut() ? 'stuck' : 'none' })));
+  return el('div', { class: 'gh-strip' }, fold, ...active.flatMap(({ r, items }, i) => [
+    i ? el('hr') : null,
+    r.error && !items.length ? el('button', { class: 'gh-dot', type: 'button', title: `${r.slug}\n${r.error.text}`, onclick: () => setGhSlim(false) }, el('span', { class: 'tci', 'data-c': 'failing' })) : null,
+    ...items.map((it) => el('a', { class: 'gh-dot', href: it.url, target: '_blank', rel: 'noopener', title: `${r.slug} ${it.n} · ${it.word}\n${it.tip}` },
+      el('span', { class: 'tci', 'data-c': it.st }), el('span', { class: 'gh-dot-t', text: `${r.slug} ${it.n}: ${it.title}, ${it.word}` }))),
+  ]));
+}
+/** Collapse the GitHub panel to its strip, or show it whole: the same button as the rail's, mirrored to the right. */
+const ghFoldBtn = () => el('button', { class: 'rail-btn gh-fold', type: 'button', 'aria-controls': 'gh-pop', 'aria-expanded': String(!ghSlim),
+  'aria-label': ghSlim ? 'Show GitHub' : 'Collapse GitHub', title: ghSlim ? 'Show GitHub (])' : 'Collapse GitHub (])', onclick: () => setGhSlim(!ghSlim) });
 /** Runs on a default branch that count for it: pushes and merges, not a fork's PR named main. */
 const mainRuns = (r) => r.runs.filter((x) => ['push', 'merge_group', 'schedule', 'workflow_dispatch'].includes(x.event) || !x.event);
 /** The GitHub button: a dot for the worst state across every watched repository, the number failing, and a dropdown
@@ -3339,7 +3380,11 @@ function renderGhBtn() {
   setText($('gh-n'), String(failing));
   setAttr($('gh-btn'), 'title', out ? 'The GitHub CLI is signed out. Open this to sign in again.' : gh.hint ?? (failing ? `${failing} failing on GitHub` : stuck ? 'Checks have run for more than 30 minutes on GitHub' : state === 'running' ? 'Checks are running on GitHub' : `GitHub: ${gh.repos.length} ${gh.repos.length === 1 ? 'repository' : 'repositories'} watched`));
   const open = prs.length;
-  if (!$('gh-pop').hidden) patch($('gh-pop'), acrossSig() + ghRefreshing + JSON.stringify([snap.watcher, ghSort, snap.workspaces, snap.workspace?.id]), () => acrossNodes(el('div', { class: 'gh-pop-h' }, el('h3', { text: 'GitHub' }),
+  if ($('gh-pop').hidden) return;
+  const slim = ghSlimShown();
+  $('gh-pop').classList.toggle('slim', slim);
+  if (slim) { patch($('gh-pop'), 'slim' + acrossSig(), ghStrip); return; }
+  patch($('gh-pop'), acrossSig() + ghRefreshing + JSON.stringify([snap.watcher, ghSort, snap.workspaces, snap.workspace?.id]), () => acrossNodes(el('div', { class: 'gh-pop-h' }, ghFoldBtn(), el('h3', { text: 'GitHub' }),
     el('span', { class: 'gh-sub', text: open ? `${open} open pull request${open === 1 ? '' : 's'}` : '' }),
     snap.watcher ? el('label', { class: 'switch gh-auto', title: 'The PR watcher: when a pull request on an agent\u2019s branch fails, conflicts, gets changes requested or has checks stuck, it asks that agent to fix it and push again, at most 3 times' },
       el('input', { type: 'checkbox', checked: snap.watcher.enabled, onchange: (e) => api('/api/watcher/enabled', { on: e.target.checked }) }), el('i'), 'Auto-fix') : null,
@@ -3348,6 +3393,15 @@ function renderGhBtn() {
     el('button', { class: 'btn icon', type: 'button', 'aria-label': 'Close GitHub', title: 'Close (Esc)', onclick: () => { showGhPop(false); $('gh-btn').focus(); } }, svgIcon('M6 6l12 12M18 6L6 18')))));
 }
 let ghRefreshing = false;
+// The GitHub panel collapses to a strip, as the rail does; under 860px it covers the window and never goes slim.
+let ghSlim = pref('acp.ghSlim') === '1';
+const ghSlimShown = () => ghSlim && wideEnough.matches;
+function setGhSlim(on) {
+  ghSlim = on;
+  pref('acp.ghSlim', on ? '1' : '0');
+  if (snap) render();
+  $('gh-pop').querySelector('.gh-fold')?.focus({ preventScroll: true });
+}
 /** Opens or closes the GitHub panel on the right. It stays as you leave it, across reloads. */
 function showGhPop(on) {
   const pop = $('gh-pop');
@@ -4639,7 +4693,7 @@ function setGlueTab(panel) {
 function setGlueLook(box, g) {
   const app = window.glueApp;
   const keys = [[['↑', '↓'], 'Move through the sessions in the rail'], [['→', '←'], 'Open or close a session’s subagents'], [['n'], 'The next session that needs you'],
-    [['/'], 'Find a session by name'], [['['], 'Collapse the sessions to a strip, or show them'], [['⌃1–9'], 'Show that workspace (in Settings, pick it in the picker)'], [[','], 'Open Settings'], [['Esc'], 'Close what is open'],
+    [['/'], 'Find a session by name'], [['['], 'Collapse the sessions to a strip, or show them'], [[']'], 'Collapse GitHub to a strip, or show it'], [['⌃1–9'], 'Show that workspace (in Settings, pick it in the picker)'], [[','], 'Open Settings'], [['Esc'], 'Close what is open'],
     ...(app ? [[[app.newAgent ?? '⌘T'], 'Start a new agent']] : []), ...(app?.settings ? [[[app.settings], 'Open Settings, from the Glue menu']] : [])];
   const fold = (k) => g.folded.includes(k);
   setPatch(box, JSON.stringify([g.theme, fold('loose'), fold('finished'), Boolean(app)]), () => [
