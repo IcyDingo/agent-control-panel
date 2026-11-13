@@ -634,6 +634,73 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .seg label.both:hover span { color: var(--fg-dim); }
 .launcher .row { justify-content: flex-end; }
 
+/* ---------- Settings: one dialog, its tabs down the left, what each holds on the right ---------- */
+.set-btn { width: 30px; justify-content: center; padding: 0; }
+.set-btn::after { display: none; }
+.set-btn::before { content: ""; width: 15px; height: 15px; background: currentColor; -webkit-mask: var(--i-gear) center / contain no-repeat; mask: var(--i-gear) center / contain no-repeat;
+  --i-gear: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill-rule='evenodd' d='M13.4 6.51L15.21 6.84L15.21 9.16L13.4 9.49L12.87 10.76L13.92 12.27L12.27 13.92L10.76 12.87L9.49 13.4L9.16 15.21L6.84 15.21L6.51 13.4L5.24 12.87L3.73 13.92L2.08 12.27L3.13 10.76L2.6 9.49L0.79 9.16L0.79 6.84L2.6 6.51L3.13 5.24L2.08 3.73L3.73 2.08L5.24 3.13L6.51 2.6L6.84 0.79L9.16 0.79L9.49 2.6L10.76 3.13L12.27 2.08L13.92 3.73L12.87 5.24ZM10.3 8a2.3 2.3 0 1 0 -4.6 0a2.3 2.3 0 1 0 4.6 0Z'/%3E%3C/svg%3E"); }
+dialog.settings { width: min(760px, calc(100vw - 32px)); height: min(620px, calc(100vh - 48px)); padding: 0; border: 0; border-radius: var(--r-3); background: var(--panel); color: var(--fg); box-shadow: 0 30px 80px -30px var(--shade); }
+dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
+.set-shell { position: relative; display: grid; grid-template-columns: 196px minmax(0, 1fr); height: 100%; }
+.set-nav { display: flex; flex-direction: column; gap: 2px; padding: 20px 12px; border-right: 1px solid var(--line); background: var(--bg); border-radius: var(--r-3) 0 0 var(--r-3); }
+.set-tablist { display: flex; flex-direction: column; gap: 2px; }
+.set-nav h2 { margin: 0 0 12px; padding: 0 10px; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+.set-tab { display: flex; align-items: center; height: 32px; padding: 0 10px; border: 0; border-radius: var(--r-1); background: none; color: var(--fg-dim); font-size: 13px; font-weight: 500; text-align: left; cursor: pointer; }
+.set-tab:hover { color: var(--fg); background: var(--fill); }
+.set-tab[aria-selected="true"] { background: var(--fill-strong); color: var(--fg); font-weight: 550; }
+.set-x { position: absolute; top: 14px; right: 14px; z-index: 1; }
+.set-panel { min-width: 0; overflow: auto; padding: 22px 28px 28px; outline: none; }
+.set-panel h3 { margin: 0 40px 4px 0; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+.set-lead { max-width: 60ch; margin: 0 0 18px; color: var(--fg-dim); font-size: 12.5px; line-height: 1.55; }
+.set-h4 { margin: 24px 0 8px; font-size: 13px; font-weight: 600; }
+.set-quiet { margin: 0; color: var(--fg-dim); font-size: 12.5px; line-height: 1.55; }
+.set-here { flex: none; padding: 2px 8px; border-radius: var(--r-pill); background: var(--fill-strong); color: var(--fg-dim); font-size: 11px; font-weight: 550; white-space: nowrap; }
+.set-dot { flex: none; display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--sw); }
+:root[data-theme="light"] .set-dot { background: color-mix(in oklab, var(--sw) 66%, #000); }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) .set-dot { background: color-mix(in oklab, var(--sw) 66%, #000); } }
+/* Workspaces: a row each, in switch order */
+/* name | colours | you're here | order: one grid for every row (each row a subgrid), so the columns line up */
+.set-rows { display: grid; grid-template-columns: minmax(6em, 13em) auto minmax(max-content, 1fr) auto; gap: 6px 12px; }
+.set-ws { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; padding: 10px 12px; border-radius: var(--r-2); background: var(--raise); }
+.set-rows > p { grid-column: 1 / -1; }
+.set-ws .field { width: 100%; min-width: 0; height: 30px; }
+.set-ws .set-here { grid-column: 3; justify-self: end; }
+.set-ws .set-order { grid-column: 4; display: inline-flex; align-items: center; gap: 2px; }
+.set-ws .set-order .btn.icon { width: 26px; height: 26px; }
+.set-ws .set-order .btn.icon svg { width: 14px; height: 14px; }
+.set-key { min-width: 2.2em; margin-right: 2px; color: var(--fg-faint); font: 500 11.5px var(--sans); text-align: right; }
+.set-repos { display: grid; gap: 6px; }
+.set-repos .su-ws-r { padding: 6px 0; border-top: 1px solid var(--line); }
+.set-repos .su-ws-r:first-child { border-top: 0; }
+.set-sort .gh-sort { margin-top: 14px; }
+.set-note { margin: 14px 0 0; color: var(--fg-dim); font-size: 12.5px; }
+.set-note code { font: 12px var(--mono); color: var(--fg); }
+/* Logins & connection: a block each, a line per thing it needs */
+.set-blocks { display: grid; gap: 12px; }
+.set-block { border-radius: var(--r-2); background: var(--raise); }
+.set-block-h { display: flex; align-items: center; gap: 8px; padding: 12px 16px 4px; font-size: 13.5px; font-weight: 600; }
+.set-line { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 2px 10px; padding: 10px 16px; }
+.set-line + .set-line { border-top: 1px solid var(--line); }
+.set-mark { grid-row: span 2; font-size: 13px; font-weight: 650; line-height: 20px; text-align: center; color: var(--fg-faint); }
+.set-line[data-s="ok"] .set-mark { color: var(--ok); }
+.set-line[data-s="todo"] .set-mark { color: var(--amber); }
+.set-line .t { font-size: 13px; font-weight: 550; line-height: 20px; }
+.set-line .d { color: var(--fg-dim); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.set-line .acts { grid-column: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+.set-line.off { opacity: .55; }
+@media (max-width: 620px) {
+  .set-shell { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  .set-nav { flex-direction: row; flex-wrap: wrap; padding: 14px 52px 10px 14px; border-right: 0; border-bottom: 1px solid var(--line); border-radius: var(--r-3) var(--r-3) 0 0; }
+  .set-nav h2 { width: 100%; margin-bottom: 6px; }
+  .set-tablist { flex-direction: row; flex-wrap: wrap; }
+  .set-panel { padding: 18px 16px 24px; }
+  .set-rows { grid-template-columns: minmax(0, 1fr) auto; }
+  .set-ws { row-gap: 8px; }
+  .set-ws .ws-sw-set { grid-row: 2; }
+  .set-ws .set-here { grid-column: 2; grid-row: 1; }
+  .set-ws .set-order { grid-column: 2; grid-row: 2; }
+}
+
 #toasts { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); display: grid; gap: 6px; z-index: 50; pointer-events: none; }
 .toast { max-width: min(560px, calc(100vw - 32px)); padding: 10px 16px; border: 0; border-radius: var(--r-2); background: var(--fill-strong); color: var(--fg); font-size: 12.5px; box-shadow: 0 12px 28px -16px var(--shade); }
 .toast.bad { background: var(--raise); color: var(--stop); box-shadow: inset 0 0 0 1px var(--stop-line), 0 12px 28px -16px var(--shade); }
@@ -856,6 +923,7 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
     <button class="prof-btn theme-btn" type="button" id="theme-btn" aria-haspopup="menu" aria-expanded="false"></button>
     <div class="prof-menu theme-menu" id="theme-menu" role="menu" aria-label="Theme" hidden></div>
   </div>
+  <button class="prof-btn set-btn" type="button" id="settings-btn" aria-haspopup="dialog" aria-label="Settings" title="Settings (,)"></button>
   <button class="btn primary" type="button" id="new-agent">New agent</button>
 </header>
 <p class="banner" id="roster-err" hidden></p>
@@ -1016,6 +1084,18 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
     <div class="row"><button class="btn" type="button" id="l-cancel">Cancel</button><button class="btn primary" type="submit" id="l-go">Launch agent</button></div>
   </form>
 </dialog>
+<!-- Settings: every workspace's name, colour, order, sign-in and hooks, and Glue's own. What it shows of a workspace
+     this page isn't on comes from GET /api/settings while it is open, and stays in its own variables. -->
+<dialog class="settings" id="settings" aria-labelledby="set-title">
+  <div class="set-shell">
+    <nav class="set-nav">
+      <h2 id="set-title">Settings</h2>
+      <div class="set-tablist" id="set-tabs" role="tablist" aria-orientation="vertical" aria-labelledby="set-title"></div>
+    </nav>
+    <section class="set-panel" id="set-panel" role="tabpanel" tabindex="-1"></section>
+    <button class="btn icon set-x" type="button" id="set-close" aria-label="Close settings" title="Close (Esc)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+</dialog>
 <div id="toasts" role="status" aria-live="polite"></div>
 
 <script>
@@ -1078,6 +1158,8 @@ const cards = new Map();       // request id → { el, req, fitted }
 const tasksOpen = new Set();   // agentIds whose task is unfolded
 const stoppedSubs = new Set(); // agentIds stopped from the panel
 const $ = (id) => document.getElementById(id);
+/** A dialog is up (the launcher, Settings): the page's own keys stay quiet under it. */
+const modalOpen = () => Boolean(document.querySelector('dialog[open]'));
 
 // ---------- helpers: never innerHTML with data ----------
 function el(tag, attrs = {}, ...kids) {
@@ -1133,7 +1215,10 @@ const shortTool = (t) => t.startsWith('mcp__') ? t.split('__').pop() : t;
 const toolLine = (t) => el('div', { class: 'tool-line', title: `${t.tool}: ${t.text}` }, el('span', { class: 't', text: shortTool(t.tool) }), el('span', { class: 'what', text: t.text }));
 function toast(text, bad) {
   const t = el('div', { class: 'toast' + (bad ? ' bad' : ''), text });
-  $('toasts').append(t);
+  // Over an open dialog (Settings, the launcher) the toasts go into it: the page under its backdrop can't be seen.
+  const box = $('toasts'), host = document.querySelector('dialog[open]') ?? document.body;
+  if (box.parentNode !== host) host.append(box);
+  box.append(t);
   setTimeout(() => t.remove(), bad ? 6000 : 4000);
 }
 function note(sessionId, text) { notes.set(sessionId, { text, at: Date.now() }); render(); }
@@ -1169,6 +1254,8 @@ function connect() {
   // Its transcript was cut or replaced, or the profile switched: what the page holds is gone, so it asks again.
   es.addEventListener('term', (m) => { const d = JSON.parse(m.data); if (termView?.sessionId === d.sessionId) termWrite(termView, b64bytes(d.data)); });
   es.addEventListener('term-exit', (m) => { const d = JSON.parse(m.data); if (termView?.sessionId === d.sessionId) termEnded(termView); });
+  // Something Settings shows changed: an empty nudge (the seal), and an open Settings asks for what it shows again.
+  es.addEventListener('settings', () => { if (setDlg.open) loadSettings(); });
   es.addEventListener('thread-reset', (m) => { const { sessionId } = JSON.parse(m.data); if (sessionId === followed) { threads.delete(sessionId); followOpen(sessionId); } });
   es.onerror = () => {
     conn.classList.add('down');
@@ -1467,7 +1554,7 @@ function nextNeedsYou() {
   tiles.get(open)?.btn.scrollIntoView({ block: 'nearest' });
 }
 function railKeys(e) {
-  if (dlg.open || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (modalOpen() || e.ctrlKey || e.metaKey || e.altKey) return;
   const t = e.target;
   if (t.closest?.('textarea, input, select, [contenteditable], [role=menu], [role=separator]')) return;
   if (e.key === 'Escape' && railQuery) { e.preventDefault(); e.stopImmediatePropagation(); showFind(false); render(); return; }
@@ -3026,7 +3113,7 @@ window.addEventListener('resize', () => placeTour());
 // Waiting on a sign-in (the checklist, or the signed-out banner): at once. Otherwise at most once a minute, so a login
 // that lapsed while you were away shows when you come back.
 window.addEventListener('focus', () => {
-  const waiting = setupShown() || snap?.setup?.claude?.state === 'signed-out' || snap?.setup?.github?.state === 'signed-out';
+  const waiting = setupShown() || setDlg.open || snap?.setup?.claude?.state === 'signed-out' || snap?.setup?.github?.state === 'signed-out';
   checkSetupNow(waiting, 60_000);
 });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && setupShown()) checkSetupNow(false); });
@@ -3255,6 +3342,7 @@ function render() {
   // what waits here, as before workspaces.
   const waits = severalWs() ? snap.workspaces.reduce((n, w) => n + (w.waiting || 0), 0) : snap.pending.length;
   document.title = waits ? `(${waits}) Glue` : 'Glue';
+  if (setDlg.open) renderSettings();
   // A two-click control keeps the keyboard focus through a redraw.
   if (armed && (!document.activeElement || document.activeElement === document.body)) document.querySelector(`[data-key="${CSS.escape(armed.key)}"]`)?.focus({ preventScroll: true });
 }
@@ -3721,11 +3809,11 @@ $('ws-switch').addEventListener('keydown', (e) => {
   e.preventDefault();
   tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length].focus();
 });
-// ⌃1…⌃9 pick a workspace in the switch's order (⌘1 is the app's own). Not while typing, and not under the launcher.
+// ⌃1…⌃9 pick a workspace in the switch’s order (⌘1 is the app’s own). Not while typing, and not under a dialog.
 document.addEventListener('keydown', (e) => {
   if (!e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.repeat) return;
   const d = /^Digit([1-9])$/.exec(e.code)?.[1] ?? (/^[1-9]$/.test(e.key) ? e.key : null);
-  if (!d || !severalWs() || dlg.open) return;
+  if (!d || !severalWs() || modalOpen()) return;
   const t = e.target;
   if (t?.closest?.('textarea, input, select, [contenteditable]:not([contenteditable="false"])') || t?.isContentEditable) return;
   const i = Number(d) - 1;
@@ -3788,10 +3876,265 @@ async function connectThisProfile(b) {
 }
 
 document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Escape' || dlg.open || e.target.closest?.('textarea, input, select')) return;
+  if (e.key !== 'Escape' || modalOpen() || e.target.closest?.('textarea, input, select')) return;
   if (!$('d-pop').hidden) { showPop(false); return; }
   if (open) { cancelAdvance(); open = null; render(); }
 });
+
+// ---------- Settings: one dialog for every workspace and for Glue ----------
+// What it shows of a workspace this page isn't on (its order, sign-in, hooks, the command that signs it in, and the
+// repositories it holds) comes only from GET /api/settings: fetched when it opens and again on each empty `settings`
+// event, and kept in setData, which nothing outside the dialog reads. Closing it drops it.
+const setDlg = $('settings');
+const SET_TABS = [
+  { id: 'workspaces', name: 'Workspaces', build: setWorkspacesTab },
+  { id: 'logins', name: 'Logins & connection', build: setLoginsTab },
+];
+let setTab = 'workspaces'; // the tab it shows, and opens on next time (within this page)
+let setData = null;        // GET /api/settings while it is open: null loading, false could not be read
+let setSeq = 0;            // the latest fetch: an answer to an older one is dropped
+let setMoving = null;      // the repository whose Move choice is open
+let setBack = null;        // what had the focus before it opened
+const setRows = new Map(); // workspace id → its row, kept across redraws so a name being typed survives a refetch
+$('set-tabs').append(...SET_TABS.map((t) => el('button', { class: 'set-tab', type: 'button', role: 'tab', id: 'set-tab-' + t.id, 'aria-controls': 'set-panel',
+  text: t.name, onclick: () => showSetTab(t.id) })));
+/** Opens Settings (on `tab`, else the one it showed last), or moves an open one to `tab`. */
+function openSettings(tab) {
+  if (SET_TABS.some((t) => t.id === tab)) setTab = tab;
+  if (setDlg.open) { showSetTab(setTab); return; }
+  setBack = document.activeElement;
+  setData = null; setMoving = null;
+  closeThemes();
+  renderSettings();
+  setDlg.showModal();
+  $('set-tab-' + setTab).focus();
+  loadSettings();
+  checkSetupNow(false); // every workspace's sign-in, looked at again
+}
+function closeSettings() { if (setDlg.open) setDlg.close(); }
+function showSetTab(id) {
+  setTab = id;
+  renderSettings();
+  $('set-tab-' + id).focus();
+}
+setDlg.addEventListener('close', () => {
+  setData = null; setSeq++; setMoving = null; setRows.clear();
+  const panel = $('set-panel');
+  panel.replaceChildren(); panel._tab = null;
+  if (setBack?.isConnected) setBack.focus({ preventScroll: true });
+  setBack = null;
+});
+for (const d of [dlg, setDlg]) d.addEventListener('close', () => { if ($('toasts').parentNode !== document.body) document.body.append($('toasts')); });
+$('set-close').onclick = closeSettings;
+$('settings-btn').onclick = () => openSettings();
+// Up and Down (or Left and Right) move between the tabs, as in any tab list; Home and End go to the ends.
+$('set-tabs').addEventListener('keydown', (e) => {
+  const i = SET_TABS.findIndex((t) => t.id === setTab), n = SET_TABS.length;
+  const j = { ArrowDown: i + 1, ArrowRight: i + 1, ArrowUp: i - 1 + n, ArrowLeft: i - 1 + n, Home: 0, End: n - 1 }[e.key];
+  if (j == null) return;
+  e.preventDefault();
+  showSetTab(SET_TABS[j % n].id);
+});
+// , opens it (the browser keeps ⌘, for itself): not while typing, under another dialog, or during the tour.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== ',' || e.ctrlKey || e.metaKey || e.altKey || e.repeat || tour || modalOpen()) return;
+  const t = e.target;
+  if (t?.closest?.('textarea, input, select, [contenteditable]:not([contenteditable="false"])') || t?.isContentEditable) return;
+  e.preventDefault();
+  openSettings();
+});
+// The app's Glue › Settings… (⌘,).
+document.addEventListener('glue:settings', () => { if (!tour) openSettings(); });
+async function loadSettings() {
+  const seq = ++setSeq;
+  let r = null;
+  try { r = await (await fetch('/api/settings', { headers: { 'x-acp-token': TOKEN, 'x-acp-client': CLIENT } })).json(); } catch {}
+  if (seq !== setSeq || !setDlg.open) return; // a newer fetch, or it closed meanwhile
+  setData = r?.ok ? r : (setData || false); // a failed refetch keeps what it showed
+  renderSettings();
+}
+function renderSettings() {
+  for (const t of SET_TABS) {
+    const b = $('set-tab-' + t.id), on = t.id === setTab;
+    setAttr(b, 'aria-selected', String(on));
+    setAttr(b, 'tabindex', on ? '0' : '-1');
+  }
+  const panel = $('set-panel'), tab = SET_TABS.find((t) => t.id === setTab);
+  setAttr(panel, 'aria-labelledby', 'set-tab-' + tab.id);
+  if (panel._tab !== tab.id) { panel._tab = tab.id; panel.replaceChildren(); panel.scrollTop = 0; setRows.clear(); }
+  // This page was moved to another workspace while it was open: what it marks "you're here" is asked for again.
+  const here = setData?.workspaces?.find((w) => w.here)?.id;
+  if (here && snap?.workspace?.id && here !== snap.workspace.id && setData._askedFor !== snap.workspace.id) { setData._askedFor = snap.workspace.id; loadSettings(); }
+  tab.build(panel);
+}
+/** "Loading…" or "could not be read" in `box` until the data is in; true when it is. */
+function setReady(box) {
+  if (setData) return true;
+  const state = setData === false ? 'error' : 'loading';
+  patch(box, state, () => el('p', { class: 'set-quiet', text: state === 'error' ? 'Settings could not be read. Close this and open it again to retry.' : 'Loading…' }));
+  return false;
+}
+const setPlan = (p) => (p ? ` · ${p[0].toUpperCase()}${p.slice(1)} plan` : '');
+const ARROW_UP = 'M6 15l6-6 6 6', ARROW_DOWN = 'M6 9l6 6 6-6';
+const iconBtn = (d, attrs) => el('button', { class: 'btn icon', type: 'button', ...attrs },
+  (() => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('aria-hidden', 'true');
+    const p = document.createElementNS('http://www.w3.org/2000/svg', 'path'); p.setAttribute('d', d); s.append(p); return s; })());
+
+// The Workspaces tab: a row each (name, colour, order), then the repositories of the one this page is on.
+function setWorkspacesTab(panel) {
+  if (!panel.firstChild) panel.append(
+    el('h3', { text: 'Workspaces' }), el('p', { class: 'set-lead' }), el('div', { class: 'set-rows' }),
+    el('div', { class: 'set-more' }, el('h4', { class: 'set-h4' }), el('div', { class: 'set-repos' }), el('div', { class: 'set-sort' })),
+    el('p', { class: 'set-note' }, 'A second Claude Code profile (', el('code', { text: '~/.claude-<name>' }), ') becomes a second workspace.'));
+  const [, lead, rowsBox, more, note] = panel.children;
+  const list = setData?.workspaces ?? [], several = list.length > 1;
+  setText(lead, several
+    ? 'Each Claude Code profile is a workspace. Name each one and pick its colour: the one in view is drawn along the top of the window. The order is the switch’s, and ⌃1, ⌃2… follow it.'
+    : 'Each Claude Code profile is a workspace. Name it and pick its colour.');
+  if (!setReady(rowsBox)) { more.hidden = note.hidden = true; return; }
+  if (rowsBox._sig !== 'rows') { rowsBox._sig = 'rows'; rowsBox.replaceChildren(); setRows.clear(); }
+  const had = document.activeElement;
+  for (const [id, row] of setRows) if (!list.some((w) => w.id === id)) { row.el.remove(); setRows.delete(id); }
+  list.forEach((w, i) => {
+    let row = setRows.get(w.id);
+    if (!row) setRows.set(w.id, (row = setWsRow()));
+    row.update(w, i, list.length);
+    if (rowsBox.children[i] !== row.el) rowsBox.insertBefore(row.el, rowsBox.children[i] ?? null);
+  });
+  // A row that moved took the focus with it out of the page for a moment: it goes back where it was.
+  if (had && had !== document.activeElement && had.isConnected && setDlg.contains(had) && !had.disabled) had.focus({ preventScroll: true });
+  note.hidden = several;
+  more.hidden = !several;
+  if (!several) return;
+  const focus = list.find((w) => w.here), [h4, reposBox, sortBox] = more.children;
+  setText(h4, focus ? `Repositories in ${focus.name}` : 'Repositories');
+  const mine = focus ? setData.repos.filter((r) => r.ws.includes(focus.id)) : [];
+  patch(reposBox, JSON.stringify([focus?.id, list.map((w) => [w.id, w.name]), mine, setMoving]), () => {
+    if (!focus) return null;
+    if (!mine.length) return el('p', { class: 'set-quiet', text: `No repository is sorted into ${focus.name} yet. Glue asks the first time you start an agent in one, or you can sort the ones GitHub finds from its list.` });
+    const choice = [focus, ...list.filter((w) => w !== focus)];
+    return mine.map((r) => el('div', { class: 'su-ws-r' },
+      el('div', {}, el('b', { text: r.label, title: r.label }),
+        el('button', { class: 'btn quiet small', type: 'button', text: 'Move', 'data-move': r.key, 'aria-expanded': String(setMoving === r.key),
+          onclick: () => { setMoving = setMoving === r.key ? null : r.key; renderSettings(); reposBox.querySelector(`[data-move="${CSS.escape(r.key)}"]`)?.focus(); } }),
+        el('button', { class: 'btn quiet small', type: 'button', text: 'Forget', title: `${focus.name} stops holding ${r.label}. Glue asks again the next time you start an agent in it.`,
+          onclick: () => setAssign(r.key, r.ws.filter((id) => id !== focus.id)) })),
+      setMoving === r.key ? el('div', { class: 'seg', role: 'radiogroup', 'aria-label': `Which workspace ${r.label} belongs to` },
+        ...choice.map((w) => el('label', {}, commitRadio({ name: 'set-mv-' + r.key, value: w.id, checked: r.ws.length === 1 && r.ws[0] === w.id }, () => setAssign(r.key, [w.id])), el('span', { text: w.name, title: w.name }))),
+        el('label', { class: 'both' }, commitRadio({ name: 'set-mv-' + r.key, value: 'both', checked: choice.every((w) => r.ws.includes(w.id)) }, () => setAssign(r.key, choice.map((w) => w.id))),
+          el('span', { text: choice.length === 2 ? 'Both' : 'All' }))) : null));
+  });
+  // The GitHub panel's own line: what GitHub found that no workspace holds yet, and Sort.
+  patch(sortBox, JSON.stringify([snap?.github?.unsorted ?? 0, ghSort, snap?.workspaces?.map((w) => [w.id, w.name]), snap?.workspace?.id]), () => (snap ? sortLine() : null));
+}
+/** One workspace's row. It is built once and then updated, so the name you are typing stays through a refetch. */
+function setWsRow() {
+  const row = { w: null, sent: null };
+  const name = el('input', { class: 'field', type: 'text', maxlength: '24', spellcheck: 'false', autocomplete: 'off' });
+  const commit = async () => {
+    const w = row.w, v = name.value.trim();
+    if (v === w.name || v === row.sent) { if (v === w.name) name.value = w.name; return; }
+    row.sent = v;
+    const ok = await saveWorkspace(w.id, { name: v });
+    row.sent = null;
+    if (!ok) name.value = row.w.name; // refused (taken, empty, too long): back to the name it has
+    else loadSettings();
+  };
+  name.addEventListener('change', commit); // on blur
+  name.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); commit(); }
+    // Esc puts back the name it has; with nothing to put back, it closes Settings as anywhere else in it.
+    else if (e.key === 'Escape' && name.value !== row.w.name) { e.preventDefault(); e.stopPropagation(); name.value = row.w.name; }
+  });
+  const sw = el('span', { class: 'ws-sw-set', role: 'radiogroup' },
+    ...Object.entries(WS_COLORS).map(([c, hex]) => el('button', { class: 'ws-sw', type: 'button', role: 'radio', 'aria-label': c, title: c, 'data-c': c, style: `--sw:${hex}`,
+      onclick: async () => { if (c !== row.w.color && (await saveWorkspace(row.w.id, { color: c }))) loadSettings(); } })));
+  const here = el('span', { class: 'set-here', text: 'you’re here' });
+  const up = iconBtn(ARROW_UP, { onclick: () => setMoveWs(row.w.id, -1) }), down = iconBtn(ARROW_DOWN, { onclick: () => setMoveWs(row.w.id, 1) });
+  const key = el('span', { class: 'set-key', 'aria-hidden': 'true' });
+  const order = el('span', { class: 'set-order' }, key, up, down);
+  row.el = el('div', { class: 'set-ws' }, name, sw, here, order);
+  row.update = (w, i, n) => {
+    row.w = w;
+    if (document.activeElement !== name) name.value = w.name; // a name being typed stays as typed
+    setAttr(name, 'aria-label', `Name of the ${w.name} workspace`);
+    setAttr(sw, 'aria-label', `Colour of ${w.name}`);
+    for (const b of sw.children) setAttr(b, 'aria-checked', String(b.dataset.c === w.color));
+    here.hidden = !w.here || n < 2;
+    order.hidden = n < 2;
+    const f = document.activeElement;
+    setText(key, i < 9 ? `⌃${i + 1}` : '');
+    up.disabled = i === 0; down.disabled = i === n - 1;
+    setAttr(up, 'aria-label', `Move ${w.name} up`); setAttr(up, 'title', i > 0 ? `Move up, to ⌃${i}` : 'First');
+    setAttr(down, 'aria-label', `Move ${w.name} down`); setAttr(down, 'title', i < n - 1 ? `Move down, to ⌃${i + 2}` : 'Last');
+    if (f === up && up.disabled) down.focus(); else if (f === down && down.disabled) up.focus();
+  };
+  return row;
+}
+async function setMoveWs(id, by) {
+  const ids = setData.workspaces.map((w) => w.id), i = ids.indexOf(id), j = i + by;
+  if (i < 0 || j < 0 || j >= ids.length) return;
+  [ids[i], ids[j]] = [ids[j], ids[i]];
+  const r = await api('/api/workspace/reorder', { ids });
+  if (!r.ok) toast(r.error || 'The order did not save. Try again.', true);
+  loadSettings();
+}
+async function setAssign(key, ws) {
+  const now = setData?.repos?.find((r) => r.key === key)?.ws ?? [];
+  setMoving = null;
+  if (now.length === ws.length && ws.every((id) => now.includes(id))) return renderSettings();
+  const r = await api('/api/settings/assign', { key, ws });
+  if (!r.ok) toast(r.error || 'That did not save. Try again.', true);
+  loadSettings();
+}
+
+// The Logins & connection tab: a block each, with its Claude sign-in, its hooks, and a place for Codex.
+function setLoginsTab(panel) {
+  if (!panel.firstChild) panel.append(
+    el('h3', { text: 'Logins & connection' }),
+    el('p', { class: 'set-lead', text: 'Glue has no account of its own. Each workspace runs on its profile’s own Claude Code login, and reaches its sessions through hooks in that profile’s settings.' }),
+    el('div', { class: 'set-blocks' }));
+  const box = panel.children[2];
+  if (!setReady(box)) return;
+  const list = setData.workspaces;
+  patch(box, JSON.stringify(list.map((w) => [w.id, w.name, w.color, w.here, w.signedIn, w.connected, w.loginCommand, w.account])), () => list.map((w) => setLoginBlock(w, list.length > 1)));
+}
+function setLoginBlock(w, several) {
+  const line = (s, mark, t, d, acts, cls) => el('div', { class: 'set-line' + (cls ? ' ' + cls : ''), 'data-s': s },
+    el('span', { class: 'set-mark', 'aria-hidden': 'true', text: mark }), el('span', { class: 't', text: t }),
+    d ? el('span', { class: 'd', text: d }) : null, acts ? el('span', { class: 'acts' }, acts) : null);
+  const a = w.here ? w.account : null;
+  const claude = w.signedIn === true ? line('ok', '✓', 'Signed in to Claude', a?.email ? a.email + setPlan(a.plan) : a?.plan ? setPlan(a.plan).slice(3) : null)
+    : w.signedIn === false ? line('todo', '✗', 'Not signed in to Claude', `The overseer and new agents in ${w.name} can’t start until it signs in.`)
+    : line('wait', '·', 'Claude: checking…', null);
+  claude.append(el('span', { class: 'acts' },
+    el('button', { class: 'btn small' + (w.signedIn === false ? ' primary' : ''), type: 'button', text: 'Sign in in Terminal…', onclick: (e) => setSignIn(w, e.currentTarget) }),
+    el('button', { class: 'btn quiet small', type: 'button', text: 'Copy command', title: w.loginCommand, onclick: () => copyCmd(w.loginCommand) })));
+  const hooks = w.connected ? line('ok', '✓', 'Connected', 'Sessions report here as they run: their requests, tools and subagents.')
+    : line('todo', '✗', 'Not connected', 'Connect adds Glue’s hooks to its settings.json and keeps a dated copy of the old file. Nothing else in it changes.',
+      [el('button', { class: 'btn primary small', type: 'button', text: 'Connect', onclick: (e) => setConnect(w, e.currentTarget) })]);
+  const codex = line('off', '·', 'Codex: coming next', null, null, 'off');
+  codex.setAttribute('aria-disabled', 'true');
+  return el('section', { class: 'set-block', 'aria-label': w.name },
+    el('div', { class: 'set-block-h', style: `--sw:${WS_COLORS[w.color]}` }, el('span', { class: 'set-dot', 'aria-hidden': 'true' }), el('span', { text: w.name }),
+      w.here && several ? el('span', { class: 'set-here', text: 'you’re here' }) : null),
+    claude, hooks, codex);
+}
+async function setSignIn(w, b) {
+  b.disabled = true;
+  const r = await api('/api/setup/login', { what: 'claude', ws: w.id });
+  b.disabled = false;
+  if (!r.ok) return toast(r.error || 'Terminal did not open.', true);
+  toast(`Sign in to ${w.name} in the Terminal window. This ticks by itself when you are done.`);
+}
+async function setConnect(w, b) {
+  b.disabled = true;
+  const r = await api('/api/profile/connect', { id: w.id });
+  b.disabled = false;
+  if (!r.ok) return toast(r.error || 'It did not connect.', true);
+  toast(r.added ? `${w.name} is connected. Sessions you start in it from now on report here; one already running keeps asking in its terminal until it restarts.${r.backup ? ' The old file is kept at ' + r.backup + '.' : ''}` : `${w.name} was already connected.`);
+  loadSettings();
+}
 
 // ---------- pane widths: drag an edge, arrow keys on the edge, double-click to reset ----------
 /** Sizes a pane through a CSS variable on the page, within bounds, and remembers what you chose. */
