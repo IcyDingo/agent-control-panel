@@ -151,7 +151,7 @@ async function until(fn, ms = 15_000, every = 150) {
   return null;
 }
 const lines = (f) => { try { return fs.readFileSync(f, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } };
-after(async () => { for (const p of pages) p.close(); if (server.exitCode === null && server.signalCode === null) await new Promise((r) => { server.once('exit', r); server.kill(); }); fs.rmSync(home, { recursive: true, force: true }); });
+after(async () => { for (const p of pages) p.close(); if (server.exitCode === null && server.signalCode === null) await new Promise((r) => { server.once('exit', r); server.kill(); }); fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
 // Page A shows default, page B contract. Once both jobs are on the board, a third page opens: opening one is what starts
 // a GitHub poll.
@@ -323,7 +323,7 @@ test('with one workspace there is nothing to sort into: the list is empty', asyn
   child.stdout.on('data', (d) => { out += d; });
   child.stderr.on('data', (d) => { out += d; });
   const ctl = new AbortController();
-  t.after(async () => { ctl.abort(); if (child.exitCode === null && child.signalCode === null) await new Promise((r) => { child.once('exit', r); child.kill(); }); fs.rmSync(h, { recursive: true, force: true }); });
+  t.after(async () => { ctl.abort(); if (child.exitCode === null && child.signalCode === null) await new Promise((r) => { child.once('exit', r); child.kill(); }); fs.rmSync(h, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
   assert.ok(await until(() => out.includes(`127.0.0.1:${port}`)), 'it started: ' + out);
   const base = `http://127.0.0.1:${port}`, tok = (await (await fetch(base + '/')).text()).match(/[0-9a-f]{48}/)[0];
   // A page open starts the poll, which finds o/q (your own pull request).

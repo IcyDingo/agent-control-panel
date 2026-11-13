@@ -82,17 +82,19 @@ subagent marked in the details.
 
 The keys move you: ↑ and ↓ step through the rows and open each session as they go (into an open tree
 too), → and ← unfold and fold the selected session's subagents, `n` jumps to the next session that
-needs you, and `/` opens a find field that filters the rows by name (Esc clears it). None of them fire
+needs you, `/` opens a find field that filters the rows by name (Esc clears it), and `[` collapses the rail to a
+slim strip or shows it again (so does the sidebar button at the top bar's left). None of them fire
 while you type. Click a row to open its panel in the rest of the window. The
-panel reads like a chat: one line on top with its name, state, kind, mode and age (Expand and Close
-are the two icons at its right), the conversation in the middle, and what it's asking and the box to
+panel reads like a chat: one line on top with its name, state, kind, mode and age (Close is the icon
+at its right), the conversation in the middle, and what it's asking and the box to
 write in pinned along the bottom. The box carries one chip for its mode, model and effort; click it to
 change any of them. What the box will do is the Send button's tooltip. The chat keeps
 to reading width on a big screen. Its details sit in a column on the right: its folder and branch, the
 command that reopens it, its subagents (each titled with the task its parent gave it) and the buttons that
 stop it. The column's **Details** tab folds it to a strip, and dragging its left edge widens it (double-click
-for the default). On a narrow panel the same details sit under the conversation. **Expand** gives the panel
-the whole window (**Collapse** brings the board back). When the open session goes away, the top of Needs you takes its place;
+for the default). On a narrow panel the same details sit under the conversation. Collapsed, the rail is a
+44px strip with one state light per session (amber when it needs you, the name in its tooltip), so the panel
+gets nearly the whole window and nothing that needs you drops out of sight. When the open session goes away, the top of Needs you takes its place;
 close it yourself and the space offers that one instead. On a narrow window the rail takes the width
 and an open session covers it.
 
