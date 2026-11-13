@@ -27,6 +27,9 @@ export function problemsOf(pr, slug, now) {
   return out;
 }
 
+/** A saved map of workspace id to boolean, with anything else dropped (and no inherited keys: ids like constructor are plain). */
+const plain = (m) => Object.fromEntries(Object.entries(m && typeof m === 'object' && !Array.isArray(m) ? m : {}).filter(([, v]) => typeof v === 'boolean'));
+
 const WHAT = { failing: 'its checks fail', conflict: 'it conflicts with its base branch', changes: 'a reviewer requested changes', stuck: 'its checks have run for over 30 minutes' };
 
 /** The message for one problem. `log` is the failing log's own message, when it could be fetched. */
@@ -50,21 +53,26 @@ export function messageOf(kind, pr, slug, { log, attempt } = {}) {
  * @param {Function} deps.send       async (sessionId, text) => reply()'s result
  * @param {Function} deps.suggest    (sessionId, text, why, say) => the overseer's card
  * @param {Function} deps.failedLog  async ({ slug, runId, jobId }) => github.failedLog()'s result
- * @param {Function} deps.notify     (title, text) => void
+ * @param {Function} deps.notify     (title, text, { sessionId, slug, waits }) => void: about that session's pull request;
+ *                                   `waits` when a card waits for your click
  * @param {Function} deps.note       (type, fields) => void, the overseer's feed
+ * @param {Function} deps.wsOf       (sessionId) => the id of the workspace the session belongs to, or null
+ * @param {Function} deps.repoIn     (slug, wsId) => whether that workspace holds the repository (an unsorted one is held by none)
  */
 export function createWatcher({ file, github, session, send, suggest, failedLog, notify = () => {}, note = () => {}, onChange = () => {},
+  wsOf = () => 'default', repoIn = () => true,
   now = Date.now, log = (m) => console.error(m) } = {}) {
-  let mem = { v: 1, enabled: true, done: {}, fixes: {}, capped: {}, last: {}, retry: {} };
+  // `enabled` is the old single switch: it stands for every workspace that has no switch of its own in `enabledBy`.
+  let mem = { v: 1, enabled: true, enabledBy: {}, done: {}, fixes: {}, capped: {}, last: {}, retry: {} };
   try {
     const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if (saved?.v === 1) mem = { ...mem, ...saved, done: saved.done ?? {}, fixes: saved.fixes ?? {}, capped: saved.capped ?? {}, last: saved.last ?? {}, retry: saved.retry ?? {} };
+    if (saved?.v === 1) mem = { ...mem, ...saved, enabled: saved.enabled !== false, enabledBy: plain(saved.enabledBy), done: saved.done ?? {}, fixes: saved.fixes ?? {}, capped: saved.capped ?? {}, last: saved.last ?? {}, retry: saved.retry ?? {} };
   } catch { /* no file yet: start with nothing asked */ }
-  let checking = false, again = false, cached = null;
+  let checking = false, again = false, cached = new Map();
   const busy = new Set();
 
   function save() {
-    cached = null;
+    cached.clear();
     const done = Object.entries(mem.done).sort((a, b) => b[1] - a[1]).slice(0, KEEP);
     mem.done = Object.fromEntries(done);
     const t = now();
@@ -80,6 +88,13 @@ export function createWatcher({ file, github, session, send, suggest, failedLog,
       log(`watcher: could not write ${file} (${e?.code ?? 'error'}).`);
     }
   }
+  const enabledIn = (w) => (Object.hasOwn(mem.enabledBy, w) ? mem.enabledBy[w] : mem.enabled);
+  /** The session on a pull request's branch the watcher acts through: the first whose workspace has auto-fix on and holds
+   *  the repository. A branch with sessions of two workspaces on a shared repository is asked about once, not twice. */
+  const actorOf = (repo, pr) => (pr.sessions ?? []).find((sid) => {
+    const w = tell(wsOf, sid);
+    return typeof w === 'string' && enabledIn(w) && tell(repoIn, repo.slug, w) === true;
+  });
   const tell = (fn, ...a) => { try { return fn(...a); } catch (e) { log(`watcher: ${e?.message ?? e}`); return null; } };
 
   /** One problem of one pull request: ask the agent, or alert you, and remember it. */
@@ -91,7 +106,7 @@ export function createWatcher({ file, github, session, send, suggest, failedLog,
     if (n > MAX_FIXES) {
       if (!mem.capped[at]) {
         mem.capped[at] = now();
-        tell(notify, 'Glue · PR still not going in', `#${pr.number} in ${repo.slug}: ${WHAT[p.kind]}, after ${MAX_FIXES} fixes asked of ${s.name}. Over to you.`);
+        tell(notify, 'Glue · PR still not going in', `#${pr.number} in ${repo.slug}: ${WHAT[p.kind]}, after ${MAX_FIXES} fixes asked of ${s.name}. Over to you.`, { sessionId: sid, slug: repo.slug });
         tell(note, 'fix-capped', { sessionId: sid, name: s.name, slug: repo.slug, text: `#${pr.number} in ${repo.slug}: ${WHAT[p.kind]} after ${MAX_FIXES} fixes asked of ${s.name}. Over to you.` });
       }
       save(); return;
@@ -109,7 +124,7 @@ export function createWatcher({ file, github, session, send, suggest, failedLog,
       if (r?.ok) {
         mem.fixes[at] = n;
         result = r.queued ? 'asked; it reads it once it is done' : 'asked';
-        tell(notify, 'Glue · fix asked', `Asked ${s.name} to fix #${pr.number} in ${repo.slug}: ${WHAT[p.kind]} (${n} of ${MAX_FIXES}).`);
+        tell(notify, 'Glue · fix asked', `Asked ${s.name} to fix #${pr.number} in ${repo.slug}: ${WHAT[p.kind]} (${n} of ${MAX_FIXES}).`, { sessionId: sid, slug: repo.slug });
         tell(note, 'fix-sent', { sessionId: sid, name: s.name, slug: repo.slug, text: `Asked ${s.name} to fix #${pr.number} in ${repo.slug}: ${WHAT[p.kind]} (${n} of ${MAX_FIXES}).` });
       } else {
         // Not taken (busy, or a message still on its way): asked again in five minutes, and you hear of it once.
@@ -120,17 +135,17 @@ export function createWatcher({ file, github, session, send, suggest, failedLog,
         mem.last[at] = { kind: p.kind, at: now(), result, fixes: mem.fixes[at] ?? 0 };
         save();
         if (!first) return;
-        tell(notify, 'Glue · fix not sent', `#${pr.number} in ${repo.slug}: ${WHAT[p.kind]}, and ${s.name} could not be told (${r?.error ?? 'no answer'}).`);
+        tell(notify, 'Glue · fix not sent', `#${pr.number} in ${repo.slug}: ${WHAT[p.kind]}, and ${s.name} could not be told (${r?.error ?? 'no answer'}).`, { sessionId: sid, slug: repo.slug });
         tell(note, 'fix-failed', { sessionId: sid, name: s.name, slug: repo.slug, text: `#${pr.number} in ${repo.slug}: ${WHAT[p.kind]}; ${s.name} could not be told: ${r?.error ?? 'no answer'}` });
       }
     } else if (s.kind === 'interactive') {
       mem.fixes[at] = n;
       result = 'proposed, waiting for your click';
       tell(suggest, sid, text, why, `#${pr.number} in ${repo.slug}: ${WHAT[p.kind]}. ${s.name} runs in a terminal window, so sending this closes Claude there and carries it on in the background. Send it, change it, or decline.`);
-      tell(notify, 'Glue · fix to confirm', `#${pr.number} in ${repo.slug}: ${WHAT[p.kind]}. A fix request for ${s.name} waits for your click in the overseer.`);
+      tell(notify, 'Glue · fix to confirm', `#${pr.number} in ${repo.slug}: ${WHAT[p.kind]}. A fix request for ${s.name} waits for your click in the overseer.`, { sessionId: sid, slug: repo.slug, waits: true });
     } else {
       result = 'tell it yourself';
-      tell(notify, 'Glue · PR needs a fix', `#${pr.number} in ${repo.slug}: ${WHAT[p.kind]}. ${s.name} runs where the panel can't message it: tell it in its terminal.`);
+      tell(notify, 'Glue · PR needs a fix', `#${pr.number} in ${repo.slug}: ${WHAT[p.kind]}. ${s.name} runs where the panel can't message it: tell it in its terminal.`, { sessionId: sid, slug: repo.slug });
       tell(note, 'fix-alert', { sessionId: sid, name: s.name, slug: repo.slug, text: `#${pr.number} in ${repo.slug}: ${WHAT[p.kind]}. Tell ${s.name} in its terminal; the panel can't message it.` });
     }
     mem.last[at] = { kind: p.kind, at: now(), result, fixes: mem.fixes[at] ?? 0 };
@@ -145,14 +160,15 @@ export function createWatcher({ file, github, session, send, suggest, failedLog,
       do {
         again = false;
         const gh = tell(github);
-        if (!mem.enabled || !gh?.repos) break;
+        if (!gh?.repos) break;
         for (const repo of gh.repos) {
           for (const pr of repo.prs ?? []) {
             const at = `${repo.slug}#${pr.number}`;
             // A changes-requested review that was looked at again counts afresh if it comes back.
             if (pr.review !== 'CHANGES_REQUESTED' && mem.done[`${at}:changes`]) delete mem.done[`${at}:changes`];
-            const sid = (pr.sessions ?? [])[0];
-            if (!sid || busy.has(at)) continue;
+            if (busy.has(at)) continue;
+            const sid = actorOf(repo, pr);
+            if (!sid) continue;
             const t = now(), p = problemsOf(pr, repo.slug, t).find((x) => !mem.done[x.key] && !((mem.retry[x.key] ?? 0) > t));
             if (!p) continue;
             busy.add(at);
@@ -166,14 +182,20 @@ export function createWatcher({ file, github, session, send, suggest, failedLog,
 
   return {
     check,
-    setEnabled(on) {
-      mem.enabled = Boolean(on);
+    /** Auto-fix on or off for one workspace; the others keep theirs. */
+    setEnabled(on, ws) {
+      if (typeof ws !== 'string' || !ws) return { ok: false, error: 'No workspace.' };
+      mem.enabledBy[ws] = Boolean(on);
       save();
       tell(onChange);
-      if (mem.enabled) check().catch((e) => log(`watcher: ${e?.message ?? e}`)); // turned on: look now, not at the next poll
-      return { ok: true, enabled: mem.enabled };
+      if (mem.enabledBy[ws]) check().catch((e) => log(`watcher: ${e?.message ?? e}`)); // turned on: look now, not at the next poll
+      return { ok: true, enabled: mem.enabledBy[ws] };
     },
     /** What the page shows: on or off, and per pull request how many fixes were asked and the last thing done. */
-    status() { return cached ??= { enabled: mem.enabled, max: MAX_FIXES, prs: { ...mem.last } }; },
+    status(ws) {
+      const k = typeof ws === 'string' ? ws : '';
+      if (!cached.has(k)) cached.set(k, { enabled: enabledIn(ws), max: MAX_FIXES, prs: { ...mem.last } });
+      return cached.get(k);
+    },
   };
 }

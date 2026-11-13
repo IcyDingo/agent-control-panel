@@ -201,21 +201,16 @@ test('broadcasts close together ride the snapshots as events lists, each event o
   assert.equal(snaps.at(-1).pending.length, 2);
 });
 
-test('a profile switch drops the follow: thread-reset arrives, and a line appended to the old transcript afterwards sends nothing', async (t) => {
+test('a profile switch keeps the follow: every workspace stays live, so a line appended afterwards still arrives', async (t) => {
   const s = await setup(t), id = crypto.randomUUID(), file = path.join(s.projA, id + '.jsonl');
   fs.writeFileSync(file, you('hello', 1) + '\n');
   const page = await s.stream();
   await s.api('/api/follow', { client: page.client, sessionId: id });
   fs.appendFileSync(file, said('before', 2) + '\n');
   assert.ok(await until(() => page.thread(id).some((e) => e.text === 'before')));
-  const sw = await s.api('/api/profile', { id: 'b' });
+  const sw = await s.api('/api/workspace/focus', { ws: 'b' });
   assert.equal(sw.ok, true, JSON.stringify(sw));
-  const reset = await until(() => page.msgs.find((m) => m.event === 'thread-reset'));
-  assert.ok(reset, 'no thread-reset');
-  assert.deepEqual(reset.data, { sessionId: id });
-  const n = page.msgs.length;
   fs.appendFileSync(file, said('after', 3) + '\n');
-  await sleep(600);
-  assert.equal(page.msgs.slice(n).filter((m) => m.event === 'thread').length, 0, 'the old transcript is still followed');
-  assert.equal(openOn(s.pid, file), 0);
+  assert.ok(await until(() => page.thread(id).some((e) => e.text === 'after')), 'the switch stopped the follow');
+  assert.equal(page.msgs.filter((m) => m.event === 'thread-reset').length, 0);
 });
