@@ -642,7 +642,10 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 
 /* ---------- Settings: one dialog, its tabs down the left, what each holds on the right ---------- */
 /* Collapse or show the rail: a window with its sidebar, the sidebar filled while it shows. */
-.rail-btn { flex: none; display: inline-grid; place-items: center; width: 30px; height: 30px; margin: 0 -8px 0 -6px; padding: 0; border: 0; border-radius: var(--r-1); background: none; color: var(--fg-dim); cursor: pointer; }
+/* It sits in the rail's own head, which stays put while the rail scrolls. */
+.rail-head { flex: none; position: sticky; top: -6px; z-index: 1; display: flex; align-items: center; gap: 8px; min-height: 36px; margin-top: -6px; padding: 4px 8px 0 16px; background: var(--panel); }
+.rail-title { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600; color: var(--fg-dim); }
+.rail-btn { flex: none; display: inline-grid; place-items: center; width: 30px; height: 30px; margin: 0; padding: 0; border: 0; border-radius: var(--r-1); background: none; color: var(--fg-dim); cursor: pointer; }
 .rail-btn:hover { background: var(--fill); color: var(--fg); }
 .rail-btn::before { content: ""; width: 16px; height: 16px; background: currentColor; -webkit-mask: var(--i-rail) center / contain no-repeat; mask: var(--i-rail) center / contain no-repeat;
   --i-rail: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill-rule='evenodd' d='M3 2h10a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm0 1.4a.6.6 0 0 0-.6.6v8a.6.6 0 0 0 .6.6h2.6V3.4zm4 0v9.2h6a.6.6 0 0 0 .6-.6V4a.6.6 0 0 0-.6-.6z'/%3E%3Cpath d='M3 4h2v1H3zM3 6h2v1H3zM3 8h2v1H3z'/%3E%3C/svg%3E"); }
@@ -933,10 +936,12 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 /* Collapsed, the rail is a slim strip: a state light per session, a hairline between sections, and nothing that needs
    you out of sight (Needs you never folds). Folded sections leave the strip; the name stays in the row for screen readers. */
 @media (min-width: 861px) {
-  body.rail-slim .board { width: 44px; padding-top: 8px; overflow-x: hidden; scrollbar-width: none; }
+  body.rail-slim .board { width: 44px; overflow-x: hidden; scrollbar-width: none; }
   body.rail-slim .board::-webkit-scrollbar { display: none; }
   body.rail-slim :is(.r-grip, #rail-find, #rail-keys, .col-path, .ck, .col-hint, .col-empty, .board-empty, .sub, .rask, .qstop, .col.folded),
   body.rail-slim .col[data-col="waiting"]:not(:has(.tile-wrap)) { display: none; }
+  body.rail-slim .rail-head { justify-content: center; padding: 4px 0 2px; }
+  body.rail-slim .rail-title { display: none; }
   body.rail-slim .col { padding: 0; }
   body.rail-slim .col-h { min-height: 0; height: 1px; margin: 6px 12px; padding: 0; background: var(--line-strong); overflow: hidden; }
   body.rail-slim .col-h > * { display: none; }
@@ -950,7 +955,7 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 }
 /* Narrow, the rail takes the width and the open session covers it. */
 @media (max-width: 860px) {
-  .rail-btn { display: none; }
+  .rail-head { display: none; }
   .stage { padding: 0; gap: 0; }
   .board { flex: 1; width: auto; border-radius: 0; }
   .r-grip { display: none; }
@@ -968,7 +973,6 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 </head>
 <body>
 <header class="top">
-  <button class="rail-btn" type="button" id="rail-btn" aria-controls="board" aria-expanded="true" aria-label="Sessions"></button>
   <span class="brand">Glue</span>
   <div class="ws-switch" id="ws-switch" role="tablist" aria-label="Workspaces" hidden></div>
   <span class="live down" id="conn">Connecting</span>
@@ -1000,7 +1004,9 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
   <span class="mono" id="pb-file"></span>
 </div>
 <main class="stage">
-  <nav class="board" id="board" aria-label="Sessions"></nav>
+  <nav class="board" id="board" aria-label="Sessions">
+    <div class="rail-head" id="rail-head"><span class="rail-title">Sessions</span><button class="rail-btn" type="button" id="rail-btn" aria-controls="board" aria-expanded="true" aria-label="Collapse the sessions"></button></div>
+  </nav>
   <div class="r-grip" id="r-grip" role="separator" aria-orientation="vertical" aria-label="Queue width" tabindex="0" title="Drag to resize. Double-click for the default width."></div>
   <!-- With no session open: the overseer, one chat that knows every session and proposes what to do, with what GitHub
        shows for the agents' repositories beside it. -->
@@ -1912,8 +1918,8 @@ function renderBoard(g, vis) {
     want.forEach((n, j) => { if (c.body.children[j] !== n) c.body.insertBefore(n, c.body.children[j] ?? null); });
     while (c.body.children.length > want.length) c.body.lastChild.remove();
   });
-  // The sections in order, after the find field; the empty note and the keys strip close the rail.
-  const order = [railFind, ovRow, ...shownSecs.map((c) => c.sec), ...(vis.length ? [] : [boardEmpty]), $('rail-keys')];
+  // The sections in order, after the rail's head and the find field; the empty note and the keys strip close the rail.
+  const order = [$('rail-head'), railFind, ovRow, ...shownSecs.map((c) => c.sec), ...(vis.length ? [] : [boardEmpty]), $('rail-keys')];
   order.forEach((n, j) => { if (board.children[j] !== n) board.insertBefore(n, board.children[j] ?? null); });
   while (board.children.length > order.length) board.children[order.length].remove();
   const keepSecs = new Set(list.map((x) => x.key));
@@ -2517,6 +2523,7 @@ function applyLayout() {
   const b = $('rail-btn');
   b.setAttribute('aria-expanded', String(!railSlim));
   b.title = railSlim ? 'Show the sessions ([)' : 'Collapse the sessions ([)';
+  b.setAttribute('aria-label', railSlim ? 'Show the sessions' : 'Collapse the sessions');
 }
 $('rail-btn').onclick = () => setRailSlim(!railSlim);
 applyLayout();
