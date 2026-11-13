@@ -296,6 +296,12 @@ function newAgent() {
   win?.webContents.executeJavaScript("document.dispatchEvent(new CustomEvent('glue:new-agent'))").catch(() => {});
 }
 
+/** Glue › Settings…: the page's Settings dialog (it ignores this during the tour or over another dialog). */
+function openSettings() {
+  showWindow();
+  win?.webContents.executeJavaScript("document.dispatchEvent(new CustomEvent('glue:settings'))").catch(() => {});
+}
+
 // ---------------------------------------------------------------- page ↔ app
 
 const fromPanel = (e) => isPanelUrl(e.senderFrame?.url ?? '', PORT);
@@ -418,6 +424,7 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: 'Glue', submenu: [
       { label: 'New Agent', accelerator: 'CmdOrCtrl+Shift+T', click: newAgent },
+      { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: openSettings },
       ...linuxItems,
       { type: 'separator' },
       { label: 'Quit Glue', accelerator: 'CmdOrCtrl+Q', click: () => app.quit() },
@@ -443,6 +450,7 @@ function makeTray() {
     tray.setContextMenu(Menu.buildFromTemplate([
       { label: 'Show Glue', click: showWindow },
       { label: 'New Agent', click: newAgent },
+      { label: 'Settings…', click: openSettings },
       { type: 'separator' },
       { label: 'Quit Glue', click: () => app.quit() },
     ]));

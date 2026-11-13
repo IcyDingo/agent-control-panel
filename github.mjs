@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto';
 
 const MIN = 60_000;
 const FRESH_MS = 15 * MIN;   // a failure first seen after a start still notifies if it is this recent
-const MAX_REPOS = 6;         // the most recently active repositories are watched; the rest are counted
+const MAX_REPOS = 6;         // per workspace, its most recently active repositories are watched; the rest are counted
 const MAX_MINE = 8;          // and, with `mine`, up to this many more where only your own pull requests are open
 const SEEN_MAX = 300;        // failures already told about, kept across restarts
 const OPEN_LIMIT = 50;
@@ -229,9 +229,11 @@ const worst = (states) => (states.includes('failing') ? 'failing' : states.inclu
  * @param {Function} deps.run    (cmd, args, opts) => Promise<{err, stdout, stderr}>, never rejects
  * @param {Function} deps.read   (file, max) => its text; may throw
  * @param {Function} [deps.ghPath]  () => the gh binary's path, or null when there is none
- * @param {Function} deps.targets   () => [{ sessionId, common, branch, at }]: every session on the board, with its
- *                                  repository's shared git dir, its branch and when it was last active
- * @param {Function} [deps.notify]  (title, text) => void: a desktop notification
+ * @param {Function} deps.targets   () => [{ sessionId, ws?, common, branch, at }]: every session on the board, with its
+ *                                  workspace, its repository's shared git dir, its branch and when it was last active.
+ *                                  Each workspace gets six repositories of its own (one several share counts towards
+ *                                  each, and is polled once), so a busy workspace never crowds another out.
+ * @param {Function} [deps.notify]  (title, text, { slug }) => void: a desktop notification about that repository
  * @param {Function} [deps.onEvent] ({ type, slug, text, branch?, pr?, runId?, url, sessions }) => void
  * @param {Function} [deps.onChange] () => void: state() or forSession() would now say something else
  * @param {string} [deps.cwd]    a folder outside any repository, so gh never looks at a repo's own config. If it is gone, calls fail as 'no-cwd', not as gh missing.
@@ -249,6 +251,7 @@ export function createGithub({
   let bin = null, binAt = -Infinity, authAt = -Infinity, refreshedAt = -Infinity;
   let polling = false, stopped = false, lastWatched = false, seenDirty = false, dirty = false;
   let more = 0, order = [], cached = null;
+  let moreBy = new Map();      // workspace → how many of its repositories are not watched
   // With `mine`: your own open pull requests across GitHub, by repository, from one search every few minutes, and your login.
   let mineMap = new Map(), mineAt = -Infinity, me = null;
 
@@ -303,9 +306,10 @@ export function createGithub({
     main: null, running: false, baselined: false, polls: 0, lastAt: -Infinity, errorUntil: 0, backoff: 0,
   });
 
-  /** The repositories to watch now: those the board's sessions work in, most recently active first, at most six. */
+  /** The repositories to watch now: those the board's sessions work in, most recently active first, at most six per
+   *  workspace. */
   function track() {
-    const groups = new Map();
+    const groups = new Map(), byWs = new Map(); // byWs: workspace → slug → when its sessions there were last active
     for (const t of targets() ?? []) {
       const slug = slugFor(t?.common);
       if (!slug) continue;
@@ -313,6 +317,10 @@ export function createGithub({
       if (!g) groups.set(slug, g = { slug, commons: new Set(), branches: new Map(), at: 0 });
       g.commons.add(t.common);
       g.at = Math.max(g.at, Number(t.at) || 0);
+      const w = typeof t.ws === 'string' ? t.ws : '';
+      let inWs = byWs.get(w);
+      if (!inWs) byWs.set(w, inWs = new Map());
+      inWs.set(slug, Math.max(inWs.get(slug) ?? 0, Number(t.at) || 0));
       if (typeof t.branch === 'string' && t.branch) {
         const on = g.branches.get(t.branch) ?? [];
         if (t.sessionId && !on.includes(t.sessionId)) on.push(t.sessionId);
@@ -320,15 +328,19 @@ export function createGithub({
       }
     }
     const all = [...groups.values()].sort((a, b) => b.at - a.at || a.slug.localeCompare(b.slug));
-    const keep = all.slice(0, MAX_REPOS);
+    // Each workspace's six most recently active (with one workspace, the six of the board, as before workspaces).
+    const kept = new Set();
+    for (const inWs of byWs.values())
+      for (const [slug] of [...inWs].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, MAX_REPOS)) kept.add(slug);
+    const keep = all.filter((g) => kept.has(g.slug)), over = all.length - keep.length;
+    const by = new Map([...byWs].map(([w, inWs]) => [w, [...inWs.keys()].filter((slug) => !kept.has(slug)).length]));
     // Then the repositories where your own pull requests are open and no agent works.
     if (mine) keep.push(...[...mineMap.keys()].filter((slug) => !keep.some((g) => g.slug === slug)).sort().slice(0, MAX_MINE)
       .map((slug) => groups.get(slug) ?? { slug, commons: new Set(), branches: new Map(), at: 0, mineOnly: true }));
     const names = keep.map((g) => g.slug);
     for (const slug of [...repos.keys()]) if (!names.includes(slug)) repos.delete(slug);
     for (const slug of names) if (!repos.has(slug)) repos.set(slug, newRepo(slug));
-    const over = Math.max(0, all.length - MAX_REPOS);
-    if (names.join('\n') !== order.join('\n') || more !== over) { order = names; more = over; touch(); }
+    if (names.join('\n') !== order.join('\n') || more !== over || JSON.stringify([...by]) !== JSON.stringify([...moreBy])) { order = names; more = over; moreBy = by; touch(); }
     return keep;
   }
 
@@ -536,8 +548,8 @@ export function createGithub({
       running: prs.some((p) => p.checks === 'running') || shown.some((r) => r.state === 'running'),
       error: null, errorUntil: 0, backoff: 0, lastAt: t, checkedAt: t, baselined: true, polls: repo.polls + 1, mineOnly: Boolean(g.mineOnly),
     });
-    for (const a of alerts.slice(0, 3)) tell(notify, TITLE, a);
-    if (alerts.length > 3) tell(notify, TITLE, `${alerts.length - 3} more ${alerts.length - 3 === 1 ? 'check' : 'checks'} failed in ${slug}.`);
+    for (const a of alerts.slice(0, 3)) tell(notify, TITLE, a, { slug });
+    if (alerts.length > 3) tell(notify, TITLE, `${alerts.length - 3} more ${alerts.length - 3 === 1 ? 'check' : 'checks'} failed in ${slug}.`, { slug });
     for (const e of events) tell(onEvent, e);
   }
 
@@ -619,8 +631,11 @@ export function createGithub({
     return { ok: true, text: cut.text, steps: cut.steps, truncated: cut.truncated, url, message };
   }
 
+  /** How many repositories workspace `ws`'s sessions work in that are not watched: its own count, never another's. */
+  const moreIn = (ws) => moreBy.get(typeof ws === 'string' ? ws : '') ?? 0;
+
   /** Stop polling and write what is unsaved. */
   function stop() { stopped = true; save(); }
 
-  return { tick, refresh, state, forSession, failedLog, knows, stop };
+  return { tick, refresh, state, forSession, failedLog, knows, moreIn, stop };
 }

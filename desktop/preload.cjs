@@ -5,6 +5,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('glueApp', {
   /** The shortcut for File › New Agent, shown on the page's button. A browser keeps Ctrl+T for a new tab. */
   newAgent: process.platform === 'darwin' ? '⌘⇧T' : 'Ctrl+Shift+T',
+  /** The shortcut for Glue › Settings…, listed under Settings › Keys. */
+  settings: process.platform === 'darwin' ? '⌘,' : 'Ctrl+,',
   /** Bring the window forward: a page can't raise a hidden window by itself. */
   focus: () => ipcRenderer.send('glue:focus'),
   /** The desktop's folder dialog, opened at `start`. Resolves like the server's /api/pick-folder. */

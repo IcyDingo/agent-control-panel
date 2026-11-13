@@ -1,5 +1,5 @@
-// Held requests and profiles: a permission request from any profile is held, shown while its profile is the one on
-// the board, and kept when you switch. Run with `npm test`. Starts the server on a spare port under a throwaway home.
+// Held requests and profiles: a permission request from any profile is held, shown only while its workspace is the one
+// in focus, and kept when you switch. Run with `npm test`. Starts the server on a spare port under a throwaway home.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -48,7 +48,8 @@ fetch(`${BASE}/events?t=${token}`, { signal: watcher.signal }).then(async (r) =>
     buf = buf.slice(buf.lastIndexOf('\n\n') + 2);
   }
 }).catch(() => {});
-const latest = async () => { await api('/api/arm', { armed: true }); await new Promise((r) => setTimeout(r, 250)); return frames.at(-1); };
+// The latest snapshot: a named event's frame (`event: settings`, data {}) is not one.
+const latest = async () => { await api('/api/arm', { armed: true }); await new Promise((r) => setTimeout(r, 250)); return frames.findLast((f) => Array.isArray(f?.sessions)); };
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 // The server writes what it has not saved yet as it goes: its folder is removed once it has exited.
 after(async () => { watcher.abort(); if (server.exitCode === null && server.signalCode === null) await new Promise((r) => { server.once('exit', r); server.kill(); }); fs.rmSync(home, { recursive: true, force: true }); });
@@ -76,14 +77,17 @@ test('a request from the profile on the board is held and shown', async () => {
   assert.match(await h.promise, /"behavior":"deny"/);
 });
 
-test('a request from another profile is held too, out of sight until that profile is on the board', async () => {
+test('a request from another workspace is held too, out of sight until that workspace is in focus', async () => {
   const h = hook('s-other', path.join(home, '.claude-other'));
   await pause(300);
-  assert.equal(h.answered, false, 'the panel keeps a request from another profile open instead of handing it back');
+  assert.equal(h.answered, false, 'the panel keeps a request from another workspace open instead of handing it back');
   let snap = await latest();
-  assert.equal(pendingOf(snap, 's-other').length, 0, 'not shown while its profile is not on the board');
+  // The snapshot is sealed to the workspace in focus: the other workspace's request shows only as its count.
+  assert.equal(pendingOf(snap, 's-other').length, 0);
+  assert.equal(JSON.stringify(snap).includes('s-other'), false);
+  assert.equal(snap.workspaces.find((w) => w.id === 'other').waiting, 1);
 
-  const r = await api('/api/profile', { id: 'other' });
+  const r = await api('/api/workspace/focus', { ws: 'other' });
   assert.equal(r.ok, true, JSON.stringify(r));
   snap = await latest();
   assert.equal(snap.profile.dir, path.join(home, '.claude-other'));
@@ -92,11 +96,11 @@ test('a request from another profile is held too, out of sight until that profil
   assert.notEqual(pendingOf(snap, 's-other')[0].open, true);
 
   // Back and forth: still held, still answerable once its profile shows again.
-  assert.equal((await api('/api/profile', { id: 'default' })).ok, true);
+  assert.equal((await api('/api/workspace/focus', { ws: 'default' })).ok, true);
   await pause(200);
   assert.equal(h.answered, false);
   assert.equal(pendingOf(await latest(), 's-other').length, 0);
-  assert.equal((await api('/api/profile', { id: 'other' })).ok, true);
+  assert.equal((await api('/api/workspace/focus', { ws: 'other' })).ok, true);
   snap = await latest();
   const p = pendingOf(snap, 's-other')[0];
   assert.ok(p);

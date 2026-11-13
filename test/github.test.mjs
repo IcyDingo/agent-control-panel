@@ -583,6 +583,36 @@ test('at most six repositories are watched, the most recently active; the rest a
   assert.equal(h.gh.forSession(targets[0].common, 'main'), null, 'one not watched has nothing to say');
 });
 
+test('each workspace has six repositories of its own watched: a busy one does not crowd out another', async () => {
+  // Seven repositories that workspace P's sessions worked in lately, and one that W's worked in longer ago.
+  const targets = Array.from({ length: 7 }, (_, i) => ({ sessionId: `P${i}`, ws: 'P', common: checkout({ slug: `owner/p${i}` }).common, branch: 'main', at: 100 + i }));
+  targets.push({ sessionId: 'W0', ws: 'W', common: checkout({ slug: 'owner/w0' }).common, branch: 'main', at: 1 });
+  // A repository both workspaces' sessions work in counts towards each, and is polled once.
+  const shared = checkout({ slug: 'owner/both' }).common;
+  targets.push({ sessionId: 'W1', ws: 'W', common: shared, branch: 'main', at: 2 }, { sessionId: 'P9', ws: 'P', common: shared, branch: 'main', at: 50 });
+  const h = harness({ targets });
+  await h.tick();
+  const slugs = h.gh.state().repos.map((r) => r.slug);
+  assert.ok(slugs.includes('owner/w0'), `W's repository is watched: ${slugs}`);
+  assert.ok(slugs.includes('owner/both'), `the shared one is watched (W's second): ${slugs}`);
+  // P keeps its six most recent, p6..p1; p0 (at 100) and owner/both (P's at 50) fall outside them.
+  assert.deepEqual(slugs.filter((s) => s.startsWith('owner/p')).sort(), ['owner/p1', 'owner/p2', 'owner/p3', 'owner/p4', 'owner/p5', 'owner/p6']);
+  assert.equal(h.polls(), 8, 'one poll per repository');
+  // What is not watched is counted per workspace, never across them.
+  assert.equal(h.gh.moreIn('P'), 1, 'owner/p0 is P\'s only repository not watched (owner/both is watched for W)');
+  assert.equal(h.gh.moreIn('W'), 0);
+  assert.equal(h.gh.moreIn('nobody'), 0);
+});
+
+test('with every target in one workspace (or none named), the cap and the count are as before: six, and the rest', async () => {
+  const targets = Array.from({ length: 8 }, (_, i) => ({ sessionId: `S${i}`, ws: 'default', common: checkout({ slug: `owner/s${i}` }).common, branch: 'main', at: 100 + i }));
+  const h = harness({ targets });
+  await h.tick();
+  assert.deepEqual(h.gh.state().repos.map((r) => r.slug), ['owner/s7', 'owner/s6', 'owner/s5', 'owner/s4', 'owner/s3', 'owner/s2']);
+  assert.equal(h.gh.state().more, 2);
+  assert.equal(h.gh.moreIn('default'), 2);
+});
+
 test('with no sessions on the board nothing runs', async () => {
   const h = harness({ targets: [] });
   await h.tick();

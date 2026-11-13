@@ -1,4 +1,4 @@
-// First-run setup: what the checklist on the overseer's page says about the accounts the panel borrows.
+// First-run setup: what Settings (Logins & connection) and the sign-in banner say about the accounts the panel borrows.
 //
 // The panel has no login of its own. It runs on the profile's Claude Code login (the overseer, new agents) and on your
 // own `gh` (the GitHub panel, the PR watcher). These read what each says about itself, and write the Terminal script

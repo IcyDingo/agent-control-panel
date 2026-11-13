@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
-import { TURN_SCHEMA, SYSTEM, MODELS, DEFAULT_MODEL, overseerArgs, readTurn, digest, promptOf, createOverseer } from '../overseer.mjs';
+import { TURN_SCHEMA, SYSTEM, MODELS, DEFAULT_MODEL, overseerArgs, readTurn, digest, promptOf, createOverseer, migrateFrom } from '../overseer.mjs';
 
 const HOME = os.homedir();
 const A = 'a1b2c3d4-0000-4000-8000-000000000001', B = 'b2c3d4e5-0000-4000-8000-000000000002', C = 'a1b2ffff-0000-4000-8000-000000000003';
@@ -55,7 +55,7 @@ function mk(over = {}) {
   const fx = { effect: 'send', trusted: true, folders: [REPO], reply: { ok: true, sent: true }, launch: { ok: true, id: 'abc12345', cwd: REPO }, interrupt: { ok: true },
     board: BOARD, history: { ok: true, items: [{ who: 'you', text: 'Fix the login', at: 1 }, { who: 'claude', text: 'Done <b>now</b>.', at: 2 }] } };
   const o = createOverseer({
-    file: over.file ?? tmp(),
+    file: over.file ?? tmp(), profile: over.profile, seed: over.seed,
     ask: (args, opts) => { asks.push({ args, opts, prompt: args.at(-1) }); const next = answers.shift(); return typeof next === 'function' ? next(args, opts) : Promise.resolve(next ?? answer('Fine.')); },
     board: () => fx.board(), github: GH,
     history: async (sessionId, limit) => { calls.history.push({ sessionId, limit }); return fx.history; },
@@ -68,7 +68,6 @@ function mk(over = {}) {
     },
     onChange: () => { changes++; }, now: c.now, timers: c.timers, log: () => {}, uuid: () => `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}`,
   });
-  o.use(over.profile ?? 'default');
   return { o, c, asks, answers, calls, fx, live, changes: () => changes };
 }
 const tell = (text = 'Please open a pull request for your branch.', session = 'a1b2c3d4') => ({ type: 'tell', session, text, why: 'You asked for a pull request.' });
@@ -438,28 +437,38 @@ test('a session that went away, or would now be restarted, is not messaged on an
 
 // ---------------------------------------------------------------- profiles, the file, the feed
 
-test('each profile has a conversation of its own, and a switch drops an answer on its way', async () => {
-  const k = mk(), d = defer();
-  await ask1(k, 'in default', answer('Hello default.'));
-  k.o.note('finished', { sessionId: A, name: 'fix-login', text: 'It finished.' });
-  const rev = k.o.status().rev;
-  k.o.use('work');
-  assert.ok(k.o.status().rev > rev);
-  assert.deepEqual(k.o.turns().turns, []);
-  assert.deepEqual(k.o.feed().events, []);
-  assert.equal(k.o.status().feedSeq, 0);
-  k.answers.push(() => d.promise);
-  k.o.say({ text: 'in work' });
-  k.o.use('default');
-  assert.equal(k.o.status().busy, null);
-  d.resolve(answer('Hello work, too late.'));
-  await k.o.settled();
-  assert.deepEqual(k.o.turns().turns.map((t) => t.text), ['in default', 'Hello default.']);
-  assert.equal(k.o.feed().events.length, 1);
-  k.o.use('work');
-  assert.deepEqual(k.o.turns().turns.map((t) => [t.text, t.error ?? null]), [['in work', null], ['', 'You switched profile before it answered.']]);
-  k.o.use('../../etc'); // not a profile id: the default
-  assert.deepEqual(k.o.turns().turns.map((t) => t.text), ['in default', 'Hello default.']);
+test('migrateFrom takes one profile\'s conversation', () => {
+  const old = tmp(), a = { id: 't1', at: 1, who: 'you', text: 'a' }, b = { id: 't1', at: 2, who: 'you', text: 'b' };
+  fs.writeFileSync(old, JSON.stringify({ v: 1, model: 'haiku', profiles: { default: { turns: [a] },
+    contract: { turns: [b], feed: [{ seq: 3, at: 2, type: 'started', text: 'x' }] } } }));
+  const m = migrateFrom(old, 'contract');
+  assert.deepEqual(m.turns, [b]);
+  assert.deepEqual({ seq: m.seq, fseq: m.fseq, feed: m.feed.map((e) => e.seq), model: m.model }, { seq: 1, fseq: 3, feed: [3], model: 'haiku' });
+  assert.deepEqual(migrateFrom(old, 'default').turns, [a]);
+  assert.equal(migrateFrom(old, 'nobody'), null, 'a profile it never kept');
+  assert.equal(migrateFrom(path.join(path.dirname(old), 'gone.json'), 'contract'), null, 'no old file');
+  assert.equal(migrateFrom(old, '../../etc'), null, 'not a profile id');
+});
+
+test('an overseer keeps one profile\'s conversation, seeded once from the old shared file when its own is missing', async () => {
+  const old = tmp(), file = path.join(path.dirname(old), 'overseer-work.json');
+  fs.writeFileSync(old, JSON.stringify({ v: 1, model: 'opus', profiles: { default: { turns: [{ id: 't1', at: 1, who: 'you', text: 'in default' }] },
+    work: { turns: [{ id: 't1', at: 1, who: 'you', text: 'in work' }] } } }));
+  const k = mk({ file, profile: 'work', seed: migrateFrom(old, 'work') });
+  assert.deepEqual(k.o.turns().turns.map((t) => t.text), ['in work']);
+  assert.equal(k.o.status().model, 'opus', 'the old file\'s model');
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'written at once, privately');
+  assert.ok(fs.existsSync(old), 'the old file stays');
+  await ask1(k, 'and now', answer('Here.'));
+  k.o.flush();
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(file, 'utf8')).profiles), ['work']);
+  // Its own file is there now: a seed is not taken again.
+  const k2 = mk({ file, profile: 'work', seed: { seq: 0, fseq: 0, turns: [{ id: 't1', at: 1, who: 'you', text: 'stale' }], feed: [], model: 'haiku' } });
+  assert.deepEqual(k2.o.turns().turns.map((t) => t.text), ['in work', 'and now', 'Here.']);
+  assert.equal(k2.o.status().model, 'opus');
+  // No profile given: the default's. A bad id is the default too.
+  assert.deepEqual(mk({ file: old }).o.turns().turns.map((t) => t.text), ['in default']);
+  assert.deepEqual(mk({ file: old, profile: '../../etc' }).o.turns().turns.map((t) => t.text), ['in default']);
 });
 
 test('the file is private, written a second after a change, and read back by the next start', async () => {
