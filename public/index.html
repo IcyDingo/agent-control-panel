@@ -3816,18 +3816,19 @@ $('ws-switch').addEventListener('keydown', (e) => {
   e.preventDefault();
   tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length].focus();
 });
-// ⌃1…⌃9 pick a workspace in the switch’s order (⌘1 is the app’s own). Not while typing, and not under a dialog.
-document.addEventListener('keydown', (e) => {
-  if (!e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.repeat) return;
+// ⌃1…⌃9 pick a workspace in the switch’s order (⌘1 is the app’s own), wherever the focus is but under a dialog. ⌃ and a
+// digit type nothing, so a reply box or the find field keeps no use for them; caught on the way down, they never reach
+// the embedded terminal either, where ⌃3 would be an Escape to Claude Code.
+window.addEventListener('keydown', (e) => {
+  if (!e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
   const d = /^Digit([1-9])$/.exec(e.code)?.[1] ?? (/^[1-9]$/.test(e.key) ? e.key : null);
   if (!d || !severalWs() || modalOpen()) return;
-  const t = e.target;
-  if (t?.closest?.('textarea, input, select, [contenteditable]:not([contenteditable="false"])') || t?.isContentEditable) return;
   const i = Number(d) - 1;
   if (i >= snap.workspaces.length) return;
   e.preventDefault();
-  chooseWorkspace(i);
-});
+  e.stopPropagation();
+  if (!e.repeat) chooseWorkspace(i);
+}, true);
 /** Something new waits in a workspace not shown: a desktop alert with its name and count; a click shows it. */
 function alertWorkspace(w) {
   if (!alertsOn() || document.hasFocus()) return;
