@@ -536,3 +536,21 @@ test('a new workspace\'s overseer starts on the Glue default', async () => {
   assert.equal((await api('/api/overseer/model', { model: 'opus' }, A.client)).ok, true);
   assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).model, 'haiku', 'a workspace\'s own choice is its own');
 });
+
+test('setup done is a plain flag the page sets', async () => {
+  const s = solo();
+  try {
+    fs.writeFileSync(s.prefs, JSON.stringify({ profile: 'default' })); // a first run: setupDone absent
+    let srv = await s.start(), page = srv.page();
+    assert.ok(await until(() => page.latest()), 'a first snapshot: ' + srv.log);
+    assert.equal(page.latest().setup.done, false, 'not done on a first run');
+    assert.equal((await srv.api('/api/setup/done', { done: true })).ok, true);
+    assert.ok(await until(() => page.latest().setup.done === true), 'the snapshot says done');
+    assert.equal(JSON.parse(fs.readFileSync(s.prefs, 'utf8')).setupDone, true, 'kept in prefs.json');
+    await srv.stop();
+    srv = await s.start();
+    page = srv.page();
+    assert.ok(await until(() => page.latest()), 'a first snapshot after the restart: ' + srv.log);
+    assert.equal(page.latest().setup.done, true, 'still done after a restart');
+  } finally { await s.done(); }
+});
