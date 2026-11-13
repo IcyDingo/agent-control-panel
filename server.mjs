@@ -31,6 +31,8 @@ import { createStore, countOnly, repoKey } from './workspaces.mjs';
 import { sanitizeGlue, mergeGlue } from './glue-prefs.mjs';
 import * as daemon from './daemon.mjs';
 import { terminalCommand } from './terminal.mjs';
+import { createClient as createOcClient, findService, findBinary as findOcBinary, OC_ID, OC_MODES, permissionRules, agentFor, modelRef, refText,
+         pickable, itemsOf, lastSaidOf, modelOfMessages, requestOf, questionOf, formAnswer, statusOf, briefOf } from './opencode.mjs';
 import { logDir as linuxLogDir } from './paths.mjs';
 
 // `node server.mjs <command>` runs the CLI (cli.mjs) and never starts the server.
@@ -247,6 +249,7 @@ function findTranscript(ws, sessionId) {
 function wsIdOfSession(sessionId) {
   const s = sessions.get(sessionId);
   if (s) return s.ws;
+  if (typeof sessionId === 'string' && Object.hasOwn(ocRecords, sessionId)) return ocRecords[sessionId].ws;
   if (typeof sessionId !== 'string' || !UUID.test(sessionId)) return null;
   for (const ws of W.values()) if (findTranscript(ws, sessionId)) return ws.id;
   return null;
@@ -456,6 +459,7 @@ async function readRoster(ws) {
 /** Every workspace's roster, after looking for profile folders that came or went. */
 function pollAll() {
   syncWorkspaces();
+  ocPoll().catch((e) => console.error('opencode:', e?.message ?? e));
   return Promise.all([...W.values()].map((ws) => pollRoster(ws)));
 }
 // The first roster of a workspace (at start, or when its profile appears) is what was already there: no "started" lines.
@@ -497,6 +501,8 @@ async function pollRoster(ws) {
     // only stand in until there is one: the roster gives a stopped job its starting folder back).
     Object.assign(s, { model: on.model ?? null, effort: on.effort ?? null, editTops: on.edits ?? [], ranCwd: on.cwd ?? s.ranCwd ?? null });
     loadSubagents(s);
+    s.limit = limitHit(s.sessionId);
+    s.continuedAs ??= ocContinued(s.sessionId);
     if (over) { settleSubagents(s); clearStops(s.sessionId); }
     // An interrupted session that has gone idle is done stopping. (A continue:false ends the turn without a Stop event.)
     const st = stops.get(stopKey(s.sessionId, null));
@@ -513,7 +519,7 @@ async function pollRoster(ws) {
   if (inbox.size) deliverQueued();
   // Gone from the roster = closed or removed: drop its last status so it can't still read "needs you".
   for (const s of mine()) {
-    if (seen.has(s.sessionId) || !s.inRoster) continue;
+    if (seen.has(s.sessionId) || !s.inRoster || isOc(s)) continue;
     Object.assign(s, { inRoster: false, leftRosterAt: Date.now(), ended: true, status: null, waitingFor: null });
     feed('closed', s, `${labelOf(s)} closed.`);
     settleSubagents(s);
@@ -596,6 +602,7 @@ function settle(id, decision, why) {
 
 /** Answer a held request from a page shown workspace `wsId`: only that workspace's requests. */
 function decide(body, wsId) {
+  if (typeof body?.id === 'string' && body.id.startsWith('oc:')) return ocDecide(body, wsId);
   const p = pending.get(body?.id);
   if (!p) return { ok: false, error: 'That request is gone: answered in the terminal or expired.' };
   if (p.ws !== wsId || !ownedBy(wsId, p.sessionId)) return { ok: false, error: REFUSE };
@@ -654,11 +661,19 @@ function launch(body, ws = shownWs()) {
     try { if (!fs.statSync(cwd).isDirectory()) throw new Error(); } catch { return fail(`There is no folder at ${cwd}.`); }
     const model = body.model ?? '', mode = body.mode ?? '', effort = body.effort ?? '';
     const name = String(body.name ?? '').trim(), agent = String(body.agent ?? '').trim();
-    if (!MODELS.has(model)) return fail('Pick a model from the list.');
-    if (effort && !EFFORTS.has(effort)) return fail('Pick an effort level from the list.');
-    if (!MODES.has(mode)) return fail('Pick a permission mode from the list.');
+    // Which agent runs it: Claude Code (the default), or OpenCode, which takes its own models and none of Claude's options.
+    const ocKind = body.agentKind === 'opencode';
+    if (body.agentKind != null && body.agentKind !== 'claude' && !ocKind) return fail('Pick Claude Code or OpenCode.');
+    if (ocKind) {
+      if (model && !modelRef(model)) return fail('Pick a model from the list.');
+      if (!OC_MODES.has(mode)) return fail('Pick a permission mode from the list.');
+    } else {
+      if (!MODELS.has(model)) return fail('Pick a model from the list.');
+      if (effort && !EFFORTS.has(effort)) return fail('Pick an effort level from the list.');
+      if (!MODES.has(mode)) return fail('Pick a permission mode from the list.');
+      if (agent && !/^[\w:.-]{1,80}$/.test(agent)) return fail('An agent type is a name like code-reviewer or plugin:agent.');
+    }
     if (name && !/^[\w .-]{1,60}$/.test(name)) return fail('A name can use letters, digits, spaces, dots and dashes, 60 at most.');
-    if (agent && !/^[\w:.-]{1,80}$/.test(agent)) return fail('An agent type is a name like code-reviewer or plugin:agent.');
     // Its own worktree: Claude Code makes .claude/worktrees/<name> on a new branch worktree-<name>, and names it when
     // you don't.
     const worktree = body.worktree === true, wtName = String(body.worktreeName ?? '').trim();
@@ -698,6 +713,14 @@ function launch(body, ws = shownWs()) {
       const there = wsView(wsOrder().find((id) => inWs.includes(id)) ?? inWs[0]).name;
       return fail(`${repo.label} is in ${there}. Switch to ${there} to start an agent there.`);
     }
+    if (ocKind) {
+      (async () => {
+        let dir = cwd;
+        if (worktree) { const w = await ocWorktree(cwd, wtName); if (!w.ok) return w; dir = w.dir; }
+        return ocStart(ws, { prompt, cwd, dir, name, model, mode });
+      })().then(resolve, (e) => fail(String(e?.message ?? e)));
+      return;
+    }
     run('claude', args, { cwd, timeout: 30_000, env: envOf(ws) }).then((r) => {
       const id = `${r.stdout}\n${r.stderr}`.match(/backgrounded · (\w+)/)?.[1];
       if (id) { setTimeout(() => pollRoster(ws), 400); return resolve({ ok: true, id, cwd }); }
@@ -723,6 +746,7 @@ const liveSession = (body) => {
 function interrupt(body) {
   const s = liveSession(body);
   if (!s || isEnded(s)) return { ok: false, error: 'That session is not running.' };
+  if (isOc(s)) return oc.interrupt(s.sessionId).then(() => { s.ocStatus = 'idle'; ocApply(s); broadcast(); return { ok: true }; }, (e) => ({ ok: false, error: e.message }));
   const aid = body.agentId == null ? null : String(body.agentId);
   const now = Date.now();
   if (aid) {
@@ -749,6 +773,7 @@ async function end(body) {
   return endSession(s);
 }
 async function endSession(s) {
+  if (isOc(s)) return ocEnd(s);
   const ws = wsOfSession(s);
   if (!ws) return { ok: false, error: NO_WS };
   if (s.kind === 'background') {
@@ -778,6 +803,7 @@ async function remove(body) {
   const s = liveSession(body);
   if (!s) return { ok: true };
   if (!isEnded(s)) return { ok: false, error: 'It is still running. End it first.' };
+  if (isOc(s)) return ocForget(s);
   const rm = s.kind === 'background' && s.inRoster;
   if (rm) {
     if (!BG_ID.test(s.id ?? '')) return { ok: false, error: 'It has no background id to remove.' };
@@ -910,6 +936,8 @@ function lastSaid(sessionId) {
 }
 /** A session's conversation for the panel's chat, newest last; asking for more reads further back. */
 async function history(body, ctx) {
+  const oce = sessions.get(body?.sessionId);
+  if (isOc(oce)) return ocHistory(oce, Number.isInteger(body?.limit) ? Math.min(2000, Math.max(20, body.limit)) : 60);
   const file = transcriptFile(body?.sessionId, ctx?.ws);
   if (!file) return { ok: false, error: 'Its transcript is not in this profile.' };
   const limit = Number.isInteger(body?.limit) ? Math.min(2000, Math.max(20, body.limit)) : 60;
@@ -1138,6 +1166,7 @@ async function reply(body) {
   const fail = (error) => ({ ok: false, error });
   const text = typeof body?.text === 'string' ? body.text.trim() : '';
   if (!s) return fail('That session is gone.');
+  if (isOc(s)) return ocReply(s, body);
   const ws = wsOfSession(s); // everything below runs under its own profile
   if (!ws) return fail(NO_WS);
   if (!text || text.length > 20_000) return fail('Write a reply (up to 20,000 characters).');
@@ -1236,6 +1265,7 @@ async function switchMode(body) {
   const s = liveSession(body);
   const mode = body?.mode;
   if (!s) return { ok: false, error: 'That session is gone.' };
+  if (isOc(s)) return ocMode(s, mode);
   if (!RESUME_MODES.has(mode)) return { ok: false, error: 'Pick ask, accept edits, plan or auto.' };
   // A job that is done with its task is still there to attach to; a stopped or failed one would be started again.
   if (s.kind !== 'background' || !s.inRoster || !BG_ID.test(s.id ?? '') || s.ended || s.state === 'stopped' || s.state === 'failed' || s.pid == null)
@@ -2041,6 +2071,17 @@ const followWs = (f) => sessions.get(f.sessionId)?.ws ?? f.ws;
  *  forgotten, so the next /api/follow or retry tries again. */
 function openFollow(f) {
   if (f.ready) return f.ready;
+  // An OpenCode session has no transcript file: its messages come from the service, read again as its events arrive.
+  const ocs = sessions.get(f.sessionId);
+  if (isOc(ocs)) {
+    return (f.ready = ocHistory(ocs, f.limit).then((r) => {
+      if (f.stopped) return false;
+      if (!r.ok) { f.ready = null; return false; }
+      f.more = r.more;
+      threadOf(f.sessionId).addItems(r.items);
+      return true;
+    }));
+  }
   const file = transcriptFile(f.sessionId, wsById(f.ws));
   if (!file) return Promise.resolve(false);
   const id = f.sessionId, t = threadOf(id);
@@ -2112,7 +2153,7 @@ function dropClient(client) {
 async function followSession(body) {
   const client = body?.client, id = body?.sessionId ?? null;
   if (typeof client !== 'string' || !CLIENT.test(client)) return { ok: false, error: 'Which page is this?' };
-  if (id !== null && (typeof id !== 'string' || !UUID.test(id))) return { ok: false, error: 'There is no such session.' };
+  if (id !== null && (typeof id !== 'string' || !(UUID.test(id) || (OC_ID.test(id) && Object.hasOwn(ocRecords, id))))) return { ok: false, error: 'There is no such session.' };
   const limit = Number.isInteger(body.limit) ? Math.min(2000, Math.max(1, body.limit)) : 60;
   // Already followed from another workspace's page (a session no workspace knows yet): not this page's to join.
   if (id !== null && follows.has(id) && followWs(follows.get(id)) !== focusOf(client)) return { ok: false, error: REFUSE };
@@ -2320,6 +2361,7 @@ function overseerBoard(wsId) {
 function tellEffect(sessionId) {
   const s = sessions.get(sessionId);
   if (!s) return 'restart';
+  if (isOc(s)) return 'send';
   const bgUp = s.kind === 'background' && s.inRoster && BG_ID.test(s.id ?? '') && !['stopped', 'failed'].includes(s.state) && s.pid != null;
   if (bgUp && !isWorking(s)) return 'send';
   if ((s.kind === 'interactive' || bgUp) && isWorking(s)) return bgUp ? 'send' : 'queue';
@@ -2524,6 +2566,390 @@ function termEnd(sessionId) {
 }
 const termClose = (body) => { termLeave(body?.client, body?.sessionId); return { ok: true }; };
 
+// ---------------------------------------------------------------- OpenCode sessions
+// The second kind of agent (opencode.mjs). OpenCode's own service holds its sessions, for every folder and every app
+// that talks to it, so the board shows only the ones Glue started, each in the workspace that started it: kept in
+// opencode-sessions.json beside the prefs. Their records live in `sessions` like Claude's, with agent 'opencode' and
+// kind 'opencode', so everything written for Claude Code's background and terminal sessions passes them by. What they
+// ask (permissions, forms) is read from the service and shown as cards in the shape of held requests; status comes from
+// its event stream, read again from the service on every roster beat and whenever the stream comes back.
+
+const OC_FILE = path.join(dataDir, 'opencode-sessions.json');
+const ocRecords = (() => { try { const v = JSON.parse(small(OC_FILE, 4 << 20)).sessions; return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; } catch { return {}; } })();
+for (const [id, r] of Object.entries(ocRecords)) if (!OC_ID.test(id) || !r || typeof r !== 'object' || typeof r.ws !== 'string') delete ocRecords[id];
+function saveOc() {
+  try { fs.writeFileSync(OC_FILE, JSON.stringify({ sessions: ocRecords }, null, 2), { mode: 0o600 }); }
+  catch (e) { console.error('opencode:', e?.message ?? e); }
+}
+const ocWhere = { home: HOME, env: process.env };
+const oc = createOcClient({ service: () => findService(ocWhere) });
+/** sessionId → { perms: [card], forms: [{ card, form }] }: what each OpenCode session asks now. */
+const ocAsks = new Map();
+let ocStream = null, ocPolling = false;
+const isOc = (s) => s?.agent === 'opencode';
+const ocDir = (id) => ocRecords[id]?.dir ?? ocRecords[id]?.cwd ?? null;
+/** The Claude session an OpenCode one carries on, by its id: what it says on the Claude record after a restart. */
+const ocContinued = (claudeId) => { for (const [id, r] of Object.entries(ocRecords)) if (r.continuedFrom === claudeId) return { id, at: r.startedAt ?? 0, agent: 'opencode' }; return null; };
+
+/** Its record on the board, made from what Glue kept. */
+function ocSession(id) {
+  const rec = ocRecords[id];
+  if (!rec || !W.has(rec.ws) || dismissed.has(id)) return null;
+  const s = session(id, rec.ws);
+  if (!s.agent) Object.assign(s, { agent: 'opencode', kind: 'opencode', id: null, name: rec.name ?? null, cwd: rec.cwd ?? null, ranCwd: rec.dir ?? null,
+                                   startedAt: rec.startedAt ?? null, model: rec.model ?? null, mode: rec.mode ?? null, inRoster: true,
+                                   continuedFrom: rec.continuedFrom ?? null, prompt: rec.prompt ?? null });
+  if (rec.ended && !s.ended) Object.assign(s, { ended: true, state: 'stopped', status: null, waitingFor: null });
+  return s;
+}
+for (const id of Object.keys(ocRecords)) ocSession(id);
+
+/** Its status from what the service said last and what it asks: waiting while it asks, else busy or idle. Says so in
+ *  the overseer's feed when that changes. */
+function ocApply(s) {
+  const asks = ocAsks.get(s.sessionId), was = s.status;
+  if (isEnded(s)) { s.status = null; s.waitingFor = null; return; }
+  const perms = asks?.perms.length ?? 0, forms = asks?.forms.length ?? 0;
+  s.status = perms || forms ? 'waiting' : s.ocStatus ?? null;
+  s.waitingFor = perms ? 'permission prompt' : forms ? 'input needed' : null;
+  if (was === s.status) return;
+  if (s.status === 'waiting') feed('needs-you', s, `${labelOf(s)} waits for you (${s.waitingFor}).`);
+  else if (was === 'busy' && s.status === 'idle') ocRefresh(s); // an event missed while the stream was down
+  if (was === 'busy' && s.status === 'idle') feed('finished', s, `${labelOf(s)} finished its turn${s.lastMessage ? `: ${String(s.lastMessage).replace(/\s+/g, ' ').slice(0, 140)}` : '.'}`);
+}
+/** What it asks now → cards, keeping when each was first seen. */
+function ocSetAsks(id, perms, forms) {
+  const old = ocAsks.get(id), seen = new Map([...(old?.perms ?? []), ...(old?.forms ?? []).map((f) => f.card)].map((c) => [c.id, c.createdAt]));
+  const stamp = (c) => ({ ...c, createdAt: seen.get(c.id) ?? Date.now() });
+  ocAsks.set(id, { perms: perms.map((p) => stamp(requestOf(p))), forms: forms.map((f) => ({ card: stamp(questionOf(f)), form: f })) });
+}
+/** Read what one session asks again (an event said it changed). */
+async function ocReadAsks(id) {
+  const dir = ocDir(id);
+  const [perms, forms] = await Promise.all([oc.permissions(dir).catch(() => null), oc.forms(dir).catch(() => null)]);
+  if (perms == null && forms == null) return;
+  ocSetAsks(id, (perms ?? []).filter((p) => p?.sessionID === id), (forms ?? []).filter((f) => f?.sessionID === id));
+  const s = sessions.get(id);
+  if (s) ocApply(s);
+  broadcast();
+}
+
+/** Every OpenCode session Glue keeps, read again from the service: which run, what they ask. Runs with each roster beat. */
+async function ocPoll() {
+  const ids = Object.keys(ocRecords).filter((id) => !dismissed.has(id));
+  if (!ids.length || ocPolling) return;
+  ocPolling = true;
+  try {
+    for (const id of ids) ocSession(id);
+    let active;
+    try { active = await oc.active(); }
+    catch (e) {
+      for (const id of ids) { const s = sessions.get(id); if (s && !isEnded(s)) { s.ocStatus = null; s.note = { type: 'opencode', text: `${e.message} Glue starts it when you send a message.`, at: Date.now() }; ocApply(s); } }
+      broadcast();
+      return;
+    }
+    const dirs = [...new Set(ids.map(ocDir).filter(Boolean))];
+    const perms = (await Promise.all(dirs.map((d) => oc.permissions(d).catch(() => [])))).flat();
+    const forms = (await Promise.all(dirs.map((d) => oc.forms(d).catch(() => [])))).flat();
+    for (const id of ids) {
+      const s = sessions.get(id);
+      if (!s) continue;
+      if (s.note?.type === 'opencode' && /not running|in time/.test(s.note.text)) s.note = null;
+      ocSetAsks(id, perms.filter((p) => p?.sessionID === id), forms.filter((f) => f?.sessionID === id));
+      s.ocStatus = active && Object.hasOwn(active, id) ? 'busy' : 'idle';
+      if (!s.ocRead) { s.ocRead = true; ocRefresh(s); } // what it said last and runs on, once after a start
+      ocApply(s);
+    }
+  } finally { ocPolling = false; }
+  ocFollowEvents();
+  broadcast();
+}
+
+/** The service's event stream, followed while Glue keeps any OpenCode session. */
+function ocFollowEvents() {
+  if (ocStream || !Object.keys(ocRecords).length) return;
+  ocStream = oc.subscribe(onOcEvent, (up) => { if (up) ocPoll(); });
+}
+function onOcEvent(e) {
+  const u = statusOf(e);
+  if (!u?.sessionID || !ocRecords[u.sessionID]) return;
+  const s = sessions.get(u.sessionID);
+  if (!s) return;
+  s.lastEventAt = Date.now();
+  if (u.deleted) {
+    Object.assign(s, { ended: true, state: 'stopped' });
+    ocRecords[u.sessionID].ended = true;
+    saveOc();
+  }
+  if (u.status && !isEnded(s)) s.ocStatus = u.status;
+  if ('note' in u) s.note = u.note ? { type: 'opencode', text: u.note, at: Date.now() } : null;
+  if (u.tool) s.lastTool = summarize('Tool', u.tool.input);
+  if (u.asks) ocReadAsks(u.sessionID);
+  if (u.refresh) ocRefresh(s);
+  ocApply(s);
+  broadcast();
+}
+
+/** Read its messages again, a moment after the last event that asked: what it said last, its model, and the Chat of
+ *  any page that has it open. */
+const ocRefreshing = new Map();
+function ocRefresh(s, ms = 250) {
+  if (ocRefreshing.has(s.sessionId)) return;
+  ocRefreshing.set(s.sessionId, setTimeout(async () => {
+    ocRefreshing.delete(s.sessionId);
+    let msgs;
+    try { msgs = await oc.messages(s.sessionId); } catch { return; }
+    const said = lastSaidOf(msgs);
+    if (said) { s.lastMessage = trimMid(said, 3000); s.lastMessageAt = Date.now(); }
+    s.model = modelOfMessages(msgs) ?? s.model;
+    if (follows.has(s.sessionId)) { try { threadOf(s.sessionId).addItems(itemsOf(msgs)); } catch (err) { console.error('thread:', err?.message ?? err); } }
+    broadcast();
+  }, ms));
+}
+
+/** The service, started when it isn't running (`opencode service start`). */
+async function ocEnsure() {
+  try { await oc.info(); return { ok: true }; } catch {}
+  const bin = findOcBinary(ocWhere);
+  if (!bin) return { ok: false, error: `OpenCode is not installed. ${MAC ? 'Run brew install anomalyco/tap/opencode-v2' : 'Install it from opencode.ai'}, then try again.` };
+  const r = await run(bin, ['service', 'start'], { env: baseEnv, timeout: 30_000 });
+  for (let i = 0; i < 20; i++) {
+    try { await oc.info(); ocFollowEvents(); return { ok: true }; } catch {}
+    await new Promise((ok) => setTimeout(ok, 500));
+  }
+  return { ok: false, error: `OpenCode did not start${r.err ? `: ${firstLine(r)}` : '.'}` };
+}
+
+/** A new worktree for an OpenCode session, where Claude Code makes its own: .claude/worktrees/<name> on a new branch
+ *  worktree-<name>. Claude Code makes them itself; for OpenCode, git does. */
+async function ocWorktree(cwd, wanted) {
+  const place = gitPlace(cwd);
+  if (!place) return { ok: false, error: `${tilde(cwd)} is not in a git repository, so it can't have a worktree of its own.` };
+  const name = wanted || `oc-${crypto.randomBytes(3).toString('hex')}`;
+  const dir = path.join(place.repo, '.claude', 'worktrees', name);
+  if (fs.existsSync(dir)) return { ok: false, error: `There is already a worktree named ${name}. Pick another name, or leave it blank for a new one.` };
+  const r = await run('git', ['-c', 'core.fsmonitor=false', 'worktree', 'add', '-b', `worktree-${name}`, dir], { cwd: place.top, env: baseEnv, timeout: 30_000 });
+  return r.err ? { ok: false, error: `git could not make the worktree: ${firstLine(r)}` } : { ok: true, dir };
+}
+
+/** Start an OpenCode session in `dir` (made by the caller's checks), keep it, and send it its first prompt. */
+async function ocStart(ws, { prompt, cwd, dir = cwd, name, model, mode, continuedFrom = null, brief = null }) {
+  const up = await ocEnsure();
+  if (!up.ok) return up;
+  let info;
+  try {
+    info = await oc.createSession({ directory: dir, agent: agentFor(mode), model: model ? modelRef(model) : undefined,
+                                    permissions: permissionRules(mode), title: name || undefined });
+  } catch (e) { return { ok: false, error: e.message }; }
+  if (!OC_ID.test(String(info?.id ?? ''))) return { ok: false, error: 'OpenCode did not say which session it made.' };
+  ocRecords[info.id] = { ws: ws.id, cwd, dir, name: name || trim(prompt.replace(/\s+/g, ' '), 48), model: model || refText(info.model) || null,
+                         mode: mode || 'default', startedAt: Date.now(), prompt: trim(prompt, 2000), ...(continuedFrom ? { continuedFrom } : {}) };
+  saveOc();
+  const s = ocSession(info.id);
+  try {
+    if (brief) await oc.synthetic(info.id, brief);
+    await oc.prompt(info.id, prompt);
+  } catch (e) { return { ok: false, error: `OpenCode made the session but did not take its prompt: ${e.message}`, sessionId: info.id }; }
+  if (s) { s.ocStatus = 'busy'; ocApply(s); feed('started', s, `${labelOf(s)} started in OpenCode.`); }
+  ocFollowEvents();
+  broadcast();
+  return { ok: true, id: info.id, sessionId: info.id, cwd };
+}
+
+async function ocReply(s, body) {
+  const fail = (error) => ({ ok: false, error });
+  const text = typeof body?.text === 'string' ? body.text.trim() : '';
+  if (!text || text.length > 20_000) return fail('Write a reply (up to 20,000 characters).');
+  if (/^[/!]/.test(text)) return fail('An OpenCode session takes plain messages from here. Run commands in OpenCode itself.');
+  if (body?.mode && !OC_MODES.has(body.mode)) return fail('Pick ask, accept edits, plan or auto.');
+  const up = await ocEnsure();
+  if (!up.ok) return up;
+  if (body?.mode && body.mode !== s.mode) { const r = await ocMode(s, body.mode); if (!r.ok) return r; }
+  try { await oc.prompt(s.sessionId, text, { delivery: 'queue' }); } catch (e) { return fail(e.message); }
+  if (isEnded(s)) {
+    Object.assign(s, { ended: false, state: null });
+    if (ocRecords[s.sessionId]) { ocRecords[s.sessionId].ended = false; saveOc(); }
+  }
+  s.ocStatus = 'busy';
+  ocApply(s);
+  if (!body?.fromQueue) logSent(s, text, 'now');
+  broadcast();
+  return { ok: true, sent: true };
+}
+/** Its mode: OpenCode's permission rules for it, and its agent (plan or build). */
+async function ocMode(s, mode) {
+  if (!OC_MODES.has(mode) || !mode) return { ok: false, error: 'Pick ask, accept edits, plan or auto.' };
+  if (s.status === 'waiting') return { ok: false, error: 'Answer what it is asking first.' };
+  try {
+    await oc.setPermissions(s.sessionId, permissionRules(mode));
+    if (agentFor(mode) !== agentFor(s.mode)) await oc.setAgent(s.sessionId, agentFor(mode));
+  } catch (e) { return { ok: false, error: e.message }; }
+  s.mode = mode;
+  if (ocRecords[s.sessionId]) { ocRecords[s.sessionId].mode = mode; saveOc(); }
+  broadcast();
+  return { ok: true };
+}
+/** End it here: its turn is stopped and the board files it as ended. OpenCode keeps its conversation, and a message
+ *  starts it again. */
+async function ocEnd(s) {
+  if (s.ocStatus === 'busy') { try { await oc.interrupt(s.sessionId); } catch {} }
+  Object.assign(s, { ended: true, state: 'stopped', ocStatus: 'idle' });
+  ocAsks.delete(s.sessionId);
+  if (ocRecords[s.sessionId]) { ocRecords[s.sessionId].ended = true; saveOc(); }
+  ocApply(s);
+  broadcast();
+  return { ok: true };
+}
+/** Take it off the board. OpenCode keeps it: it is still in OpenCode's own list. */
+function ocForget(s) {
+  delete ocRecords[s.sessionId];
+  saveOc();
+  ocAsks.delete(s.sessionId);
+  dismissed.add(s.sessionId);
+  sessions.delete(s.sessionId);
+  broadcast();
+  return { ok: true, removed: false };
+}
+/** A card's answer, from a page shown workspace `wsId`. */
+async function ocDecide(body, wsId) {
+  const [, sid] = String(body.id).split(':');
+  const s = sessions.get(sid);
+  if (!s || !isOc(s)) return { ok: false, error: 'That request is gone: answered in OpenCode or expired.' };
+  if (s.ws !== wsId) return { ok: false, error: REFUSE };
+  const asks = ocAsks.get(sid), perm = asks?.perms.find((p) => p.id === body.id), form = asks?.forms.find((f) => f.card.id === body.id);
+  try {
+    if (perm) {
+      if (body.behavior === 'deny') await oc.replyPermission(sid, perm.ocId, 'reject', body.message ? String(body.message).slice(0, 2000) : undefined);
+      else if (body.behavior === 'allow') {
+        if (body.updatedInput !== undefined) return { ok: false, error: 'OpenCode runs only what it asked for. Deny it, and say what to run instead.' };
+        await oc.replyPermission(sid, perm.ocId, body.always ? 'always' : 'once');
+      } else return { ok: false, error: 'Allow it or deny it.' };
+      asks.perms = asks.perms.filter((p) => p !== perm);
+    } else if (form) {
+      if (body.behavior === 'answer') {
+        const a = formAnswer(form.form, body.answers);
+        if (a.error) return { ok: false, error: a.error };
+        await oc.replyForm(sid, form.form.id, a.answer);
+      } else if (body.behavior === 'deny') await oc.cancelForm(sid, form.form.id, body.message ? String(body.message).slice(0, 2000) : undefined);
+      else return { ok: false, error: 'Answer it, or say why not.' };
+      asks.forms = asks.forms.filter((f) => f !== form);
+    } else return { ok: false, error: 'That request is gone: answered in OpenCode or expired.' };
+  } catch (e) { return { ok: false, error: e.message }; }
+  ocApply(s);
+  feed('answered', s, `${labelOf(s)}: ${perm ? perm.toolName : 'a question'} ${body.behavior === 'deny' ? 'refused' : 'answered'} from the panel.`);
+  broadcast();
+  return { ok: true };
+}
+/** Workspace `wsId`'s OpenCode cards, in the shape of held requests. */
+const ocRequests = (wsId) => [...ocAsks].flatMap(([id, a]) => (sessions.get(id)?.ws === wsId
+  ? [...a.perms, ...a.forms.map((f) => f.card)].map((c) => ({ ...c, agent: 'opencode' })) : []));
+
+/** Its conversation for the Chat or the overseer, as thread items. */
+async function ocHistory(s, limit = 60) {
+  let msgs;
+  try { msgs = await oc.messages(s.sessionId); } catch (e) { return { ok: false, error: e.message }; }
+  const items = itemsOf(msgs), yours = items.reduce((at, m, i) => (m.who === 'you' ? at.concat(i) : at), []);
+  const cut = yours.length > limit ? yours.at(-limit) : 0;
+  return { ok: true, items: items.slice(cut), more: cut > 0 };
+}
+
+/** What Settings and the launcher show of OpenCode: installed, running, its models and default. */
+async function ocStatus(body) {
+  const bin = findOcBinary(ocWhere);
+  let info = null, error = null, models = [], defaultModel = null;
+  try { info = await oc.info(); } catch (e) { error = e.message; }
+  if (info && body?.models !== false) {
+    const dir = typeof body?.cwd === 'string' && path.isAbsolute(body.cwd) ? body.cwd : undefined;
+    try { models = pickable(await oc.models(dir)); } catch (e) { error = e.message; }
+    try { const d = await oc.defaultModel(dir); defaultModel = d?.providerID ? `${d.providerID}/${d.id ?? d.modelID}` : null; } catch {}
+  }
+  return { ok: true, installed: Boolean(bin), running: Boolean(info), version: info?.version ?? null, models, defaultModel, error,
+           sessions: Object.keys(ocRecords).length };
+}
+const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
+/** Terminal, running OpenCode's own sign-in: the panel never sees a key. */
+async function ocLogin() {
+  const bin = findOcBinary(ocWhere);
+  if (!bin) return { ok: false, error: `OpenCode is not installed. ${MAC ? 'Run brew install anomalyco/tap/opencode-v2' : 'Install it from opencode.ai'}, then try again.` };
+  const where = path.join(path.dirname(PREFS), 'trust');
+  fs.mkdirSync(where, { recursive: true, mode: 0o700 });
+  const file = path.join(where, `login-opencode-${crypto.randomBytes(4).toString('hex')}${SCRIPT_EXT}`);
+  fs.writeFileSync(file, `#!/bin/${SCRIPT_SHELL}\necho 'Sign OpenCode in to a provider. Glue never sees your key.'\n${shq(bin)} auth login\necho\necho 'Done. You can close this window.'\n`, { mode: 0o700 });
+  const r = await openInTerminal(file);
+  return r.none ? { ok: false, error: `No terminal app was found. Run ${bin} auth login in a terminal.` } : r;
+}
+
+// ---------------------------------------------------------------- a Claude session at its usage limit
+
+// Claude Code writes a reply that stops at a usage limit like any other, from model <synthetic>, with the error beside
+// it: `error: "rate_limit"`, `apiErrorStatus: 429`, and `apiErrorParams.rate_limit_info` saying which limit and when it
+// resets. The newest one, with no real reply after it, is a limit the session is still stuck at.
+const limits = new Map(); // sessionId → { size, mtimeMs, limit }
+const LIMIT_TEXT = /You['’]ve hit your [\w -]*limit/i;
+function limitOf(d) {
+  if (d?.type !== 'assistant' || d.isSidechain) return undefined;
+  const info = d.apiErrorParams?.rate_limit_info ?? d.message?.apiErrorParams?.rate_limit_info ?? null;
+  const text = msgText(d.message);
+  const hit = d.error === 'rate_limit' || d.apiErrorStatus === 429 || (d.message?.model === '<synthetic>' && LIMIT_TEXT.test(text));
+  if (!hit) return d.message?.model === '<synthetic>' ? undefined : null; // a real reply: nothing stuck before it
+  const at = Number(info?.resetsAt);
+  return { type: typeof info?.rateLimitType === 'string' ? info.rateLimitType.slice(0, 40) : null,
+           resetsAt: Number.isFinite(at) && at > 0 ? (at < 1e12 ? at * 1000 : at) : null,
+           text: trim(text.trim(), 200), at: Date.parse(d.timestamp) || null };
+}
+function limitHit(sessionId) {
+  const file = transcriptFile(sessionId);
+  let st;
+  try { st = file && fs.statSync(file); } catch {}
+  if (!st) return null;
+  const c = limits.get(sessionId);
+  if (c && c.size === st.size && c.mtimeMs === st.mtimeMs) return c.limit;
+  let limit = null;
+  for (const line of tailOf(file, 256_000)) {
+    if (!line.includes('"assistant"')) continue;
+    let d;
+    try { d = JSON.parse(line); } catch { continue; }
+    const l = limitOf(d);
+    if (l === undefined) continue;
+    limit = l;
+    break;
+  }
+  if (limit?.resetsAt && limit.resetsAt < Date.now()) limit = { ...limit, over: true }; // reset since: worth trying again
+  limits.set(sessionId, { size: st.size, mtimeMs: st.mtimeMs, limit });
+  return limit;
+}
+
+/** Carry a Claude session's work on in OpenCode, in the same folder: a new session there that starts from a brief of
+ *  this one (its task, its conversation, the state of its files). Only when you ask. The Claude session stays as it is,
+ *  to come back to once its limit resets. */
+async function continueInOpenCode(body, ctx) {
+  const s = liveSession(body);
+  const fail = (error) => ({ ok: false, error });
+  if (!s || isOc(s)) return fail('Only a Claude Code session carries on in OpenCode.');
+  const ws = wsOfSession(s);
+  if (!ws) return fail(NO_WS);
+  if (isWorking(s)) return fail('It is still working. Interrupt it first, or wait for it to stop.');
+  const model = typeof body?.model === 'string' ? body.model : '';
+  if (model && !modelRef(model)) return fail('Pick a model from the list.');
+  const dir = s.ranCwd ?? s.hereCwd ?? s.cwd;
+  if (!dir || !fs.existsSync(dir)) return fail(`Its folder is gone (${dir}), so there is nowhere to carry on.`);
+  const file = transcriptFile(s.sessionId);
+  const chat = file ? await readChat(file, { limit: 200 }) : { items: [] };
+  const first = chat.items.find((m) => m.who === 'you')?.text ?? null;
+  const git = async (args) => (await run('git', ['-c', 'core.fsmonitor=false', ...args], { cwd: dir, env: baseEnv, timeout: 10_000 })).stdout.trim().slice(0, 4000);
+  const top = gitPlace(dir)?.top ?? dir, has = (n) => fs.existsSync(path.join(dir, n)) || fs.existsSync(path.join(top, n));
+  const brief = briefOf({ prompt: first, items: chat.items, status: await git(['status', '--short']), diffStat: await git(['diff', '--stat']),
+                          claudeMd: has('CLAUDE.md'), agentsMd: has('AGENTS.md'), limit: s.limit ?? limitHit(s.sessionId) });
+  const mode = OC_MODES.has(s.mode) && s.mode ? s.mode : 'default';
+  const r = await ocStart(ws, { prompt: 'Continue the task from where it stopped. Check the current state of the files first.', cwd: s.cwd ?? dir, dir,
+                                name: trim(`${labelOf(s)} (OpenCode)`, 60), model, mode, continuedFrom: s.sessionId, brief });
+  if (!r.ok) return r;
+  s.continuedAs = { id: r.sessionId, at: Date.now(), agent: 'opencode' };
+  feed('continued', s, `${labelOf(s)} carries on in OpenCode${model ? ` on ${model}` : ''}.`);
+  broadcast();
+  return r;
+}
+
 // ---------------------------------------------------------------- snapshot + SSE
 
 /** The watcher's state as a page shown `wsId` sees it: that workspace's switch, and only the pull requests of its repositories. */
@@ -2541,7 +2967,7 @@ function snapshot(wsId) {
     workspace: wsView(wsId), workspaces: wsOrder().map((id) => ({ ...wsView(id), waiting: waitingOf(id) })),
     oldVersions: oldVersions.filter((o) => o.ws === wsId).map(({ ws: _, ...o }) => ({ ...o, shown: true })),
     sessions: [...sessions.values()].filter((s) => s.ws === wsId).map((whole) => {
-      const { spawns, hereCwd, rosterCwd, ranCwd, editTops, ...s } = whole, { ask, mismatch } = sortOf(whole);
+      const { spawns, hereCwd, rosterCwd, ranCwd, editTops, ocStatus: _ocs, ocRead: _ocr, ...s } = whole, { ask, mismatch } = sortOf(whole);
       const here = ranCwd ?? hereCwd ?? s.cwd, place = gitPlace(here), git = placeOut(place);
       // In another workspace's repository: its name, conversation and state show (its own login's), nothing of the repository.
       const repoSide = mismatch ? { git: null, workCwd: null, cwd: null, gh: null, elsewhere: null }
@@ -2554,7 +2980,7 @@ function snapshot(wsId) {
     }; }),
     // A held request's folder stays here: the page never reads it, and for a session in another workspace's repository
     // it would be that repository's.
-    pending: [...[...pending.values()].filter((p) => p.ws === wsId).map(({ res, timer, cwd, ...p }) => p), ...openRequests(wsId)],
+    pending: [...[...pending.values()].filter((p) => p.ws === wsId).map(({ res, timer, cwd, ...p }) => p), ...openRequests(wsId), ...ocRequests(wsId)],
     github: githubFor(wsId), overseer: overseerOf(wsId)?.status() ?? null, watcher: watcherOf(wsId),
     _ts: now,
   };
@@ -2722,7 +3148,7 @@ async function handle(req, res) {
     const refused = () => send(res, 409, { ok: false, error: REFUSE });
     if (body?.sessionId != null && !ownedBy(focus, String(body.sessionId))) return refused();
     if (url.pathname === '/api/decide') {
-      const r = decide(body, focus);
+      const r = await decide(body, focus);
       return send(res, r.ok ? 200 : 409, r);
     }
     if (url.pathname === '/api/launch') {
@@ -2732,7 +3158,7 @@ async function handle(req, res) {
       return send(res, r.ok ? 200 : 422, r);
     }
     if (url.pathname === '/api/interrupt') {
-      const r = interrupt(body);
+      const r = await interrupt(body);
       if (r.ok && sessions.has(body?.sessionId)) feed('interrupted', sessions.get(body.sessionId), `You interrupted ${labelOf(sessions.get(body.sessionId))}.`);
       return send(res, r.ok ? 200 : 422, r);
     }
@@ -2750,6 +3176,8 @@ async function handle(req, res) {
                       '/api/github/log': githubLog, '/api/github/hand': githubHand, ...OVERSEER,
                       '/api/watcher/enabled': (b, c) => nudgeIfOk(watcher.setEnabled(b?.on, c.focus)),
                       '/api/settings/restart': restartService, '/api/settings/reveal': revealIn,
+                      '/api/opencode': ocStatus, '/api/opencode/start': ocEnsure, '/api/opencode/login': ocLogin,
+                      '/api/opencode/continue': continueInOpenCode,
                       '/api/term/open': termOpen, '/api/term/input': termInput, '/api/term/resize': termResize, '/api/term/close': termClose };
     if (Object.hasOwn(ACTIONS, url.pathname)) {
       let r;

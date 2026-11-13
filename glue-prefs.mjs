@@ -4,6 +4,7 @@
 //
 // Not here, on purpose: "Answering here" (`armed`). It resets to on at every start, so it is never remembered.
 import { MODELS as OVERSEER_MODELS } from './overseer.mjs';
+import { MODEL_REF } from './opencode.mjs';
 
 // Copied from server.mjs (importing it would start the server): `MODELS`, `EFFORTS` and `RESUME_MODES` there.
 // Keep these in step with those. The empty model and effort mean "leave it to Claude Code".
@@ -11,6 +12,9 @@ const AGENT_MODELS = ['', 'opus', 'opus[1m]', 'sonnet', 'haiku', 'fable'];
 const AGENT_EFFORTS = ['', 'low', 'medium', 'high', 'xhigh', 'max'];
 const AGENT_MODES = ['default', 'acceptEdits', 'plan', 'auto'];
 const THEMES = ['dark', 'light', 'system'];
+// Which agent a new session runs on, and an OpenCode model (provider/model): free-form, so only its shape is checked.
+const AGENT_KINDS = ['claude', 'opencode'];
+const ocModel = (v) => v === '' || (typeof v === 'string' && MODEL_REF.test(v));
 
 // The rail's fixed queues that fold: Other folders and Finished. Needs you never folds, and a repository section's fold
 // (`repo:<name>`) stays in its own page: kept here, every page of every workspace would read the repository's name.
@@ -23,8 +27,10 @@ export const GLUE_DEFAULTS = Object.freeze({
   folded: Object.freeze(['finished']),
   notify: Object.freeze({ requests: true, ci: true, watcher: true }),
   titleCount: true,
-  agentDefaults: Object.freeze({ model: '', effort: '', mode: 'default', worktree: false }),
+  agentDefaults: Object.freeze({ model: '', effort: '', mode: 'default', worktree: false, agent: 'claude', opencodeModel: '' }),
   overseerModel: 'sonnet',
+  fallbackModel: '', // the OpenCode model a Claude session at its usage limit carries on with; empty: OpenCode's default
+
   seeded: false,
 });
 
@@ -40,8 +46,10 @@ const SHAPE = {
   folded: null, // a list of keys, below
   notify: { requests: isBool, ci: isBool, watcher: isBool },
   titleCount: isBool,
-  agentDefaults: { model: oneOf(AGENT_MODELS), effort: oneOf(AGENT_EFFORTS), mode: oneOf(AGENT_MODES), worktree: isBool },
+  agentDefaults: { model: oneOf(AGENT_MODELS), effort: oneOf(AGENT_EFFORTS), mode: oneOf(AGENT_MODES), worktree: isBool,
+                   agent: oneOf(AGENT_KINDS), opencodeModel: ocModel },
   overseerModel: oneOf(OVERSEER_MODELS),
+  fallbackModel: ocModel,
   seeded: isBool,
 };
 const NAMES = Object.keys(SHAPE);

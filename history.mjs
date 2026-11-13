@@ -67,6 +67,11 @@ export function itemOf(line, pos) {
     const a = d.attachment, text = typeof a.prompt === 'string' && (a.commandMode ?? 'prompt') === 'prompt' ? yourText(a.prompt) : null;
     return text ? { who: 'you', key: `you:${pos}`, text, at, pos } : null;
   }
+  // A usage limit is written as a made-up reply with the error beside it: shown as a note, so the Chat says why it stopped.
+  if (d.type === 'assistant' && !d.isSidechain && d.message?.model === '<synthetic>' && (d.error === 'rate_limit' || d.apiErrorStatus === 429)) {
+    const text = Array.isArray(c) ? c.filter((b) => b?.type === 'text').map((b) => b.text).join(' ').trim() : '';
+    return { who: 'note', key: `note:${pos}`, text: text || 'Claude stopped at its usage limit.', limit: true, at, pos };
+  }
   if (d.type !== 'assistant' || d.isSidechain || d.message?.model === '<synthetic>' || !Array.isArray(c)) return null;
   // Claude Code writes each block of a reply on a line of its own; the first block that shows is the line's item.
   const b = c.find((b) => (b?.type === 'text' && b.text?.trim()) || b?.type === 'tool_use');

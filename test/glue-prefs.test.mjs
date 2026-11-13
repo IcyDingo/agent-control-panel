@@ -24,7 +24,19 @@ test('defaults for missing, null, corrupt', () => {
 
 test('the defaults match the page and the server', () => {
   assert.deepEqual(GLUE_DEFAULTS, { theme: 'dark', folded: ['finished'], notify: { requests: true, ci: true, watcher: true },
-    titleCount: true, agentDefaults: { model: '', effort: '', mode: 'default', worktree: false }, overseerModel: 'sonnet', seeded: false });
+    titleCount: true, agentDefaults: { model: '', effort: '', mode: 'default', worktree: false, agent: 'claude', opencodeModel: '' },
+    overseerModel: 'sonnet', fallbackModel: '', seeded: false });
+});
+
+test('the OpenCode defaults: which agent, and models by their provider/model shape', () => {
+  const a = sanitizeGlue({ agentDefaults: { agent: 'opencode', opencodeModel: 'openai/gpt-6' }, fallbackModel: 'anthropic/claude-sonnet-5-5' });
+  assert.equal(a.agentDefaults.agent, 'opencode');
+  assert.equal(a.agentDefaults.opencodeModel, 'openai/gpt-6');
+  assert.equal(a.fallbackModel, 'anthropic/claude-sonnet-5-5');
+  const b = sanitizeGlue({ agentDefaults: { agent: 'codex', opencodeModel: 'nope' }, fallbackModel: 'x; y' });
+  assert.deepEqual([b.agentDefaults.agent, b.agentDefaults.opencodeModel, b.fallbackModel], ['claude', '', '']);
+  assert.match(mergeGlue(GLUE_DEFAULTS, { fallbackModel: 'bad' }).error, /fallbackModel/);
+  assert.equal(mergeGlue(GLUE_DEFAULTS, { fallbackModel: 'openai/gpt-6' }).glue.fallbackModel, 'openai/gpt-6');
 });
 
 test('sanitize keeps only the fixed queues in folded and checks each agent default', () => {
@@ -35,7 +47,7 @@ test('sanitize keeps only the fixed queues in folded and checks each agent defau
   assert.deepEqual(sanitizeGlue({ folded: ['finished', 7, 'x'.repeat(101), 'loose', 'loose', 'idle', 'waiting'] }).folded, ['finished', 'loose']);
   assert.deepEqual(sanitizeGlue({ folded: [] }).folded, []);
   const a = sanitizeGlue({ agentDefaults: { model: 'opus[1m]', effort: 'max', mode: 'plan', worktree: true } }).agentDefaults;
-  assert.deepEqual(a, { model: 'opus[1m]', effort: 'max', mode: 'plan', worktree: true });
+  assert.deepEqual(a, { model: 'opus[1m]', effort: 'max', mode: 'plan', worktree: true, agent: 'claude', opencodeModel: '' });
   assert.deepEqual(sanitizeGlue({ agentDefaults: { model: 'gpt', effort: 'huge', mode: 'yolo', worktree: 1 } }).agentDefaults, GLUE_DEFAULTS.agentDefaults);
 });
 
