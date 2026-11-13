@@ -31,6 +31,12 @@ export function parseGhAuth({ err, stdout, stderr } = {}) {
   return { state: 'ok', login: m?.[1] ?? null };
 }
 
+/**
+ * Whether a failure from Claude Code reads as a missing or lapsed login, so the panel looks again and shows its sign-in
+ * banner rather than leaving only the raw message. Matched loosely: a false match costs one `claude auth status`.
+ */
+export const LOGIN_ERROR = /not logged in|run \/login|invalid api key|oauth token (?:has )?expired|token (?:has been )?revoked|authentication_error|not signed in/i;
+
 /** The command that signs a profile in to Claude Code, as you'd type it in a terminal. */
 export const claudeLoginCommand = (p) => (p.plain ? 'claude auth login' : `CLAUDE_CONFIG_DIR=~/${p.dir.split('/').pop()} claude auth login`);
 

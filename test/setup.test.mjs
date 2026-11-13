@@ -5,7 +5,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { parseClaudeAuth, parseGhAuth, claudeLoginCommand, loginScript } from '../setup.mjs';
+import { parseClaudeAuth, parseGhAuth, claudeLoginCommand, loginScript, LOGIN_ERROR } from '../setup.mjs';
+
+test('a login failure from Claude Code is recognised, other failures are not', () => {
+  for (const t of ['Not logged in · Please run /login', 'Invalid API key · Please run /login', 'API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"OAuth token has expired."}}', 'OAuth token revoked · Please run /login'])
+    assert.equal(LOGIN_ERROR.test(t), true, t);
+  for (const t of ['Workspace not trusted. Run `claude` in /x once', 'API Error: 529 Overloaded', "The overseer didn't answer in time.", 'spawn claude ENOENT'])
+    assert.equal(LOGIN_ERROR.test(t), false, t);
+});
 
 test("claude auth status: signed in, with whose account and plan", () => {
   const out = JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', email: 'a@b.c', orgName: 'Org', subscriptionType: 'max' });

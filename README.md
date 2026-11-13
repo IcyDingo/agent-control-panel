@@ -32,6 +32,11 @@ Panel.app** into `~/Applications`. Then:
 
    **Done** (or **Hide for now**) puts it away, remembered in `prefs.json`; **Setup** in the overseer's header
    brings it back.
+   Later on, a lapsed login shows by itself. Signed out of Claude, an amber banner says so with **Sign in in
+   Terminal…** and **Copy command**, and goes once you're back in. A signed-out profile's tab gets a red dot
+   (amber still means not connected). With `gh` signed out, the GitHub button turns amber and its panel has the same
+   Terminal sign-in. The panel looks every few minutes while a page is open, when you come back to its window, and
+   at once when the overseer, a launch or a reply fails with a login error.
 4. The first **Done** starts a short tour: the rail, **Answering here**, **New agent**, the overseer, GitHub and the
    keys, one at a time (→ or Enter next, ← back, Esc ends it). **Take the tour** under the checklist runs it again.
 

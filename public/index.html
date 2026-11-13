@@ -84,6 +84,11 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .banner.connect > span:first-child { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .banner.connect b { color: var(--fg); font-weight: 600; }
 .banner.connect .mono { display: none; }
+/* Signed out of Claude: amber, like the other banners that stop something working, with the way back in beside it. */
+.banner.auth { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-height: 36px; padding-block: 4px; }
+.banner.auth > .lead { flex: 1 1 auto; min-width: 0; }
+.banner.auth b { color: inherit; font-weight: 650; }
+.banner.auth .btn.small { height: 24px; padding: 0 10px; font-size: 11.5px; color: var(--amber); background: var(--amber-dim); }
 /* Sessions on a Claude Code version deleted under them: macOS can refuse them ~/Documents at any moment. */
 .banner.old { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-height: 36px; padding-block: 4px; }
 .banner.old > .lead { flex: 1 1 auto; min-width: 0; }
@@ -133,6 +138,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .ptab[aria-selected="true"] { background: var(--raise); color: var(--fg); box-shadow: 0 1px 2px var(--shade); }
 .ptab.armed { background: var(--stop); color: var(--on-solid); }
 .pdot { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); }
+.pdot.out { background: var(--stop); }
 
 .btn { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 14px; border: 0; border-radius: var(--r-1); background: var(--fill); color: var(--fg); font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap; }
 .btn:hover { background: var(--fill-strong); }
@@ -749,6 +755,7 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .ov-act .lf-inline input[type="text"] { flex: 1; min-width: 0; height: 30px; padding: 0 10px; border: 1px solid transparent; border-radius: var(--r-1); background: var(--code); font: 12.5px var(--mono); }
 /* The GitHub panel's lists: each repository's pull requests and default-branch runs, with their states. */
 .gh-side .gh-hint { margin: 8px 0 0; color: var(--fg-dim); font-size: 12.5px; line-height: 1.5; }
+.gh-side .gh-hint p { margin: 0; }
 .h-repo { padding: 16px 0; }
 .h-repo + .h-repo { border-top: 1px solid var(--line); }
 .h-repo-h { display: flex; align-items: center; gap: 8px; min-width: 0; margin-bottom: 8px; font-weight: 600; font-size: 13px; }
@@ -811,6 +818,11 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 </header>
 <p class="banner" id="roster-err" hidden></p>
 <div class="banner old" id="old-ver" role="status" hidden></div>
+<div class="banner auth" id="auth-banner" role="status" hidden>
+  <span class="lead">The <b id="ab-name"></b> profile is signed out of Claude. The overseer and new agents can’t run until it signs in again.</span>
+  <button class="btn small" type="button" id="ab-login">Sign in in Terminal…</button>
+  <button class="btn small" type="button" id="ab-copy">Copy command</button>
+</div>
 <div class="banner connect" id="prof-banner" hidden>
   <span>The <b id="pb-name"></b> profile doesn't report to this panel yet. Its sessions are listed, but their requests, tools and subagents don't show as they happen.</span>
   <button class="btn small" type="button" id="pb-connect">Connect this profile</button>
@@ -2650,8 +2662,8 @@ let setupReopened = false, setupPollAt = 0;
 const setupShown = () => Boolean(snap?.setup) && (!snap.setup.done || setupReopened);
 const canAlert = () => 'Notification' in window;
 function reopenSetup() { setupReopened = true; checkSetupNow(true); render(); $('h-scroll').scrollTop = 0; }
-async function checkSetupNow(now) {
-  if (!now && Date.now() - setupPollAt < 5000) return;
+async function checkSetupNow(now, gap = 5000) {
+  if (!now && Date.now() - setupPollAt < gap) return;
   setupPollAt = Date.now();
   await api('/api/setup/check', {}); // what it finds comes back with the next snapshot
 }
@@ -2827,7 +2839,12 @@ window.addEventListener('keydown', (e) => {
 }, true);
 window.addEventListener('resize', () => placeTour());
 // Back from Terminal (or System Settings): look again at once.
-window.addEventListener('focus', () => { if (setupShown()) checkSetupNow(true); });
+// Waiting on a sign-in (the checklist, or the signed-out banner): at once. Otherwise at most once a minute, so a login
+// that lapsed while you were away shows when you come back.
+window.addEventListener('focus', () => {
+  const waiting = setupShown() || snap?.setup?.claude?.state === 'signed-out' || snap?.setup?.github?.state === 'signed-out';
+  checkSetupNow(waiting, 60_000);
+});
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && setupShown()) checkSetupNow(false); });
 
 function renderHome(g) {
@@ -2872,7 +2889,10 @@ function renderHome(g) {
   syncSay();
 }
 /** Across everything: each watched repository's pull requests, default-branch runs and recent merges. */
-const acrossSig = () => JSON.stringify([snap.github, snap.sessions.map((s) => [s.sessionId, label(s)])]);
+const acrossSig = () => JSON.stringify([snap.github, ghSignedOut(), snap.sessions.map((s) => [s.sessionId, label(s)])]);
+/** gh is signed out, by the GitHub poller's last answer or by the sign-in check, whichever saw it. A fresh sign-in the
+ *  check has seen wins over the poller's older answer. */
+const ghSignedOut = () => snap?.setup?.github?.state === 'signed-out' || (snap?.github?.gh === 'signed-out' && snap?.setup?.github?.state !== 'ok');
 // Checks still running after this long are called stuck; merges show for a day.
 const STUCK_MS = 30 * 60_000, MERGED_MS = 24 * 3_600_000;
 const GH_RANK = { failing: 0, stuck: 1, running: 2, passing: 3, open: 4, draft: 5, merged: 6 };
@@ -2911,7 +2931,11 @@ function ghActive(r) {
 function acrossNodes(head) {
   const gh = snap.github, names = new Map(snap.sessions.map((s) => [s.sessionId, label(s)]));
   if (!gh || gh.gh === 'off') return [head, el('p', { class: 'gh-hint', text: 'GitHub is turned off for this panel (ACP_GITHUB=off).' })];
-  const hint = gh.hint ? el('p', { class: 'gh-hint', text: gh.hint }) : null;
+  // Signed out of gh (the poller found it, or the sign-in check did): the way back in, right here.
+  const hint = ghSignedOut() ? el('div', { class: 'gh-hint' },
+    el('p', { text: 'The GitHub CLI is signed out, so pull requests and CI can’t show. The panel uses gh’s own login and stores no token.' }),
+    el('span', { class: 'su-acts' }, el('button', { class: 'btn small', type: 'button', text: 'Sign in in Terminal…', onclick: (e) => openLogin('gh', e.currentTarget) }), cmdChip('gh auth login')))
+    : gh.hint ? el('p', { class: 'gh-hint', text: gh.hint }) : null;
   if (!gh.repos.length) return [head, hint ?? el('p', { class: 'gh-hint', text: gh.gh === 'unknown' ? 'Looking at GitHub…' : 'No agent works in a GitHub repository right now.' })];
   const who = (ids) => (ids ?? []).map((id) => names.get(id)).filter(Boolean).join(', ');
   const active = gh.repos.map((r) => ({ r, items: ghActive(r) })).filter((x) => x.items.length || x.r.error)
@@ -2941,11 +2965,12 @@ function renderGhBtn() {
   const prs = gh.repos.flatMap((r) => r.prs), runs = gh.repos.flatMap(mainRuns), items = gh.repos.flatMap(ghActive);
   const failing = prs.filter((p) => p.checks === 'failing').length + runs.filter((x) => x.state === 'failing').length;
   const stuck = items.some((it) => it.st === 'stuck');
-  const state = gh.gh !== 'ok' && gh.gh !== 'unknown' ? 'warn' : failing ? 'failing' : stuck ? 'warn' : worst([...prs.map((p) => p.checks), ...runs.map((x) => x.state)]);
+  const out = ghSignedOut();
+  const state = out || (gh.gh !== 'ok' && gh.gh !== 'unknown') ? 'warn' : failing ? 'failing' : stuck ? 'warn' : worst([...prs.map((p) => p.checks), ...runs.map((x) => x.state)]);
   setAttr($('gh-btn'), 'data-c', state ?? 'none');
   $('gh-n').hidden = !failing;
   setText($('gh-n'), String(failing));
-  setAttr($('gh-btn'), 'title', gh.hint ?? (failing ? `${failing} failing on GitHub` : stuck ? 'Checks have run for more than 30 minutes on GitHub' : state === 'running' ? 'Checks are running on GitHub' : `GitHub: ${gh.repos.length} ${gh.repos.length === 1 ? 'repository' : 'repositories'} watched`));
+  setAttr($('gh-btn'), 'title', out ? 'The GitHub CLI is signed out. Open this to sign in again.' : gh.hint ?? (failing ? `${failing} failing on GitHub` : stuck ? 'Checks have run for more than 30 minutes on GitHub' : state === 'running' ? 'Checks are running on GitHub' : `GitHub: ${gh.repos.length} ${gh.repos.length === 1 ? 'repository' : 'repositories'} watched`));
   const open = prs.length;
   if (!$('gh-pop').hidden) patch($('gh-pop'), acrossSig() + ghRefreshing + JSON.stringify(snap.watcher), () => acrossNodes(el('div', { class: 'gh-pop-h' }, el('h3', { text: 'GitHub' }),
     el('span', { class: 'gh-sub', text: open ? `${open} open pull request${open === 1 ? '' : 's'}` : '' }),
@@ -3391,28 +3416,40 @@ async function loadProfiles() {
 // A profile made or signed in to elsewhere shows up when you come back to the window.
 window.addEventListener('focus', () => { if (Date.now() - profsAt > 30_000) loadProfiles(); });
 function profTitle(p) {
-  const who = p.account === undefined ? null : p.account ? [p.account.email, p.account.org].filter(Boolean).join(', ') : 'Not signed in';
+  const who = p.account === undefined ? null : p.account ? [p.account.email, p.account.org].filter(Boolean).join(', ')
+    : `Signed out of Claude. Sign in with: ${p.command} auth login`;
   const plan = p.account?.plan ? `${p.account.plan[0].toUpperCase()}${p.account.plan.slice(1)} plan` : null;
-  return [who, plan, p.command, p.connected === false ? 'Its hooks don’t point at this panel yet, so its requests and tools don’t show as they happen.' : null].filter(Boolean).join('\n');
+  return [who, plan, p.account === null ? null : p.command, p.connected === false ? 'Its hooks don’t point at this panel yet, so its requests and tools don’t show as they happen.' : null].filter(Boolean).join('\n');
+}
+/** The shown profile's sign-in, as the server last read it: an account, null when signed out, undefined when unknown. */
+function liveAccount(p) {
+  const c = snap.setup?.claude;
+  return c?.state === 'signed-out' ? null : c?.state === 'ok' ? { ...(p.account ?? {}), email: c.email ?? p.account?.email ?? null, org: c.org ?? p.account?.org ?? null, plan: c.plan ?? p.account?.plan ?? null } : p.account;
 }
 function renderProfile() {
   const p = snap.profile;
   if (!p) return;
   const name = p.label ?? p.id;
+  // Signed out of Claude: the banner says so, whenever it is, not only on the first run (the checklist covers that).
+  $('auth-banner').hidden = snap.setup?.claude?.state !== 'signed-out' || setupShown();
+  setText($('ab-name'), name);
+  // While it shows, look every few seconds: it goes away by itself once the Terminal sign-in is done.
+  if (!$('auth-banner').hidden && document.visibilityState === 'visible') checkSetupNow(false, 10_000);
   $('prof-banner').hidden = p.connected || setupShown(); // the checklist has its own Connect
   setText($('pb-name'), name);
   setText($('pb-file'), `Adds its hooks to ${p.where}/settings.json and keeps a copy of the old file.`);
   setAttr($('pb-connect'), 'title', `Adds its hooks to ${p.where}/settings.json and keeps a copy of the old file.`);
   if (!profs && !profsAt) loadProfiles();
   // The shown profile's own facts come with every snapshot, so its tab is right before the list answers.
-  const list = (profs?.some((x) => x.id === p.id) ? profs : [...(profs ?? []), p]).map((x) => (x.id === p.id ? { ...x, connected: p.connected } : x));
+  const list = (profs?.some((x) => x.id === p.id) ? profs : [...(profs ?? []), p]).map((x) => (x.id === p.id ? { ...x, connected: p.connected, account: liveAccount(x) } : x));
   patch($('prof-tabs'), JSON.stringify([list, p.id, profArmed?.id, profArmed?.queued]), () => list.map((x) => {
     const on = x.id === p.id, ask = profArmed?.id === x.id;
     return el('button', { class: 'ptab' + (ask ? ' armed' : ''), type: 'button', role: 'tab', 'aria-selected': String(on), tabindex: on ? '0' : '-1', 'data-id': x.id,
       title: ask ? `${profArmed.queued} unsent message${profArmed.queued > 1 ? 's are' : ' is'} dropped if you switch. Click again to switch.` : profTitle(x),
       onclick: () => chooseProfile(x) },
       ask ? `Switch anyway: drop ${profArmed.queued} unsent` : x.label ?? x.id,
-      x.connected === false && !ask ? el('i', { class: 'pdot', role: 'img', 'aria-label': 'Not connected' }) : null);
+      ask ? null : x.account === null ? el('i', { class: 'pdot out', role: 'img', 'aria-label': 'Signed out' })
+        : x.connected === false ? el('i', { class: 'pdot', role: 'img', 'aria-label': 'Not connected' }) : null);
   }));
   // One profile: the tab bar says nothing a tab would, so it stays out of the way.
   $('prof-tabs').hidden = list.length < 2;
@@ -3483,6 +3520,8 @@ $('theme-menu').addEventListener('keydown', (e) => {
 });
 applyTheme();
 $('pb-connect').onclick = () => connectThisProfile($('pb-connect'));
+$('ab-login').onclick = () => openLogin('claude', $('ab-login'));
+$('ab-copy').onclick = () => snap?.setup && copyCmd(snap.setup.loginCommand);
 async function connectThisProfile(b) {
   b.disabled = true;
   const r = await api('/api/profile/connect', { id: snap.profile.id });

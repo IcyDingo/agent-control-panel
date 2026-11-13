@@ -25,7 +25,7 @@ import { prefsPath } from './cli.mjs';
 import { createGithub } from './github.mjs';
 import { createOverseer } from './overseer.mjs';
 import { createWatcher } from './watcher.mjs';
-import { parseClaudeAuth, parseGhAuth, claudeLoginCommand, loginScript } from './setup.mjs';
+import { parseClaudeAuth, parseGhAuth, claudeLoginCommand, loginScript, LOGIN_ERROR } from './setup.mjs';
 
 // `node server.mjs <command>` runs the CLI (cli.mjs) and never starts the server.
 if (process.argv.length > 2) { const { main } = await import('./cli.mjs'); process.exit(await main(process.argv.slice(2))); }
@@ -1380,9 +1380,10 @@ function readPrefs() { try { const v = JSON.parse(small(PREFS, 65536)); return v
 function savePrefs(change) {
   try { fs.mkdirSync(path.dirname(PREFS), { recursive: true }); fs.writeFileSync(PREFS, JSON.stringify({ ...readPrefs(), ...change }) + '\n'); } catch {}
 }
-// What the checklist shows: whether the profile is signed in to Claude Code, and gh to GitHub. Read when the panel
-// starts, when the profile switches, and when a page asks (it does while the checklist waits on a sign-in, and when you
-// come back to its window). Never on the 1 s tick: each read starts a process.
+// Whether the profile is signed in to Claude Code, and gh to GitHub: the checklist, the sign-in banner and the profile
+// tab show it. Read when the panel starts, when the profile switches, every few minutes while a page is open, when a
+// page asks (while the checklist waits on a sign-in, and when you come back to its window), and when Claude Code fails
+// with what reads as a login error. Never on the 1 s tick: each read starts a process.
 const setup = { claude: { state: 'unknown' }, github: { state: process.env.ACP_GITHUB === 'off' ? 'off' : 'unknown' }, done: readPrefs().setupDone === true, checkedAt: 0 };
 let setupCheck = null;
 function checkSetup(force) {
@@ -1393,17 +1394,21 @@ function checkSetup(force) {
     run('claude', ['auth', 'status', '--json'], { env, timeout: 8000 }).then((r) => parseClaudeAuth(r.stdout)),
     setup.github.state === 'off' ? setup.github
       : gh ? run(gh, ['auth', 'status', '--hostname', 'github.com'], { env: baseEnv, cwd: path.dirname(PREFS), timeout: 8000 }).then(parseGhAuth) : { state: 'missing' },
-  ]).then(([claude, github]) => {
+  ]).then(([claude, gh]) => {
     if (p !== profile) return; // the profile switched while it read: the next check is for the new one
     const was = JSON.stringify([setup.claude, setup.github]);
     // A read that timed out says nothing new: a sign-in already seen stays.
     if (claude.state !== 'unknown' || setup.claude.state === 'unknown') setup.claude = claude;
-    setup.github = github;
+    setup.github = gh;
     setup.checkedAt = Date.now();
+    // Signed in to gh again: the GitHub poller waits five minutes after a signed-out answer, so it looks now instead.
+    if (gh.state === 'ok' && github.state().gh === 'signed-out') github.refresh();
     if (JSON.stringify([setup.claude, setup.github]) !== was) broadcast();
   }).finally(() => { setupCheck = null; });
   return setupCheck;
 }
+/** A failure from Claude Code that reads as a login problem: look again, so the banner says so. */
+function loginFailed(text) { if (LOGIN_ERROR.test(String(text ?? ''))) checkSetup(true); }
 const setupOut = () => ({ claude: setup.claude, github: setup.github, done: setup.done, loginCommand: claudeLoginCommand(profile) });
 async function setupCheckNow() { await checkSetup(false); return { ok: true, setup: setupOut() }; }
 function setupDone(body) {
@@ -1745,7 +1750,11 @@ function askModel(args, { timeout = 90_000, signal } = {}) {
   return new Promise((resolve) => {
     try {
       const child = execFile('claude', args, { cwd: overseerCwd, env: childEnv, timeout, signal, maxBuffer: 8_000_000 },
-        (err, stdout, stderr) => resolve({ err, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') }));
+        (err, stdout, stderr) => {
+          const out = { err, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') };
+          if (err || /"is_error":\s*true/.test(out.stdout)) loginFailed(`${out.stderr}\n${out.stdout.slice(0, 4000)}`);
+          resolve(out);
+        });
       child.stdin?.end();
     } catch (err) { resolve({ err, stdout: '', stderr: '' }); }
   });
@@ -2015,6 +2024,7 @@ async function handle(req, res) {
     }
     if (url.pathname === '/api/launch') {
       const r = await launch(body);
+      if (!r.ok) loginFailed(r.error);
       if (r.ok) feed('launched', null, `You started a session in ${tilde(r.cwd ?? '')}.`);
       return send(res, r.ok ? 200 : 422, r);
     }
@@ -2036,6 +2046,7 @@ async function handle(req, res) {
     if (Object.hasOwn(ACTIONS, url.pathname)) {
       let r;
       try { r = await ACTIONS[url.pathname](body); } catch (err) { r = { ok: false, error: String(err?.message ?? err).slice(0, 300) }; }
+      if (!r.ok) loginFailed(r.error); // a reply or restart that failed for want of a login
       return send(res, r.ok ? 200 : 422, r);
     }
     if (url.pathname === '/api/arm') {
@@ -2073,7 +2084,7 @@ const looking = () => !DAEMON || clients.size > 0;
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`agent control panel → http://127.0.0.1:${PORT}`);
   overseer.use(overseerId(profile)); // here, not at load: it broadcasts, and the broadcast's state is declared further down
-  if (!setup.done) checkSetup(true); // the checklist shows until it is done; once it is, a page asks when it reopens it
+  checkSetup(true); // the checklist, and later the sign-in banner, say what it finds
   pollRoster().then(() => { if (looking()) checkVersions(); });
   setRosterPace(looking());
   setInterval(() => { if (looking()) checkVersions(); }, VERSIONS_MS);
@@ -2081,4 +2092,5 @@ server.listen(PORT, '127.0.0.1', () => {
   // GitHub: one beat every 15 s, each repository on its own pace; the first a little after start, once the roster is in.
   setTimeout(() => { github.tick({ watched: clients.size > 0 }); setInterval(() => github.tick({ watched: clients.size > 0 }), 15_000); }, 20_000);
   setInterval(() => watcherCheck(), 60_000); // checks that stick become a problem with time, with nothing new from GitHub
+  setInterval(() => { if (clients.size > 0) checkSetup(false); }, 3 * 60_000); // a login that lapses later shows as the banner
 });
