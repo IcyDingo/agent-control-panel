@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const SERVER = fileURLToPath(new URL('../server.mjs', import.meta.url));
@@ -52,6 +52,15 @@ if (a[0] === 'agents') {
 if (a[0] === 'auth') { console.log(cfg && path.basename(cfg) === '.claude-contract' ? JSON.stringify({ loggedIn: true, email: ${JSON.stringify(EMAIL_C)}, orgName: 'Contract Org', subscriptionType: 'max' }) : '{}'); process.exit(0); }
 process.exit(1);
 `, { mode: 0o755 });
+// Stand-ins for what Settings runs: the real launchctl and open must never be called from a test. launchctl knows no
+// service (print fails, as it does when nothing is loaded); each logs its arguments.
+const standIns = (dir, logs) => {
+  for (const [name, code] of [['launchctl', 'process.exit(process.argv[2] === "print" ? 113 : 0);'], ['open', ''], ['osascript', '']]) {
+    fs.writeFileSync(path.join(dir, name), `#!${process.execPath}\nrequire('fs').appendFileSync(${JSON.stringify(path.join(logs, name + '.log'))}, JSON.stringify(process.argv.slice(2)) + '\\n');\n${code}\n`, { mode: 0o755 });
+  }
+};
+standIns(bin, home);
+const calledOf = (dir, name) => { try { return fs.readFileSync(path.join(dir, name + '.log'), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch { return []; } };
 
 const prefs = path.join(home, 'panel', 'prefs.json');
 fs.mkdirSync(path.dirname(prefs));
@@ -139,7 +148,7 @@ test('settings shows both workspaces, the email only for the focus', async () =>
   for (const x of r.repos) assert.deepEqual(Object.keys(x).sort(), ['key', 'label', 'stored', 'ws']);
   assert.ok([true, false, null].includes(byId.contract.signedIn));
   assert.deepEqual(Object.keys(r).filter((k) => k !== 'status').sort(), ['about', 'github', 'glue', 'ok', 'overseer', 'repos', 'watcher', 'workspaces']);
-  assert.deepEqual(r.about, {});
+  assert.deepEqual(Object.keys(r.about).sort(), ['commit', 'dataDir', 'logDir', 'service', 'uninstall', 'update', 'version']);
   assert.equal(typeof r.watcher.enabled, 'boolean');
   assert.ok(Array.isArray(r.overseer.models) && r.overseer.models.includes(r.overseer.model), JSON.stringify(r.overseer));
   assert.deepEqual(Object.keys(r.github).sort(), ['login', 'state']);
@@ -271,4 +280,259 @@ test('glue prefs: seed once, then patch', async () => {
   assert.equal(saved.setupDone, true);
   assert.equal(saved.glue.theme, 'system');
   assert.equal(fs.statSync(prefs).mode & 0o777, 0o600, 'prefs.json is 0600');
+});
+
+// ---------------------------------------------------------------- About & maintenance, alerts, agent defaults
+
+test('about: the version, the commit, the folders and the service (none installed)', async () => {
+  const r = await get('/api/settings', A.client);
+  const pkg = JSON.parse(fs.readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'));
+  assert.equal(r.about.version, pkg.version);
+  assert.equal(r.about.dataDir, path.dirname(prefs), 'the prefs folder');
+  assert.equal(r.about.logDir, path.join(home, 'Library', 'Logs', 'Glue'));
+  assert.deepEqual(r.about.service, { installed: false, running: false, pid: null });
+  assert.equal(r.about.update, 'git pull && ./install.sh');
+  assert.equal(r.about.uninstall, './install.sh --uninstall');
+  // The short sha, read from the .git files (this checkout may be a linked worktree), as git itself says.
+  const root = fileURLToPath(new URL('..', import.meta.url));
+  const want = execFileSync('git', ['rev-parse', '--short=7', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+  assert.equal(r.about.commit, want);
+  assert.ok(calledOf(home, 'launchctl').every((a) => a[0] === 'print'), 'only asked launchd about the service');
+});
+
+test('restart is refused without an installed service, and kicks it when there is one', async () => {
+  const none = await api('/api/settings/restart', {}, A.client);
+  assert.equal(none.ok, false);
+  assert.equal(none.error, "The background service isn't installed.");
+  assert.equal(calledOf(home, 'launchctl').some((a) => a[0] === 'kickstart'), false, 'nothing was kicked');
+  const plist = path.join(home, 'Library', 'LaunchAgents', `local.glue.${PORT}.plist`);
+  fs.mkdirSync(path.dirname(plist), { recursive: true });
+  fs.writeFileSync(plist, '<plist/>');
+  try {
+    assert.equal((await get('/api/settings', A.client)).about.service.installed, true, 'installed is the plist');
+    assert.deepEqual(await api('/api/settings/restart', {}, A.client), { status: 200, ok: true });
+    const kick = await until(() => calledOf(home, 'launchctl').find((a) => a[0] === 'kickstart'));
+    assert.deepEqual(kick, ['kickstart', '-k', `gui/${process.getuid()}/local.glue.${PORT}`]);
+  } finally { fs.rmSync(plist, { force: true }); }
+});
+
+test('reveal shows the data or the logs in Finder', async () => {
+  assert.deepEqual(await api('/api/settings/reveal', { what: 'data' }, A.client), { status: 200, ok: true });
+  assert.deepEqual(calledOf(home, 'open').at(-1), ['-R', prefs]);
+  assert.equal((await api('/api/settings/reveal', { what: 'elsewhere' }, A.client)).ok, false);
+  assert.equal((await api('/api/settings/reveal', {}, A.client)).ok, false);
+  assert.equal(calledOf(home, 'open').length, 1, 'a bad request opens nothing');
+  // No log yet: nothing to show.
+  assert.equal((await api('/api/settings/reveal', { what: 'logs' }, A.client)).ok, false);
+  const logFile = path.join(home, 'Library', 'Logs', 'Glue', `daemon-${PORT}.log`);
+  fs.mkdirSync(path.dirname(logFile), { recursive: true });
+  fs.writeFileSync(logFile, 'x\n');
+  assert.deepEqual(await api('/api/settings/reveal', { what: 'logs' }, A.client), { status: 200, ok: true });
+  assert.deepEqual(calledOf(home, 'open').at(-1), ['-R', logFile]);
+  const r = await fetch(BASE + '/api/settings/reveal', { method: 'POST', body: '{"what":"data"}', headers: { 'content-type': 'application/json', origin: BASE } });
+  assert.equal(r.status, 403, 'not without the token');
+});
+
+test('turning Auto-fix on or off, or choosing the overseer model, nudges every page', async () => {
+  const was = await get('/api/settings', A.client);
+  const a = A.raw.length, b = B.raw.length;
+  assert.equal((await api('/api/watcher/enabled', { on: !was.watcher.enabled }, A.client)).ok, true);
+  assert.ok(await until(() => A.raw.slice(a).includes(SETTINGS_EVENT) && B.raw.slice(b).includes(SETTINGS_EVENT)), 'Auto-fix nudges');
+  assert.equal((await get('/api/settings', A.client)).watcher.enabled, !was.watcher.enabled);
+  await api('/api/watcher/enabled', { on: was.watcher.enabled }, A.client);
+  const model = was.overseer.models.find((m) => m !== was.overseer.model), c = A.raw.length;
+  assert.equal((await api('/api/overseer/model', { model }, A.client)).ok, true);
+  assert.ok(await until(() => A.raw.slice(c).includes(SETTINGS_EVENT)), 'the overseer model nudges');
+  assert.equal((await get('/api/settings', A.client)).overseer.model, model);
+  // A refused one changes nothing, so it tells nothing.
+  await pause(600);
+  const d = A.raw.length;
+  assert.equal((await api('/api/overseer/model', { model: 'gpt' }, A.client)).ok, false);
+  await pause(600);
+  assert.equal(A.raw.slice(d).includes(SETTINGS_EVENT), false, 'a refused model nudges nothing');
+  await api('/api/overseer/model', { model: was.overseer.model }, A.client);
+});
+
+test('connected means every hook entry is there, not that the file mentions the panel', async () => {
+  const file = path.join(home, '.claude', 'settings.json'), url = `127.0.0.1:${PORT}/hook/`;
+  const connectedNow = async () => (await get('/api/settings', A.client)).workspaces.find((w) => w.id === 'default').connected;
+  const was = fs.readFileSync(file, 'utf8');
+  try {
+    // The URL, but not in a hook entry.
+    fs.writeFileSync(file, JSON.stringify({ env: { NOTE: `see http://${url}event` }, hooks: { Stop: [{ hooks: [{ type: 'command', command: `echo ${url}` }] }] } }));
+    assert.equal(await connectedNow(), false, 'a mention is not a hook');
+    // One event of them is not all of them.
+    fs.writeFileSync(file, JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'http', url: `http://${url}event` }] }] } }));
+    assert.equal(await connectedNow(), false, 'only one event');
+    // What hooks.example.json asks for, pointed at this panel.
+    const wanted = JSON.parse(fs.readFileSync(fileURLToPath(new URL('../hooks.example.json', import.meta.url)), 'utf8').replaceAll('127.0.0.1:4747/', `127.0.0.1:${PORT}/`));
+    fs.writeFileSync(file, JSON.stringify(wanted));
+    assert.equal(await connectedNow(), true);
+    fs.writeFileSync(file, 'not json');
+    assert.equal(await connectedNow(), false);
+  } finally { fs.writeFileSync(file, was); }
+});
+
+test('a session that first works in a new repository nudges once, not on every tick', async () => {
+  const dir = path.join(home, 'code', 'brand-new-repo');
+  fs.mkdirSync(dir, { recursive: true });
+  await pause(1500);
+  const a = A.raw.length;
+  assert.equal((await hookPost('event', { session_id: 'dddddddd-8888-4888-8888-888888888888', transcript_path: path.join(home, '.claude', 'projects', 'p', 'dddddddd-8888-4888-8888-888888888888.jsonl'), cwd: dir,
+    hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: '/x' }, permission_mode: 'default' })).status, 200);
+  assert.ok(await until(() => A.raw.slice(a).includes(SETTINGS_EVENT)), 'a new repository nudges');
+  assert.ok((await get('/api/settings', A.client)).repos.some((x) => x.key === `dir:${dir}`));
+  const b = A.raw.length;
+  await pause(2500); // a few roster and snapshot ticks later
+  assert.equal(A.raw.slice(b).includes(SETTINGS_EVENT), false, 'no more nudges while nothing changed');
+});
+
+// ---------------------------------------------------------------- servers of their own
+
+let nextPort = 48200 + Math.floor(Math.random() * 600);
+/** A throwaway home with one profile (a single workspace) and stand-ins on PATH, started on a spare port. `gh` adds a
+ *  stand-in GitHub CLI that reports the pull requests in `open.json`. */
+function solo({ gh = false } = {}) {
+  const h = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-solo-'));
+  const dir = path.join(h, 'code', 'p');
+  fs.mkdirSync(path.join(dir, '.git'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.git', 'HEAD'), 'ref: refs/heads/feat/p\n');
+  fs.writeFileSync(path.join(dir, '.git', 'config'), '[core]\n\tbare = false\n[remote "origin"]\n\turl = https://github.com/o/p.git\n');
+  const sid = 'eeeeeeee-9999-4999-8999-999999999999';
+  fs.mkdirSync(path.join(h, '.claude', 'projects', 'p'), { recursive: true });
+  fs.writeFileSync(path.join(h, '.claude', 'settings.json'), '{}');
+  fs.writeFileSync(path.join(h, '.claude', 'projects', 'p', `${sid}.jsonl`), transcript('work', dir));
+  fs.writeFileSync(path.join(h, 'roster.json'), JSON.stringify([job(sid, 'the job', dir)]));
+  const b = path.join(h, 'bin');
+  fs.mkdirSync(b);
+  fs.writeFileSync(path.join(b, 'claude'), `#!${process.execPath}
+const fs = require('fs'), a = process.argv.slice(2);
+if (a[0] === 'agents') { try { process.stdout.write(fs.readFileSync(${JSON.stringify(path.join(h, 'roster.json'))}, 'utf8')); } catch { process.stdout.write('[]'); } process.exit(0); }
+if (a[0] === 'auth') { console.log('{}'); process.exit(0); }
+if (a[0] === '--bg') { console.log('backgrounded · deadbeef'); process.exit(0); }
+process.exit(1);
+`, { mode: 0o755 });
+  standIns(b, h);
+  if (gh) fs.writeFileSync(path.join(b, 'gh'), `#!${process.execPath}
+const fs = require('fs');
+const a = process.argv.slice(2), after = (x) => a[a.indexOf(x) + 1];
+const out = (v) => { process.stdout.write(typeof v === 'string' ? v : JSON.stringify(v)); process.exit(0); };
+const at = new Date(Date.now() - 30000).toISOString(), began = new Date(Date.now() - 90000).toISOString();
+const failing = (n) => ({ number: n, title: 'Feature ' + n, url: 'https://github.com/o/p/pull/' + n, isDraft: false, headRefName: 'feat/p', headRefOid: 'abc' + n,
+  baseRefName: 'main', isCrossRepository: false, mergeable: 'MERGEABLE', mergeStateStatus: 'UNSTABLE', reviewDecision: '', updatedAt: at, author: { login: 'someone' },
+  statusCheckRollup: [{ __typename: 'CheckRun', name: 'build', status: 'COMPLETED', conclusion: 'FAILURE', detailsUrl: 'https://github.com/o/p/actions/runs/' + n + '1/job/' + n + '2', workflowName: 'CI', completedAt: at, startedAt: began }] });
+if (a[0] === 'auth') { process.stderr.write('Logged in to github.com account me\\n'); process.exit(0); }
+if (a[0] === 'repo' && a[1] === 'view') out({ defaultBranchRef: { name: 'main' } });
+if (a[0] === 'search' && a[1] === 'prs') out([]);
+if (a[0] === 'pr' && a[1] === 'list' && after('--state') === 'open') out(JSON.parse(fs.readFileSync(${JSON.stringify(path.join(h, 'open.json'))}, 'utf8')).map(failing));
+if (a[0] === 'pr' && a[1] === 'list') out([]);
+if (a[0] === 'run' && a[1] === 'list') out([]);
+process.stderr.write('unexpected gh call: ' + a.join(' ') + '\\n');
+process.exit(1);
+`, { mode: 0o755 });
+  fs.writeFileSync(path.join(h, 'open.json'), '[3]');
+  const prefsFile = path.join(h, 'panel', 'prefs.json');
+  fs.mkdirSync(path.dirname(prefsFile));
+  fs.writeFileSync(prefsFile, JSON.stringify({ profile: 'default', setupDone: true }));
+  return { home: h, dir, bin: b, prefs: prefsFile, running: null, async start() {
+    const port = nextPort++, base = `http://127.0.0.1:${port}`;
+    const e = { ...env, HOME: h, PATH: `${b}:${env.PATH}`, ACP_PORT: String(port), ACP_PREFS: prefsFile, ...(gh ? {} : { ACP_GITHUB: 'off' }) };
+    const proc = spawn(process.execPath, [SERVER], { env: e, stdio: ['ignore', 'pipe', 'pipe'] });
+    process.on('exit', () => { try { proc.kill(); } catch {} });
+    const s = { port, base, proc, log: '', pages: [] };
+    proc.stdout.on('data', (d) => { s.log += d; });
+    proc.stderr.on('data', (d) => { s.log += d; });
+    await new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('server did not start: ' + s.log)), 10_000);
+      proc.stdout.on('data', () => { if (s.log.includes(base)) { clearTimeout(t); resolve(); } });
+      proc.on('exit', () => reject(new Error('server exited: ' + s.log)));
+    });
+    s.token = (await (await fetch(base + '/')).text()).match(/[0-9a-f]{48}/)[0];
+    s.api = (p, body) => fetch(base + p, { method: 'POST', body: JSON.stringify(body ?? {}), headers: { 'content-type': 'application/json', origin: base, 'x-acp-token': s.token, 'x-acp-client': 'solo-page' } })
+      .then(async (r) => ({ status: r.status, ...(await r.json()) }));
+    s.page = () => { // a page watching: everything it is sent, and its newest snapshot
+      const ctl = new AbortController(), pg = { raw: '', frames: [] };
+      fetch(`${base}/events?t=${s.token}&c=solo-page`, { signal: ctl.signal }).then(async (r) => {
+        for await (const chunk of r.body) {
+          pg.raw += Buffer.from(chunk).toString();
+          pg.frames = [...pg.raw.matchAll(/^data: (.*)$/gm)].map((m) => { try { return JSON.parse(m[1]); } catch { return null; } }).filter((f) => Array.isArray(f?.sessions));
+        }
+      }).catch(() => {});
+      pg.latest = () => pg.frames.at(-1); pg.close = () => ctl.abort();
+      s.pages.push(pg);
+      return pg;
+    };
+    s.stop = async () => { for (const p of s.pages) p.close(); if (proc.exitCode === null && proc.signalCode === null) await new Promise((r) => { proc.once('exit', r); proc.kill(); }); };
+    this.running = s;
+    return s;
+  }, async done() { await this.running?.stop(); fs.rmSync(h, { recursive: true, force: true }); } };
+}
+
+test('answering here is never persisted', async () => {
+  const s = solo();
+  try {
+    let srv = await s.start(), page = srv.page();
+    assert.ok(await until(() => page.latest()), 'a first snapshot: ' + srv.log);
+    assert.equal(page.latest().armed, true);
+    assert.equal((await srv.api('/api/arm', { armed: false })).armed, false);
+    assert.ok(await until(() => page.latest().armed === false), 'it is paused');
+    await srv.stop();
+    // The same prefs again: the server starts with answering on.
+    srv = await s.start();
+    page = srv.page();
+    assert.ok(await until(() => page.latest()), 'a first snapshot after the restart: ' + srv.log);
+    assert.equal(page.latest().armed, true, 'answering is on again');
+    assert.equal('armed' in JSON.parse(fs.readFileSync(s.prefs, 'utf8')), false, 'prefs.json never held it');
+  } finally { await s.done(); }
+});
+
+test('the notification toggles silence their events', { skip: process.platform !== 'darwin' && 'notifications are macOS only' }, async () => {
+  const s = solo({ gh: true });
+  try {
+    const srv = await s.start();
+    // Before any page opens (a page is what starts the GitHub poll): CI alerts off, and the PR watcher off so that is
+    // not what notifies.
+    assert.equal((await srv.api('/api/settings/glue', { patch: { notify: { ci: false } } })).ok, true);
+    assert.equal((await srv.api('/api/watcher/enabled', { on: false })).ok, true);
+    const page = srv.page();
+    assert.ok(await until(() => page.latest()?.github?.repos?.some((r) => r.prs?.length), 20_000), 'GitHub was polled: ' + srv.log);
+    await pause(1500);
+    assert.deepEqual(calledOf(s.home, 'osascript'), [], 'nothing is logged with CI alerts off');
+    // On again, and a new failure (another pull request: a failure is told once).
+    assert.equal((await srv.api('/api/settings/glue', { patch: { notify: { ci: true } } })).ok, true);
+    fs.writeFileSync(path.join(s.home, 'open.json'), '[3, 4]');
+    assert.equal((await srv.api('/api/github/refresh')).ok, true);
+    const told = await until(() => calledOf(s.home, 'osascript').find((a) => a.at(-2) === 'Glue · CI failed'), 20_000);
+    assert.ok(told, 'it logs as before: ' + JSON.stringify(calledOf(s.home, 'osascript')) + srv.log);
+    assert.match(told.at(-1), /#4/);
+  } finally { await s.done(); }
+});
+
+test('a launch into a new folder with one workspace nudges every page', async () => {
+  const s = solo();
+  try {
+    const srv = await s.start(), page = srv.page();
+    assert.ok(await until(() => page.latest()), 'a first snapshot: ' + srv.log);
+    const dir = path.join(s.home, 'code', 'fresh');
+    fs.mkdirSync(dir);
+    await pause(1500);
+    const a = page.raw.length;
+    const r = await srv.api('/api/launch', { prompt: 'go', cwd: dir, model: '', mode: 'default' });
+    assert.equal(r.ok, true, JSON.stringify(r) + srv.log);
+    assert.ok(await until(() => page.raw.slice(a).includes(SETTINGS_EVENT)), 'the new assignment nudges');
+  } finally { await s.done(); }
+});
+
+test('a new workspace\'s overseer starts on the Glue default', async () => {
+  const p = await api('/api/settings/glue', { patch: { overseerModel: 'haiku' } }, A.client);
+  assert.equal(p.ok, true, JSON.stringify(p));
+  fs.mkdirSync(path.join(home, '.claude-new', 'projects', 'p'), { recursive: true });
+  const seen = await until(() => A.latest()?.workspaces?.some((w) => w.id === 'new'), 15_000);
+  assert.ok(seen, 'the workspace appears: ' + log);
+  const file = path.join(path.dirname(prefs), 'overseer-new.json');
+  assert.ok(await until(() => fs.existsSync(file)), 'its overseer file is made');
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).model, 'haiku');
+  // Not through any page's focus: the existing workspaces keep what they chose.
+  assert.equal((await api('/api/overseer/model', { model: 'opus' }, A.client)).ok, true);
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).model, 'haiku', 'a workspace\'s own choice is its own');
 });
