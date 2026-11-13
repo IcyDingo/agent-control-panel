@@ -51,12 +51,20 @@ if (a[0] === 'agents') {
 fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ args: a, env: cfg }) + '\\n');
 if (a[0] === 'auth') { console.log('{}'); process.exit(0); }
 if (a[0] === '--bg') { const i = a.indexOf('--resume'); console.log('backgrounded · ' + (i >= 0 ? a[i + 1].slice(0, 8) : 'deadbeef')); process.exit(0); }
-process.exit(1);
+if (a[0] === '-p') {
+  // The overseer's call (its prompt is the last argument, logged above): it answers after a moment, saying whose login it ran on.
+  const v = { reply: 'Answered on ' + (cfg ? path.basename(cfg) : 'default') + '.', actions: [], look: [] };
+  setTimeout(() => { console.log(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, num_turns: 2, result: JSON.stringify(v), structured_output: v })); process.exit(0); }, 400);
+} else process.exit(1);
 `, { mode: 0o755 });
 
 const prefs = path.join(home, 'panel', 'prefs.json');
 fs.mkdirSync(path.dirname(prefs));
 fs.writeFileSync(prefs, JSON.stringify({ profile: 'default' }));
+// The shared overseer file from before workspaces: each workspace's own is seeded from it once.
+const oldOverseer = path.join(home, 'panel', 'overseer.json');
+fs.writeFileSync(oldOverseer, JSON.stringify({ v: 1, model: 'haiku', profiles: { contract: { seq: 1, fseq: 0, feed: [],
+  turns: [{ id: 't1', at: 1, who: 'you', text: 'kept from before, contract' }] } } }), { mode: 0o600 });
 
 const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('CLAUDE') && !k.startsWith('ACP_')));
 const server = spawn(process.execPath, [SERVER], { env: { ...env, HOME: home, PATH: `${bin}:${env.PATH}`, ACP_PORT: String(PORT), ACP_PREFS: prefs, ACP_GITHUB: 'off' }, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -203,6 +211,66 @@ test('a reply runs under the session\'s own profile', async () => {
   const cd = logged().find((x) => x.args[0] === '--bg' && x.args.includes(SID_D));
   assert.ok(cd, JSON.stringify(logged()));
   assert.equal(cd.env, null, 'the plain profile runs with no CLAUDE_CONFIG_DIR');
+});
+
+/** The overseer's turns as page `pg` sees them, once its newest is an answer (null if none comes). */
+const answered = (pg) => until(async () => {
+  const r = await api('/api/overseer/turns', {}, pg.client);
+  return r.ok && r.turns.at(-1)?.who === 'overseer' ? r.turns : null;
+});
+
+test('the old shared overseer file seeds each workspace\'s own once, and stays', async () => {
+  const b = await api('/api/overseer/turns', {}, B.client);
+  assert.equal(b.ok, true, JSON.stringify(b));
+  assert.deepEqual(b.turns.map((t) => t.text), ['kept from before, contract']);
+  const a = await api('/api/overseer/turns', {}, A.client);
+  assert.equal(a.ok, true, JSON.stringify(a));
+  assert.deepEqual(a.turns, [], 'default never had a conversation');
+  const own = path.join(home, 'panel', 'overseer-contract.json');
+  assert.equal(fs.statSync(own).mode & 0o777, 0o600);
+  assert.equal(JSON.parse(fs.readFileSync(own, 'utf8')).model, 'haiku', 'the old file\'s model');
+  assert.ok(fs.existsSync(oldOverseer), 'the old file is left in place');
+  assert.equal(B.latest().overseer?.model, 'haiku');
+  assert.ok(A.latest().overseer, 'each page has its own workspace\'s overseer');
+});
+
+test('each overseer reads only its own workspace', async () => {
+  const before = logged().length;
+  const r = await api('/api/overseer/say', { text: 'What is going on?' }, A.client);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  const turns = await answered(A);
+  assert.ok(turns, 'it answered: ' + log);
+  assert.equal(turns.at(-1).error, undefined, JSON.stringify(turns.at(-1)));
+  assert.equal(turns.at(-1).text, 'Answered on default.');
+  const asks = logged().slice(before).filter((x) => x.args[0] === '-p');
+  assert.equal(asks.length, 1, JSON.stringify(asks));
+  assert.equal(asks[0].env, null, 'on the plain profile\'s login');
+  const prompt = asks[0].args.at(-1);
+  assert.ok(prompt.includes(SID_D.slice(0, 8)) || prompt.includes('default job'), 'its own session is on its board');
+  for (const bit of [SID_C.slice(0, 8), 'contract job', workC, 'kept from before'])
+    assert.equal(prompt.includes(bit), false, `the default overseer's prompt carries ${bit}`);
+});
+
+test('both overseers can answer at once', async () => {
+  const before = logged().length;
+  const [a, b] = await Promise.all([
+    api('/api/overseer/say', { text: 'Anything for default?' }, A.client),
+    pause(50).then(() => api('/api/overseer/say', { text: 'Anything for contract?' }, B.client)),
+  ]);
+  assert.equal(a.ok, true, JSON.stringify(a));
+  assert.equal(b.ok, true, JSON.stringify(b));
+  const [ta, tb] = await Promise.all([answered(A), answered(B)]);
+  assert.ok(ta && tb, 'both answered: ' + log);
+  for (const t of [...ta, ...tb]) assert.notEqual(t.error, 'You switched profile before it answered.');
+  assert.deepEqual([ta.at(-2).text, ta.at(-1).text, ta.at(-1).error], ['Anything for default?', 'Answered on default.', undefined]);
+  assert.deepEqual([tb.at(-2).text, tb.at(-1).text, tb.at(-1).error], ['Anything for contract?', 'Answered on .claude-contract.', undefined]);
+  const asks = logged().slice(before).filter((x) => x.args[0] === '-p');
+  assert.ok(asks.find((x) => x.env === null).args.at(-1).includes('Anything for default?'));
+  const c = asks.find((x) => x.env?.endsWith('.claude-contract'));
+  assert.ok(c, JSON.stringify(asks.map((x) => x.env)));
+  assert.ok(c.args.at(-1).includes('Anything for contract?') && c.args.at(-1).includes('kept from before, contract'));
+  assert.equal(c.args.at(-1).includes(SID_D.slice(0, 8)), false, 'the contract overseer\'s prompt carries no default session');
+  assert.equal(c.args[2], 'haiku', 'its own model');
 });
 
 test('an event that names its transcript moves a session first seen without one to its workspace', async () => {

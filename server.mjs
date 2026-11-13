@@ -23,7 +23,7 @@ import { createThread } from './thread.mjs';
 import { UNTRUSTED, trustKey, isTrusted, trustScript } from './trust.mjs';
 import { prefsPath } from './cli.mjs';
 import { createGithub } from './github.mjs';
-import { createOverseer } from './overseer.mjs';
+import { createOverseer, migrateFrom } from './overseer.mjs';
 import { createWatcher } from './watcher.mjs';
 import { parseClaudeAuth, parseGhAuth, claudeLoginCommand, loginScript, LOGIN_ERROR } from './setup.mjs';
 import { migrateFolders } from './migrate.mjs';
@@ -145,8 +145,10 @@ const wsById = (id) => W.get(id) ?? null;
 const envOf = (ws) => ws?.env ?? null;
 /** The workspace a session belongs to: set when the event or roster that introduced it arrived. */
 const wsOfSession = (s) => (s ? wsById(s.ws) : null);
-// The workspace focused last, by any page: the one overseer's (until there is one per workspace), where an event that
-// names no transcript goes, and the focus of a page that has not picked one. Each page's own focus is focusOf(client).
+/** wsId → that workspace's overseer, made the first time it is asked for (overseerOf). */
+const overseers = new Map();
+// The workspace focused last, by any page: where an event that names no transcript goes, and the focus of a page that
+// has not picked one. Each page's own focus is focusOf(client).
 let shownId = null;
 let serverUp = false;
 /** Brings W in line with the profile folders: a new one becomes a workspace, one whose folder is gone leaves (with its
@@ -167,6 +169,10 @@ function syncWorkspaces() {
 }
 function dropWorkspace(ws) {
   W.delete(ws.id);
+  // Its overseer stops answering and its file is written now; a folder that comes back finds its conversation there.
+  const o = overseers.get(ws.id);
+  overseers.delete(ws.id);
+  if (o) { try { o.stop(); o.flush(); } catch {} }
   for (const p of [...pending.values()]) if (p.ws === ws.id) settle(p.id, null, 'its profile is gone');
   for (const [id, s] of [...sessions]) {
     if (s.ws !== ws.id) continue;
@@ -236,12 +242,12 @@ function wsView(id) {
 }
 /** The live workspaces, in the store's order. */
 const wsOrder = () => { const known = store.list().map((w) => w.id).filter((id) => W.has(id)); return [...known, ...[...W.keys()].filter((id) => !known.includes(id))]; };
-/** What waits on you in a workspace: held requests, open questions and plans, and (for the one overseer's workspace) the
- *  overseer's cards waiting for a click. */
+/** What waits on you in a workspace: held requests, open questions and plans, and its overseer's cards waiting for a
+ *  click. */
 function waitingOf(wsId) {
   let n = openRequests(wsId).length;
   for (const p of pending.values()) if (p.ws === wsId) n++;
-  if (wsId === shownId) n += overseer.status().proposed ?? 0;
+  n += overseerOf(wsId)?.status().proposed ?? 0;
   return n;
 }
 /** An event whose transcript lies in a profile's projects/ says whose its session is. */
@@ -1503,7 +1509,6 @@ function focusWorkspace(body, ctx = {}) {
   if (ws.id !== shownId) {
     shownId = ws.id;
     savePrefs({ profile: ws.id });
-    overseer.use(overseerId(ws.profile));
     checkSetup(true);
   }
   broadcast();
@@ -1853,7 +1858,7 @@ async function githubHand(body) {
   return { ...r, chars: text.length };
 }
 
-// ---------------------------------------------------------------- the overseer: one chat that knows every session
+// ---------------------------------------------------------------- the overseers: one chat per workspace, about its sessions
 
 const labelOf = (s) => s.name || path.basename(s.cwd ?? '') || s.sessionId.slice(0, 8);
 /** Its state in the page's words: waiting, busy, idle, finished or failed. */
@@ -1869,22 +1874,21 @@ function askOf(p) {
   if (p.toolName === 'AskUserQuestion') return `A question: ${String(i.questions?.[0]?.question ?? '').slice(0, 200)}`;
   return `${p.agentId ? 'Its subagent: ' : ''}${p.toolName}: ${String(i.command ?? i.file_path ?? i.url ?? i.pattern ?? i.description ?? '').replace(/\s+/g, ' ').slice(0, 200)}`;
 }
-/** The sessions the board shows, as the page picks them: the shown workspace's, which is the overseer's (one per
- *  workspace comes later). */
-const onBoard = () => { const now = Date.now(); return [...sessions.values()].filter((s) => s.ws === shownId && (s.inRoster || heldFor(s.sessionId).length
+/** The sessions workspace `wsId`'s board shows, as the page picks them: what its overseer reads. */
+const onBoard = (wsId) => { const now = Date.now(); return [...sessions.values()].filter((s) => s.ws === wsId && (s.inRoster || heldFor(s.sessionId).length
   || (s.leftRosterAt ? now - s.leftRosterAt < 600_000 : now - s.lastEventAt < 3_600_000))); };
-/** The folders a proposed launch may use: where the board's sessions work, and their repositories. */
-function overseerFolders() {
+/** The folders a proposed launch in workspace `wsId` may use: where its board's sessions work, and their repositories. */
+function overseerFolders(wsId) {
   const out = new Set();
-  for (const s of onBoard()) {
+  for (const s of onBoard(wsId)) {
     const p = placeOf(s), here = s.ranCwd ?? s.hereCwd ?? s.cwd;
     for (const d of [p?.repo, p?.top, here]) if (d && path.isAbsolute(d) && d !== os.homedir()) out.add(d);
     if (out.size >= 12) break;
   }
   return [...out].filter((d) => { try { return fs.statSync(d).isDirectory(); } catch { return false; } }).slice(0, 12);
 }
-function overseerBoard() {
-  return { folders: overseerFolders(), sessions: onBoard().map((s) => {
+function overseerBoard(wsId) {
+  return { folders: overseerFolders(wsId), sessions: onBoard(wsId).map((s) => {
     const p = placeOf(s), held = heldFor(s.sessionId);
     return { sessionId: s.sessionId, name: labelOf(s), kind: s.kind, state: boardState(s), since: s.startedAt ?? s.lastEventAt,
       repo: p ? path.basename(p.repo) : null, worktree: p?.worktree ?? null, branch: p?.branch ?? null, folder: s.ranCwd ?? s.hereCwd ?? s.cwd ?? null,
@@ -1927,22 +1931,44 @@ function askModel(args, { timeout = 90_000, signal, env } = {}) {
     } catch (err) { resolve({ err, stdout: '', stderr: '' }); }
   });
 }
-const overseer = createOverseer({
-  // The one overseer is the shown workspace's, on its login.
-  file: path.join(dataDir, 'overseer.json'), ask: (args, o) => askModel(args, { ...o, env: envOf(shownWs()) }), board: overseerBoard, github: () => github.state(),
-  // It reads and acts on its own workspace's sessions only.
-  history: (sessionId, limit) => (ownedBy(shownId, sessionId) ? history({ sessionId, limit }, { ws: shownWs() }) : { ok: false, error: REFUSE }),
-  actions: {
-    reply: (body) => (ownedBy(shownId, body?.sessionId) ? reply(body) : { ok: false, error: REFUSE }),
-    launch: (body) => launch(body, shownWs()),
-    interrupt: (body) => (ownedBy(shownId, body?.sessionId) ? interrupt(body) : { ok: false, error: REFUSE }),
-    live: (id) => { const s = sessions.get(id); return s && s.ws === shownId && s.inRoster && !isEnded(s) ? s : null; },
-    tellEffect, folders: overseerFolders,
-    trusted: (cwd) => isTrusted(shownWs().profile.config, trustKey(cwd, gitPlace(cwd)?.top)) === true,
-  },
-  onChange: () => broadcast(),
-});
-onGithubEvent = (ev) => overseer.note(ev.type, { slug: ev.slug, text: ev.text });
+/** The shared file every profile's overseer was kept in before each workspace had its own. Read once per workspace, to
+ *  seed its own file when that is missing; never written or removed. */
+const OLD_OVERSEER = path.join(dataDir, 'overseer.json');
+/** Workspace `id`'s overseer: on its own login, reading its own board, acting on its own sessions only, kept in its
+ *  own file. Made on first use; null for a workspace that isn't live. Everything it reaches goes through `id`, looked
+ *  up when used, so it never follows a page's focus. */
+function overseerOf(id) {
+  if (!W.has(id)) return null;
+  let o = overseers.get(id);
+  if (o) return o;
+  const ws = () => wsById(id), key = overseerId(ws().profile), file = path.join(dataDir, `overseer-${id}.json`);
+  let seed = null;
+  try { if (!fs.existsSync(file)) seed = migrateFrom(OLD_OVERSEER, key); } catch {}
+  o = createOverseer({
+    file, profile: key, seed,
+    ask: (args, opts) => askModel(args, { ...opts, env: envOf(ws()) }), board: () => overseerBoard(id), github: () => github.state(),
+    history: (sessionId, limit) => (ownedBy(id, sessionId) ? history({ sessionId, limit }, { ws: ws() }) : { ok: false, error: REFUSE }),
+    actions: {
+      reply: (body) => (ownedBy(id, body?.sessionId) ? reply(body) : { ok: false, error: REFUSE }),
+      launch: (body) => (ws() ? launch(body, ws()) : { ok: false, error: 'That workspace is gone.' }),
+      interrupt: (body) => (ownedBy(id, body?.sessionId) ? interrupt(body) : { ok: false, error: REFUSE }),
+      live: (sid) => { const s = sessions.get(sid); return s && s.ws === id && s.inRoster && !isEnded(s) ? s : null; },
+      tellEffect, folders: () => overseerFolders(id),
+      trusted: (cwd) => ws() != null && isTrusted(ws().profile.config, trustKey(cwd, gitPlace(cwd)?.top)) === true,
+    },
+    onChange: () => broadcast(),
+  });
+  overseers.set(id, o);
+  return o;
+}
+/** The overseer whose feed a line about session `sessionId` goes in: its workspace's. None when no workspace knows it. */
+const overseerOfSession = (sessionId) => { const w = typeof sessionId === 'string' ? wsIdOfSession(sessionId) : null; return w ? overseerOf(w) : null; };
+// A GitHub event goes in the feed of each workspace whose sessions it is about. One about no session belongs to no
+// workspace's feed yet, so it is dropped (sealing GitHub to workspaces comes with its own task).
+onGithubEvent = (ev) => {
+  const ids = new Set((Array.isArray(ev?.sessions) ? ev.sessions : []).map((sid) => (typeof sid === 'string' ? wsIdOfSession(sid) : null)).filter(Boolean));
+  for (const id of ids) overseerOf(id)?.note(ev.type, { slug: ev.slug, text: ev.text });
+};
 // The PR watcher: tells the agent on a pull request's branch to fix it when it fails, conflicts, gets changes requested or
 // sticks, until it goes in (watcher.mjs). A background session is told at once, through the same reply() as the page.
 const watcher = createWatcher({
@@ -1955,25 +1981,28 @@ const watcher = createWatcher({
     return { kind, name: labelOf(s) };
   },
   send: (sessionId, text) => reply({ sessionId, text }),
-  suggest: (sessionId, text, why, say) => overseer.suggest({ sessionId, text, why, say }),
-  failedLog: (q) => github.failedLog(q), notify, note: (type, f) => overseer.note(type, f), onChange: () => broadcast(),
+  // Its cards and lines go to the overseer of the session's own workspace (none, and dropped, when no workspace knows it).
+  suggest: (sessionId, text, why, say) => overseerOfSession(sessionId)?.suggest({ sessionId, text, why, say }) ?? null,
+  failedLog: (q) => github.failedLog(q), notify, note: (type, f) => overseerOfSession(f?.sessionId)?.note(type, f), onChange: () => broadcast(),
 });
 watcherCheck = () => { watcher.check().catch((e) => console.error('watcher:', e?.message ?? e)); };
 /** The overseer keeps one conversation per profile, by an id it accepts: the profile's own when it is plain, else one
  *  made from its folder, so two accounts never share a conversation. */
 const overseerId = (p) => (/^(?!\.{1,2}$)[\w.-]{1,40}$/.test(p.id) ? p.id : 'p-' + crypto.createHash('sha256').update(p.dir).digest('hex').slice(0, 16));
-/** A line in the overseer's feed about a session. Only the shown workspace's sessions: the one overseer keeps its feed
- *  under that workspace, and another workspace's names must not land there. */
-const feed = (type, s, text) => { if (s && s.ws !== shownId) return; try { overseer.note(type, { sessionId: s?.sessionId, name: s ? labelOf(s) : undefined, text }); } catch {} };
-for (const sig of ['SIGTERM', 'SIGINT']) process.once(sig, () => { try { overseer.flush(); } catch {} process.exit(0); });
+/** A line about session `s` in its own workspace's overseer's feed. A line about no session (a launch) names the
+ *  workspace it happened in. */
+const feed = (type, s, text, wsId = s?.ws) => { try { overseerOf(wsId)?.note(type, { sessionId: s?.sessionId, name: s ? labelOf(s) : undefined, text }); } catch {} };
+for (const sig of ['SIGTERM', 'SIGINT']) process.once(sig, () => { for (const o of overseers.values()) { try { o.flush(); } catch {} } process.exit(0); });
+/** The overseer routes: each page talks to its own workspace's overseer (ctx.focus), never another's. */
+const withOverseer = (fn) => (b, ctx) => { const o = overseerOf(ctx?.focus); return o ? fn(o, b) : { ok: false, error: 'There is no such workspace.' }; };
 const OVERSEER = {
-  '/api/overseer/say': (b) => overseer.say({ text: b?.text }),
-  '/api/overseer/turns': (b) => overseer.turns({ limit: Number(b?.limit) || 50 }),
-  '/api/overseer/feed': (b) => overseer.feed({ after: Number(b?.after) || 0 }),
-  '/api/overseer/act': (b) => overseer.act({ turnId: b?.turnId, actionId: b?.actionId, decision: b?.decision, edit: b?.edit }),
-  '/api/overseer/stop': () => overseer.stop(),
-  '/api/overseer/model': (b) => overseer.setModel(b?.model),
-  '/api/overseer/clear': () => overseer.clear(),
+  '/api/overseer/say': withOverseer((o, b) => o.say({ text: b?.text })),
+  '/api/overseer/turns': withOverseer((o, b) => o.turns({ limit: Number(b?.limit) || 50 })),
+  '/api/overseer/feed': withOverseer((o, b) => o.feed({ after: Number(b?.after) || 0 })),
+  '/api/overseer/act': withOverseer((o, b) => o.act({ turnId: b?.turnId, actionId: b?.actionId, decision: b?.decision, edit: b?.edit })),
+  '/api/overseer/stop': withOverseer((o) => o.stop()),
+  '/api/overseer/model': withOverseer((o, b) => o.setModel(b?.model)),
+  '/api/overseer/clear': withOverseer((o) => o.clear()),
 };
 
 // ---------------------------------------------------------------- the embedded terminal: a background session's own screen
@@ -2081,8 +2110,7 @@ function snapshot(wsId) {
       subagents: [...s.subagents.values()].map((a) => ({ ...a, stopping: !a.stoppedAt && stops.has(stopKey(s.sessionId, a.agentId)) })),
     }; }),
     pending: [...[...pending.values()].filter((p) => p.ws === wsId).map(({ res, timer, ...p }) => p), ...openRequests(wsId)],
-    // The one overseer is the last-focused workspace's (one each comes later): another workspace's page gets none of it.
-    github: github.state(), overseer: wsId === shownId ? overseer.status() : null, watcher: watcher.status(),
+    github: github.state(), overseer: overseerOf(wsId)?.status() ?? null, watcher: watcher.status(),
     _ts: now,
   };
 }
@@ -2223,8 +2251,6 @@ async function handle(req, res) {
     const client = hdrClient ?? bodyClient, focus = focusOf(client), ctx = { client, focus, ws: wsById(focus) };
     const refused = () => send(res, 409, { ok: false, error: REFUSE });
     if (body?.sessionId != null && !ownedBy(focus, String(body.sessionId))) return refused();
-    // The one overseer is the last-focused workspace's: another workspace's page can't read or act through it.
-    if (url.pathname.startsWith('/api/overseer/') && focus !== shownId) return refused();
     if (url.pathname === '/api/decide') {
       const r = decide(body, focus);
       return send(res, r.ok ? 200 : 409, r);
@@ -2232,7 +2258,7 @@ async function handle(req, res) {
     if (url.pathname === '/api/launch') {
       const r = await launch(body, ctx.ws);
       if (!r.ok) loginFailed(r.error);
-      if (r.ok && focus === shownId) feed('launched', null, `You started a session in ${tilde(r.cwd ?? '')}.`);
+      if (r.ok) feed('launched', null, `You started a session in ${tilde(r.cwd ?? '')}.`, focus);
       return send(res, r.ok ? 200 : 422, r);
     }
     if (url.pathname === '/api/interrupt') {
@@ -2293,7 +2319,8 @@ const looking = () => !DAEMON || clients.size > 0;
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`Glue → http://127.0.0.1:${PORT}`);
-  overseer.use(overseerId(shownWs().profile)); // here, not at load: it broadcasts, and the broadcast's state is declared further down
+  // Each workspace's overseer, here and not at load (its state is declared further down): a missing file is seeded now.
+  for (const id of W.keys()) overseerOf(id);
   serverUp = true;
   checkSetup(true); // the checklist, and later the sign-in banner, say what it finds
   pollAll().then(() => { if (looking()) checkVersions(); });

@@ -3,7 +3,7 @@
 // a session, start one, interrupt one). Nothing it proposes runs until you click, and every proposal is checked twice:
 // when it arrives and again when you confirm it. Agents, CI and GitHub wrote much of what it reads, so all of that goes
 // in as data with its tags taken out, never as instructions.
-// The conversation and the event feed are kept per profile, since each profile may be another account.
+// Each workspace (a profile, maybe another account) has an overseer of its own: its conversation, feed and file.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -315,10 +315,44 @@ function textProblem(t) {
   return null;
 }
 
+/** A kept file's conversations, cleaned. An action caught running by a restart is marked failed: whether it happened
+ *  is not known, and it must not be offered again. */
+function normalize(raw) {
+  const out = { v: 1, model: MODELS.includes(raw?.model) ? raw.model : DEFAULT_MODEL, profiles: {} };
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [id, p] of Object.entries(raw.profiles && typeof raw.profiles === 'object' ? raw.profiles : {})) {
+    if (!PROFILE.test(id) || !p || typeof p !== 'object') continue;
+    const turns = objects(p.turns).filter((t) => typeof t.id === 'string' && (t.who === 'you' || t.who === 'overseer')).slice(-KEEP);
+    for (const t of turns) {
+      if (t.who !== 'overseer') continue;
+      t.actions = objects(t.actions);
+      for (const a of t.actions) if (a.state === 'running') Object.assign(a, { state: 'failed', result: 'The panel restarted while this was running, so it may or may not have happened.' });
+    }
+    const feed = objects(p.feed).filter((e) => Number.isInteger(e.seq)).slice(-KEEP);
+    out.profiles[id] = { seq: Number.isInteger(p.seq) ? p.seq : turns.length, fseq: Number.isInteger(p.fseq) ? p.fseq : feed.at(-1)?.seq ?? 0, turns, feed };
+  }
+  return out;
+}
+
 /**
- * The overseer for the panel.
+ * One profile's conversation from the shared file every profile's overseer was kept in before each workspace had its
+ * own: `{ seq, fseq, turns, feed }`, plus that file's `model`. Null when the file or the profile isn't there. Read only:
+ * the old file stays.
+ */
+export function migrateFrom(oldFile, id) {
+  if (typeof id !== 'string' || !PROFILE.test(id)) return null;
+  let raw;
+  try { raw = JSON.parse(fs.readFileSync(oldFile, 'utf8')); } catch { return null; }
+  const all = normalize(raw), p = all.profiles[id];
+  return p ? { ...p, model: all.model } : null;
+}
+
+/**
+ * One workspace's overseer.
  * @param {object} deps
- * @param {string} deps.file where conversations are kept (0600)
+ * @param {string} deps.file where its conversation is kept (0600)
+ * @param {string} [deps.profile] the id its conversation and feed are kept under ('default' when not a plain id)
+ * @param {object} [deps.seed] migrateFrom()'s result: where a missing file starts from, once
  * @param {Function} deps.ask (args, { id, timeout, signal }) => Promise<{ err, stdout, stderr }>: runs `claude` with
  *   args. `id` is also the --session-id in args, for the server to keep it off the board.
  * @param {Function} deps.board () => { sessions, folders }, what the digest is made from
@@ -329,40 +363,33 @@ function textProblem(t) {
  * @param {Function} [deps.onChange] called after every change, to broadcast status()
  */
 export function createOverseer({
-  file, ask, board, github = () => null, history, actions,
+  file, profile = 'default', seed = null, ask, board, github = () => null, history, actions,
   onChange = () => {}, now = Date.now, timers = { setTimeout, clearTimeout }, log = console.error, uuid = randomUUID,
 }) {
+  // One workspace's overseer: its conversation and feed are kept under its profile's id.
+  const profileId = typeof profile === 'string' && PROFILE.test(profile) ? profile : 'default';
+  let rev = 0, busy = null, saveTimer = null, expiryTimer = null, seeded = false;
   let data = load();
-  let profileId = 'default', rev = 0, busy = null, saveTimer = null, expiryTimer = null;
+  if (seeded) save(); // the seed is taken once: from now on this file is the overseer's own
   const pending = new Set();
   const recent = new Map(); // `${type}\0${subject}` → when it was last noted
 
   // ---------------------------------------------------------------- the file
 
-  /** The kept conversations, or empty ones when the file is missing or broken. An action caught running by a restart
-   *  is marked failed: whether it happened is not known, and it must not be offered again. */
+  /** The kept conversations, or empty ones when the file is broken. A missing file starts from `seed` when there is one
+   *  (what the old shared file kept for this profile). */
   function load() {
     const empty = { v: 1, model: DEFAULT_MODEL, profiles: {} };
     if (!file) return empty;
     let raw;
     try { raw = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) {
-      if (e?.code !== 'ENOENT') log(`overseer: could not read ${file}, starting empty.`);
-      return empty;
+      if (e?.code !== 'ENOENT') { log(`overseer: could not read ${file}, starting empty.`); return empty; }
+      if (!seed || typeof seed !== 'object') return empty;
+      seeded = true;
+      const { model, ...p } = seed;
+      return normalize({ model, profiles: { [profileId]: p } });
     }
-    if (!raw || typeof raw !== 'object') return empty;
-    const out = { v: 1, model: MODELS.includes(raw.model) ? raw.model : DEFAULT_MODEL, profiles: {} };
-    for (const [id, p] of Object.entries(raw.profiles && typeof raw.profiles === 'object' ? raw.profiles : {})) {
-      if (!PROFILE.test(id) || !p || typeof p !== 'object') continue;
-      const turns = objects(p.turns).filter((t) => typeof t.id === 'string' && (t.who === 'you' || t.who === 'overseer')).slice(-KEEP);
-      for (const t of turns) {
-        if (t.who !== 'overseer') continue;
-        t.actions = objects(t.actions);
-        for (const a of t.actions) if (a.state === 'running') Object.assign(a, { state: 'failed', result: 'The panel restarted while this was running, so it may or may not have happened.' });
-      }
-      const feed = objects(p.feed).filter((e) => Number.isInteger(e.seq)).slice(-KEEP);
-      out.profiles[id] = { seq: Number.isInteger(p.seq) ? p.seq : turns.length, fseq: Number.isInteger(p.fseq) ? p.fseq : feed.at(-1)?.seq ?? 0, turns, feed };
-    }
-    return out;
+    return normalize(raw);
   }
 
   /** Write the file privately: a tmp of its own, rename, and chmod in case the file existed with looser rights. */
@@ -504,7 +531,7 @@ export function createOverseer({
       try { r = await ask(overseerArgs({ id, model, system: SYSTEM, prompt }), { id, timeout: Math.min(ROUND_MS, left), signal: run.controller.signal }); } catch (e) {
         r = { err: e, stdout: '', stderr: String(e?.message ?? e) };
       }
-      if (busy !== run) return; // stopped, cleared, or the profile changed while it thought
+      if (busy !== run) return; // stopped or cleared while it thought
       const res = readTurn(r ?? {});
       if (!res.ok) return finish({ error: res.error });
       const { reply, actions: proposed, look } = res.value;
@@ -621,18 +648,6 @@ export function createOverseer({
       scheduleExpiry();
       return action;
     },
-    /** Switch to a profile's conversation and feed. An answer on its way is dropped, and the old conversation says so. */
-    use(id) {
-      const next = typeof id === 'string' && PROFILE.test(id) ? id : 'default';
-      if (next === profileId) return;
-      abandon('You switched profile before it answered.');
-      flush();
-      profileId = next;
-      recent.clear();
-      changed();
-      scheduleExpiry();
-    },
-
     /** @returns {{ busy: null|{since, phase: 'thinking'|'looking'}, rev, feedSeq, proposed, model, models }} */
     status() {
       return { busy: busy ? { since: busy.since, phase: busy.phase } : null, rev, feedSeq: prof().fseq, proposed: proposedCount(), model: data.model, models: MODELS };
