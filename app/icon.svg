@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-  <!-- Agent Panel's icon: Space view in one frame. You at the centre, a satellite (a session) on its orbit asking you
+  <!-- Glue's icon: Space view in one frame. You at the centre, a satellite (a session) on its orbit asking you
        something (amber, with its tether), and Earth, where new agents launch from. Colours are the page's space tokens. -->
   <defs>
     <radialGradient id="space" cx="0.42" cy="0.34" r="0.78">

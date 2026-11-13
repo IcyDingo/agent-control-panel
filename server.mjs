@@ -1,4 +1,4 @@
-// Agent control panel: a local browser view over every Claude Code session on this machine.
+// Glue: a local browser view over every Claude Code session on this machine.
 //
 // Data in:   `claude agents --json --all` (the roster) + user-level `type: "http"` hooks (live events).
 // Decisions: a PermissionRequest hook is held open here and answered from the browser. The terminal
@@ -26,9 +26,13 @@ import { createGithub } from './github.mjs';
 import { createOverseer } from './overseer.mjs';
 import { createWatcher } from './watcher.mjs';
 import { parseClaudeAuth, parseGhAuth, claudeLoginCommand, loginScript, LOGIN_ERROR } from './setup.mjs';
+import { migrateFolders } from './migrate.mjs';
 
 // `node server.mjs <command>` runs the CLI (cli.mjs) and never starts the server.
 if (process.argv.length > 2) { const { main } = await import('./cli.mjs'); process.exit(await main(process.argv.slice(2))); }
+// Agent Panel's folders under Glue's name, before anything reads its prefs. A server that ACP_PREFS points elsewhere is
+// a second panel: the folders are not its to move.
+if (!process.env.ACP_PREFS) for (const [a, b] of migrateFolders({ home: os.homedir() })) console.log(`moved ${a} to ${b}`);
 
 const PORT = Number(process.env.ACP_PORT ?? 4747);
 const DAEMON = process.env.ACP_DAEMON === '1';
@@ -44,7 +48,7 @@ const HOLD_MS = Number(process.env.ACP_HOLD_MS ?? 3590_000);
 const RECONNECT_MS = Number(process.env.ACP_RECONNECT_MS ?? 15_000);
 const SUBAGENT_LINGER_MS = 600_000;
 const STOP_TTL_MS = 15 * 60_000;
-const STOP_REASON = 'Interrupted from the agent panel.';
+const STOP_REASON = 'Interrupted from Glue.';
 const REFUSE_WINDOW_MS = 5000;
 const MAX_BODY = 2_000_000;
 // What the launcher may pass to `claude --bg`. bypassPermissions is deliberately not offered.
@@ -434,7 +438,7 @@ function decide(body) {
   if (p.profileDir !== configDir) return { ok: false, error: 'That request belongs to a profile that is not on the board.' };
   let decision;
   if (body.behavior === 'deny') {
-    decision = { behavior: 'deny', message: String(body.message || 'Denied from the agent control panel.') };
+    decision = { behavior: 'deny', message: String(body.message || 'Denied from Glue.') };
   } else if (body.behavior === 'answer') {
     // AskUserQuestion takes its answers as part of its input: { "<question text>": "<label or typed answer>" }.
     if (p.toolName !== 'AskUserQuestion') return { ok: false, error: 'Only a question takes answers.' };
@@ -1362,10 +1366,10 @@ function connectProfile(body) {
   if (!added) { if (p.dir === profile.dir) profileInfo = describeProfile(p); broadcast(); return { ok: true, added: 0 }; }
   let backup = null;
   if (fs.existsSync(file)) {
-    backup = `${file}.before-agent-panel-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+    backup = `${file}.before-glue-${new Date().toISOString().replace(/[:.]/g, '-')}`;
     fs.copyFileSync(file, backup);
   }
-  const tmp = `${file}.agent-panel-tmp`;
+  const tmp = `${file}.glue-tmp`;
   fs.writeFileSync(tmp, JSON.stringify(settings, null, 2) + '\n');
   fs.renameSync(tmp, file);
   if (p.dir === profile.dir) profileInfo = describeProfile(p);
@@ -2082,7 +2086,7 @@ function setRosterPace(fast) {
 const looking = () => !DAEMON || clients.size > 0;
 
 server.listen(PORT, '127.0.0.1', () => {
-  console.log(`agent control panel → http://127.0.0.1:${PORT}`);
+  console.log(`Glue → http://127.0.0.1:${PORT}`);
   overseer.use(overseerId(profile)); // here, not at load: it broadcasts, and the broadcast's state is declared further down
   checkSetup(true); // the checklist, and later the sign-in banner, say what it finds
   pollRoster().then(() => { if (looking()) checkVersions(); });

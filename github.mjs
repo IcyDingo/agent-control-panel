@@ -21,7 +21,7 @@ const HINTS = {
   missing: 'Install the GitHub CLI (gh) to see pull requests and CI here.',
   'signed-out': 'Run gh auth login in a terminal to see pull requests and CI here.',
 };
-const TITLE = 'Agent Panel · CI failed';
+const TITLE = 'Glue · CI failed';
 
 const clip = (s, n) => { const t = String(s ?? ''); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
 /** An ISO time as milliseconds; null for none, and for the year-one date GitHub gives a check that has not finished. */

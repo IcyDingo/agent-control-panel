@@ -41,5 +41,5 @@ test('the Terminal script runs Claude Code in the folder, on the profile, whatev
   };
   assert.equal(run("/Users/someone/.claude-x's"), `${dir}|/Users/someone/.claude-x's`);
   assert.equal(run(null), `${dir}|unset`, 'the plain profile: not one your shell happens to set');
-  assert.match(trustScript({ dir: '/a', configDir: null, claude: '/c', label: 'claude' }), /^#!\/bin\/zsh\n# Opened by Agent Panel/);
+  assert.match(trustScript({ dir: '/a', configDir: null, claude: '/c', label: 'claude' }), /^#!\/bin\/zsh\n# Opened by Glue/);
 });

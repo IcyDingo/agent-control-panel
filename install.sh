@@ -1,7 +1,7 @@
 #!/bin/bash
-# Checks what the agent panel needs, builds Agent Panel.app into ~/Applications (app/build.sh) and installs the
+# Checks what Glue needs, builds Glue.app into ~/Applications (app/build.sh) and installs the
 # background service that keeps the panel running (node server.mjs daemon install). Run it again after a git pull, or
-# when node or claude moves: it rebuilds the app and restarts the service. AGENT_PANEL_APP and ACP_PORT pass through
+# when node or claude moves: it rebuilds the app and restarts the service. GLUE_APP and ACP_PORT pass through
 # to app/build.sh.
 #   --no-daemon   build the app, install no service
 #   --uninstall   remove the service and the app
@@ -21,26 +21,37 @@ for arg in "$@"; do
 done
 
 port="${ACP_PORT:-4747}"
-out="${AGENT_PANEL_APP:-$HOME/Applications/Agent Panel.app}"
+out="${GLUE_APP:-${AGENT_PANEL_APP:-$HOME/Applications/Glue.app}}" # AGENT_PANEL_APP: its name from before Glue
 shown="${out/#$HOME/~}"
+# The app from before Glue was called Glue. A build or an uninstall takes it away, quitting it first if it runs.
+old_app="$HOME/Applications/Agent Panel.app"
+remove_old_app() {
+  [[ -d "$old_app" && "$old_app" != "$out" ]] || return 0
+  pkill -x AgentPanel 2>/dev/null || true
+  rm -rf "$old_app"
+  echo "Removed ~/Applications/Agent Panel.app (the app's name before Glue)"
+}
 
 if (( uninstall )); then
-  label="local.agent-panel"
+  label="local.glue"
   [[ "$port" == 4747 ]] || label="$label.$port"
   if command -v node >/dev/null; then
     node server.mjs daemon remove
   else
-    launchctl bootout "gui/$UID/$label" 2>/dev/null || true
-    rm -f "$HOME/Library/LaunchAgents/$label.plist"
+    for l in "$label" "${label/local.glue/local.agent-panel}"; do
+      launchctl bootout "gui/$UID/$l" 2>/dev/null || true
+      rm -f "$HOME/Library/LaunchAgents/$l.plist"
+    done
     echo "Background service removed"
   fi
   rm -rf "$out"
   echo "Removed $shown"
+  remove_old_app
   cat <<EOF
 
 Two things are left for you to remove:
   - the hook entries that point at 127.0.0.1:$port, in each profile's settings.json
-  - ~/Library/Application Support/Agent Panel and ~/Library/Logs/Agent Panel
+  - ~/Library/Application Support/Glue and ~/Library/Logs/Glue
 EOF
   exit 0
 fi
@@ -53,8 +64,8 @@ warn() { printf '  %s %s\n' "$(paint 33 !)" "$1"; }
 fail() { printf '  %s %s\n' "$(paint 31 ✗)" "$1"; missing=1; }
 at_least() { [[ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" == "$2" ]]; }
 
-[[ "$(uname)" == Darwin ]] || { echo "The agent panel runs on macOS only." >&2; exit 1; }
-echo "Checking what the agent panel needs:"
+[[ "$(uname)" == Darwin ]] || { echo "Glue runs on macOS only." >&2; exit 1; }
+echo "Checking what Glue needs:"
 
 macos="$(sw_vers -productVersion)"
 if at_least "$macos" 14; then ok "macOS $macos"; else fail "macOS $macos: the app needs macOS 14 or newer"; fi
@@ -86,6 +97,7 @@ fi
 echo
 echo "Building the app:"
 app/build.sh
+remove_old_app
 
 if (( daemon )); then
   echo
@@ -98,12 +110,12 @@ if (( daemon )); then
     sleep 0.5
   done
   if (( answered )); then ok "The panel is running"
-  else warn "The service hasn't answered yet; its log is ~/Library/Logs/Agent Panel/daemon-$port.log"; fi
+  else warn "The service hasn't answered yet; its log is ~/Library/Logs/Glue/daemon-$port.log"; fi
 
   cat <<EOF
 
 Done. The panel runs in the background from now on, also after a restart. Next:
-  1. Open Agent Panel ($shown, or Spotlight). macOS may ask whether it may use your Documents folder:
+  1. Open Glue ($shown, or Spotlight). macOS may ask whether it may use your Documents folder:
      the panel reads the repositories your sessions work in.
   2. If you use more than one Claude Code profile, pick yours under Profile, top right.
   3. Click Connect this profile. Sessions you start after that show up on the board.
@@ -116,7 +128,7 @@ else
   cat <<EOF
 
 Done. Next:
-  1. Open Agent Panel ($shown, or Spotlight). macOS may ask whether it may use your Documents folder:
+  1. Open Glue ($shown, or Spotlight). macOS may ask whether it may use your Documents folder:
      the panel reads the repositories your sessions work in.
   2. If you use more than one Claude Code profile, pick yours under Profile, top right.
   3. Click Connect this profile. Sessions you start after that show up on the board.

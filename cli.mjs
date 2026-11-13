@@ -7,11 +7,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LABEL, plistPath, logPath, install, remove, status } from './daemon.mjs';
+import { migrateFolders } from './migrate.mjs';
 
 const USAGE = 'usage: node server.mjs daemon install|remove|status | status';
 
 /** Where this panel keeps its preferences; ACP_PREFS gives a second panel a folder of its own. */
-export const prefsPath = () => process.env.ACP_PREFS || path.join(os.homedir(), 'Library', 'Application Support', 'Agent Panel', 'prefs.json');
+export const prefsPath = () => process.env.ACP_PREFS || path.join(os.homedir(), 'Library', 'Application Support', 'Glue', 'prefs.json');
 
 /** Runs one command and returns the exit code: 0 done, 1 launchctl refused, 2 the command is not one of ours. */
 export async function main(argv) {
@@ -25,7 +26,10 @@ export async function main(argv) {
       // process.execPath is the resolved binary, which under Homebrew is a versioned Cellar path that a `brew upgrade`
       // deletes. install.sh passes the node on PATH as ACP_NODE, a link that keeps working across upgrades.
       const node = process.env.ACP_NODE || process.execPath;
-      const { label } = await install({ port, node, repo, pathEnv: process.env.PATH ?? '' });
+      // Agent Panel's folders move to Glue's once its old agent is stopped, before Glue's starts and reads them.
+      const beforeLoad = () => { if (!process.env.ACP_PREFS) for (const [a, b] of migrateFolders({ home: os.homedir() })) console.log(`Moved ${a} to ${b}`); };
+      const { label, legacy } = await install({ port, node, repo, pathEnv: process.env.PATH ?? '', beforeLoad });
+      if (legacy) console.log('Removed the background service from before the rename (local.agent-panel)');
       console.log(`Background service ${label} installed (log: ${logPath(port)})`);
     } else if (sub === 'remove') {
       const { removed } = await remove({ port });

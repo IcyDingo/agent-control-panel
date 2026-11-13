@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Agent panel</title>
+<title>Glue</title>
 <script>
 // Dark unless you picked Light or Match the Mac (the theme menu, top right). Set before the page paints.
 try { const t = localStorage.getItem('acp.theme'); if (t !== 'system') document.documentElement.dataset.theme = t === 'light' ? 'light' : 'dark'; }
@@ -799,7 +799,7 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 </head>
 <body>
 <header class="top">
-  <span class="brand">Agent panel</span>
+  <span class="brand">Glue</span>
   <div class="ptabs" id="prof-tabs" role="tablist" aria-label="Claude Code profiles: whose sessions this shows"></div>
   <span class="live down" id="conn">Connecting</span>
   <div class="counts" id="counts"></div>
@@ -2709,7 +2709,7 @@ function setupRows() {
   if (canAlert()) {
     const perm = Notification.permission;
     rows.push(perm === 'granted' ? row('ok', 5, 'Desktop alerts', 'On. A request that waits on you, or a check that fails, reaches you in any app.', null, true)
-      : perm === 'denied' ? row('opt', 5, 'Desktop alerts', 'Blocked. Turn them on for Agent Panel (or this browser) in System Settings › Notifications.', null, true)
+      : perm === 'denied' ? row('opt', 5, 'Desktop alerts', 'Blocked. Turn them on for Glue (or this browser) in System Settings › Notifications.', null, true)
       : row('opt', 5, 'Desktop alerts', 'Get a notification when a session needs you while you’re in another app.',
         () => [el('button', { class: 'btn small', type: 'button', text: 'Turn on', onclick: () => Notification.requestPermission().then(() => { notifyBtn.hidden = Notification.permission !== 'default'; render(); }) })], true));
   }
@@ -3024,7 +3024,7 @@ function render() {
   renderHome(g);
   renderOld(snap.oldVersions ?? []);
   renderGhBtn();
-  document.title = snap.pending.length ? `(${snap.pending.length}) Agent panel` : 'Agent panel';
+  document.title = snap.pending.length ? `(${snap.pending.length}) Glue` : 'Glue';
   // A two-click control keeps the keyboard focus through a redraw.
   if (armed && (!document.activeElement || document.activeElement === document.body)) document.querySelector(`[data-key="${CSS.escape(armed.key)}"]`)?.focus({ preventScroll: true });
 }
@@ -3034,11 +3034,13 @@ const dlg = $('launcher');
 const lErr = $('l-err');
 $('new-agent').onclick = openLauncher;
 // In the app, File › New Agent (⌘T) opens it too; a browser keeps ⌘T for a new tab, so the hint shows only in the app.
-if (window.agentPanelApp?.newAgent) {
-  $('new-agent').append(el('kbd', { text: window.agentPanelApp.newAgent }));
-  setAttr($('new-agent'), 'title', `New agent (${window.agentPanelApp.newAgent})`);
+// An app built before the rename still says agentPanelApp and agent-panel:new-agent, until install.sh rebuilds it.
+const appInfo = window.glueApp ?? window.agentPanelApp;
+if (appInfo?.newAgent) {
+  $('new-agent').append(el('kbd', { text: appInfo.newAgent }));
+  setAttr($('new-agent'), 'title', `New agent (${appInfo.newAgent})`);
 }
-document.addEventListener('agent-panel:new-agent', () => { if (dlg.open) $('l-prompt').focus(); else openLauncher(); });
+for (const ev of ['glue:new-agent', 'agent-panel:new-agent']) document.addEventListener(ev, () => { if (dlg.open) $('l-prompt').focus(); else openLauncher(); });
 // Effort: Default leaves it to the profile's own default (its effortLevel), and launches without --effort.
 const EFFORT_STOPS = [['', 'Default'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['xhigh', 'Extra high'], ['max', 'Max']];
 const MODE_SAY = { default: 'Asks you before each tool that needs permission.', acceptEdits: 'Edits files without asking; asks for the rest.',
