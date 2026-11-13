@@ -1,4 +1,4 @@
-// Agent Panel.app: the panel in a window of its own, with a Dock badge for requests waiting on you.
+// Glue.app: the panel in a window of its own, with a Dock badge for requests waiting on you.
 // It reuses a panel server that is already running and leaves that one alone; otherwise it starts one and stops it on
 // quit. Closing the window keeps the panel connected (and the badge live); quitting ends it. build.sh bakes the repo,
 // node, PATH and port into Info.plist, since an app opened from the Dock gets no shell environment.
@@ -11,7 +11,7 @@ func setting(_ key: String) -> String { info[key] as? String ?? "" }
 let repo = setting("ACPRepo"), nodePath = setting("ACPNode"), shellPath = setting("ACPPath")
 let port = setting("ACPPort").isEmpty ? "4747" : setting("ACPPort")
 let home = URL(string: "http://127.0.0.1:\(port)/")!
-let logURL = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Logs/Agent Panel/server-\(port).log")
+let logURL = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Logs/Glue/server-\(port).log")
 
 // The page asks for Notification, which WKWebView doesn't have. This stands in for it with the Mac's own.
 func notificationShim(_ permission: String) -> String { """
@@ -77,7 +77,7 @@ final class Panel: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
       WKUserScript(source: notificationShim(permission), injectionTime: .atDocumentStart, forMainFrameOnly: true))
     // Tells the page it runs in the app, whose menu has shortcuts a browser keeps for itself (⌘T opens a tab there).
     config.userContentController.addUserScript(
-      WKUserScript(source: "window.agentPanelApp = { newAgent: '⌘T' };", injectionTime: .atDocumentStart, forMainFrameOnly: true))
+      WKUserScript(source: "window.glueApp = { newAgent: '⌘T' };", injectionTime: .atDocumentStart, forMainFrameOnly: true))
     config.userContentController.add(self, name: "notify")
     config.userContentController.add(self, name: "theme")
     config.userContentController.addScriptMessageHandler(self, contentWorld: .page, name: "notifyPermission")
@@ -92,7 +92,7 @@ final class Panel: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
     let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
     window = NSWindow(contentRect: screen.insetBy(dx: min(80, screen.width * 0.05), dy: min(60, screen.height * 0.05)),
                       styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-    window.title = "Agent Panel"
+    window.title = "Glue"
     window.appearance = NSAppearance(named: .darkAqua)   // the page's default theme, until it says otherwise
     window.titleVisibility = .hidden    // the page shows its own; macOS 26 would put this one beside the window buttons
     // The page sits in a box rather than being the window's content view: Space view's full screen swaps it out of its
@@ -104,7 +104,7 @@ final class Panel: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
     box.addSubview(web)
     window.minSize = NSSize(width: 880, height: 560)
     window.isReleasedWhenClosed = false
-    window.setFrameAutosaveName("AgentPanel")
+    window.setFrameAutosaveName("Glue")
     window.makeKeyAndOrderFront(nil)
   }
 
@@ -116,8 +116,10 @@ final class Panel: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
     cfg.connectionProxyDictionary = [:]
     let req = URLRequest(url: home, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 1.5)
     URLSession(configuration: cfg).dataTask(with: req) { data, resp, _ in
+      // A server still on the code from before the rename answers to its old title.
+      let page = String(decoding: data ?? Data(), as: UTF8.self)
       let ok = (resp as? HTTPURLResponse)?.statusCode == 200
-        && String(decoding: data ?? Data(), as: UTF8.self).contains("<title>Agent panel</title>")
+        && (page.contains("<title>Glue</title>") || page.contains("<title>Agent panel</title>"))
       DispatchQueue.main.async { done(ok) }
     }.resume()
   }
@@ -144,7 +146,7 @@ final class Panel: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
     if !fm.fileExists(atPath: logURL.path) { fm.createFile(atPath: logURL.path, contents: nil) }
     guard let log = try? FileHandle(forWritingTo: logURL) else { return fail("Can't write the log at \(logURL.path).") }
     log.seekToEndOfFile()
-    log.write("\n--- \(Date()) Agent Panel started the server\n".data(using: .utf8)!)
+    log.write("\n--- \(Date()) Glue started the server\n".data(using: .utf8)!)
 
     let p = Process()
     p.executableURL = URL(fileURLWithPath: nodePath)
@@ -249,9 +251,9 @@ final class Panel: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
 
   // ---------------------------------------------------------------- page ↔ app
 
-  /// "(3) Agent panel" → a 3 on the Dock icon, and a bounce when a new request arrives while you're elsewhere.
+  /// "(3) Glue" → a 3 on the Dock icon, and a bounce when a new request arrives while you're elsewhere.
   func titled(_ title: String) {
-    window?.title = title.isEmpty ? "Agent Panel" : title
+    window?.title = title.isEmpty ? "Glue" : title
     var n = 0
     if title.hasPrefix("("), let close = title.firstIndex(of: ")") { n = Int(title[title.index(after: title.startIndex)..<close]) ?? 0 }
     NSApp.dockTile.badgeLabel = n > 0 ? String(n) : nil
@@ -327,7 +329,7 @@ final class Panel: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
   @objc func reloadPanel(_ sender: Any?) { connect() }
   @objc func newAgent(_ sender: Any?) {
     window.makeKeyAndOrderFront(nil)
-    web.evaluateJavaScript("document.dispatchEvent(new CustomEvent('agent-panel:new-agent'))")
+    web.evaluateJavaScript("document.dispatchEvent(new CustomEvent('glue:new-agent'))")
   }
   @objc func showPanel(_ sender: Any?) { window.makeKeyAndOrderFront(nil) }
   @objc func zoomIn(_ sender: Any?) { setZoom(web.pageZoom + 0.1) }
@@ -352,12 +354,12 @@ final class Panel: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
       i.keyEquivalentModifierMask = mods
       return i
     }
-    _ = menu("Agent Panel", [
-      item("About Agent Panel", #selector(NSApplication.orderFrontStandardAboutPanel(_:))), .separator(),
-      item("Hide Agent Panel", #selector(NSApplication.hide(_:)), "h"),
+    _ = menu("Glue", [
+      item("About Glue", #selector(NSApplication.orderFrontStandardAboutPanel(_:))), .separator(),
+      item("Hide Glue", #selector(NSApplication.hide(_:)), "h"),
       item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
       item("Show All", #selector(NSApplication.unhideAllApplications(_:))), .separator(),
-      item("Quit Agent Panel", #selector(NSApplication.terminate(_:)), "q"),
+      item("Quit Glue", #selector(NSApplication.terminate(_:)), "q"),
     ])
     _ = menu("File", [item("New Agent", #selector(newAgent(_:)), "t")])
     _ = menu("Edit", [
@@ -373,7 +375,7 @@ final class Panel: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
     ])
     NSApp.windowsMenu = menu("Window", [
       item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"), item("Zoom", #selector(NSWindow.performZoom(_:))),
-      .separator(), item("Agent Panel", #selector(showPanel(_:)), "1"),
+      .separator(), item("Glue", #selector(showPanel(_:)), "1"),
     ])
     NSApp.mainMenu = bar
   }

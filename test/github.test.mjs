@@ -371,7 +371,7 @@ test('a failure that finished in the last fifteen minutes notifies even at the f
     runs: [ghRun({ id: 501, conclusion: 'failure', updatedAt: iso(T0 - 14 * MIN) })],
   } });
   await h.tick();
-  assert.deepEqual(h.notes.map((n) => n.title), ['Agent Panel · CI failed', 'Agent Panel · CI failed']);
+  assert.deepEqual(h.notes.map((n) => n.title), ['Glue · CI failed', 'Glue · CI failed']);
   assert.deepEqual(h.notes.map((n) => n.text), ['someone/demo: build failed on fix/login (#7).', 'someone/demo: CI failed on main.']);
   assert.deepEqual(h.events.map((e) => e.type), ['ci-failed', 'main-failed']);
   assert.deepEqual(h.events[0], { type: 'ci-failed', slug: 'someone/demo', text: 'build failed on #7 (fix/login) in someone/demo.', branch: 'fix/login',

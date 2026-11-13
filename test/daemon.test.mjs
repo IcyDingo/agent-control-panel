@@ -9,15 +9,15 @@ const uid = String(process.getuid());
 const fakeRun = (answers = {}) => { const calls = []; const run = async (cmd, args) => { calls.push([cmd, ...args]); return answers[args[0]] ?? { stdout: '', stderr: '', err: null }; }; return Object.assign(run, { calls }); };
 
 test('the label follows the app bundle id: plain on 4747, suffixed elsewhere', () => {
-  assert.equal(LABEL(4747), 'local.agent-panel');
-  assert.equal(LABEL(4800), 'local.agent-panel.4800');
-  assert.equal(plistPath(4747, '/h'), '/h/Library/LaunchAgents/local.agent-panel.plist');
-  assert.equal(logPath(4800, '/h'), '/h/Library/Logs/Agent Panel/daemon-4800.log');
+  assert.equal(LABEL(4747), 'local.glue');
+  assert.equal(LABEL(4800), 'local.glue.4800');
+  assert.equal(plistPath(4747, '/h'), '/h/Library/LaunchAgents/local.glue.plist');
+  assert.equal(logPath(4800, '/h'), '/h/Library/Logs/Glue/daemon-4800.log');
 });
 
 test('the plist runs the server from the repo with PATH, the port and ACP_DAEMON, and launchd accepts it', () => {
-  const xml = launchdPlist({ label: 'local.agent-panel', node: '/opt/node/bin/node', repo: '/tmp/a&b <c>', port: 4747, pathEnv: '/opt/node/bin:/usr/bin', log: '/tmp/d.log' });
-  assert.match(xml, /<key>Label<\/key><string>local\.agent-panel<\/string>/);
+  const xml = launchdPlist({ label: 'local.glue', node: '/opt/node/bin/node', repo: '/tmp/a&b <c>', port: 4747, pathEnv: '/opt/node/bin:/usr/bin', log: '/tmp/d.log' });
+  assert.match(xml, /<key>Label<\/key><string>local\.glue<\/string>/);
   assert.match(xml, /<key>ProgramArguments<\/key><array><string>\/opt\/node\/bin\/node<\/string><string>\/tmp\/a&amp;b &lt;c&gt;\/server\.mjs<\/string><\/array>/);
   assert.match(xml, /<key>WorkingDirectory<\/key><string>\/tmp\/a&amp;b &lt;c&gt;<\/string>/);
   for (const [k, v] of [['PATH', '/opt/node/bin:/usr/bin'], ['ACP_PORT', '4747'], ['ACP_DAEMON', '1']]) assert.match(xml, new RegExp(`<key>${k}</key><string>${v.replace(/\//g, '\\/')}</string>`));
@@ -33,10 +33,34 @@ test('install writes the plist and the log folder, boots the old one out, then b
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'daemon-')), run = fakeRun();
   const r = await install({ port: 4747, node: '/usr/local/bin/node', repo: '/r', pathEnv: '/usr/bin', home, run });
   assert.equal(r.plist, plistPath(4747, home));
-  assert.equal(r.label, 'local.agent-panel');
+  assert.equal(r.label, 'local.glue');
   assert.ok(fs.existsSync(r.plist));
   assert.ok(fs.existsSync(path.dirname(logPath(4747, home))));
-  assert.deepEqual(run.calls, [['launchctl', 'bootout', `gui/${uid}/local.agent-panel`], ['launchctl', 'bootstrap', `gui/${uid}`, r.plist]]);
+  assert.deepEqual(run.calls, [['launchctl', 'bootout', `gui/${uid}/local.glue`], ['launchctl', 'bootstrap', `gui/${uid}`, r.plist]]);
+});
+
+test('install takes away the agent from before the rename first, then moves the folders, then loads Glue', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'daemon-')), run = fakeRun();
+  const old = plistPath(4747, home, 'local.agent-panel');
+  fs.mkdirSync(path.dirname(old), { recursive: true });
+  fs.writeFileSync(old, '<plist/>');
+  let callsAtMove = null;
+  const r = await install({ port: 4747, node: '/n', repo: '/r', pathEnv: '/b', home, run, beforeLoad: () => { callsAtMove = run.calls.length; } });
+  assert.equal(r.legacy, true);
+  assert.equal(fs.existsSync(old), false, 'the old plist is gone, so launchd never starts it again at login');
+  assert.deepEqual(run.calls[0], ['launchctl', 'bootout', `gui/${uid}/local.agent-panel`]);
+  assert.equal(callsAtMove, 1, 'the folders move once the old agent is stopped, before Glue loads');
+  assert.deepEqual(run.calls.at(-1), ['launchctl', 'bootstrap', `gui/${uid}`, r.plist]);
+});
+
+test('remove takes away the agent from before the rename too', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'daemon-')), run = fakeRun();
+  const old = plistPath(4800, home, 'local.agent-panel.4800');
+  fs.mkdirSync(path.dirname(old), { recursive: true });
+  fs.writeFileSync(old, '<plist/>');
+  assert.deepEqual(await remove({ port: 4800, home, run }), { removed: true });
+  assert.equal(fs.existsSync(old), false);
+  assert.ok(run.calls.some((c) => c.join(' ') === `launchctl bootout gui/${uid}/local.agent-panel.4800`));
 });
 
 test('install succeeds when there was nothing to boot out', async () => {
@@ -71,7 +95,7 @@ test('remove boots the service out and deletes the plist; a second remove report
 });
 
 test('status reads the pid from launchctl print, and says not loaded when it fails', async () => {
-  const up = fakeRun({ print: { stdout: 'local.agent-panel = {\n\tactive count = 1\n\tpid = 4242\n\tstate = running\n}', stderr: '', err: null } });
+  const up = fakeRun({ print: { stdout: 'local.glue = {\n\tactive count = 1\n\tpid = 4242\n\tstate = running\n}', stderr: '', err: null } });
   assert.deepEqual(await status({ port: 4747, run: up }), { loaded: true, pid: 4242 });
   const down = fakeRun({ print: { stdout: '', stderr: 'Could not find service', err: new Error('exit 113') } });
   assert.deepEqual(await status({ port: 4747, run: down }), { loaded: false, pid: null });

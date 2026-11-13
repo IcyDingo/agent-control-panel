@@ -21,7 +21,7 @@ test('under ACP_DAEMON the server starts and serves the board', async (t) => {
   const s = start(port, prefs); t.after(s.stop);
   assert.ok(await until(() => answers(port)), s.log());
   const html = await fetch(`http://127.0.0.1:${port}/`).then((r) => r.text());
-  assert.match(html, /Agent panel/);
+  assert.match(html, /Glue/);
   assert.doesNotMatch(html, /__ACP_TOKEN__/, 'the token placeholder was not filled in');
 });
 

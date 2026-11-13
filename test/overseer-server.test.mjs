@@ -239,7 +239,7 @@ test('a message to the overseer comes back as a turn proposing a tell, asked wit
   assert.ok(args.includes('--json-schema'));
   assert.equal(JSON.parse(at('--json-schema')).required.join(','), 'reply,actions,look');
   assert.ok(args.includes('--system-prompt'));
-  assert.match(at('--system-prompt'), /^You are the overseer in Agent Panel/);
+  assert.match(at('--system-prompt'), /^You are the overseer in Glue/);
   assert.ok(args.includes('--tools'));
   assert.equal(at('--tools'), '', '--tools is given an empty list');
   assert.ok(args.includes('--disallowedTools'));

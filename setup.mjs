@@ -47,12 +47,12 @@ export const claudeLoginCommand = (p) => (p.plain ? 'claude auth login' : `CLAUD
 export const loginScript = ({ what, bin, configDir, label }) => [
   '#!/bin/zsh',
   what === 'claude'
-    ? `# Opened by Agent Panel: sign the ${label} profile in to Claude Code.`
-    : '# Opened by Agent Panel: sign the GitHub CLI in to github.com.',
+    ? `# Opened by Glue: sign the ${label} profile in to Claude Code.`
+    : '# Opened by Glue: sign the GitHub CLI in to github.com.',
   what === 'claude' ? (configDir ? `export CLAUDE_CONFIG_DIR=${sh(configDir)}` : 'unset CLAUDE_CONFIG_DIR') : null,
   what === 'claude' ? `${sh(bin)} auth login` : `${sh(bin)} auth login --hostname github.com --web`,
   'echo',
-  'echo "Go back to Agent Panel: it notices by itself. Press any key to close this window."',
+  'echo "Go back to Glue: it notices by itself. Press any key to close this window."',
   'read -k 1 -s',
   '',
 ].filter((l) => l != null).join('\n');

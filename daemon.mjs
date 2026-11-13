@@ -1,7 +1,7 @@
 // The launchd agent that keeps `node server.mjs` running, so the panel holds requests and answers hooks without the app open.
 //
 // A headless install is one plist in ~/Library/LaunchAgents, loaded into the user's GUI domain: launchd starts the panel
-// at login, restarts it when it dies, and logs to ~/Library/Logs/Agent Panel. The label mirrors the app bundle id
+// at login, restarts it when it dies, and logs to ~/Library/Logs/Glue. The label mirrors the app bundle id
 // (app/build.sh), so the app and the agent on one port never fight over a name. Everything here is a function of its
 // arguments; `run` is how launchctl is called, so tests answer for it and the CLI uses the real one.
 
@@ -10,14 +10,26 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 
-/** The launchd label: `local.agent-panel` on the default port, `local.agent-panel.<port>` on any other. */
-export const LABEL = (port) => (port === 4747 ? 'local.agent-panel' : `local.agent-panel.${port}`);
+/** The launchd label: `local.glue` on the default port, `local.glue.<port>` on any other. */
+export const LABEL = (port) => (port === 4747 ? 'local.glue' : `local.glue.${port}`);
+
+/** The label from before Glue was called Glue. Installing or removing the agent takes away one still loaded under it. */
+export const LEGACY_LABEL = (port) => (port === 4747 ? 'local.agent-panel' : `local.agent-panel.${port}`);
 
 /** Where the agent's plist lives. */
-export const plistPath = (port, home = os.homedir()) => path.join(home, 'Library', 'LaunchAgents', `${LABEL(port)}.plist`);
+export const plistPath = (port, home = os.homedir(), label = LABEL(port)) => path.join(home, 'Library', 'LaunchAgents', `${label}.plist`);
+
+/** Unloads the agent from before the rename, and deletes its plist, so the two never fight over the port. */
+async function removeLegacy({ port, home, run }) {
+  const plist = plistPath(port, home, LEGACY_LABEL(port));
+  if (!fs.existsSync(plist)) return false;
+  await run('launchctl', ['bootout', `${domain()}/${LEGACY_LABEL(port)}`]); // nothing loaded is fine
+  try { fs.unlinkSync(plist); } catch {}
+  return true;
+}
 
 /** Where the server's output goes. */
-export const logPath = (port, home = os.homedir()) => path.join(home, 'Library', 'Logs', 'Agent Panel', `daemon-${port}.log`);
+export const logPath = (port, home = os.homedir()) => path.join(home, 'Library', 'Logs', 'Glue', `daemon-${port}.log`);
 
 /** Runs a command and resolves `{ stdout, stderr, err }`; it never rejects, a failure is in `err`. */
 const execRun = (cmd, args) => new Promise((resolve) => {
@@ -61,8 +73,10 @@ const BOOTSTRAP_TRIES = 5;
  * Writes the plist and loads it, replacing any agent already loaded under the label. Throws with launchctl's message if
  * it won't load. `retryMs` is the wait between tries; tests set it to 0.
  */
-export async function install({ port, node, repo, pathEnv, home = os.homedir(), run = execRun, retryMs = 500 }) {
+export async function install({ port, node, repo, pathEnv, home = os.homedir(), run = execRun, retryMs = 500, beforeLoad = () => {} }) {
   const label = LABEL(port), plist = plistPath(port, home), log = logPath(port, home);
+  const legacy = await removeLegacy({ port, home, run });
+  beforeLoad(); // with the old agent stopped, nothing writes to its folders while they move (cli.mjs)
   fs.mkdirSync(path.dirname(plist), { recursive: true });
   fs.mkdirSync(path.dirname(log), { recursive: true });
   fs.writeFileSync(plist, launchdPlist({ label, node, repo, port, pathEnv, log }), { mode: 0o644 });
@@ -73,15 +87,16 @@ export async function install({ port, node, repo, pathEnv, home = os.homedir(), 
   for (let i = 0; i < BOOTSTRAP_TRIES; i++) {
     if (i) await new Promise((r) => setTimeout(r, retryMs));
     last = await run('launchctl', ['bootstrap', domain(), plist]);
-    if (!last.err) return { plist, label };
+    if (!last.err) return { plist, label, legacy };
   }
   throw new Error(`launchctl bootstrap failed: ${last.stderr.trim() || last.err.message}`);
 }
 
-/** Unloads the agent and deletes its plist; `removed` is false when there was no plist. */
+/** Unloads the agent and deletes its plist, and the one from before the rename; `removed` is false when there was none. */
 export async function remove({ port, home = os.homedir(), run = execRun }) {
+  const legacy = await removeLegacy({ port, home, run });
   await run('launchctl', ['bootout', `${domain()}/${LABEL(port)}`]); // nothing loaded is fine
-  try { fs.unlinkSync(plistPath(port, home)); return { removed: true }; } catch { return { removed: false }; }
+  try { fs.unlinkSync(plistPath(port, home)); return { removed: true }; } catch { return { removed: legacy }; }
 }
 
 /** Whether launchd has the agent loaded, and the pid of the server when it is running. */

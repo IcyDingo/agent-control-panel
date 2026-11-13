@@ -22,7 +22,7 @@ const sh = (s) => `'${String(s).replaceAll("'", "'\\''")}'`;
 /** The script Terminal runs: Claude Code in the folder, on the profile, where its trust prompt asks you. */
 export const trustScript = ({ dir, configDir, claude, label }) => [
   '#!/bin/zsh',
-  `# Opened by Agent Panel: Claude Code asks once whether the ${label} profile trusts this folder.`,
+  `# Opened by Glue: Claude Code asks once whether the ${label} profile trusts this folder.`,
   `cd -- ${sh(dir)} || exit 1`,
   configDir ? `export CLAUDE_CONFIG_DIR=${sh(configDir)}` : 'unset CLAUDE_CONFIG_DIR',
   `exec ${sh(claude)}`,

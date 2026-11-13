@@ -1,4 +1,4 @@
-# Agent panel
+# Glue
 
 A local browser page that shows every Claude Code session on this machine and lets you answer
 them without switching terminals.
@@ -17,7 +17,7 @@ cd agent-control-panel
 itself isn't needed), tells you what to install if something is missing, and builds **Agent
 Panel.app** into `~/Applications`. Then:
 
-1. Open **Agent Panel**. macOS may ask whether it may use your Documents folder: the panel reads the
+1. Open **Glue**. macOS may ask whether it may use your Documents folder: the panel reads the
    repositories your sessions work in.
 2. If you use more than one Claude Code profile, pick yours under **Profile**, top right.
 3. Follow **Set up the panel**, the checklist the panel opens with. Each step ticks itself as it's done:
@@ -46,6 +46,13 @@ isn't open; `./install.sh --no-daemon` skips it.
 Keep the folder where you cloned it: the service and the app run the panel from there. To update, `git pull`
 and run `./install.sh` again: it rebuilds the app and restarts the service on the new code. To use it without the app,
 see [Run it](#run-it). To take it out again, see [Uninstall](#uninstall).
+
+**Coming from Agent Panel?** Glue is its new name. Pull and run `./install.sh` once: it builds **Glue.app**, removes
+**Agent Panel.app** and the `local.agent-panel` service, and moves `~/Library/Application Support/Agent Panel` (your
+profile choice, the overseer's conversation, the PR watcher's memory) and `~/Library/Logs/Agent Panel` across to
+`Glue`. Your hooks need nothing: they point at the port, not the name. The new app is a new app to macOS, so it asks
+again for your Documents folder and for notifications, and the app's own view settings (theme, folded queues) start
+fresh. The `ACP_*` environment variables keep their names. The repository is still `agent-control-panel`.
 
 Everything stays on your Mac: the server listens on 127.0.0.1 only, and the page fetches nothing but its typeface
 (from Google Fonts).
@@ -128,18 +135,18 @@ Node 20+, and `python3` (it comes with macOS's command-line tools) for the helpe
 session's screen: switching its mode, answering a question it no longer holds, running a `/command`. Nothing to
 install. `ACP_PORT` changes the port; if you change it, change the hook URLs too.
 
-Installed with `./install.sh`, the panel also runs as a launchd service (`local.agent-panel`, or
-`local.agent-panel.<port>` on another port): `launchctl print gui/$UID/local.agent-panel` shows it,
-`launchctl kickstart -k gui/$UID/local.agent-panel` restarts it, and its log is
-`~/Library/Logs/Agent Panel/daemon-<port>.log`. `node server.mjs daemon install|remove|status` manages it.
+Installed with `./install.sh`, the panel also runs as a launchd service (`local.glue`, or
+`local.glue.<port>` on another port): `launchctl print gui/$UID/local.glue` shows it,
+`launchctl kickstart -k gui/$UID/local.glue` restarts it, and its log is
+`~/Library/Logs/Glue/daemon-<port>.log`. `node server.mjs daemon install|remove|status` manages it.
 
 ## The Mac app
 
-`app/build.sh` builds **Agent Panel.app** in `~/Applications`: the panel in a window of its own, with
+`app/build.sh` builds **Glue.app** in `~/Applications`: the panel in a window of its own, with
 its own icon. Open it like any app, or keep it in the Dock.
 
 - Opening it uses the background service's server, or any panel server already running, or starts one of its own
-  (its log is `~/Library/Logs/Agent Panel/server-4747.log`). Quitting stops a server the app started and leaves
+  (its log is `~/Library/Logs/Glue/server-4747.log`). Quitting stops a server the app started and leaves
   one it didn't alone.
 - If the server it was using goes away, it starts its own after a few seconds. One it started that
   stops after running a while is started again.
@@ -157,7 +164,7 @@ An app opened from the Dock gets no shell environment, so the build bakes in thi
 node's path and your shell's `PATH`. Build it again when one of those moves (an nvm upgrade, say).
 `ACP_PORT=<port> app/build.sh` builds a separate app for a panel on another port.
 
-The first time it starts the server, macOS asks whether Agent Panel may use your Documents folder: the
+The first time it starts the server, macOS asks whether Glue may use your Documents folder: the
 panel lives there, and it reads the sessions' repositories. The app is signed for this Mac only, so a
 rebuilt app may ask again.
 
@@ -173,7 +180,7 @@ Click a tab to switch. With one profile, there are no tabs.
 - A request held for the old profile's sessions stays held, out of sight, and shows again when that
   profile is back; a permission request from a profile that isn't on the board is held the same way.
   An unsent message is dropped. When there is one, it asks first.
-- The choice is remembered, in `~/Library/Application Support/Agent Panel/prefs.json` (`ACP_PREFS`
+- The choice is remembered, in `~/Library/Application Support/Glue/prefs.json` (`ACP_PREFS`
   names another file, so a second panel on another port keeps a choice of its own). Without one,
   the panel starts in the profile it was started under (`CLAUDE_CONFIG_DIR`), else the first one whose
   hooks point at it, else plain `claude`'s.
@@ -502,6 +509,6 @@ An endpoint that approves commands is worth protecting, even on localhost:
 - A remote URL can carry a token: the panel keeps only the owner and repository name it parsed.
 ## Uninstall
 
-Run `./install.sh --uninstall` from the clone: it removes the background service and `~/Applications/Agent Panel.app`.
+Run `./install.sh --uninstall` from the clone: it removes the background service and `~/Applications/Glue.app`.
 Then remove the hook entries that point at `127.0.0.1:4747` from each profile's settings, and delete
-`~/Library/Application Support/Agent Panel` and `~/Library/Logs/Agent Panel`.
+`~/Library/Application Support/Glue` and `~/Library/Logs/Glue`.
