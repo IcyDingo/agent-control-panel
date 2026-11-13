@@ -64,7 +64,7 @@ It does what `app/main.swift` does, on Electron:
   first close says so once, since plain GNOME shows no tray. Other sites open in the browser.
 - **Count.** "(3) Glue" becomes a launcher badge where the desktop has one, the tray tooltip, and a flash when a
   request arrives while you are elsewhere.
-- **Menu** (bar hidden, shortcuts live): New Agent, Reload, zoom, full screen, Start at login, Add to applications
+- **Menu** (the bar hides until Alt is pressed; its shortcuts work either way): New Agent, Reload, zoom, full screen, Start at login, Add to applications
   menu (AppImage), Check for updates / Restart to update, Quit.
 
 ## The page bridge

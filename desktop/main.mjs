@@ -231,10 +231,10 @@ function makeWindow() {
   win = new BrowserWindow({
     ...savedBounds(), minWidth: 880, minHeight: 560, title: 'Glue', backgroundColor: '#0c0e11', // no white flash before the page paints
     show: !process.argv.includes('--hidden'), ...(LINUX ? { icon: ICON } : {}),
+    autoHideMenuBar: true, // the bar stays out of the way and Alt shows it: the only way to the menu where there is no tray
     webPreferences: { preload: path.join(ROOT, 'desktop', 'preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false,
                       backgroundThrottling: false, spellcheck: false }, // keep the live feed and the count going while hidden
   });
-  win.setMenuBarVisibility(false); // the menu's shortcuts work without the bar; a bare Alt would otherwise pop it up
   const wc = win.webContents;
   // Only the panel loads in here. Any other link opens in the default browser.
   wc.setWindowOpenHandler(({ url }) => { if (opensOutside(url)) shell.openExternal(url); return { action: 'deny' }; });

@@ -64,7 +64,12 @@ warn() { printf '  %s %s\n' "$(paint 33 !)" "$1"; }
 fail() { printf '  %s %s\n' "$(paint 31 ✗)" "$1"; missing=1; }
 at_least() { [[ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" == "$2" ]]; }
 
-[[ "$(uname)" == Darwin ]] || { echo "Glue runs on macOS only." >&2; exit 1; }
+if [[ "$(uname)" != Darwin ]]; then
+  echo "This script builds the Mac app. On Linux, download Glue from" >&2
+  echo "  https://github.com/IcyDingo/agent-control-panel/releases" >&2
+  echo "(a .deb for Debian and Ubuntu, an AppImage for anything else). See README.md, The Linux app." >&2
+  exit 1
+fi
 echo "Checking what Glue needs:"
 
 macos="$(sw_vers -productVersion)"
