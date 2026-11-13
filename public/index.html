@@ -384,8 +384,6 @@ body.resizing .drawer { transition: none; }
 .d-side.folded .d-side-body, .d-side.folded .s-grip { display: none; }
 .d-side.folded .d-side-tab { writing-mode: vertical-rl; padding: 16px 12px; }
 .d-side.folded .d-side-tab::after { content: "\2039"; margin: 6px 0 0; }
-/* Expand hides the board beside it. */
-body.wide-session .stage:has(> .drawer:not([hidden])) > .board, body.wide-session .stage:has(> .drawer:not([hidden])) > .r-grip { display: none; }
 /* Two rows: the name with its state light, then one line of facts. */
 .d-top { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .d-top .glyph { width: 8px; height: 8px; }
@@ -643,6 +641,12 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .launcher .row { justify-content: flex-end; }
 
 /* ---------- Settings: one dialog, its tabs down the left, what each holds on the right ---------- */
+/* Collapse or show the rail: a window with its sidebar, the sidebar filled while it shows. */
+.rail-btn { flex: none; display: inline-grid; place-items: center; width: 30px; height: 30px; margin: 0 -8px 0 -6px; padding: 0; border: 0; border-radius: var(--r-1); background: none; color: var(--fg-dim); cursor: pointer; }
+.rail-btn:hover { background: var(--fill); color: var(--fg); }
+.rail-btn::before { content: ""; width: 16px; height: 16px; background: currentColor; -webkit-mask: var(--i-rail) center / contain no-repeat; mask: var(--i-rail) center / contain no-repeat;
+  --i-rail: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill-rule='evenodd' d='M3 2h10a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm0 1.4a.6.6 0 0 0-.6.6v8a.6.6 0 0 0 .6.6h2.6V3.4zm4 0v9.2h6a.6.6 0 0 0 .6-.6V4a.6.6 0 0 0-.6-.6z'/%3E%3Cpath d='M3 4h2v1H3zM3 6h2v1H3zM3 8h2v1H3z'/%3E%3C/svg%3E"); }
+.rail-btn[aria-expanded="false"]::before { --i-rail: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill-rule='evenodd' d='M3 2h10a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm0 1.4a.6.6 0 0 0-.6.6v8a.6.6 0 0 0 .6.6h2.6V3.4zm4 0v9.2h6a.6.6 0 0 0 .6-.6V4a.6.6 0 0 0-.6-.6z'/%3E%3C/svg%3E"); }
 .set-btn { width: 30px; justify-content: center; padding: 0; }
 .set-btn::after { display: none; }
 .set-btn::before { content: ""; width: 15px; height: 15px; background: currentColor; -webkit-mask: var(--i-gear) center / contain no-repeat; mask: var(--i-gear) center / contain no-repeat;
@@ -926,8 +930,27 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 .srow.ov[data-busy="1"] .tdetail { color: var(--run); }
 .srow.ov[data-proposed="1"] .tdetail { color: var(--run); font-weight: 600; }
 
+/* Collapsed, the rail is a slim strip: a state light per session, a hairline between sections, and nothing that needs
+   you out of sight (Needs you never folds). Folded sections leave the strip; the name stays in the row for screen readers. */
+@media (min-width: 861px) {
+  body.rail-slim .board { width: 44px; padding-top: 8px; overflow-x: hidden; scrollbar-width: none; }
+  body.rail-slim .board::-webkit-scrollbar { display: none; }
+  body.rail-slim :is(.r-grip, #rail-find, #rail-keys, .col-path, .ck, .col-hint, .col-empty, .board-empty, .sub, .rask, .qstop, .col.folded),
+  body.rail-slim .col[data-col="waiting"]:not(:has(.tile-wrap)) { display: none; }
+  body.rail-slim .col { padding: 0; }
+  body.rail-slim .col-h { min-height: 0; height: 1px; margin: 6px 12px; padding: 0; background: var(--line-strong); overflow: hidden; }
+  body.rail-slim .col-h > * { display: none; }
+  body.rail-slim .col[data-col="waiting"] .col-h { background: var(--amber-line); }
+  body.rail-slim .col-body { gap: 4px; }
+  body.rail-slim .srow, body.rail-slim .srow.ov { width: 28px; height: 28px; margin: 0; padding: 0; gap: 0; justify-content: center; }
+  body.rail-slim .srow.ov { margin: 0 8px 2px; }
+  body.rail-slim .srow > :not(.glyph, .ov-mark, .tname) { display: none; }
+  body.rail-slim .srow > .tname { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  body.rail-slim .srow .glyph { width: 9px; height: 9px; }
+}
 /* Narrow, the rail takes the width and the open session covers it. */
 @media (max-width: 860px) {
+  .rail-btn { display: none; }
   .stage { padding: 0; gap: 0; }
   .board { flex: 1; width: auto; border-radius: 0; }
   .r-grip { display: none; }
@@ -945,6 +968,7 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 </head>
 <body>
 <header class="top">
+  <button class="rail-btn" type="button" id="rail-btn" aria-controls="board" aria-expanded="true" aria-label="Sessions"></button>
   <span class="brand">Glue</span>
   <div class="ws-switch" id="ws-switch" role="tablist" aria-label="Workspaces" hidden></div>
   <span class="live down" id="conn">Connecting</span>
@@ -1566,7 +1590,7 @@ railFind.hidden = true;
 $('board').prepend(railFind);
 const kb = (...keys) => keys.map((k) => el('kbd', { text: k }));
 $('board').append(el('div', { id: 'rail-keys', 'aria-hidden': 'true' },
-  el('span', {}, ...kb('↑', '↓'), ' move'), el('span', {}, ...kb('→'), ' subagents'), el('span', {}, ...kb('n'), ' next needs you'), el('span', {}, ...kb('/'), ' find')));
+  el('span', {}, ...kb('↑', '↓'), ' move'), el('span', {}, ...kb('→'), ' subagents'), el('span', {}, ...kb('n'), ' next needs you'), el('span', {}, ...kb('/'), ' find'), el('span', {}, ...kb('['), ' collapse')));
 new ResizeObserver(() => $('board').classList.toggle('narrow', $('board').clientWidth < 240)).observe($('board'));
 const matchesQuery = (s) => !railQuery || label(s).toLowerCase().includes(railQuery);
 function showFind(on) {
@@ -1586,7 +1610,7 @@ function railRows() {
       const s = w.dataset?.sid && sessionOf(w.dataset.sid);
       if (!s) continue;
       if (w.classList.contains('tile-wrap')) rows.push({ kind: 'session', s, el: w.firstChild });
-      else if (w.classList.contains('sub')) { const a = s.subagents.find((x) => x.agentId === w.dataset.aid); if (a) rows.push({ kind: 'sub', s, a, el: w }); }
+      else if (w.classList.contains('sub') && !slimShown()) { const a = s.subagents.find((x) => x.agentId === w.dataset.aid); if (a) rows.push({ kind: 'sub', s, a, el: w }); }
     }
   }
   return rows;
@@ -1630,13 +1654,14 @@ function railKeys(e) {
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); moveSel(e.key === 'ArrowDown' ? 1 : -1); }
   else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
     const s = sessionOf(open);
-    if (!s?.subagents.length) return;
+    if (slimShown() || !s?.subagents.length) return; // slim, no subagent rows show
     e.preventDefault();
     if (e.key === 'ArrowLeft' && subFocus && s.subagents.some((a) => a.agentId === subFocus)) { subFocus = null; tiles.get(s.sessionId)?.btn.focus({ preventScroll: true }); }
     setTree(s, e.key === 'ArrowRight');
   }
   else if (e.key === 'n' && !e.shiftKey) { e.preventDefault(); nextNeedsYou(); }
-  else if (e.key === '/') { e.preventDefault(); showFind(true); }
+  else if (e.key === '/') { e.preventDefault(); if (slimShown()) setRailSlim(false); showFind(true); }
+  else if (e.key === '[' && wideEnough.matches) { e.preventDefault(); setRailSlim(!railSlim); }
 }
 document.addEventListener('keydown', railKeys);
 function tileAction(s, st) {
@@ -1770,7 +1795,7 @@ function tile(s) {
   t.subRows = treeOn ? s.subagents.map((a, i) => subRow(s, a, i === s.subagents.length - 1)) : [];
   setAttr(t.btn, 'data-state', st);
   setAttr(t.btn, 'aria-current', String(open === id));
-  setAttr(t.btn, 'title', tipOf(s, st));
+  setAttr(t.btn, 'title', slimShown() ? `${label(s)}\n${tipOf(s, st)}` : tipOf(s, st)); // slim, the row shows no name
   setAttr(t.glyph, 'data-s', st);
   setText(t.name, label(s));
   // Under Needs you a row is away from its repository's section, so it names the repository.
@@ -1960,7 +1985,7 @@ function renderDrawer(vis) {
   d.classList.toggle('term-on', termOn);
   $('d-term').hidden = !termOn;
   if (termOn) openTerm(s); else if (termView) closeTerm();
-  patch($('d-head'), JSON.stringify([s.sessionId, st, label(s), s.cwd, here, s.kind, s.inRoster, Boolean(s.leftRosterAt), s.state, noteText, s.hostsPanel, s.mode, s.git, s.gh, s.mismatch, sharers, elsewhere, s.oldVersion, snap.profile?.command, wideSession, s.termable, termOn]), () => [
+  patch($('d-head'), JSON.stringify([s.sessionId, st, label(s), s.cwd, here, s.kind, s.inRoster, Boolean(s.leftRosterAt), s.state, noteText, s.hostsPanel, s.mode, s.git, s.gh, s.mismatch, sharers, elsewhere, s.oldVersion, snap.profile?.command, s.termable, termOn]), () => [
     el('div', { class: 'd-top' }, glyph(st), el('h2', { class: 'd-name', text: label(s), title: label(s) }),
       el('span', { class: 'd-meta', title: where ? where.long : null },
         el('span', { class: 'st', 'data-s': st, text: stateWord }), ' · ', KIND[s.kind]?.replace(' session', '') || 'Headless',
@@ -1969,9 +1994,6 @@ function renderDrawer(vis) {
       s.termable ? el('div', { class: 'vtabs', role: 'tablist', 'aria-label': 'How to show it' },
         el('button', { type: 'button', role: 'tab', 'aria-selected': String(!termOn), title: 'Its conversation, with the box to reply', onclick: () => { termWant.delete(s.sessionId); render(); } }, 'Chat'),
         el('button', { type: 'button', role: 'tab', 'aria-selected': String(termOn), title: 'Its own Claude Code screen: type into it as in claude attach', onclick: () => { termWant.add(s.sessionId); render(); } }, 'Terminal')) : null,
-      el('button', { class: 'btn icon d-expand', type: 'button', 'aria-pressed': String(wideSession), 'aria-label': wideSession ? 'Collapse' : 'Expand',
-        title: wideSession ? 'Show the board beside it again' : 'Give it the whole window', onclick: () => setLayout('wideSession', !wideSession) },
-        svgIcon(wideSession ? 'M10 4H4v6M14 20h6v-6M4 4l7 7M20 20l-7-7' : 'M4 10V4h6M20 14v6h-6M20 4l-7 7M4 20l7-7')),
       el('button', { class: 'btn icon', type: 'button', 'aria-label': 'Close', title: 'Close (Esc)', onclick: () => { cancelAdvance(); open = null; render(); } }, svgIcon('M6 6l12 12M18 6L6 18'))),
     placeBar(s, here),
     noteText ? el('p', { class: 'note', text: noteText }) : null,
@@ -2480,17 +2502,28 @@ function pref(key, value) {
   try { if (value === undefined) return localStorage.getItem(key); localStorage.setItem(key, value); } catch {}
   return null;
 }
-let wideSession = pref('acp.wideSession') === '1', sideFolded = pref('acp.sideFolded') === '1';
-function setLayout(which, on) {
-  wideSession = on;
-  pref('acp.wideSession', on ? '1' : '0');
+// The rail collapses to a slim strip. It took over from Expand (acp.wideSession), which hid the rail beside a session.
+if (pref('acp.railSlim') === null && pref('acp.wideSession') === '1') pref('acp.railSlim', '1');
+try { localStorage.removeItem('acp.wideSession'); } catch {}
+let railSlim = pref('acp.railSlim') === '1', sideFolded = pref('acp.sideFolded') === '1';
+function setRailSlim(on) {
+  railSlim = on;
+  pref('acp.railSlim', on ? '1' : '0');
   applyLayout();
   render();
 }
 function applyLayout() {
-  document.body.classList.toggle('wide-session', wideSession);
+  document.body.classList.toggle('rail-slim', railSlim);
+  const b = $('rail-btn');
+  b.setAttribute('aria-expanded', String(!railSlim));
+  b.title = railSlim ? 'Show the sessions ([)' : 'Collapse the sessions ([)';
 }
+$('rail-btn').onclick = () => setRailSlim(!railSlim);
 applyLayout();
+// Under 860px the rail takes the whole width and never goes slim (the CSS matches this width).
+const wideEnough = matchMedia('(min-width: 861px)');
+const slimShown = () => railSlim && wideEnough.matches;
+wideEnough.addEventListener('change', () => render());
 /** A panel with room for a column beside the chat gets its details there; a narrower one keeps them under the conversation. */
 function placeSide(s) {
   const roomy = $('drawer').clientWidth >= 900;
@@ -4344,7 +4377,7 @@ function setGlueTab(panel) {
 function setGlueLook(box, g) {
   const app = window.glueApp;
   const keys = [[['↑', '↓'], 'Move through the sessions in the rail'], [['→', '←'], 'Open or close a session’s subagents'], [['n'], 'The next session that needs you'],
-    [['/'], 'Find a session by name'], [['⌃1–9'], 'Show that workspace'], [[','], 'Open Settings'], [['Esc'], 'Close what is open'],
+    [['/'], 'Find a session by name'], [['['], 'Collapse the sessions to a strip, or show them'], [['⌃1–9'], 'Show that workspace'], [[','], 'Open Settings'], [['Esc'], 'Close what is open'],
     ...(app ? [[[app.newAgent ?? '⌘T'], 'Start a new agent']] : []), ...(app?.settings ? [[[app.settings], 'Open Settings, from the Glue menu']] : [])];
   const fold = (k) => g.folded.includes(k);
   setPatch(box, JSON.stringify([g.theme, fold('loose'), fold('finished'), Boolean(app)]), () => [
