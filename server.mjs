@@ -27,7 +27,7 @@ import { createOverseer, migrateFrom } from './overseer.mjs';
 import { createWatcher } from './watcher.mjs';
 import { parseClaudeAuth, parseGhAuth, claudeLoginCommand, loginScript, LOGIN_ERROR } from './setup.mjs';
 import { migrateFolders } from './migrate.mjs';
-import { createStore } from './workspaces.mjs';
+import { createStore, countOnly } from './workspaces.mjs';
 
 // `node server.mjs <command>` runs the CLI (cli.mjs) and never starts the server.
 if (process.argv.length > 2) { const { main } = await import('./cli.mjs'); process.exit(await main(process.argv.slice(2))); }
@@ -1829,26 +1829,82 @@ const github = createGithub({
     const p = placeOf(s);
     return p?.common ? { sessionId: s.sessionId, common: p.common, branch: p.branch, at: s.lastEventAt ?? s.startedAt ?? 0 } : null;
   }).filter(Boolean),
-  notify,
+  notify: (title, text, about) => notifyFor(about?.slug, title, text),
   onEvent: (ev) => onGithubEvent(ev),
   onChange: () => { broadcast(); watcherCheck(); },
 });
 let onGithubEvent = () => {}, watcherCheck = () => {};
+
+// GitHub, sealed: the poller is one, shared by every workspace (one GitHub account); what it found is cut to a workspace
+// on the way out. A repository shows in the workspaces it is sorted into, by name; one sorted into none only as a count.
+// With one workspace there is nothing to sort repositories into, so every one is in it, as before workspaces.
+/** The workspaces repository `slug` is sorted into; [] when it is in none. */
+const reposIn = (slug) => store.reposOf('gh:' + slug);
+const repoShownIn = (slug, wsId) => W.size === 1 || reposIn(slug).includes(wsId);
+/** `snap.github` for a page shown `wsId`: its repositories only, the session ids on their pull requests and runs its own
+ *  only, and the repositories in no workspace as `unsorted`, a count. */
+function githubFor(wsId) {
+  const g = github.state();
+  if (W.size === 1) return { ...g, unsorted: 0 };
+  const own = (ids) => (Array.isArray(ids) ? ids.filter((sid) => sessions.get(sid)?.ws === wsId) : []);
+  let unsorted = 0;
+  const repos = [];
+  for (const r of g.repos) {
+    const ws = reposIn(r.slug);
+    if (!ws.length) { unsorted++; continue; }
+    if (!ws.includes(wsId)) continue;
+    repos.push({ ...r, prs: r.prs.map((p) => ({ ...p, sessions: own(p.sessions) })), runs: r.runs.map((x) => ({ ...x, sessions: own(x.sessions) })) });
+  }
+  return { ...g, repos, unsorted };
+}
+/** GitHub's side of a session working at `place`, as workspace `wsId` sees it: none for a repository that only other
+ *  workspaces hold. One in no workspace is the session's own to see. */
+function sessionGh(place, wsId) {
+  const gh = place ? github.forSession(place.common, place.branch) : null;
+  if (!gh || W.size === 1) return gh;
+  const ws = reposIn(gh.slug);
+  return ws.length && !ws.includes(wsId) ? null : gh;
+}
+/** The workspaces whose sessions work in repository `slug`. */
+const wsWorkingIn = (slug) => [...new Set([...sessions.values()].filter((s) => {
+  const p = placeOf(s);
+  return p?.common && github.forSession(p.common, p.branch)?.slug === slug;
+}).map((s) => s.ws))];
+/** Whether a page shown `wsId` may have a run in `slug` read or handed out: the repository is sorted there, or into no
+ *  workspace while one of its own sessions works in it (that session's card shows the run). */
+const slugUsableIn = (slug, wsId) => repoShownIn(slug, wsId) || (!reposIn(slug).length && wsWorkingIn(slug).includes(wsId));
+/** A desktop notification about something in workspaces `ids`: as given when one of them is in focus (or there is only
+ *  one workspace), else only the first one's name and a count. In none (a repository nobody sorted, with no session in
+ *  it), no name at all. */
+function notifyIn(ids, title, text, { waits = false } = {}) {
+  if (W.size === 1 || ids.includes(store.focus())) return notify(title, text);
+  const id = wsOrder().find((w) => ids.includes(w));
+  if (!id) return notify('Glue', 'A check failed in a repository that is in no workspace yet.');
+  const c = countOnly(wsView(id).name, { waits });
+  return notify(c.title, c.text);
+}
+/** A CI failure in repository `slug`: told in the workspaces it is sorted into, else those whose sessions work in it. */
+function notifyFor(slug, title, text) {
+  const ws = typeof slug === 'string' && slug ? reposIn(slug) : [];
+  return notifyIn(ws.length ? ws : typeof slug === 'string' && slug ? wsWorkingIn(slug) : [], title, text);
+}
 /** The failing log of a run or check the panel shows, trimmed, with the message that would hand it to an agent. */
-async function githubLog(body) {
+async function githubLog(body, ctx) {
   const slug = String(body?.slug ?? ''), runId = String(body?.runId ?? '');
+  if (!slugUsableIn(slug, ctx?.focus)) return { ok: false, error: REFUSE };
   if (!/^\d+$/.test(runId) || !github.knows(slug, runId)) return { ok: false, error: 'That run is not one the panel shows any more. Refresh and try again.' };
   return github.failedLog({ slug, runId, jobId: /^\d+$/.test(String(body?.jobId ?? '')) ? String(body.jobId) : undefined });
 }
 /** Sends a failing log to the agent on that branch, through the same path as a reply typed in the panel. */
-async function githubHand(body) {
+async function githubHand(body, ctx) {
   const s = sessions.get(body?.sessionId);
   if (!s) return { ok: false, error: 'That session is gone.' };
-  const p = placeOf(s), gh = p && github.forSession(p.common, p.branch);
+  if (!slugUsableIn(String(body?.slug ?? ''), ctx?.focus)) return { ok: false, error: REFUSE };
+  const p = placeOf(s), gh = sessionGh(p, ctx?.focus);
   if (!gh || gh.slug !== body?.slug) return { ok: false, error: 'That run is from another repository than this session works in.' };
   let text = typeof body?.text === 'string' ? body.text.trim() : '';
   if (!text) {
-    const log = await githubLog(body);
+    const log = await githubLog(body, ctx);
     if (!log.ok) return log;
     text = log.message;
   } else if (!github.knows(String(body.slug), String(body.runId ?? ''))) return { ok: false, error: 'That run is not one the panel shows any more. Refresh and try again.' };
@@ -1894,7 +1950,7 @@ function overseerBoard(wsId) {
       repo: p ? path.basename(p.repo) : null, worktree: p?.worktree ?? null, branch: p?.branch ?? null, folder: s.ranCwd ?? s.hereCwd ?? s.cwd ?? null,
       mode: s.mode ?? null, tool: isWorking(s) && s.lastTool ? `${s.lastTool.tool}: ${s.lastTool.text}` : null, asks: held.map(askOf),
       subagents: [...s.subagents.values()].map((a) => ({ type: a.agentType ?? null, title: a.title ?? null, running: !a.stoppedAt })),
-      said: s.lastMessage ?? null, gh: p ? github.forSession(p.common, p.branch) : null };
+      said: s.lastMessage ?? null, gh: sessionGh(p, wsId) };
   }) };
 }
 /** What a message to it does now: goes in at once, waits until it is done, or restarts it in the background (which,
@@ -1946,7 +2002,7 @@ function overseerOf(id) {
   try { if (!fs.existsSync(file)) seed = migrateFrom(OLD_OVERSEER, key); } catch {}
   o = createOverseer({
     file, profile: key, seed,
-    ask: (args, opts) => askModel(args, { ...opts, env: envOf(ws()) }), board: () => overseerBoard(id), github: () => github.state(),
+    ask: (args, opts) => askModel(args, { ...opts, env: envOf(ws()) }), board: () => overseerBoard(id), github: () => githubFor(id),
     history: (sessionId, limit) => (ownedBy(id, sessionId) ? history({ sessionId, limit }, { ws: ws() }) : { ok: false, error: REFUSE }),
     actions: {
       reply: (body) => (ownedBy(id, body?.sessionId) ? reply(body) : { ok: false, error: REFUSE }),
@@ -1984,10 +2040,15 @@ const watcher = createWatcher({
   // It acts on a pull request through the workspace of the session on its branch, when that workspace has auto-fix on and
   // holds the repository. With one workspace there are no folders to sort repositories into, so it holds them all.
   wsOf: (sessionId) => sessions.get(sessionId)?.ws ?? null,
-  repoIn: (slug, wsId) => W.size === 1 || store.reposOf('gh:' + slug).includes(wsId),
+  repoIn: repoShownIn,
   // Its cards and lines go to the overseer of the session's own workspace (none, and dropped, when no workspace knows it).
   suggest: (sessionId, text, why, say) => overseerOfSession(sessionId)?.suggest({ sessionId, text, why, say }) ?? null,
-  failedLog: (q) => github.failedLog(q), notify, note: (type, f) => overseerOfSession(f?.sessionId)?.note(type, f), onChange: () => broadcast(),
+  // Its desktop notifications say what it did when the session's workspace is in focus, else only that a check failed (or
+  // that a card waits for you) there.
+  failedLog: (q) => github.failedLog(q), notify: (title, text, about) => {
+    const w = typeof about?.sessionId === 'string' ? wsIdOfSession(about.sessionId) : null;
+    notifyIn(w ? [w] : typeof about?.slug === 'string' ? reposIn(about.slug) : [], title, text, { waits: about?.waits === true });
+  }, note: (type, f) => overseerOfSession(f?.sessionId)?.note(type, f), onChange: () => broadcast(),
 });
 watcherCheck = () => { watcher.check().catch((e) => console.error('watcher:', e?.message ?? e)); };
 /** The overseer keeps one conversation per profile, by an id it accepts: the profile's own when it is plain, else one
@@ -2114,13 +2175,13 @@ function snapshot(wsId) {
     sessions: [...sessions.values()].filter((s) => s.ws === wsId).map(({ spawns, hereCwd, rosterCwd, ranCwd, editTops, ...s }) => {
       const here = ranCwd ?? hereCwd ?? s.cwd, place = gitPlace(here), git = placeOut(place);
       return {
-      ...s, git, workCwd: here, gh: place ? github.forSession(place.common, place.branch) : null, elsewhere: (editTops ?? []).filter((t) => t !== git?.top).slice(0, 3).map((t) => placeOut(gitPlace(t))).filter(Boolean),
+      ...s, git, workCwd: here, gh: sessionGh(place, wsId), elsewhere: (editTops ?? []).filter((t) => t !== git?.top).slice(0, 3).map((t) => placeOut(gitPlace(t))).filter(Boolean),
       stopping: stops.has(stopKey(s.sessionId, null)), hostsPanel: hostPids.has(s.pid), termable: !termable(s),
       queued: inbox.get(s.sessionId) ?? [], working: isWorking(s),
       subagents: [...s.subagents.values()].map((a) => ({ ...a, stopping: !a.stoppedAt && stops.has(stopKey(s.sessionId, a.agentId)) })),
     }; }),
     pending: [...[...pending.values()].filter((p) => p.ws === wsId).map(({ res, timer, ...p }) => p), ...openRequests(wsId)],
-    github: github.state(), overseer: overseerOf(wsId)?.status() ?? null, watcher: watcherOf(wsId),
+    github: githubFor(wsId), overseer: overseerOf(wsId)?.status() ?? null, watcher: watcherOf(wsId),
     _ts: now,
   };
 }
@@ -2285,7 +2346,7 @@ async function handle(req, res) {
                       '/api/answer-open': answerOpen, '/api/history': history, '/api/follow': followSession,
                       '/api/trust-terminal': openTrustTerminal,
                       '/api/setup/check': setupCheckNow, '/api/setup/done': setupDone, '/api/setup/login': openLoginTerminal,
-                      '/api/github/refresh': () => { github.refresh(); return { ok: true, github: github.state() }; },
+                      '/api/github/refresh': (b, c) => { github.refresh(); return { ok: true, github: githubFor(c.focus) }; },
                       '/api/github/log': githubLog, '/api/github/hand': githubHand, ...OVERSEER,
                       '/api/watcher/enabled': (b, c) => watcher.setEnabled(b?.on, c.focus),
                       '/api/term/open': termOpen, '/api/term/input': termInput, '/api/term/resize': termResize, '/api/term/close': termClose };

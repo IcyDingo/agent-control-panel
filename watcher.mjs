@@ -53,7 +53,8 @@ export function messageOf(kind, pr, slug, { log, attempt } = {}) {
  * @param {Function} deps.send       async (sessionId, text) => reply()'s result
  * @param {Function} deps.suggest    (sessionId, text, why, say) => the overseer's card
  * @param {Function} deps.failedLog  async ({ slug, runId, jobId }) => github.failedLog()'s result
- * @param {Function} deps.notify     (title, text) => void
+ * @param {Function} deps.notify     (title, text, { sessionId, slug, waits }) => void: about that session's pull request;
+ *                                   `waits` when a card waits for your click
  * @param {Function} deps.note       (type, fields) => void, the overseer's feed
  * @param {Function} deps.wsOf       (sessionId) => the id of the workspace the session belongs to, or null
  * @param {Function} deps.repoIn     (slug, wsId) => whether that workspace holds the repository (an unsorted one is held by none)
@@ -105,7 +106,7 @@ export function createWatcher({ file, github, session, send, suggest, failedLog,
     if (n > MAX_FIXES) {
       if (!mem.capped[at]) {
         mem.capped[at] = now();
-        tell(notify, 'Glue · PR still not going in', `#${pr.number} in ${repo.slug}: ${WHAT[p.kind]}, after ${MAX_FIXES} fixes asked of ${s.name}. Over to you.`);
+        tell(notify, 'Glue · PR still not going in', `#${pr.number} in ${repo.slug}: ${WHAT[p.kind]}, after ${MAX_FIXES} fixes asked of ${s.name}. Over to you.`, { sessionId: sid, slug: repo.slug });
         tell(note, 'fix-capped', { sessionId: sid, name: s.name, slug: repo.slug, text: `#${pr.number} in ${repo.slug}: ${WHAT[p.kind]} after ${MAX_FIXES} fixes asked of ${s.name}. Over to you.` });
       }
       save(); return;
@@ -123,7 +124,7 @@ export function createWatcher({ file, github, session, send, suggest, failedLog,
       if (r?.ok) {
         mem.fixes[at] = n;
         result = r.queued ? 'asked; it reads it once it is done' : 'asked';
-        tell(notify, 'Glue · fix asked', `Asked ${s.name} to fix #${pr.number} in ${repo.slug}: ${WHAT[p.kind]} (${n} of ${MAX_FIXES}).`);
+        tell(notify, 'Glue · fix asked', `Asked ${s.name} to fix #${pr.number} in ${repo.slug}: ${WHAT[p.kind]} (${n} of ${MAX_FIXES}).`, { sessionId: sid, slug: repo.slug });
         tell(note, 'fix-sent', { sessionId: sid, name: s.name, slug: repo.slug, text: `Asked ${s.name} to fix #${pr.number} in ${repo.slug}: ${WHAT[p.kind]} (${n} of ${MAX_FIXES}).` });
       } else {
         // Not taken (busy, or a message still on its way): asked again in five minutes, and you hear of it once.
@@ -134,17 +135,17 @@ export function createWatcher({ file, github, session, send, suggest, failedLog,
         mem.last[at] = { kind: p.kind, at: now(), result, fixes: mem.fixes[at] ?? 0 };
         save();
         if (!first) return;
-        tell(notify, 'Glue · fix not sent', `#${pr.number} in ${repo.slug}: ${WHAT[p.kind]}, and ${s.name} could not be told (${r?.error ?? 'no answer'}).`);
+        tell(notify, 'Glue · fix not sent', `#${pr.number} in ${repo.slug}: ${WHAT[p.kind]}, and ${s.name} could not be told (${r?.error ?? 'no answer'}).`, { sessionId: sid, slug: repo.slug });
         tell(note, 'fix-failed', { sessionId: sid, name: s.name, slug: repo.slug, text: `#${pr.number} in ${repo.slug}: ${WHAT[p.kind]}; ${s.name} could not be told: ${r?.error ?? 'no answer'}` });
       }
     } else if (s.kind === 'interactive') {
       mem.fixes[at] = n;
       result = 'proposed, waiting for your click';
       tell(suggest, sid, text, why, `#${pr.number} in ${repo.slug}: ${WHAT[p.kind]}. ${s.name} runs in a terminal window, so sending this closes Claude there and carries it on in the background. Send it, change it, or decline.`);
-      tell(notify, 'Glue · fix to confirm', `#${pr.number} in ${repo.slug}: ${WHAT[p.kind]}. A fix request for ${s.name} waits for your click in the overseer.`);
+      tell(notify, 'Glue · fix to confirm', `#${pr.number} in ${repo.slug}: ${WHAT[p.kind]}. A fix request for ${s.name} waits for your click in the overseer.`, { sessionId: sid, slug: repo.slug, waits: true });
     } else {
       result = 'tell it yourself';
-      tell(notify, 'Glue · PR needs a fix', `#${pr.number} in ${repo.slug}: ${WHAT[p.kind]}. ${s.name} runs where the panel can't message it: tell it in its terminal.`);
+      tell(notify, 'Glue · PR needs a fix', `#${pr.number} in ${repo.slug}: ${WHAT[p.kind]}. ${s.name} runs where the panel can't message it: tell it in its terminal.`, { sessionId: sid, slug: repo.slug });
       tell(note, 'fix-alert', { sessionId: sid, name: s.name, slug: repo.slug, text: `#${pr.number} in ${repo.slug}: ${WHAT[p.kind]}. Tell ${s.name} in its terminal; the panel can't message it.` });
     }
     mem.last[at] = { kind: p.kind, at: now(), result, fixes: mem.fixes[at] ?? 0 };

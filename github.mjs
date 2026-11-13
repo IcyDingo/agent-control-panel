@@ -231,7 +231,7 @@ const worst = (states) => (states.includes('failing') ? 'failing' : states.inclu
  * @param {Function} [deps.ghPath]  () => the gh binary's path, or null when there is none
  * @param {Function} deps.targets   () => [{ sessionId, common, branch, at }]: every session on the board, with its
  *                                  repository's shared git dir, its branch and when it was last active
- * @param {Function} [deps.notify]  (title, text) => void: a desktop notification
+ * @param {Function} [deps.notify]  (title, text, { slug }) => void: a desktop notification about that repository
  * @param {Function} [deps.onEvent] ({ type, slug, text, branch?, pr?, runId?, url, sessions }) => void
  * @param {Function} [deps.onChange] () => void: state() or forSession() would now say something else
  * @param {string} [deps.cwd]    a folder outside any repository, so gh never looks at a repo's own config. If it is gone, calls fail as 'no-cwd', not as gh missing.
@@ -536,8 +536,8 @@ export function createGithub({
       running: prs.some((p) => p.checks === 'running') || shown.some((r) => r.state === 'running'),
       error: null, errorUntil: 0, backoff: 0, lastAt: t, checkedAt: t, baselined: true, polls: repo.polls + 1, mineOnly: Boolean(g.mineOnly),
     });
-    for (const a of alerts.slice(0, 3)) tell(notify, TITLE, a);
-    if (alerts.length > 3) tell(notify, TITLE, `${alerts.length - 3} more ${alerts.length - 3 === 1 ? 'check' : 'checks'} failed in ${slug}.`);
+    for (const a of alerts.slice(0, 3)) tell(notify, TITLE, a, { slug });
+    if (alerts.length > 3) tell(notify, TITLE, `${alerts.length - 3} more ${alerts.length - 3 === 1 ? 'check' : 'checks'} failed in ${slug}.`, { slug });
     for (const e of events) tell(onEvent, e);
   }
 

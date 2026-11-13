@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { COLORS, repoKey, createStore } from '../workspaces.mjs';
+import { COLORS, repoKey, createStore, countOnly } from '../workspaces.mjs';
 
 const PROFILES = [{ id: 'default', dir: '/h/.claude', plain: true }, { id: 'contract', dir: '/h/.claude-contract', plain: false }];
 const tmp = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'glue-ws-')), 'workspaces.json');
@@ -122,4 +122,10 @@ test('a file with such names in it is loaded without them taking hold', () => {
   assert.deepEqual(s.reposOf('__proto__'), []);
   assert.equal(s.get('__proto__'), null);
   assert.equal(s.focus(), 'contract');
+});
+
+test('a notification about a workspace out of focus is its name and a count, nothing else', () => {
+  assert.deepEqual(countOnly('Work'), { title: 'Glue', text: 'Work: a check failed' });
+  assert.deepEqual(countOnly('Work', { waits: true }), { title: 'Glue', text: 'Work: 1 needs you' });
+  assert.deepEqual(countOnly('Private', { waits: false }), { title: 'Glue', text: 'Private: a check failed' });
 });
