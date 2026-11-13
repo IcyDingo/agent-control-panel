@@ -15,6 +15,7 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-term-'));
 const BG = 'abcdef12-3456-4789-8abc-def012345678', BG8 = BG.slice(0, 8);
 const TTY = '12345678-aaaa-4bbb-8ccc-dddddddddddd';
+const SEND = 'fedcba98-7654-4321-8fed-cba987654321', SEND8 = SEND.slice(0, 8); // a background job with a process: it takes a message
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 const work = path.join(home, 'work');
 fs.mkdirSync(work);
@@ -25,18 +26,36 @@ fs.writeFileSync(path.join(home, '.claude', 'settings.json'), '{}');
 fs.writeFileSync(path.join(home, 'roster.json'), JSON.stringify([
   { pid: null, id: BG8, cwd: work, kind: 'background', startedAt: Date.now(), sessionId: BG, name: 'job', status: 'idle', state: 'running' },
   { pid: 99999, cwd: work, kind: 'interactive', startedAt: Date.now(), sessionId: TTY, name: 'tty', status: 'idle', state: 'running' },
+  { pid: 99998, id: SEND8, cwd: work, kind: 'background', startedAt: Date.now(), sessionId: SEND, name: 'sender', status: 'idle', state: 'running' },
 ]));
+// The saved conversation of the job that takes a message: `claude --resume` writes what it was sent there.
+const sendLog = path.join(home, '.claude', 'projects', 'work', SEND + '.jsonl');
+fs.mkdirSync(path.dirname(sendLog), { recursive: true });
+fs.writeFileSync(sendLog, JSON.stringify({ type: 'user', message: { content: 'the first prompt' } }) + '\n');
 // `claude attach <id>` stands in as a raw-mode program: it says hello with its size, echoes what it reads, says its
 // new size on SIGWINCH, and leaves a mark when it is hung up.
 const hup = path.join(home, 'hup');
 const bin = path.join(home, 'bin');
 fs.mkdirSync(bin);
+// What the stand-in leaves behind when a terminal script runs it: the profile it was signed in on, the folder it ran in.
+const loginMark = path.join(home, 'login-mark'), trustMark = path.join(home, 'trust-mark');
+// The desktop's terminal, standing in: it runs what it is given, as a terminal would, with no window.
+fs.writeFileSync(path.join(bin, 'xdg-terminal-exec'), '#!/bin/sh\nexec "$@"\n', { mode: 0o755 });
 fs.writeFileSync(path.join(bin, 'claude'), `#!${process.execPath}
 const fs = require('fs');
 const a = process.argv.slice(2);
 if (a[0] === 'agents') { process.stdout.write(fs.readFileSync(${JSON.stringify(path.join(home, 'roster.json'))}, 'utf8')); process.exit(0); }
-if (a[0] === 'auth') { console.log('{}'); process.exit(0); }
-if (a[0] === 'attach') {
+if (a[0] === 'auth') {
+  if (a[1] === 'login') fs.writeFileSync(${JSON.stringify(loginMark)}, String(process.env.CLAUDE_CONFIG_DIR ?? 'unset'));
+  console.log('{}'); process.exit(0);
+}
+if (!a.length) { fs.writeFileSync(${JSON.stringify(trustMark)}, process.cwd()); process.exit(0); }
+if (a[0] === '--resume') {
+  // Claude Code takes a message for a running job only at a terminal: anything else and it refuses.
+  if (!process.stdout.isTTY) { console.error('not a terminal'); process.exit(1); }
+  fs.appendFileSync(${JSON.stringify(sendLog)}, JSON.stringify({ type: 'user', message: { content: a[3] }, size: process.stdout.columns + 'x' + process.stdout.rows }) + '\\n');
+  setInterval(() => {}, 1000);
+} else if (a[0] === 'attach') {
   process.stdin.setRawMode(true);
   process.stdout.write('ATTACHED ' + a[1] + ' ' + process.stdout.columns + 'x' + process.stdout.rows + '\\r\\n');
   process.on('SIGWINCH', () => process.stdout.write('SIZE ' + process.stdout.columns + 'x' + process.stdout.rows + '\\r\\n'));
@@ -94,6 +113,31 @@ async function until(fn, ms = 10_000, every = 50) {
 /** Everything the terminal printed so far, from its `term` events. */
 const printed = () => named.filter((e) => e.ev === 'term' && e.sessionId === BG).map((e) => Buffer.from(e.data, 'base64').toString()).join('');
 const board = () => frames.findLast((f) => Array.isArray(f?.sessions) && f.sessions.length >= 2);
+
+test('a message for a running background job is handed to Claude Code at a terminal of its own', async () => {
+  assert.ok(await until(() => board()?.sessions.some((x) => x.sessionId === SEND)), 'the roster reached the board: ' + log);
+  const r = await api('/api/reply', { sessionId: SEND, text: 'carry on with the tests' });
+  assert.deepEqual({ ok: r.ok, sent: r.sent }, { ok: true, sent: true }, JSON.stringify(r) + log);
+  const got = fs.readFileSync(sendLog, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).at(-1);
+  assert.equal(got.message.content, 'carry on with the tests');
+  // Off a Mac the terminal is pty-bridge.py's, which has a size. A Mac's is script(1)'s, which has none without a
+  // terminal of its own to copy it from; Claude Code takes the message there all the same.
+  if (process.platform !== 'darwin') assert.match(got.size, /^[1-9]\d*x[1-9]\d*$/, 'the terminal it ran in had no size');
+});
+
+// On a Mac both of these open Terminal.app for real, so they run only where the terminal is the stand-in above.
+const MAC = process.platform === 'darwin' && 'a Mac opens Terminal.app itself';
+test('off a Mac, signing in opens the desktop terminal on a script that runs claude auth login on the profile', { skip: MAC }, async () => {
+  const r = await api('/api/setup/login', { what: 'claude' });
+  assert.equal(r.ok, true, JSON.stringify(r) + log);
+  assert.equal(await until(() => fs.existsSync(loginMark) && fs.readFileSync(loginMark, 'utf8')), 'unset', 'the plain profile: no CLAUDE_CONFIG_DIR');
+});
+
+test('off a Mac, trusting a folder opens the desktop terminal on Claude Code in that folder', { skip: MAC }, async () => {
+  const r = await api('/api/trust-terminal', { path: work });
+  assert.equal(r.ok, true, JSON.stringify(r) + log);
+  assert.equal(await until(() => fs.existsSync(trustMark) && fs.readFileSync(trustMark, 'utf8')), fs.realpathSync(work));
+});
 
 test('a background job opens in the terminal; a terminal session does not', async () => {
   const snap = await until(board);

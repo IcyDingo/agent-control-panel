@@ -8,17 +8,20 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LABEL, plistPath, logPath, install, remove, status } from './daemon.mjs';
 import { migrateFolders } from './migrate.mjs';
+import { dataDir } from './paths.mjs';
 
 const USAGE = 'usage: node server.mjs daemon install|remove|status | status';
 
 /** Where this panel keeps its preferences; ACP_PREFS gives a second panel a folder of its own. */
-export const prefsPath = () => process.env.ACP_PREFS || path.join(os.homedir(), 'Library', 'Application Support', 'Glue', 'prefs.json');
+export const prefsPath = () => process.env.ACP_PREFS || path.join(dataDir(), 'prefs.json');
 
 /** Runs one command and returns the exit code: 0 done, 1 launchctl refused, 2 the command is not one of ours. */
-export async function main(argv) {
+export async function main(argv, { platform = process.platform } = {}) {
   const [cmd, sub] = argv;
-  if (cmd === 'status' && argv.length === 1) return main(['daemon', 'status']);
+  if (cmd === 'status' && argv.length === 1) return main(['daemon', 'status'], { platform });
   if (cmd !== 'daemon' || argv.length !== 2 || !['install', 'remove', 'status'].includes(sub)) { console.error(USAGE); return 2; }
+  // The service is a launchd agent. On Linux the app keeps the panel running, and starts with you when asked to.
+  if (platform !== 'darwin') { console.error('The background service is for macOS. On Linux, turn on Start at login in the Glue app.'); return 1; }
   const port = Number(process.env.ACP_PORT ?? 4747);
   try {
     if (sub === 'install') {
