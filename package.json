@@ -1,15 +1,22 @@
 {
   "name": "glue",
+  "productName": "Glue",
   "version": "0.1.0",
   "private": true,
-  "description": "Local browser panel for Claude Code sessions, subagents and permission requests",
+  "description": "Every Claude Code session on this computer, with its subagents and permission requests, in one window",
   "type": "module",
+  "main": "desktop/main.mjs",
+  "desktopName": "glue.desktop",
+  "homepage": "https://github.com/IcyDingo/agent-control-panel",
+  "author": "IcyDingo <IcyDingo@users.noreply.github.com>",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "start": "node server.mjs",
-    "test": "node --no-warnings=ExperimentalWarning --test"
+    "test": "node --no-warnings=ExperimentalWarning --test",
+    "desktop": "electron .",
+    "dist:linux": "electron-builder --linux --publish never"
   },
   "license": "MIT",
   "repository": {
@@ -17,6 +24,14 @@
     "url": "https://github.com/IcyDingo/agent-control-panel.git"
   },
   "os": [
-    "darwin"
-  ]
+    "darwin",
+    "linux"
+  ],
+  "dependencies": {
+    "electron-updater": "6.8.11"
+  },
+  "devDependencies": {
+    "electron": "45.3.1",
+    "electron-builder": "26.18.0"
+  }
 }
