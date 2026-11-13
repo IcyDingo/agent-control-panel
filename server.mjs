@@ -27,6 +27,7 @@ import { createOverseer } from './overseer.mjs';
 import { createWatcher } from './watcher.mjs';
 import { parseClaudeAuth, parseGhAuth, claudeLoginCommand, loginScript, LOGIN_ERROR } from './setup.mjs';
 import { migrateFolders } from './migrate.mjs';
+import { createStore } from './workspaces.mjs';
 
 // `node server.mjs <command>` runs the CLI (cli.mjs) and never starts the server.
 if (process.argv.length > 2) { const { main } = await import('./cli.mjs'); process.exit(await main(process.argv.slice(2))); }
@@ -80,7 +81,6 @@ const clients = new Set();
 let releaseTimer = null;
 const watched = () => clients.size > 0 || releaseTimer !== null;
 let armed = true;
-let rosterError = null;
 
 // A server started from inside a Claude Code session inherits its markers (CLAUDE_CODE_CHILD_SESSION and
 // friends); passed on, they make a launched session skip its transcript and stay out of `claude agents`.
@@ -123,36 +123,93 @@ function describeProfile(p) {
            effort: EFFORTS.has(effort) ? effort : null,
            command: cliOf(p) };
 }
-let profile = null, profileInfo = null, profileGen = 0, polls = 0, configDir = null, childEnv = baseEnv;
-function useProfile(p) {
-  profile = p;
-  profileInfo = describeProfile(p);
-  configDir = p.dir;
-  childEnv = p.plain ? baseEnv : { ...baseEnv, CLAUDE_CONFIG_DIR: p.dir };
-  profileGen++;
+// ---------------------------------------------------------------- workspaces
+// Every profile is a workspace, and every workspace is live at once: its roster is read, its hook events land, its held
+// requests wait, and every process started for one of its sessions runs under its own CLAUDE_CONFIG_DIR. W holds one
+// record per workspace whose profile folder exists; the store (workspaces.mjs) keeps names, colours and repositories,
+// also for a profile that has gone and may come back.
+/** The environment a profile's processes run under: plain `claude` has no CLAUDE_CONFIG_DIR. */
+const envFor = (p) => (p.plain ? baseEnv : { ...baseEnv, CLAUDE_CONFIG_DIR: p.dir });
+/** What stands in when there is no profile yet (a fresh machine): plain `claude`'s, so signing in works from here. */
+const FALLBACK = { id: 'default', dir: path.join(HOME, '.claude'), plain: true, config: path.join(HOME, '.claude.json') };
+const dataDir = path.dirname(PREFS);
+try { fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 }); } catch {}
+const store = createStore({ file: path.join(dataDir, 'workspaces.json'), profiles: listProfiles() });
+/** wsId → { id, profile, env, info, rosterSeeded, rosterError, polls, setup } */
+const W = new Map();
+const makeWs = (p) => ({ id: p.id, profile: p, env: envFor(p), info: describeProfile(p), rosterSeeded: false, rosterError: null, polls: 0,
+                         setup: { claude: { state: 'unknown' }, checkedAt: 0 } });
+const wsById = (id) => W.get(id) ?? null;
+/** The environment every process for this workspace runs under; null (and so refused by run) without one. */
+const envOf = (ws) => ws?.env ?? null;
+/** The workspace a session belongs to: set when the event or roster that introduced it arrived. */
+const wsOfSession = (s) => (s ? wsById(s.ws) : null);
+// Which workspace the snapshot's `profile` and banners describe, and where the launcher starts agents. The panel's
+// profile tabs set it; until each page has a focus of its own, it is one for all of them.
+let shownId = null;
+let serverUp = false;
+/** Brings W in line with the profile folders: a new one becomes a workspace, one whose folder is gone leaves (with its
+ *  sessions; its held requests go back to the terminal). A folder that is still there stays, so a moment when the home
+ *  folder can't be read never empties the panel. */
+function syncWorkspaces() {
+  const list = listProfiles(), want = list.length ? list : [FALLBACK];
+  store.sync(want);
+  let changed = false;
+  for (const p of want) if (W.get(p.id)?.profile.dir !== p.dir) { W.set(p.id, makeWs(p)); changed = true; }
+  for (const ws of [...W.values()]) {
+    if (want.some((p) => p.id === ws.id) || fs.existsSync(ws.profile.dir)) continue;
+    dropWorkspace(ws);
+    changed = true;
+  }
+  if (!W.has(shownId)) shownId = W.keys().next().value ?? null;
+  if (changed && serverUp) { broadcast(); checkSetup(true); }
+}
+function dropWorkspace(ws) {
+  W.delete(ws.id);
+  for (const p of [...pending.values()]) if (p.ws === ws.id) settle(p.id, null, 'its profile is gone');
+  for (const [id, s] of [...sessions]) {
+    if (s.ws !== ws.id) continue;
+    sessions.delete(id);
+    inbox.delete(id);
+    clearStops(id);
+    termEnd(id);
+  }
 }
 {
-  const all = listProfiles();
+  syncWorkspaces();
+  const all = [...W.values()].map((ws) => ws.profile);
   let saved = null;
   try { saved = JSON.parse(small(PREFS, 65536)).profile; } catch {}
   const env = process.env.CLAUDE_CONFIG_DIR ? path.resolve(process.env.CLAUDE_CONFIG_DIR.replace(/^~(?=\/|$)/, HOME)) : null;
   // Picked before, else the one it was started under, else one that already reports here (an app opened from the Dock
   // has no CLAUDE_CONFIG_DIR), else plain `claude`'s.
-  useProfile(all.find((p) => p.id === saved) ?? all.find((p) => p.dir === env) ?? all.find((p) => describeProfile(p).connected)
-    ?? all.find((p) => p.plain) ?? all[0]
-    ?? { id: 'default', dir: path.join(HOME, '.claude'), plain: true, config: path.join(HOME, '.claude.json') });
+  shownId = (all.find((p) => p.id === saved) ?? all.find((p) => p.dir === env) ?? all.find((p) => describeProfile(p).connected)
+    ?? all.find((p) => p.plain) ?? all[0]).id;
+  store.setFocus(shownId);
 }
-/** A hook event from a session of another profile: not ours to show or answer. */
-const otherProfile = (e) => typeof e?.transcript_path === 'string' && !e.transcript_path.startsWith(configDir + path.sep);
-/** The profile folder a hook event's session runs under: its transcript lives in that folder's projects/. */
-function profileDirOf(e) {
-  const tp = typeof e?.transcript_path === 'string' ? e.transcript_path : '';
-  const i = tp.indexOf(path.sep + 'projects' + path.sep);
-  return i > 0 ? tp.slice(0, i) : configDir;
+const shownWs = () => wsById(shownId);
+/** The workspace a hook event's session runs under: its transcript lives in that profile's projects/. A profile seen
+ *  for the first time is looked for at once, so its first event is not lost. An event that names no transcript is the
+ *  shown workspace's, as it always was; one under no profile at all is nobody's (null). */
+function wsOfEvent(e) {
+  const tp = typeof e?.transcript_path === 'string' ? e.transcript_path : null;
+  if (tp == null) return shownWs();
+  const find = () => [...W.values()].find((ws) => tp.startsWith(path.join(ws.profile.dir, 'projects') + path.sep)) ?? null;
+  const hit = find();
+  if (hit) return hit;
+  // Only a folder that could be a profile (~/.claude or ~/.claude-<name>) is worth looking at the home folder again for.
+  const i = tp.indexOf(path.sep + 'projects' + path.sep), dir = i > 0 ? tp.slice(0, i) : '';
+  if (path.dirname(dir) !== HOME || !/^\.claude(-[\w.-]{1,40})?$/.test(path.basename(dir))) return null;
+  syncWorkspaces();
+  return find();
 }
-const run = (cmd, args, opts = {}) => new Promise((resolve) =>
-  execFile(cmd, args, { timeout: 15_000, maxBuffer: 8_000_000, env: childEnv, ...opts },
-    (err, stdout, stderr) => resolve({ err, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') })));
+// Every caller says which environment a process runs under: a session's or workspace's (envOf) or none of them
+// (baseEnv). One that forgets is refused, never run with the panel's own.
+const run = (cmd, args, opts = {}) => new Promise((resolve) => {
+  if (!opts.env) { console.error(`run ${cmd}: no environment given, not run`); return resolve({ err: new Error('no environment given'), stdout: '', stderr: '' }); }
+  execFile(cmd, args, { timeout: 15_000, maxBuffer: 8_000_000, ...opts },
+    (err, stdout, stderr) => resolve({ err, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') }));
+});
 const firstLine = (r) => `${r.stderr}\n${r.stdout}`.split('\n').map((l) => l.trim()).find(Boolean)?.slice(0, 300) || String(r.err?.message ?? 'failed');
 
 // The processes this server runs under. Ending the session it was started from would take the panel down with it.
@@ -160,16 +217,17 @@ const hostPids = new Set();
 (async () => {
   for (let pid = process.ppid, i = 0; pid > 1 && i < 16; i++) {
     hostPids.add(pid);
-    pid = Number((await run('ps', ['-o', 'ppid=', '-p', String(pid)])).stdout.trim());
+    pid = Number((await run('ps', ['-o', 'ppid=', '-p', String(pid)], { env: baseEnv })).stdout.trim());
   }
 })();
 
 // ---------------------------------------------------------------- state
 
-function session(id) {
+/** A session's record, made on first sight in workspace `ws` (an id): the one whose event or roster introduced it. */
+function session(id, ws) {
   let s = sessions.get(id);
   if (!s) {
-    s = { sessionId: id, name: null, cwd: null, hereCwd: null, rosterCwd: null, kind: null, status: null, state: null, waitingFor: null,
+    s = { sessionId: id, ws, name: null, cwd: null, hereCwd: null, rosterCwd: null, kind: null, status: null, state: null, waitingFor: null,
           inRoster: false, lastTool: null, lastMessage: null, note: null, ended: false, subagents: new Map(),
           spawns: [], lastEventAt: Date.now() };
     sessions.set(id, s);
@@ -187,14 +245,15 @@ function clearStops(sessionId) {
   for (const k of stops.keys()) if (k.startsWith(sessionId + ':')) stops.delete(k);
 }
 
-/** Record a hook event. Returns the hook's reply: only an interrupted agent's PreToolUse gets one. */
-function onHookEvent(e) {
+/** Record a hook event from a session of workspace `ws`. Returns the hook's reply: only an interrupted agent's
+ *  PreToolUse gets one. */
+function onHookEvent(e, ws) {
   if (!e?.session_id || isOverseerCall(e.cwd)) return null;
   if (dismissed.has(e.session_id)) {
     if (e.hook_event_name === 'SessionEnd' || e.hook_event_name === 'Stop') return null;
     dismissed.delete(e.session_id); // it is running again
   }
-  const s = session(e.session_id);
+  const s = session(e.session_id, ws.id);
   s.lastEventAt = Date.now();
   if (e.cwd && !s.cwd) s.cwd = e.cwd;
   // Where it is now, for showing its branch only: a session can move (into a worktree, say) after it starts.
@@ -267,7 +326,7 @@ function onHookEvent(e) {
       s.lastMessageAt = Date.now();
       s.note = null;
       stops.delete(stopKey(e.session_id, null));
-      setTimeout(pollRoster, 1500); // a message waiting for this turn to end can go now
+      setTimeout(() => pollRoster(wsOfSession(s)), 1500); // a message waiting for this turn to end can go now
       if (!e.agent_id) feed('finished', s, `${labelOf(s)} finished its turn${s.lastMessage ? `: ${String(s.lastMessage).replace(/\s+/g, ' ').slice(0, 140)}` : '.'}`);
       break;
     }
@@ -293,36 +352,41 @@ function settleSubagents(s) {
   for (const a of s.subagents.values()) a.stoppedAt ??= Date.now();
 }
 
-/** `claude agents --json --all`, or { error }. */
-async function readRoster() {
-  const r = await run('claude', ['agents', '--json', '--all'], { timeout: 5000 });
+/** A workspace's `claude agents --json --all`, or { error }. */
+async function readRoster(ws) {
+  const r = await run('claude', ['agents', '--json', '--all'], { timeout: 5000, env: envOf(ws) });
   if (r.err) return { error: String(r.err.message).slice(0, 200) };
   try { return { list: JSON.parse(r.stdout) }; } catch { return { error: 'claude agents --json returned non-JSON' }; }
 }
 
-// The first roster after a start or a profile switch is what was already there: no "started" lines for it.
-let rosterSeeded = false;
-async function pollRoster() {
-  const gen = profileGen;
-  const { list, error } = await readRoster();
-  if (gen !== profileGen) return; // the profile changed while it read: that roster is the old one's
-  if (++polls % 20 === 0) profileInfo = describeProfile(profile); // its hooks or account may have changed outside the panel
-  if (error) { rosterError = error; broadcast(); return; }
-  rosterError = null;
+/** Every workspace's roster, after looking for profile folders that came or went. */
+function pollAll() {
+  syncWorkspaces();
+  return Promise.all([...W.values()].map((ws) => pollRoster(ws)));
+}
+// The first roster of a workspace (at start, or when its profile appears) is what was already there: no "started" lines.
+async function pollRoster(ws) {
+  if (!ws) return;
+  const { list, error } = await readRoster(ws);
+  if (W.get(ws.id) !== ws) return; // its profile went while it read
+  if (++ws.polls % 20 === 0) ws.info = describeProfile(ws.profile); // its hooks or account may have changed outside the panel
+  if (error) { ws.rosterError = error; broadcast(); return; }
+  ws.rosterError = null;
   const seen = new Set();
   for (const r of list) {
     if (!r.sessionId || isOverseerCall(r.cwd)) continue;
     const over = r.state === 'done' || r.state === 'failed' || r.state === 'stopped';
     if (dismissed.has(r.sessionId)) { if (over) continue; dismissed.delete(r.sessionId); }
     seen.add(r.sessionId);
-    const s = session(r.sessionId), was = { inRoster: s.inRoster, state: s.state, status: s.status };
+    const s = session(r.sessionId, ws.id), was = { inRoster: s.inRoster, state: s.state, status: s.status };
+    s.ws = ws.id; // its profile's own list says whose it is, over an event that named no transcript
     // The roster moving it (into its worktree, say) is newer than the folder its last hook event named.
     if (r.cwd && r.cwd !== s.rosterCwd) { s.rosterCwd = r.cwd; s.hereCwd = null; }
     Object.assign(s, { id: r.id ?? null, name: r.name ?? null, cwd: r.cwd ?? s.cwd, kind: r.kind ?? null,
                        status: r.status ?? null, state: r.state ?? null, waitingFor: r.waitingFor ?? null,
                        pid: r.pid ?? null, startedAt: r.startedAt ?? null, inRoster: true, leftRosterAt: null });
     if (!over) Object.assign(s, { ended: false, closedByPanel: false }); // running again, e.g. resumed with a reply
-    if (rosterSeeded) {
+    if (ws.rosterSeeded) {
       if (!was.inRoster && !over) feed('started', s, `${labelOf(s)} started.`);
       else if (over && was.state !== r.state && was.inRoster) feed(r.state === 'done' ? 'done' : r.state, s, `${labelOf(s)} is ${r.state === 'done' ? 'done' : r.state}.`);
       if (r.status === 'waiting' && was.status !== 'waiting' && was.inRoster) feed('needs-you', s, `${labelOf(s)} waits for you${r.waitingFor ? ` (${r.waitingFor})` : ''}.`);
@@ -346,14 +410,15 @@ async function pollRoster() {
   }
   // Claude Code reads a session as busy while a background task (a dev server, a watch) runs, even when its
   // turn is over and it waits at its prompt. The transcript tells the two apart.
-  for (const s of sessions.values()) s.atPrompt = atPrompt(s);
-  const tasks = [...sessions.values()].some((s) => s.atPrompt) ? await backgroundTasks() : new Map();
-  for (const s of sessions.values()) s.bgTasks = s.atPrompt ? tasks.get(s.pid) ?? 0 : 0;
-  if (gen !== profileGen) return; // switched while it looked at background tasks: the new profile's first roster seeds it
-  rosterSeeded = true;
+  const mine = () => [...sessions.values()].filter((s) => s.ws === ws.id);
+  for (const s of mine()) s.atPrompt = atPrompt(s);
+  const tasks = mine().some((s) => s.atPrompt) ? await backgroundTasks() : new Map();
+  for (const s of mine()) s.bgTasks = s.atPrompt ? tasks.get(s.pid) ?? 0 : 0;
+  if (W.get(ws.id) !== ws) return; // its profile went while it looked at background tasks
+  ws.rosterSeeded = true;
   if (inbox.size) deliverQueued();
   // Gone from the roster = closed or removed: drop its last status so it can't still read "needs you".
-  for (const s of sessions.values()) {
+  for (const s of mine()) {
     if (seen.has(s.sessionId) || !s.inRoster) continue;
     Object.assign(s, { inRoster: false, leftRosterAt: Date.now(), ended: true, status: null, waitingFor: null });
     feed('closed', s, `${labelOf(s)} closed.`);
@@ -366,7 +431,7 @@ async function pollRoster() {
   // background subagent can wait on us while its parent session reads as idle.
   for (const p of [...pending.values()]) {
     const s = sessions.get(p.sessionId);
-    if (p.agentId || !s?.inRoster || Date.now() - p.createdAt < 4000) continue;
+    if (p.agentId || !s?.inRoster || s.ws !== ws.id || Date.now() - p.createdAt < 4000) continue;
     p.notWaiting = s.status === 'waiting' ? 0 : (p.notWaiting ?? 0) + 1;
     if (p.notWaiting >= 2) settle(p.id, null, 'answered in the terminal');
   }
@@ -390,20 +455,20 @@ function prune() {
 
 // ---------------------------------------------------------------- held permission requests
 
-// A request is held for the profile its session runs under, shown while that profile is on the board, and kept
-// through a switch: handing it back would leave a background session's prompt open with no screen to answer it on.
-function holdPermission(e, res) {
-  const id = crypto.randomUUID(), profileDir = profileDirOf(e);
+// A request is held for the workspace its session runs under (`ws`, an id), whichever workspace is on screen: handing it
+// back would leave a background session's prompt open with no screen to answer it on.
+function holdPermission(e, ws, res) {
+  const id = crypto.randomUUID();
   const p = { id, sessionId: e.session_id, agentId: e.agent_id ?? null, agentType: e.agent_type ?? null,
               toolName: e.tool_name, toolInput: e.tool_input ?? {}, toolUseId: e.tool_use_id ?? null, suggestions: e.permission_suggestions ?? [],
               cwd: e.cwd ?? null, permissionMode: e.permission_mode ?? null, createdAt: Date.now(),
-              deadline: Date.now() + HOLD_MS, profileDir, res, timer: null };
+              deadline: Date.now() + HOLD_MS, ws: ws.id, res, timer: null };
   p.timer = setTimeout(() => settle(id, null, 'expired'), HOLD_MS);
   // The hook timed out or its session went away. (A terminal answer does NOT close it: see pollRoster.)
   res.on('close', () => { if (pending.has(id)) settle(id, null, 'closed by Claude Code'); });
   pending.set(id, p);
-  if (e.session_id && profileDir === configDir) {
-    session(e.session_id).lastEventAt = Date.now();
+  if (e.session_id) {
+    session(e.session_id, ws.id).lastEventAt = Date.now();
     feed('needs-you', sessions.get(e.session_id), `${labelOf(sessions.get(e.session_id))} asks: ${askOf(p)}`);
     // A subagent's call is not in this thread.
     try { if (!e.agent_id) threadOf(e.session_id).request(e, { waiting: true }); }
@@ -411,8 +476,8 @@ function holdPermission(e, res) {
   }
   broadcast({ type: 'new-request', id });
 }
-/** The held requests of the profile on the board. */
-const shownPending = () => [...pending.values()].filter((p) => p.profileDir === configDir);
+/** The requests held for a session. */
+const heldFor = (sessionId) => [...pending.values()].filter((p) => p.sessionId === sessionId);
 
 /** Answer a held request. `decision` null = no answer, the terminal dialog decides. */
 function settle(id, decision, why) {
@@ -435,7 +500,6 @@ function settle(id, decision, why) {
 function decide(body) {
   const p = pending.get(body?.id);
   if (!p) return { ok: false, error: 'That request is gone: answered in the terminal or expired.' };
-  if (p.profileDir !== configDir) return { ok: false, error: 'That request belongs to a profile that is not on the board.' };
   let decision;
   if (body.behavior === 'deny') {
     decision = { behavior: 'deny', message: String(body.message || 'Denied from Glue.') };
@@ -512,12 +576,14 @@ function launch(body) {
     if (agent) args.push('--agent', agent);
     if (worktree) args.push('--worktree', ...(wtName ? [wtName] : []));
     args.push('--', prompt);
-    run('claude', args, { cwd, timeout: 30_000 }).then((r) => {
+    // In the workspace on screen, under its profile.
+    const ws = shownWs();
+    run('claude', args, { cwd, timeout: 30_000, env: envOf(ws) }).then((r) => {
       const id = `${r.stdout}\n${r.stderr}`.match(/backgrounded · (\w+)/)?.[1];
-      if (id) { setTimeout(pollRoster, 400); return resolve({ ok: true, id, cwd }); }
+      if (id) { setTimeout(() => pollRoster(ws), 400); return resolve({ ok: true, id, cwd }); }
       const why = firstLine(r);
       if (UNTRUSTED.test(why)) return resolve({ ok: false, untrusted: true,
-        error: `The ${profileLabel()} profile hasn't trusted ${tilde(trustKey(cwd, gitPlace(cwd)?.top))} yet. Claude Code asks once per folder.` });
+        error: `The ${profileLabel(ws)} profile hasn't trusted ${tilde(trustKey(cwd, gitPlace(cwd)?.top))} yet. Claude Code asks once per folder.` });
       fail(why);
     });
   });
@@ -526,6 +592,8 @@ function launch(body) {
 // ---------------------------------------------------------------- interrupt, end, remove
 
 const BG_ID = /^[0-9a-f]{8}$/;
+// A session whose profile folder has gone between its being picked and the action: nothing runs without its profile.
+const NO_WS = 'Its profile is gone, so nothing can be run for it.';
 const liveSession = (body) => {
   const s = sessions.get(String(body?.sessionId ?? ''));
   return s && !dismissed.has(s.sessionId) ? s : null;
@@ -561,23 +629,25 @@ async function end(body) {
   return endSession(s);
 }
 async function endSession(s) {
+  const ws = wsOfSession(s);
+  if (!ws) return { ok: false, error: NO_WS };
   if (s.kind === 'background') {
     if (!BG_ID.test(s.id ?? '')) return { ok: false, error: 'It has no background id to stop.' };
-    const r = await run('claude', ['stop', s.id]);
-    setTimeout(pollRoster, 400);
+    const r = await run('claude', ['stop', s.id], { env: envOf(ws) });
+    setTimeout(() => pollRoster(ws), 400);
     return r.err ? { ok: false, error: firstLine(r) } : { ok: true };
   }
   if (s.kind !== 'interactive') return { ok: false, error: 'Only background and terminal sessions can be ended from here.' };
   // The pid comes from a fresh roster read, never from the browser, and must still be a claude process.
-  const { list } = await readRoster();
+  const { list } = await readRoster(ws);
   const pid = list?.find((r) => r.sessionId === s.sessionId && r.kind === 'interactive')?.pid;
   if (!Number.isInteger(pid) || pid <= 1) return { ok: false, error: 'Could not find its process. It may have closed already.' };
   if (hostPids.has(pid)) return { ok: false, error: 'The panel server runs inside this session. Ending it would stop the panel too.' };
-  const cmd = (await run('ps', ['-o', 'command=', '-p', String(pid)])).stdout.trim();
+  const cmd = (await run('ps', ['-o', 'command=', '-p', String(pid)], { env: baseEnv })).stdout.trim();
   if (!/(^|\/)claude(\s|$)/.test(cmd)) return { ok: false, error: 'Its process is no longer Claude Code, so it was left alone.' };
   try { process.kill(pid, 'SIGTERM'); } catch (e) { return { ok: false, error: `Could not signal its process (${e.code}).` }; }
   s.closedByPanel = true;
-  setTimeout(pollRoster, 600);
+  setTimeout(() => pollRoster(ws), 600);
   return { ok: true };
 }
 
@@ -591,7 +661,9 @@ async function remove(body) {
   const rm = s.kind === 'background' && s.inRoster;
   if (rm) {
     if (!BG_ID.test(s.id ?? '')) return { ok: false, error: 'It has no background id to remove.' };
-    const r = await run('claude', ['rm', s.id]);
+    const ws = wsOfSession(s);
+    if (!ws) return { ok: false, error: NO_WS };
+    const r = await run('claude', ['rm', s.id], { env: envOf(ws) });
     if (r.err) return { ok: false, error: firstLine(r) };
   }
   dismissed.add(s.sessionId);
@@ -608,12 +680,16 @@ const RESUME_MODES = new Set(['default', 'acceptEdits', 'plan', 'auto']);
 
 /** The model, effort and permission mode of a session's last turn, read from the tail of its transcript. */
 const files = new Map(); // sessionId → its transcript
+/** A session's transcript, in its own workspace's profile. One the panel has no record of yet (just launched, say) is
+ *  looked for in the workspace on screen. */
 function transcriptFile(sessionId) {
   if (!UUID.test(sessionId)) return null;
+  const s = sessions.get(sessionId), ws = s ? wsOfSession(s) : shownWs();
+  if (!ws) return null;
+  const root = path.join(ws.profile.dir, 'projects');
   const hit = files.get(sessionId);
-  if (hit && fs.existsSync(hit)) return hit;
+  if (hit && hit.startsWith(root + path.sep) && fs.existsSync(hit)) return hit;
   try {
-    const root = path.join(configDir, 'projects');
     for (const d of fs.readdirSync(root)) {
       const f = path.join(root, d, sessionId + '.jsonl');
       if (fs.existsSync(f)) { files.set(sessionId, f); return f; }
@@ -729,7 +805,7 @@ const atPrompt = (s) => Boolean(s.inRoster && s.status === 'busy' && !isEnded(s)
 
 // Shells Claude Code's Bash tool started that outlive the turn: its background tasks. They end with the session.
 async function backgroundTasks() {
-  const r = await run('ps', ['-A', '-o', 'pid=,ppid=,command=']);
+  const r = await run('ps', ['-A', '-o', 'pid=,ppid=,command='], { env: baseEnv });
   const n = new Map();
   for (const line of r.stdout.split('\n')) {
     const m = line.match(/^\s*\d+\s+(\d+)\s+(.*)$/);
@@ -792,9 +868,9 @@ function ranOn(sessionId) {
 /** `opus` or `opus[1m]` names the model it runs on now (claude-opus-5-5[1m]). */
 const sameModel = (alias, full) => typeof full === 'string' && full.includes(`-${alias.replace('[1m]', '')}-`) && alias.endsWith('[1m]') === full.endsWith('[1m]');
 
-async function rosterSettles(sessionId, done, ms = 12_000) {
+async function rosterSettles(ws, sessionId, done, ms = 12_000) {
   for (const end = Date.now() + ms; Date.now() < end; await new Promise((r) => setTimeout(r, 700))) {
-    const { list } = await readRoster();
+    const { list } = await readRoster(ws);
     if (list && done(list.find((r) => r.sessionId === sessionId))) return true;
   }
   return false;
@@ -812,11 +888,12 @@ const sendingTo = new Set();
 async function sendToBackground(s, text) {
   if (sendingTo.has(s.sessionId)) return { ok: false, error: 'Your last message or mode switch is still on its way.' };
   if (/^[/!]/.test(text)) return { ok: false, error: 'A message that starts with / or ! is not sent this way. Start it with a word.' };
-  const file = transcriptFile(s.sessionId);
+  const file = transcriptFile(s.sessionId), ws = wsOfSession(s);
   if (!file) return { ok: false, error: 'It has no saved conversation yet.' };
+  if (!ws) return { ok: false, error: NO_WS };
   sendingTo.add(s.sessionId);
   const p = spawn('script', ['-q', '/dev/null', 'claude', '--resume', s.sessionId, '--', text],
-    { cwd: s.cwd, env: { ...childEnv, TERM: 'xterm-256color' }, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+    { cwd: s.cwd, env: { ...envOf(ws), TERM: 'xterm-256color' }, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
   let out = '';
   p.stdout.on('data', (d) => { out = (out + d).slice(-4000); });
   p.stderr.on('data', (d) => { out = (out + d).slice(-4000); });
@@ -835,7 +912,7 @@ async function sendToBackground(s, text) {
   sendingTo.delete(s.sessionId);
   if (!seen) return { ok: false, error: 'It did not take your message. ' + (out.replace(/\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07/g, '').replace(/\s+/g, ' ').trim().slice(-160) || 'Try claude attach.') };
   logSent(s, text, 'now');
-  setTimeout(pollRoster, 600);
+  setTimeout(() => pollRoster(ws), 600);
   return { ok: true, sent: true };
 }
 
@@ -857,16 +934,17 @@ const SLASH = fileURLToPath(new URL('./slash-command.py', import.meta.url));
 async function runCommand(s, text) {
   if (s.status === 'waiting' || [...pending.values()].some((p) => p.sessionId === s.sessionId)) return { ok: false, error: 'Answer what it is asking first.' };
   if (sendingTo.has(s.sessionId)) return { ok: false, error: 'Your last message or mode switch is still on its way.' };
-  const file = transcriptFile(s.sessionId);
+  const file = transcriptFile(s.sessionId), ws = wsOfSession(s);
   if (!file) return { ok: false, error: 'It has no saved conversation yet.' };
+  if (!ws) return { ok: false, error: NO_WS };
   sendingTo.add(s.sessionId);
-  const r = await run('python3', [SLASH, s.id, text, file], { cwd: os.homedir(), timeout: 60_000 });
+  const r = await run('python3', [SLASH, s.id, text, file], { cwd: os.homedir(), timeout: 60_000, env: envOf(ws) });
   sendingTo.delete(s.sessionId);
   let out;
   try { out = JSON.parse(r.stdout.trim().split('\n').pop()); } catch { out = { ok: false, error: firstLine(r) || 'The command did not report back.' }; }
   if (!out.ok) return { ok: false, error: out.error };
   logSent(s, text, 'command', Date.now(), { ran: out.ran ?? null, output: trimMid(out.output || null, 3000), status: out.status ?? null });
-  setTimeout(pollRoster, 600);
+  setTimeout(() => pollRoster(ws), 600);
   broadcast();
   return { ok: true, command: true, ran: out.ran ?? null, status: out.status ?? null };
 }
@@ -936,6 +1014,8 @@ async function reply(body) {
   const fail = (error) => ({ ok: false, error });
   const text = typeof body?.text === 'string' ? body.text.trim() : '';
   if (!s) return fail('That session is gone.');
+  const ws = wsOfSession(s); // everything below runs under its own profile
+  if (!ws) return fail(NO_WS);
   if (!text || text.length > 20_000) return fail('Write a reply (up to 20,000 characters).');
   if (text.startsWith('!')) return fail('A message that starts with ! (a shell command) is not sent from here.');
   const command = text.startsWith('/') ? commandOf(text) : null;
@@ -989,13 +1069,13 @@ async function reply(body) {
   if (bgUp || (running && s.pid != null)) {
     const r = await endSession(s);
     if (!r.ok) return r;
-    const gone = await rosterSettles(s.sessionId, (r) => !r || ['stopped', 'failed'].includes(r.state) || (bgUp ? r.pid == null : r.state === 'done'));
+    const gone = await rosterSettles(ws, s.sessionId, (r) => !r || ['stopped', 'failed'].includes(r.state) || (bgUp ? r.pid == null : r.state === 'done'));
     if (!gone) return fail('It did not stop in time, so your reply was not sent. Try again.');
   }
   const args = ['--bg', '--resume', s.sessionId];
   if (!keeps || repick) {
     if (keeps && !tree) {
-      const r = await run('claude', ['rm', s.id]);
+      const r = await run('claude', ['rm', s.id], { env: envOf(ws) });
       if (r.err && !/No job matching/i.test(firstLine(r))) return fail(`It can't be restarted with your reply: ${firstLine(r)}`);
     }
     if (s.name && !s.name.startsWith('-')) args.push('--name', s.name.slice(0, 120));
@@ -1010,13 +1090,13 @@ async function reply(body) {
     if (mode) args.push('--permission-mode', mode);
   }
   args.push('--', text);
-  const r = await run('claude', args, { cwd, timeout: 30_000 });
+  const r = await run('claude', args, { cwd, timeout: 30_000, env: envOf(ws) });
   const id = `${r.stdout}\n${r.stderr}`.match(/backgrounded · (\w+)/)?.[1];
   if (!id) return fail(firstLine(r));
   const copy = Boolean(tree);
   if (copy) s.continuedAs = { id, at: Date.now() }; // the record stays on the board, ended, and says where it went
   else { dismissed.delete(s.sessionId); Object.assign(s, { ended: false, closedByPanel: false, note: null }); }
-  setTimeout(pollRoster, 400);
+  setTimeout(() => pollRoster(ws), 400);
   broadcast();
   if (!body?.fromQueue) logSent(s, text, 'restarted');
   return { ok: true, id, same: s.sessionId.startsWith(id), ...(copy ? { copy } : {}), ...(change ? { restartedOn: want } : {}) };
@@ -1040,8 +1120,10 @@ async function switchMode(body) {
   if (s.status === 'waiting' || [...pending.values()].some((p) => p.sessionId === s.sessionId))
     return { ok: false, error: 'Answer what it is asking first. Allowing it can switch the mode too.' };
   if (sendingTo.has(s.sessionId)) return { ok: false, error: 'Your last message or mode switch is still on its way.' };
+  const ws = wsOfSession(s);
+  if (!ws) return { ok: false, error: NO_WS };
   sendingTo.add(s.sessionId);
-  const r = await run('python3', [MODE_SWITCH, s.id, mode], { cwd: os.homedir(), timeout: 40_000 });
+  const r = await run('python3', [MODE_SWITCH, s.id, mode], { cwd: os.homedir(), timeout: 40_000, env: envOf(ws) });
   sendingTo.delete(s.sessionId);
   let out;
   try { out = JSON.parse(r.stdout.trim().split('\n').pop()); } catch { out = { ok: false, error: firstLine(r) || 'The switch did not report back.' }; }
@@ -1133,10 +1215,12 @@ async function answerOpen(body) {
     picks.push(j >= 0 ? { option: j + 1 } : { other: opts.length + 1, text: a });
   }
   if (sendingTo.has(s.sessionId)) return { ok: false, error: 'Your last message or mode switch is still on its way.' };
+  const ws = wsOfSession(s);
+  if (!ws) return { ok: false, error: NO_WS };
   sendingTo.add(s.sessionId);
   const r = await run('python3', [ANSWER_QUESTION, s.id, JSON.stringify({ questions: qs.map((q) => q.question), picks,
     toolUseId: ask.toolUseId, transcript: transcriptFile(s.sessionId) })],
-    { cwd: os.homedir(), timeout: 60_000 });
+    { cwd: os.homedir(), timeout: 60_000, env: envOf(ws) });
   let out;
   try { out = JSON.parse(r.stdout.trim().split('\n').pop()); } catch { out = { ok: false, error: firstLine(r) || 'It did not report back.' }; }
   // Its conversation shows the answers once Claude Code takes them: check they are the ones picked.
@@ -1144,7 +1228,7 @@ async function answerOpen(body) {
   for (const end = Date.now() + 15_000; out.ok && got == null && Date.now() < end; await new Promise((r) => setTimeout(r, 500))) got = resultOf(s, ask.toolUseId);
   sendingTo.delete(s.sessionId);
   asks.delete(s.sessionId);
-  setTimeout(pollRoster, 500);
+  setTimeout(() => pollRoster(ws), 500);
   broadcast();
   if (!out.ok) return { ok: false, error: out.error };
   if (got == null) return { ok: false, error: 'Its screen took the answers, but its conversation does not show them yet. Look again in a moment.' };
@@ -1165,9 +1249,11 @@ async function answerOpenPlan(s, ask, body) {
     spec = { choice: 'feedback', text };
   } else return { ok: false, error: 'Approve the plan or send it back.' };
   if (sendingTo.has(s.sessionId)) return { ok: false, error: 'Your last message or mode switch is still on its way.' };
+  const ws = wsOfSession(s);
+  if (!ws) return { ok: false, error: NO_WS };
   sendingTo.add(s.sessionId);
   const r = await run('python3', [ANSWER_PLAN, s.id, JSON.stringify({ ...spec, toolUseId: ask.toolUseId, transcript: transcriptFile(s.sessionId) })],
-    { cwd: os.homedir(), timeout: 60_000 });
+    { cwd: os.homedir(), timeout: 60_000, env: envOf(ws) });
   let out;
   try { out = JSON.parse(r.stdout.trim().split('\n').pop()); } catch { out = { ok: false, error: firstLine(r) || 'It did not report back.' }; }
   // Its conversation shows the answer once Claude Code takes it: check it is the one picked.
@@ -1175,7 +1261,7 @@ async function answerOpenPlan(s, ask, body) {
   for (const end = Date.now() + 15_000; out.ok && got == null && Date.now() < end; await new Promise((r) => setTimeout(r, 500))) got = resultOf(s, ask.toolUseId);
   sendingTo.delete(s.sessionId);
   asks.delete(s.sessionId);
-  setTimeout(pollRoster, 500);
+  setTimeout(() => pollRoster(ws), 500);
   broadcast();
   if (!out.ok) return { ok: false, error: out.error };
   if (got == null) return { ok: false, error: 'Its screen took it, but its conversation does not show it yet. Look again in a moment.' };
@@ -1244,13 +1330,14 @@ function readPlace(dir) {
   return null;
 }
 const placeOut = (p) => p && { branch: p.branch, commit: p.commit, worktree: p.worktree, top: p.top, repo: p.repo };
-/** A `worktree` setting as Claude Code would see it from here: local, then project, then user settings. */
-const worktreeSetting = (place, key) => [path.join(place.top, '.claude', 'settings.local.json'), path.join(place.top, '.claude', 'settings.json'), path.join(configDir, 'settings.json')]
+/** A `worktree` setting as Claude Code would see it from here, under workspace `ws`'s profile: local, then project, then
+ *  user settings. */
+const worktreeSetting = (place, key, ws) => [path.join(place.top, '.claude', 'settings.local.json'), path.join(place.top, '.claude', 'settings.json'), path.join(ws.profile.dir, 'settings.json')]
   .map((f) => { try { return JSON.parse(small(f, 512 * 1024))?.worktree?.[key]; } catch { return undefined; } })
   .find((v) => typeof v === 'string');
 /** What a worktree Claude Code makes from here starts at: the remote's default branch, unless settings say HEAD. */
-function worktreeBase(place) {
-  if (worktreeSetting(place, 'baseRef') !== 'head') {
+function worktreeBase(place, ws) {
+  if (worktreeSetting(place, 'baseRef', ws) !== 'head') {
     try { const ref = small(path.join(place.common, 'refs', 'remotes', 'origin', 'HEAD')).match(/^ref:\s*refs\/remotes\/(.+)$/)?.[1]; if (ref) return ref; } catch {}
   }
   return place.branch ?? 'its current commit';
@@ -1259,17 +1346,17 @@ function worktreeBase(place) {
 function folderInfo(body) {
   const dir = path.resolve(expand(String(body?.path ?? '').trim()) || os.homedir());
   try { if (!fs.statSync(dir).isDirectory()) return { ok: true, folder: false }; } catch { return { ok: true, folder: false }; }
-  const p = gitPlace(dir), home = dir === os.homedir();
+  const p = gitPlace(dir), home = dir === os.homedir(), ws = shownWs(); // the workspace the launcher starts agents in
   // A background session moves itself into a worktree before it edits, unless the repo turned that off.
-  return { ok: true, folder: true, git: p && { branch: p.branch, worktree: p.worktree, repo: tilde(p.repo), base: worktreeBase(p),
-                                               isolates: worktreeSetting(p, 'bgIsolation') !== 'none' },
+  return { ok: true, folder: true, git: p && { branch: p.branch, worktree: p.worktree, repo: tilde(p.repo), base: worktreeBase(p, ws),
+                                               isolates: worktreeSetting(p, 'bgIsolation', ws) !== 'none' },
            // Whether this profile has trusted it; a background session starts only where it has (never the home folder).
-           trusted: home ? null : isTrusted(profile.config, trustKey(dir, p?.top)), home, profile: profileLabel() };
+           trusted: home ? null : isTrusted(ws.profile.config, trustKey(dir, p?.top)), home, profile: profileLabel(ws) };
 }
 
-const profileLabel = () => path.basename(profile.dir).slice(1);
-/** Claude Code's own path, as the panel's commands find it. */
-const claudePath = () => String(childEnv.PATH ?? '').split(':').filter(Boolean).map((d) => path.join(d, 'claude'))
+const profileLabel = (ws) => path.basename(ws.profile.dir).slice(1);
+/** Claude Code's own path, as the panel's commands find it (every workspace has the same PATH). */
+const claudePath = () => String(baseEnv.PATH ?? '').split(':').filter(Boolean).map((d) => path.join(d, 'claude'))
   .find((f) => { try { fs.accessSync(f, fs.constants.X_OK); return fs.statSync(f).isFile(); } catch { return false; } });
 /** Terminal in the folder, on this profile, running Claude Code: its trust prompt waits there for you to accept. The
  *  window opens from a .command file, so the panel needs no permission to control Terminal. */
@@ -1284,8 +1371,9 @@ async function openTrustTerminal(body) {
   fs.mkdirSync(where, { recursive: true, mode: 0o700 });
   for (const n of fs.readdirSync(where)) try { const f = path.join(where, n); if (Date.now() - fs.statSync(f).mtimeMs > 3_600_000) fs.unlinkSync(f); } catch {}
   const file = path.join(where, `trust-${crypto.randomBytes(4).toString('hex')}.command`);
-  fs.writeFileSync(file, trustScript({ dir, configDir: profile.plain ? null : profile.dir, claude, label: profileLabel() }), { mode: 0o700 });
-  const r = await run('open', ['-a', 'Terminal', file], { timeout: 10_000 });
+  const ws = shownWs(); // trust is for the launcher, which starts agents in the workspace on screen
+  fs.writeFileSync(file, trustScript({ dir, configDir: ws.profile.plain ? null : ws.profile.dir, claude, label: profileLabel(ws) }), { mode: 0o700 });
+  const r = await run('open', ['-a', 'Terminal', file], { timeout: 10_000, env: baseEnv });
   return r.err ? { ok: false, error: firstLine(r) } : { ok: true };
 }
 
@@ -1307,36 +1395,30 @@ function listFolders(body) {
 /** Who a profile is signed in as, and on which plan, from Claude Code itself: its files can lag a fresh sign-in, and
  *  two profiles on one email differ only by plan. Undefined when it can't tell. */
 async function signedIn(p) {
-  const r = await run('claude', ['auth', 'status', '--json'], { env: p.plain ? baseEnv : { ...baseEnv, CLAUDE_CONFIG_DIR: p.dir }, timeout: 5000 });
+  const r = await run('claude', ['auth', 'status', '--json'], { env: envFor(p), timeout: 5000 });
   try {
     const a = JSON.parse(r.stdout);
     return a.loggedIn ? { email: a.email ?? null, org: a.orgName ?? null, plan: a.subscriptionType ?? null } : null;
   } catch { return undefined; }
 }
-const profiles = async () => ({ ok: true, active: profile.id, profiles: await Promise.all(listProfiles().map(async (p) => {
+const profiles = async () => ({ ok: true, active: shownId, profiles: await Promise.all(listProfiles().map(async (p) => {
   const d = describeProfile(p), a = await signedIn(p);
   return a === undefined ? d : { ...d, account: a };
 })) });
-/** Shows another profile's sessions. Requests held here stay held, for when this profile is back; messages waiting
- *  to be sent are dropped. */
+/** Shows another workspace's profile: its banners, and the launcher starts agents in it. Nothing is cleared or stopped:
+ *  every workspace stays live, its sessions, held requests and waiting messages with it. */
 function switchProfile(body) {
-  const p = listProfiles().find((x) => x.id === body?.id);
-  if (!p) return { ok: false, error: 'There is no such profile.' };
-  if (p.dir === profile.dir) return { ok: true };
+  if (!W.has(body?.id)) syncWorkspaces(); // a profile folder made since the last roster read
+  const ws = wsById(body?.id);
+  if (!ws) return { ok: false, error: 'There is no such profile.' };
+  if (ws.id === shownId) return { ok: true };
   const queued = [...inbox.values()].reduce((n, q) => n + q.length, 0);
   if (queued && body.force !== true) return { ok: false, confirm: true, queued };
-  dropFollows();
-  for (const m of [inbox, sessions, stops, files, turns]) m.clear();
-  for (const s of [dismissed, saidRead]) s.clear();
-  useProfile(p);
-  overseer.use(overseerId(p));
-  rosterSeeded = false;
-  for (const id of [...terms.keys()]) termEnd(id); // the other profile's sessions are not on the board
-  rosterError = null;
-  savePrefs({ profile: p.id });
-  setup.claude = { state: 'unknown' };
+  shownId = ws.id;
+  store.setFocus(ws.id);
+  savePrefs({ profile: ws.id });
+  overseer.use(overseerId(ws.profile));
   broadcast();
-  pollRoster().then(checkVersions);
   checkSetup(true);
   return { ok: true };
 }
@@ -1363,7 +1445,8 @@ function connectProfile(body) {
     list.push(...entries);
     added++;
   }
-  if (!added) { if (p.dir === profile.dir) profileInfo = describeProfile(p); broadcast(); return { ok: true, added: 0 }; }
+  const fresh = () => { const ws = wsById(p.id); if (ws) ws.info = describeProfile(ws.profile); };
+  if (!added) { fresh(); broadcast(); return { ok: true, added: 0 }; }
   let backup = null;
   if (fs.existsSync(file)) {
     backup = `${file}.before-glue-${new Date().toISOString().replace(/[:.]/g, '-')}`;
@@ -1372,7 +1455,7 @@ function connectProfile(body) {
   const tmp = `${file}.glue-tmp`;
   fs.writeFileSync(tmp, JSON.stringify(settings, null, 2) + '\n');
   fs.renameSync(tmp, file);
-  if (p.dir === profile.dir) profileInfo = describeProfile(p);
+  fresh();
   broadcast();
   return { ok: true, added, backup: backup && tilde(backup) };
 }
@@ -1384,37 +1467,40 @@ function readPrefs() { try { const v = JSON.parse(small(PREFS, 65536)); return v
 function savePrefs(change) {
   try { fs.mkdirSync(path.dirname(PREFS), { recursive: true }); fs.writeFileSync(PREFS, JSON.stringify({ ...readPrefs(), ...change }) + '\n'); } catch {}
 }
-// Whether the profile is signed in to Claude Code, and gh to GitHub: the checklist, the sign-in banner and the profile
-// tab show it. Read when the panel starts, when the profile switches, every few minutes while a page is open, when a
-// page asks (while the checklist waits on a sign-in, and when you come back to its window), and when Claude Code fails
-// with what reads as a login error. Never on the 1 s tick: each read starts a process.
-const setup = { claude: { state: 'unknown' }, github: { state: process.env.ACP_GITHUB === 'off' ? 'off' : 'unknown' }, done: readPrefs().setupDone === true, checkedAt: 0 };
+// Whether each workspace's profile is signed in to Claude Code (its `setup.claude`), and gh to GitHub: the checklist, the
+// sign-in banner and the profile tab show it. Read when the panel starts, when a workspace appears or is shown, every few
+// minutes while a page is open, when a page asks (while the checklist waits on a sign-in, and when you come back to its
+// window), and when Claude Code fails with what reads as a login error. Never on the 1 s tick: each read starts a
+// process. gh and the checklist being done are one for all workspaces: one GitHub login, one checklist.
+const setup = { github: { state: process.env.ACP_GITHUB === 'off' ? 'off' : 'unknown' }, done: readPrefs().setupDone === true, checkedAt: 0 };
 let setupCheck = null;
 function checkSetup(force) {
   if (setupCheck) return setupCheck;
   if (!force && Date.now() - setup.checkedAt < 3000) return Promise.resolve();
-  const p = profile, env = p.plain ? baseEnv : { ...baseEnv, CLAUDE_CONFIG_DIR: p.dir }, gh = ghPath();
+  const list = [...W.values()], gh = ghPath();
   setupCheck = Promise.all([
-    run('claude', ['auth', 'status', '--json'], { env, timeout: 8000 }).then((r) => parseClaudeAuth(r.stdout)),
+    Promise.all(list.map((ws) => run('claude', ['auth', 'status', '--json'], { env: envOf(ws), timeout: 8000 }).then((r) => parseClaudeAuth(r.stdout)))),
     setup.github.state === 'off' ? setup.github
       : gh ? run(gh, ['auth', 'status', '--hostname', 'github.com'], { env: baseEnv, cwd: path.dirname(PREFS), timeout: 8000 }).then(parseGhAuth) : { state: 'missing' },
-  ]).then(([claude, gh]) => {
-    if (p !== profile) return; // the profile switched while it read: the next check is for the new one
-    const was = JSON.stringify([setup.claude, setup.github]);
-    // A read that timed out says nothing new: a sign-in already seen stays.
-    if (claude.state !== 'unknown' || setup.claude.state === 'unknown') setup.claude = claude;
+  ]).then(([claudes, gh]) => {
+    const seen = () => JSON.stringify([list.map((ws) => ws.setup.claude), setup.github]), was = seen();
+    list.forEach((ws, i) => {
+      // A read that timed out says nothing new: a sign-in already seen stays.
+      if (claudes[i].state !== 'unknown' || ws.setup.claude.state === 'unknown') ws.setup.claude = claudes[i];
+      ws.setup.checkedAt = Date.now();
+    });
     setup.github = gh;
     setup.checkedAt = Date.now();
     // Signed in to gh again: the GitHub poller waits five minutes after a signed-out answer, so it looks now instead.
     if (gh.state === 'ok' && github.state().gh === 'signed-out') github.refresh();
-    if (JSON.stringify([setup.claude, setup.github]) !== was) broadcast();
+    if (seen() !== was) broadcast();
   }).finally(() => { setupCheck = null; });
   return setupCheck;
 }
 /** A failure from Claude Code that reads as a login problem: look again, so the banner says so. */
 function loginFailed(text) { if (LOGIN_ERROR.test(String(text ?? ''))) checkSetup(true); }
-const setupOut = () => ({ claude: setup.claude, github: setup.github, done: setup.done, loginCommand: claudeLoginCommand(profile) });
-async function setupCheckNow() { await checkSetup(false); return { ok: true, setup: setupOut() }; }
+const setupOut = (ws) => ({ claude: ws.setup.claude, github: setup.github, done: setup.done, loginCommand: claudeLoginCommand(ws.profile) });
+async function setupCheckNow() { await checkSetup(false); return { ok: true, setup: setupOut(shownWs()) }; }
 function setupDone(body) {
   setup.done = body?.done !== false;
   savePrefs({ setupDone: setup.done });
@@ -1431,8 +1517,9 @@ async function openLoginTerminal(body) {
   fs.mkdirSync(where, { recursive: true, mode: 0o700 });
   for (const n of fs.readdirSync(where)) try { const f = path.join(where, n); if (Date.now() - fs.statSync(f).mtimeMs > 3_600_000) fs.unlinkSync(f); } catch {}
   const file = path.join(where, `login-${what}-${crypto.randomBytes(4).toString('hex')}.command`);
-  fs.writeFileSync(file, loginScript({ what, bin, configDir: profile.plain ? null : profile.dir, label: profileLabel() }), { mode: 0o700 });
-  const r = await run('open', ['-a', 'Terminal', file], { timeout: 10_000 });
+  const ws = shownWs(); // the sign-in banner and checklist on screen are this workspace's
+  fs.writeFileSync(file, loginScript({ what, bin, configDir: ws.profile.plain ? null : ws.profile.dir, label: profileLabel(ws) }), { mode: 0o700 });
+  const r = await run('open', ['-a', 'Terminal', file], { timeout: 10_000, env: baseEnv });
   return r.err ? { ok: false, error: firstLine(r) } : { ok: true };
 }
 
@@ -1446,7 +1533,7 @@ async function pickFolder(body) {
   picking = true;
   const r = await run('osascript', ['-e', 'on run argv', '-e', 'tell me to activate',
     '-e', 'return POSIX path of (choose folder with prompt "Folder for the new agent" default location (POSIX file (item 1 of argv)))',
-    '-e', 'end run', start], { timeout: 600_000 });
+    '-e', 'end run', start], { timeout: 600_000, env: baseEnv });
   picking = false;
   if (r.err) return /-128|cancel/i.test(r.stderr) ? { ok: false, cancelled: true } : { ok: false, error: firstLine(r) };
   return { ok: true, path: tilde(r.stdout.trim().replace(/(.)\/$/, '$1')) };
@@ -1454,31 +1541,25 @@ async function pickFolder(body) {
 
 // ---------------------------------------------------------------- deleted versions
 
-// Every profile's running sessions, checked each minute for a Claude Code version deleted under them (versions.mjs):
-// macOS can then refuse them ~/Documents at any moment. The shown profile's are marked on their tiles; all of them,
-// other profiles' too, are listed in a banner, since the one that loses access is often not the one on screen.
+// Every workspace's running sessions, checked each minute for a Claude Code version deleted under them (versions.mjs):
+// macOS can then refuse them ~/Documents at any moment. Each is marked on its tile; all of them, other workspaces' too,
+// are listed in a banner, since the one that loses access is often not the one on screen.
 const VERSIONS_MS = 60_000;
 let oldVersions = [], checkingVersions = false;
-/** A profile's running sessions: the shown one's as the panel has them, another's from its own roster. */
-async function runningIn(p) {
-  if (p.dir === profile.dir) return [...sessions.values()].filter((s) => s.inRoster && !isEnded(s));
-  const r = await run('claude', ['agents', '--json', '--all'], { timeout: 5000, env: p.plain ? baseEnv : { ...baseEnv, CLAUDE_CONFIG_DIR: p.dir } });
-  try { return JSON.parse(r.stdout).filter((x) => !['done', 'failed', 'stopped'].includes(x.state)); } catch { return []; }
-}
+// ps and lsof read processes, not any profile's files.
+const runPlain = (cmd, args, opts = {}) => run(cmd, args, { env: baseEnv, ...opts });
 async function checkVersions() {
   if (checkingVersions) return;
   checkingVersions = true;
   try {
-    const gen = profileGen, rows = [];
-    for (const p of listProfiles()) for (const s of await runningIn(p)) if (Number.isInteger(s.pid) && s.sessionId) rows.push({ s, p });
-    const found = await findRemoved(rows.map(({ s }) => s.pid), { run });
-    if (gen !== profileGen) return; // the profile changed while it looked: the next check sorts it out
+    const rows = [...sessions.values()].filter((s) => s.inRoster && !isEnded(s) && Number.isInteger(s.pid) && W.has(s.ws)).map((s) => ({ s, p: W.get(s.ws).profile }));
+    const found = await findRemoved(rows.map(({ s }) => s.pid), { run: runPlain });
     const next = rows.filter(({ s }) => found.has(s.pid)).map(({ s, p }) => ({
-      sessionId: s.sessionId, id: s.id ?? null, name: s.name ?? null, kind: s.kind ?? null, shown: p.dir === profile.dir,
+      sessionId: s.sessionId, id: s.id ?? null, name: s.name ?? null, kind: s.kind ?? null, ws: s.ws,
       profile: { id: p.id, label: path.basename(p.dir).slice(1), command: cliOf(p) },
       version: found.get(s.pid).version, self: found.get(s.pid).self }));
     for (const s of sessions.values()) {
-      const o = next.find((x) => x.shown && x.sessionId === s.sessionId);
+      const o = next.find((x) => x.sessionId === s.sessionId);
       s.oldVersion = o ? { version: o.version, self: o.self } : null;
     }
     const changed = JSON.stringify(next) !== JSON.stringify(oldVersions);
@@ -1603,16 +1684,6 @@ function dropClient(client) {
   for (const id of [...terms.keys()]) termLeave(client, id);
   for (const [id, f] of follows) if (f.clients.has(client)) leave(client, id);
 }
-/** A profile switch: every follow stops, and each page that had a session open is told it is gone. */
-function dropFollows() {
-  for (const f of [...follows.values()]) {
-    const to = [...f.clients];
-    stopFollow(f);
-    sendTo(to, 'thread-reset', { sessionId: f.sessionId });
-  }
-  clientOpen.clear();
-  threads.clear();
-}
 
 /** `{ client, sessionId | null, limit }`: page `client` has that session open (null: none). Its thread so far, and
  *  whether there is more before it; `pending` while the session has no transcript, whose rows then come as events. */
@@ -1646,15 +1717,13 @@ async function followSession(body) {
 function notify(title, text) {
   if (process.platform !== 'darwin') return;
   run('osascript', ['-e', 'on run argv', '-e', 'display notification (item 2 of argv) with title (item 1 of argv)', '-e', 'end run',
-    String(title).slice(0, 120), String(text).slice(0, 400)], { timeout: 10_000 }).then((r) => { if (r.err) console.error('notify:', firstLine(r)); });
+    String(title).slice(0, 120), String(text).slice(0, 400)], { timeout: 10_000, env: baseEnv }).then((r) => { if (r.err) console.error('notify:', firstLine(r)); });
 }
 /** The gh CLI, as the panel's PATH finds it, else where Homebrew puts it: the app and the daemon bake a PATH that can lack it. */
-const ghPath = () => [...String(childEnv.PATH ?? '').split(':').filter(Boolean).map((d) => path.join(d, 'gh')), '/opt/homebrew/bin/gh', '/usr/local/bin/gh']
+const ghPath = () => [...String(baseEnv.PATH ?? '').split(':').filter(Boolean).map((d) => path.join(d, 'gh')), '/opt/homebrew/bin/gh', '/usr/local/bin/gh']
   .find((f) => { try { fs.accessSync(f, fs.constants.X_OK); return fs.statSync(f).isFile(); } catch { return false; } }) ?? null;
 /** Where a session works, as git sees it: the checkout its tools ran in, else the one it started in. */
 const placeOf = (s) => gitPlace(s.ranCwd ?? s.hereCwd ?? s.cwd);
-const dataDir = path.dirname(PREFS);
-try { fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 }); } catch {}
 const github = createGithub({
   file: path.join(dataDir, 'github.json'), run, read: small, ghPath, cwd: dataDir, env: baseEnv,
   off: process.env.ACP_GITHUB === 'off', mine: true, // your own open pull requests too, in any repository
@@ -1698,7 +1767,7 @@ const labelOf = (s) => s.name || path.basename(s.cwd ?? '') || s.sessionId.slice
 /** Its state in the page's words: waiting, busy, idle, finished or failed. */
 function boardState(s) {
   if (isEnded(s)) return s.state === 'failed' ? 'failed' : 'finished';
-  if (shownPending().some((p) => p.sessionId === s.sessionId) || s.status === 'waiting') return 'waiting';
+  if (heldFor(s.sessionId).length || s.status === 'waiting') return 'waiting';
   return isWorking(s) ? 'busy' : 'idle';
 }
 /** What a held request asks, in a line. */
@@ -1708,9 +1777,10 @@ function askOf(p) {
   if (p.toolName === 'AskUserQuestion') return `A question: ${String(i.questions?.[0]?.question ?? '').slice(0, 200)}`;
   return `${p.agentId ? 'Its subagent: ' : ''}${p.toolName}: ${String(i.command ?? i.file_path ?? i.url ?? i.pattern ?? i.description ?? '').replace(/\s+/g, ' ').slice(0, 200)}`;
 }
-/** The sessions the board shows, as the page picks them. */
-const onBoard = () => { const now = Date.now(); return [...sessions.values()].filter((s) => s.inRoster || shownPending().some((p) => p.sessionId === s.sessionId)
-  || (s.leftRosterAt ? now - s.leftRosterAt < 600_000 : now - s.lastEventAt < 3_600_000)); };
+/** The sessions the board shows, as the page picks them: the shown workspace's, which is the overseer's (one per
+ *  workspace comes later). */
+const onBoard = () => { const now = Date.now(); return [...sessions.values()].filter((s) => s.ws === shownId && (s.inRoster || heldFor(s.sessionId).length
+  || (s.leftRosterAt ? now - s.leftRosterAt < 600_000 : now - s.lastEventAt < 3_600_000))); };
 /** The folders a proposed launch may use: where the board's sessions work, and their repositories. */
 function overseerFolders() {
   const out = new Set();
@@ -1723,7 +1793,7 @@ function overseerFolders() {
 }
 function overseerBoard() {
   return { folders: overseerFolders(), sessions: onBoard().map((s) => {
-    const p = placeOf(s), held = shownPending().filter((q) => q.sessionId === s.sessionId);
+    const p = placeOf(s), held = heldFor(s.sessionId);
     return { sessionId: s.sessionId, name: labelOf(s), kind: s.kind, state: boardState(s), since: s.startedAt ?? s.lastEventAt,
       repo: p ? path.basename(p.repo) : null, worktree: p?.worktree ?? null, branch: p?.branch ?? null, folder: s.ranCwd ?? s.hereCwd ?? s.cwd ?? null,
       mode: s.mode ?? null, tool: isWorking(s) && s.lastTool ? `${s.lastTool.tool}: ${s.lastTool.text}` : null, asks: held.map(askOf),
@@ -1749,11 +1819,13 @@ const isOverseerCall = (cwd) => typeof cwd === 'string' && (cwd === overseerCwd 
   || (overseerReal != null && (cwd === overseerReal || cwd.startsWith(overseerReal + path.sep))));
 let overseerReal = null;
 try { fs.mkdirSync(overseerCwd, { recursive: true, mode: 0o700 }); overseerReal = fs.realpathSync(overseerCwd); } catch {}
-function askModel(args, { timeout = 90_000, signal } = {}) {
+/** `env` is the workspace's whose overseer asks (envOf): its own login. Without one it is not run. */
+function askModel(args, { timeout = 90_000, signal, env } = {}) {
+  if (!env) { console.error('overseer: no environment given, not run'); return Promise.resolve({ err: new Error('no environment given'), stdout: '', stderr: '' }); }
   try { fs.mkdirSync(overseerCwd, { recursive: true, mode: 0o700 }); } catch {}
   return new Promise((resolve) => {
     try {
-      const child = execFile('claude', args, { cwd: overseerCwd, env: childEnv, timeout, signal, maxBuffer: 8_000_000 },
+      const child = execFile('claude', args, { cwd: overseerCwd, env, timeout, signal, maxBuffer: 8_000_000 },
         (err, stdout, stderr) => {
           const out = { err, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') };
           if (err || /"is_error":\s*true/.test(out.stdout)) loginFailed(`${out.stderr}\n${out.stdout.slice(0, 4000)}`);
@@ -1764,13 +1836,14 @@ function askModel(args, { timeout = 90_000, signal } = {}) {
   });
 }
 const overseer = createOverseer({
-  file: path.join(dataDir, 'overseer.json'), ask: askModel, board: overseerBoard, github: () => github.state(),
+  // The one overseer is the shown workspace's, on its login.
+  file: path.join(dataDir, 'overseer.json'), ask: (args, o) => askModel(args, { ...o, env: envOf(shownWs()) }), board: overseerBoard, github: () => github.state(),
   history: (sessionId, limit) => history({ sessionId, limit }),
   actions: {
     reply: (body) => reply(body), launch: (body) => launch(body), interrupt: (body) => interrupt(body),
     live: (id) => { const s = sessions.get(id); return s && s.inRoster && !isEnded(s) ? s : null; },
     tellEffect, folders: overseerFolders,
-    trusted: (cwd) => isTrusted(profile.config, trustKey(cwd, gitPlace(cwd)?.top)) === true,
+    trusted: (cwd) => isTrusted(shownWs().profile.config, trustKey(cwd, gitPlace(cwd)?.top)) === true,
   },
   onChange: () => broadcast(),
 });
@@ -1794,8 +1867,9 @@ watcherCheck = () => { watcher.check().catch((e) => console.error('watcher:', e?
 /** The overseer keeps one conversation per profile, by an id it accepts: the profile's own when it is plain, else one
  *  made from its folder, so two accounts never share a conversation. */
 const overseerId = (p) => (/^(?!\.{1,2}$)[\w.-]{1,40}$/.test(p.id) ? p.id : 'p-' + crypto.createHash('sha256').update(p.dir).digest('hex').slice(0, 16));
-/** A line in the overseer's feed about a session. */
-const feed = (type, s, text) => { try { overseer.note(type, { sessionId: s?.sessionId, name: s ? labelOf(s) : undefined, text }); } catch {} };
+/** A line in the overseer's feed about a session. Only the shown workspace's sessions: the one overseer keeps its feed
+ *  under that workspace, and another workspace's names must not land there. */
+const feed = (type, s, text) => { if (s && s.ws !== shownId) return; try { overseer.note(type, { sessionId: s?.sessionId, name: s ? labelOf(s) : undefined, text }); } catch {} };
 for (const sig of ['SIGTERM', 'SIGINT']) process.once(sig, () => { try { overseer.flush(); } catch {} process.exit(0); });
 const OVERSEER = {
   '/api/overseer/say': (b) => overseer.say({ text: b?.text }),
@@ -1833,8 +1907,10 @@ function termOpen(body) {
   const cols = termSize(body.cols, 100), rows = termSize(body.rows, 30);
   if (!t) {
     const cwd = s.cwd && fs.existsSync(s.cwd) ? s.cwd : os.homedir();
+    const ws = wsOfSession(s);
+    if (!ws) return { ok: false, error: NO_WS };
     const proc = spawn('python3', [BRIDGE, String(cols), String(rows), '--', claudePath() ?? 'claude', 'attach', s.id],
-      { cwd, env: { ...childEnv, TERM: 'xterm-256color', COLORTERM: 'truecolor' }, stdio: ['pipe', 'pipe', 'pipe'] });
+      { cwd, env: { ...envOf(ws), TERM: 'xterm-256color', COLORTERM: 'truecolor' }, stdio: ['pipe', 'pipe', 'pipe'] });
     t = { proc, clients: new Set(), buf: [], size: 0, out: [], flush: null, release: null };
     terms.set(s.sessionId, t);
     const take = (d) => {
@@ -1893,10 +1969,13 @@ const termClose = (body) => { termLeave(body?.client, body?.sessionId); return {
 // ---------------------------------------------------------------- snapshot + SSE
 // ---------------------------------------------------------------- snapshot + SSE
 
+// Every workspace's sessions and requests, each tagged with its workspace (`ws`); `profile`, the roster error and the
+// setup are the shown workspace's.
 function snapshot() {
-  const now = Date.now();
+  const now = Date.now(), shown = shownWs();
   return {
-    now, armed, rosterError, port: PORT, profile: profileInfo, oldVersions, setup: setupOut(),
+    now, armed, rosterError: shown.rosterError, port: PORT, profile: shown.info, setup: setupOut(shown),
+    oldVersions: oldVersions.map(({ ws, ...o }) => ({ ...o, shown: ws === shownId })),
     sessions: [...sessions.values()].map(({ spawns, hereCwd, rosterCwd, ranCwd, editTops, ...s }) => {
       const here = ranCwd ?? hereCwd ?? s.cwd, place = gitPlace(here), git = placeOut(place);
       return {
@@ -1905,7 +1984,7 @@ function snapshot() {
       queued: inbox.get(s.sessionId) ?? [], working: isWorking(s),
       subagents: [...s.subagents.values()].map((a) => ({ ...a, stopping: !a.stoppedAt && stops.has(stopKey(s.sessionId, a.agentId)) })),
     }; }),
-    pending: [...shownPending().map(({ res, timer, profileDir, ...p }) => p), ...openRequests()],
+    pending: [...[...pending.values()].map(({ res, timer, ...p }) => p), ...openRequests()],
     github: github.state(), overseer: overseer.status(), watcher: watcher.status(),
     _ts: now,
   };
@@ -1966,13 +2045,14 @@ async function handle(req, res) {
     if (req.method !== 'POST' || req.headers.origin) return send(res, 403, { error: 'hooks only' });
     let e;
     try { e = await readBody(req); } catch { return send(res, 400, ''); }
-    // Another profile's session (its hooks point here too) is not shown: its events are nothing to us. Its
-    // permission requests are held all the same, for when its profile is back on the board.
-    if (url.pathname === '/hook/event') { const reply = otherProfile(e) ? null : onHookEvent(e); return send(res, 200, reply ?? ''); }
+    // Each event goes to the workspace its session runs under, found from its transcript. One from under no profile at
+    // all is nobody's: nothing is recorded, and a request is left to the terminal.
+    if (url.pathname === '/hook/event') { const ws = wsOfEvent(e), reply = ws ? onHookEvent(e, ws) : null; return send(res, 200, reply ?? ''); }
     if (url.pathname === '/hook/permission') {
       // Nobody watching, or paused: answer nothing, the terminal decides.
       if (!armed || !watched()) return send(res, 200, '');
-      return holdPermission(e, res);
+      const ws = wsOfEvent(e);
+      return ws ? holdPermission(e, ws, res) : send(res, 200, '');
     }
     return send(res, 404, '');
   }
@@ -1997,7 +2077,7 @@ async function handle(req, res) {
     // The page's own id, for the thread of the session it has open (a reconnect brings the same one back).
     const client = CLIENT.test(url.searchParams.get('c') ?? '') ? url.searchParams.get('c') : null;
     if (client) clientRes.set(client, res);
-    if (DAEMON && setRosterPace(true)) pollRoster().then(checkVersions); // back from idle: catch up at once
+    if (DAEMON && setRosterPace(true)) pollAll().then(checkVersions); // back from idle: catch up at once
     github.tick({ watched: true }); // a page that opens sees checks as fresh as the next poll
     clearTimeout(releaseTimer);
     releaseTimer = null;
@@ -2079,7 +2159,7 @@ function setRosterPace(fast) {
   if (fast === rosterFast) return false;
   clearInterval(rosterTimer);
   rosterFast = fast;
-  rosterTimer = setInterval(pollRoster, fast ? ROSTER_MS : IDLE_ROSTER_MS);
+  rosterTimer = setInterval(pollAll, fast ? ROSTER_MS : IDLE_ROSTER_MS);
   return true;
 }
 /** Whether someone may be looking: always outside the daemon, and under it while a page is connected. */
@@ -2087,9 +2167,10 @@ const looking = () => !DAEMON || clients.size > 0;
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`Glue → http://127.0.0.1:${PORT}`);
-  overseer.use(overseerId(profile)); // here, not at load: it broadcasts, and the broadcast's state is declared further down
+  overseer.use(overseerId(shownWs().profile)); // here, not at load: it broadcasts, and the broadcast's state is declared further down
+  serverUp = true;
   checkSetup(true); // the checklist, and later the sign-in banner, say what it finds
-  pollRoster().then(() => { if (looking()) checkVersions(); });
+  pollAll().then(() => { if (looking()) checkVersions(); });
   setRosterPace(looking());
   setInterval(() => { if (looking()) checkVersions(); }, VERSIONS_MS);
   setInterval(() => { prune(); broadcast(); }, 10_000);

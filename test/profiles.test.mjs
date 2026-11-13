@@ -81,7 +81,9 @@ test('a request from another profile is held too, out of sight until that profil
   await pause(300);
   assert.equal(h.answered, false, 'the panel keeps a request from another profile open instead of handing it back');
   let snap = await latest();
-  assert.equal(pendingOf(snap, 's-other').length, 0, 'not shown while its profile is not on the board');
+  // Every workspace is live and the snapshot is not yet sealed per workspace: it is listed, tagged with its own.
+  assert.equal(pendingOf(snap, 's-other').length, 1);
+  assert.equal(pendingOf(snap, 's-other')[0].ws, 'other');
 
   const r = await api('/api/profile', { id: 'other' });
   assert.equal(r.ok, true, JSON.stringify(r));
@@ -95,7 +97,7 @@ test('a request from another profile is held too, out of sight until that profil
   assert.equal((await api('/api/profile', { id: 'default' })).ok, true);
   await pause(200);
   assert.equal(h.answered, false);
-  assert.equal(pendingOf(await latest(), 's-other').length, 0);
+  assert.equal(pendingOf(await latest(), 's-other').length, 1);
   assert.equal((await api('/api/profile', { id: 'other' })).ok, true);
   snap = await latest();
   const p = pendingOf(snap, 's-other')[0];
