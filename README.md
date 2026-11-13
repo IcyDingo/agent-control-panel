@@ -32,6 +32,8 @@ Panel.app** into `~/Applications`. Then:
 
    **Done** (or **Hide for now**) puts it away, remembered in `prefs.json`; **Setup** in the overseer's header
    brings it back.
+4. The first **Done** starts a short tour: the rail, **Answering here**, **New agent**, the overseer, GitHub and the
+   keys, one at a time (→ or Enter next, ← back, Esc ends it). **Take the tour** under the checklist runs it again.
 
 `install.sh` also installs a background service, so the panel keeps holding requests and answering hooks when the app
 isn't open; `./install.sh --no-daemon` skips it.

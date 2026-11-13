@@ -700,6 +700,14 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .su-acts:empty { display: none; }
 .su-cmd { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 0 2px 0 8px; border-radius: var(--r-1); background: var(--code); font: 12px/26px var(--mono); }
 .su-cmd code { overflow-wrap: anywhere; line-height: 1.4; padding: 4px 0; }
+/* The tour: one part of the screen at a time, lit through a dimmed page, with a card beside it. */
+.tour-veil { position: fixed; inset: 0; z-index: 70; }
+.tour-hole { position: fixed; z-index: 71; border-radius: var(--r-2); box-shadow: 0 0 0 200vmax var(--shade), 0 0 0 2px var(--fg-faint); pointer-events: none; transition: top .2s ease, left .2s ease, width .2s ease, height .2s ease; }
+.tour-card { position: fixed; z-index: 72; width: min(340px, calc(100vw - 32px)); padding: 16px 16px 12px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--raise); box-shadow: 0 16px 40px -12px var(--shade); transition: top .2s ease, left .2s ease; }
+.tour-card h4 { margin: 0 0 6px; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.tour-card p { margin: 0; color: var(--fg-dim); font-size: 13px; line-height: 1.55; }
+.tour-foot { display: flex; align-items: center; gap: 6px; margin-top: 14px; }
+.tour-n { margin-right: auto; color: var(--fg-faint); font-size: 12px; font-variant-numeric: tabular-nums; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .su-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 14px; color: var(--fg-dim); font-size: 12.5px; }
 #h-next:empty { display: none; }
@@ -2716,14 +2724,108 @@ function renderSetup(on) {
         r.acts && r.s !== 'ok' ? el('span', { class: 'su-acts' }, r.acts()) : null))),
     el('div', { class: 'su-foot' },
       el('button', { class: 'btn small' + (ready ? ' primary' : ''), type: 'button', text: ready ? 'Done' : 'Hide for now', onclick: () => finishSetup() }),
+      el('button', { class: 'btn quiet small', type: 'button', text: 'Take the tour', onclick: () => startTour() }),
       el('span', { text: ready ? 'Setup in the header brings this back.' : 'Steps 1 and 2 are what the panel needs. Setup in the header brings this back.' })),
   ]);
 }
 async function finishSetup() {
   setupReopened = false;
-  if (!snap.setup.done) { const r = await api('/api/setup/done', { done: true }); if (!r.ok) return toast(r.error || 'It did not save.', true); snap.setup.done = true; }
+  const first = !snap.setup.done;
+  if (first) { const r = await api('/api/setup/done', { done: true }); if (!r.ok) return toast(r.error || 'It did not save.', true); snap.setup.done = true; }
   render();
+  if (first && !tourSeen()) startTour(); // once, the first time the checklist is put away
 }
+
+// ---------- the tour: what each part of the panel is for, one at a time ----------
+// Each stop lights a real element through a dimmed page. A stop whose element isn't on screen (no GitHub, a narrow
+// window, a session open over the overseer) is passed over. Seen once per browser (or the app); Take the tour reruns it.
+const TOUR = [
+  { at: () => $('board'), title: 'Every session, in one rail',
+    text: 'Needs you comes first: a permission, a question or a plan waiting on you. Below it, every other session sits under the repository it works in. Click a session to read it, answer it or write to it.' },
+  { at: () => $('armed')?.closest('.switch'), title: 'Answer here, or in the terminal',
+    text: 'A request shows here and in its own terminal at once, and whichever answers first wins. Turn this off and the terminal decides everything, as it did before the panel.' },
+  { at: () => $('new-agent'), title: 'Start an agent',
+    text: 'Give it a prompt and a folder and it runs in the background, with no terminal to keep open. Its own worktree keeps it off the branch you are on.' },
+  { at: () => $('h-say')?.closest('.composer'), title: 'Ask the overseer',
+    text: 'One chat that knows every session. Ask what needs you or what is failing, or say what you want done. It only proposes: nothing runs until you click.' },
+  { at: () => $('gh-btn'), title: 'GitHub',
+    text: 'Pull requests and CI for the repositories your agents work in. When a check fails, the panel can hand the failing log to the agent on that branch.' },
+  { at: () => $('rail-keys'), title: 'Keys',
+    text: '↑ and ↓ step through sessions, n jumps to the next one that needs you, and / finds a session by name. None of them fire while you type.' },
+];
+const TOUR_KEY = 'acp.tourSeen';
+const tourSeen = () => { try { return localStorage.getItem(TOUR_KEY) === '1'; } catch { return false; } };
+let tour = null;
+const onScreen = (n) => { if (!n || !n.isConnected) return null; const r = n.getBoundingClientRect(); return r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth ? r : null; };
+function startTour() {
+  endTour(false);
+  const veil = el('div', { class: 'tour-veil', 'aria-hidden': 'true' });
+  const hole = el('div', { class: 'tour-hole', 'aria-hidden': 'true' });
+  const card = el('div', { class: 'tour-card', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'tour-h' });
+  document.body.append(veil, hole, card);
+  tour = { i: -1, veil, hole, card, back: document.activeElement, timer: setInterval(placeTour, 250) };
+  tourGo(1);
+}
+/** Moves to the next stop on screen in that direction; past the last one, the tour ends. */
+function tourGo(dir) {
+  if (!tour) return;
+  let i = tour.i + dir;
+  while (i >= 0 && i < TOUR.length && !onScreen(TOUR[i].at())) i += dir;
+  if (i >= TOUR.length) return endTour(true);
+  if (i < 0) return;
+  tour.i = i;
+  const shown = TOUR.map((s, k) => k).filter((k) => k === i || onScreen(TOUR[k].at()));
+  const pos = shown.indexOf(i), last = !TOUR.slice(i + 1).some((s) => onScreen(s.at()));
+  const next = el('button', { class: 'btn primary small', type: 'button', text: last ? 'Done' : 'Next', onclick: () => tourGo(1) });
+  tour.card.replaceChildren(
+    el('h4', { id: 'tour-h', text: TOUR[i].title }),
+    el('p', { text: TOUR[i].text }),
+    el('div', { class: 'tour-foot' },
+      el('span', { class: 'tour-n', text: `${pos + 1} of ${shown.length}` }),
+      last ? null : el('button', { class: 'btn quiet small', type: 'button', text: 'Skip', onclick: () => endTour(true) }),
+      pos > 0 ? el('button', { class: 'btn small', type: 'button', text: 'Back', onclick: () => tourGo(-1) }) : null,
+      next));
+  placeTour();
+  next.focus();
+}
+/** Lights the stop's element and sets the card beside it: right, else below, else left, else above, kept on screen. */
+function placeTour() {
+  if (!tour) return;
+  const r = onScreen(TOUR[tour.i].at());
+  if (!r) return tourGo(1); // it went away (a session opened, the window narrowed): on to the next one
+  const pad = 6, gap = 12, m = 16;
+  Object.assign(tour.hole.style, { top: r.top - pad + 'px', left: r.left - pad + 'px', width: r.width + pad * 2 + 'px', height: r.height + pad * 2 + 'px' });
+  const cw = tour.card.offsetWidth, ch = tour.card.offsetHeight;
+  const clampX = (x) => Math.max(m, Math.min(x, innerWidth - cw - m)), clampY = (y) => Math.max(m, Math.min(y, innerHeight - ch - m));
+  let x, y;
+  if (r.right + pad + gap + cw + m <= innerWidth) { x = r.right + pad + gap; y = clampY(r.top); }
+  else if (r.bottom + pad + gap + ch + m <= innerHeight) { x = clampX(r.left); y = r.bottom + pad + gap; }
+  else if (r.left - pad - gap - cw >= m) { x = r.left - pad - gap - cw; y = clampY(r.top); }
+  else { x = clampX(r.left); y = clampY(r.top - pad - gap - ch); }
+  Object.assign(tour.card.style, { left: x + 'px', top: y + 'px' });
+}
+function endTour(seen) {
+  if (!tour) return;
+  clearInterval(tour.timer);
+  tour.veil.remove(); tour.hole.remove(); tour.card.remove();
+  const back = tour.back;
+  tour = null;
+  if (seen) try { localStorage.setItem(TOUR_KEY, '1'); } catch {}
+  if (back?.isConnected) back.focus();
+}
+// While it shows, the page's own keys (↑ ↓ n / Esc) stay quiet: → or Enter goes on, ← goes back, Esc ends it.
+window.addEventListener('keydown', (e) => {
+  if (!tour) return;
+  if (e.key === 'Tab') { // focus stays in the card
+    const f = [...tour.card.querySelectorAll('button')], i = f.indexOf(document.activeElement);
+    e.preventDefault(); f[(i + (e.shiftKey ? f.length - 1 : 1)) % f.length]?.focus();
+  } else if (e.key === 'Escape') { e.preventDefault(); endTour(true); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); tourGo(1); }
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); tourGo(-1); }
+  else if (e.key !== 'Enter' && e.key !== ' ') e.preventDefault();
+  e.stopPropagation();
+}, true);
+window.addEventListener('resize', () => placeTour());
 // Back from Terminal (or System Settings): look again at once.
 window.addEventListener('focus', () => { if (setupShown()) checkSetupNow(true); });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && setupShown()) checkSetupNow(false); });
