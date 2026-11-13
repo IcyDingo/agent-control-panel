@@ -15,6 +15,7 @@ export const COLORS = { blue: '#7ea6e6', violet: '#a98af0', green: '#55b985', te
 // What a non-plain workspace takes, in turn; the plain profile is always violet.
 const PICK = ['blue', 'green', 'teal', 'rose'];
 const NAME_MAX = 24;
+const isColor = (c) => typeof c === 'string' && Object.hasOwn(COLORS, c);
 
 /** What a repository is called in the store: its GitHub slug, else its git common dir, else its folder. */
 export function repoKey({ slug, common, dir } = {}) {
@@ -32,13 +33,14 @@ const labelOf = (p) => (p.dir ? path.basename(p.dir) : p.plain ? 'claude' : `cla
  * @param {Array<{id: string, dir?: string, plain: boolean}>} deps.profiles  as from listProfiles()
  */
 export function createStore({ file, profiles = [] } = {}) {
-  let st = { v: 1, workspaces: {}, order: [], repos: {}, focus: '' };
+  // No prototype, so an id or key like `constructor` or `__proto__` is just an unknown name, never a stray lookup.
+  let st = { v: 1, workspaces: Object.create(null), order: [], repos: Object.create(null), focus: '' };
   const plainOf = new Map();
   try {
     const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (saved?.v === 1 && saved.workspaces && typeof saved.workspaces === 'object') {
       for (const [id, w] of Object.entries(saved.workspaces))
-        if (w && typeof w.name === 'string' && w.name && COLORS[w.color]) st.workspaces[id] = { name: w.name, color: w.color };
+        if (w && typeof w.name === 'string' && w.name && isColor(w.color)) st.workspaces[id] = { name: w.name, color: w.color };
       st.order = (Array.isArray(saved.order) ? saved.order : []).filter((id, i, a) => st.workspaces[id] && a.indexOf(id) === i);
       for (const id of Object.keys(st.workspaces)) if (!st.order.includes(id)) st.order.push(id);
       for (const [key, ids] of Object.entries(saved.repos ?? {})) {
@@ -94,13 +96,14 @@ export function createStore({ file, profiles = [] } = {}) {
       if (!w) return { ok: false, error: 'No such workspace.' };
       let next = w.name;
       if (name !== undefined) {
-        next = String(name).trim();
+        if (typeof name !== 'string') return { ok: false, error: 'A workspace needs a name.' };
+        next = name.trim();
         if (!next) return { ok: false, error: 'A workspace needs a name.' };
         if (next.length > NAME_MAX) return { ok: false, error: `A name is at most ${NAME_MAX} characters.` };
         const taken = Object.entries(st.workspaces).some(([k, o]) => k !== id && o.name.toLowerCase() === next.toLowerCase());
         if (taken) return { ok: false, error: 'Another workspace has that name.' };
       }
-      if (color !== undefined && !COLORS[color]) return { ok: false, error: 'Unknown colour.' };
+      if (color !== undefined && !isColor(color)) return { ok: false, error: 'Unknown colour.' };
       w.name = next;
       if (color !== undefined) w.color = color;
       save();

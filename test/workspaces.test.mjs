@@ -88,3 +88,38 @@ test('sync adds a new profile without touching the rest', () => {
   assert.deepEqual(s.get('x'), { id: 'x', name: 'claude-x', color: 'green' });
   assert.deepEqual(s.list().map((w) => w.id), ['contract', 'x', 'default']);
 });
+
+test('names that live on every object are unknown, not found: ids, repository keys and colours', () => {
+  const s = createStore({ file: tmp(), profiles: PROFILES });
+  const before = JSON.stringify([s.list(), s.assigned()]);
+  for (const bad of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
+    assert.equal(s.get(bad), null, bad);
+    assert.equal(s.update(bad, { name: 'x' }).ok, false, bad);
+    assert.equal(s.update('default', { color: bad }).ok, false, bad);
+    assert.equal(s.assign('k', [bad]).ok, false, bad);
+    assert.deepEqual(s.reposOf(bad), [], bad);
+    s.setFocus(bad);
+    assert.equal(s.focus(), 'contract', bad);
+    // As repository keys, which are free text, they work like any other.
+    assert.deepEqual(s.assign(bad, ['default']), { ok: true }, bad);
+    assert.deepEqual(s.reposOf(bad), ['default'], bad);
+    assert.deepEqual(s.assign(bad, []), { ok: true }, bad);
+  }
+  assert.equal(s.update('default', { name: 42 }).ok, false);
+  assert.equal(JSON.stringify([s.list(), s.assigned()]), before);
+});
+
+test('a file with such names in it is loaded without them taking hold', () => {
+  const file = tmp();
+  fs.writeFileSync(file, '{"v":1,"workspaces":{"default":{"name":"Private","color":"constructor"},"contract":{"name":"Work","color":"teal"},'
+    + '"__proto__":{"name":"Z","color":"toString"}},"order":["__proto__","constructor","contract"],'
+    + '"repos":{"k":["constructor","__proto__","contract"],"__proto__":["constructor"],"constructor":["contract"]},"focus":"__proto__"}');
+  const s = createStore({ file, profiles: PROFILES });
+  // A colour that is not one drops that workspace back to its profile's defaults; unknown ids are dropped everywhere.
+  assert.deepEqual(s.list().map((w) => [w.id, w.name, w.color]), [['contract', 'Work', 'teal'], ['default', 'claude', 'violet']]);
+  assert.deepEqual(s.reposOf('k'), ['contract']);
+  assert.deepEqual(s.reposOf('constructor'), ['contract']);
+  assert.deepEqual(s.reposOf('__proto__'), []);
+  assert.equal(s.get('__proto__'), null);
+  assert.equal(s.focus(), 'contract');
+});
