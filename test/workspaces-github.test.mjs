@@ -162,9 +162,15 @@ assert.ok(await until(() => A.latest()?.sessions.some((s) => s.sessionId === SID
   'both rosters are read: ' + log);
 // The desktop's focus is the workspace focused last, by any page: default, again.
 assert.equal((await api('/api/workspace/focus', { ws: 'default' }, A.client)).ok, true);
-// Only now do the checks fail, and GitHub is asked again at once rather than at its next beat.
+// Only now do the checks fail. GitHub is asked again until both pages see them: a refresh that lands while a poll is
+// still running only marks every repository due for the next beat, which can be later than a test waits.
 fs.writeFileSync(ciFailing, '');
-assert.equal((await api('/api/github/refresh', {}, A.client)).ok, true);
+const failingIn = (pg) => pg.latest()?.github?.repos?.some((r) => r.prs?.some((p) => p.checks === 'failing'));
+assert.ok(await until(async () => {
+  if (failingIn(A) && failingIn(B)) return true;
+  await api('/api/github/refresh', {}, A.client); // at most one a 10 s, the server's own limit
+  return null;
+}, 60_000, 1000), 'GitHub reports the failing checks to both pages');
 watch('page-poll');
 const polled = (pg) => { const f = pg.latest(); return f?.github?.repos?.some((r) => r.prs?.length) ? f : null; };
 assert.ok(await until(() => polled(A) && polled(B), 20_000), `GitHub was polled: ${JSON.stringify(A.latest()?.github)} | ${JSON.stringify(lines(ghCalls))} | ${log}`);
