@@ -25,6 +25,7 @@ import { prefsPath } from './cli.mjs';
 import { createGithub } from './github.mjs';
 import { createOverseer } from './overseer.mjs';
 import { createWatcher } from './watcher.mjs';
+import { parseClaudeAuth, parseGhAuth, claudeLoginCommand, loginScript } from './setup.mjs';
 
 // `node server.mjs <command>` runs the CLI (cli.mjs) and never starts the server.
 if (process.argv.length > 2) { const { main } = await import('./cli.mjs'); process.exit(await main(process.argv.slice(2))); }
@@ -1328,9 +1329,11 @@ function switchProfile(body) {
   rosterSeeded = false;
   for (const id of [...terms.keys()]) termEnd(id); // the other profile's sessions are not on the board
   rosterError = null;
-  try { fs.mkdirSync(path.dirname(PREFS), { recursive: true }); fs.writeFileSync(PREFS, JSON.stringify({ profile: p.id }) + '\n'); } catch {}
+  savePrefs({ profile: p.id });
+  setup.claude = { state: 'unknown' };
   broadcast();
   pollRoster().then(checkVersions);
+  checkSetup(true);
   return { ok: true };
 }
 /**
@@ -1368,6 +1371,60 @@ function connectProfile(body) {
   if (p.dir === profile.dir) profileInfo = describeProfile(p);
   broadcast();
   return { ok: true, added, backup: backup && tilde(backup) };
+}
+
+// ---------------------------------------------------------------- first-run setup
+
+/** The prefs file holds more than one choice: a write keeps the others. */
+function readPrefs() { try { const v = JSON.parse(small(PREFS, 65536)); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; } catch { return {}; } }
+function savePrefs(change) {
+  try { fs.mkdirSync(path.dirname(PREFS), { recursive: true }); fs.writeFileSync(PREFS, JSON.stringify({ ...readPrefs(), ...change }) + '\n'); } catch {}
+}
+// What the checklist shows: whether the profile is signed in to Claude Code, and gh to GitHub. Read when the panel
+// starts, when the profile switches, and when a page asks (it does while the checklist waits on a sign-in, and when you
+// come back to its window). Never on the 1 s tick: each read starts a process.
+const setup = { claude: { state: 'unknown' }, github: { state: process.env.ACP_GITHUB === 'off' ? 'off' : 'unknown' }, done: readPrefs().setupDone === true, checkedAt: 0 };
+let setupCheck = null;
+function checkSetup(force) {
+  if (setupCheck) return setupCheck;
+  if (!force && Date.now() - setup.checkedAt < 3000) return Promise.resolve();
+  const p = profile, env = p.plain ? baseEnv : { ...baseEnv, CLAUDE_CONFIG_DIR: p.dir }, gh = ghPath();
+  setupCheck = Promise.all([
+    run('claude', ['auth', 'status', '--json'], { env, timeout: 8000 }).then((r) => parseClaudeAuth(r.stdout)),
+    setup.github.state === 'off' ? setup.github
+      : gh ? run(gh, ['auth', 'status', '--hostname', 'github.com'], { env: baseEnv, cwd: path.dirname(PREFS), timeout: 8000 }).then(parseGhAuth) : { state: 'missing' },
+  ]).then(([claude, github]) => {
+    if (p !== profile) return; // the profile switched while it read: the next check is for the new one
+    const was = JSON.stringify([setup.claude, setup.github]);
+    // A read that timed out says nothing new: a sign-in already seen stays.
+    if (claude.state !== 'unknown' || setup.claude.state === 'unknown') setup.claude = claude;
+    setup.github = github;
+    setup.checkedAt = Date.now();
+    if (JSON.stringify([setup.claude, setup.github]) !== was) broadcast();
+  }).finally(() => { setupCheck = null; });
+  return setupCheck;
+}
+const setupOut = () => ({ claude: setup.claude, github: setup.github, done: setup.done, loginCommand: claudeLoginCommand(profile) });
+async function setupCheckNow() { await checkSetup(false); return { ok: true, setup: setupOut() }; }
+function setupDone(body) {
+  setup.done = body?.done !== false;
+  savePrefs({ setupDone: setup.done });
+  broadcast();
+  return { ok: true };
+}
+/** Terminal, running Claude Code's own sign-in on this profile, or gh's: the panel never sees a password or token. */
+async function openLoginTerminal(body) {
+  if (process.platform !== 'darwin') return { ok: false, error: 'Opening Terminal is macOS only. Run the command shown in a terminal.' };
+  const what = body?.what === 'gh' ? 'gh' : 'claude';
+  const bin = what === 'gh' ? ghPath() : claudePath();
+  if (!bin) return { ok: false, error: what === 'gh' ? "The GitHub CLI (gh) isn't installed. Run brew install gh, then try again." : "Claude Code wasn't found on the panel's PATH." };
+  const where = path.join(path.dirname(PREFS), 'trust');
+  fs.mkdirSync(where, { recursive: true, mode: 0o700 });
+  for (const n of fs.readdirSync(where)) try { const f = path.join(where, n); if (Date.now() - fs.statSync(f).mtimeMs > 3_600_000) fs.unlinkSync(f); } catch {}
+  const file = path.join(where, `login-${what}-${crypto.randomBytes(4).toString('hex')}.command`);
+  fs.writeFileSync(file, loginScript({ what, bin, configDir: profile.plain ? null : profile.dir, label: profileLabel() }), { mode: 0o700 });
+  const r = await run('open', ['-a', 'Terminal', file], { timeout: 10_000 });
+  return r.err ? { ok: false, error: firstLine(r) } : { ok: true };
 }
 
 /** The Mac's own folder dialog, opened where the field points. */
@@ -1826,7 +1883,7 @@ const termClose = (body) => { termLeave(body?.client, body?.sessionId); return {
 function snapshot() {
   const now = Date.now();
   return {
-    now, armed, rosterError, port: PORT, profile: profileInfo, oldVersions,
+    now, armed, rosterError, port: PORT, profile: profileInfo, oldVersions, setup: setupOut(),
     sessions: [...sessions.values()].map(({ spawns, hereCwd, rosterCwd, ranCwd, editTops, ...s }) => {
       const here = ranCwd ?? hereCwd ?? s.cwd, place = gitPlace(here), git = placeOut(place);
       return {
@@ -1971,6 +2028,7 @@ async function handle(req, res) {
                       '/api/profiles': profiles, '/api/profile': switchProfile, '/api/profile/connect': connectProfile,
                       '/api/answer-open': answerOpen, '/api/history': history, '/api/follow': followSession,
                       '/api/trust-terminal': openTrustTerminal,
+                      '/api/setup/check': setupCheckNow, '/api/setup/done': setupDone, '/api/setup/login': openLoginTerminal,
                       '/api/github/refresh': () => { github.refresh(); return { ok: true, github: github.state() }; },
                       '/api/github/log': githubLog, '/api/github/hand': githubHand, ...OVERSEER,
                       '/api/watcher/enabled': (b) => watcher.setEnabled(b?.on),
@@ -2015,6 +2073,7 @@ const looking = () => !DAEMON || clients.size > 0;
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`agent control panel → http://127.0.0.1:${PORT}`);
   overseer.use(overseerId(profile)); // here, not at load: it broadcasts, and the broadcast's state is declared further down
+  if (!setup.done) checkSetup(true); // the checklist shows until it is done; once it is, a page asks when it reopens it
   pollRoster().then(() => { if (looking()) checkVersions(); });
   setRosterPace(looking());
   setInterval(() => { if (looking()) checkVersions(); }, VERSIONS_MS);

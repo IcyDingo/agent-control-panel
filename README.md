@@ -20,8 +20,18 @@ Panel.app** into `~/Applications`. Then:
 1. Open **Agent Panel**. macOS may ask whether it may use your Documents folder: the panel reads the
    repositories your sessions work in.
 2. If you use more than one Claude Code profile, pick yours under **Profile**, top right.
-3. Click **Connect this profile**. It adds the panel's hooks to that profile's `settings.json` (and
-   keeps a copy of the old file). Sessions you start after that show up on the board.
+3. Follow **Set up the panel**, the checklist the panel opens with. Each step ticks itself as it's done:
+   - **Sign in to Claude.** The panel has no login of its own: the overseer and new agents run on the
+     profile's Claude Code login. **Sign in in Terminal…** opens Terminal running `claude auth login` on that
+     profile (or copy the command).
+   - **Connect this profile.** It adds the panel's hooks to that profile's `settings.json` (and keeps a copy of
+     the old file). Sessions you start after that show up on the board; one already running keeps asking in its
+     terminal until it restarts.
+   - **Start your first agent**, with **New agent** or `claude` in any terminal.
+   - Optional: **GitHub** (`gh auth login`, again in Terminal; the panel stores no token) and **Desktop alerts**.
+
+   **Done** (or **Hide for now**) puts it away, remembered in `prefs.json`; **Setup** in the overseer's header
+   brings it back.
 
 `install.sh` also installs a background service, so the panel keeps holding requests and answering hooks when the app
 isn't open; `./install.sh --no-daemon` skips it.

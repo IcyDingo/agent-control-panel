@@ -681,6 +681,27 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .h-intro { margin: 8px 0 28px; }
 .h-intro h3 { margin: 0 0 8px; font-size: 22px; line-height: 1.25; font-weight: 600; letter-spacing: -0.02em; text-wrap: balance; }
 .h-intro p { max-width: 58ch; margin: 0; color: var(--fg-dim); font-size: 14px; line-height: 1.6; }
+/* First run: the accounts the panel borrows and the one step that is its own, each with a live mark. */
+#h-setup:empty { display: none; }
+#h-setup { margin: 8px 0 28px; }
+#h-setup h3 { margin: 0 0 8px; font-size: 22px; line-height: 1.25; font-weight: 600; letter-spacing: -0.02em; text-wrap: balance; }
+#h-setup > p { max-width: 58ch; margin: 0; color: var(--fg-dim); font-size: 14px; line-height: 1.6; }
+.su-list { margin: 16px 0 0; padding: 0; list-style: none; border: 1px solid var(--line); border-radius: var(--r-2); overflow: hidden; }
+.su-row { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 3px 12px; padding: 14px 16px; border-top: 1px solid var(--line); }
+.su-row:first-child { border-top: 0; }
+.su-mark { grid-row: span 3; width: 22px; height: 22px; display: grid; place-items: center; font-size: 13px; font-weight: 650; color: var(--fg-dim); }
+.su-row[data-s="ok"] .su-mark { color: var(--ok); }
+.su-row[data-s="todo"] .su-mark { color: var(--amber); }
+.su-row[data-s="todo"] { background: var(--raise); }
+.su-t { font-size: 14px; font-weight: 550; line-height: 22px; }
+.su-t .su-opt { margin-left: 6px; color: var(--fg-faint); font-size: 12px; font-weight: 450; }
+.su-d { max-width: 62ch; color: var(--fg-dim); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.su-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
+.su-acts:empty { display: none; }
+.su-cmd { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 0 2px 0 8px; border-radius: var(--r-1); background: var(--code); font: 12px/26px var(--mono); }
+.su-cmd code { overflow-wrap: anywhere; line-height: 1.4; padding: 4px 0; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.su-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 14px; color: var(--fg-dim); font-size: 12.5px; }
 #h-next:empty { display: none; }
 #h-next { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 24px; padding: 12px 16px; border-radius: var(--r-2); background: var(--amber-fill); color: var(--amber); font-size: 13px; font-weight: 550; }
 #h-next .btn { background: var(--amber-dim); color: var(--amber); }
@@ -803,6 +824,7 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
       <div class="d-scroll" id="h-scroll">
         <div class="d-col">
           <div id="h-next"></div>
+          <div id="h-setup" role="region" aria-label="Set up the panel"></div>
           <div class="h-intro" id="h-intro"></div>
           <div class="thread" id="h-thread"></div>
           <div class="chips" id="h-chips"></div>
@@ -1090,7 +1112,7 @@ async function api(path, body) {
 // ---------- alerts + the arm switch ----------
 const notifyBtn = $('notify');
 if ('Notification' in window && Notification.permission === 'default') notifyBtn.hidden = false;
-notifyBtn.onclick = () => Notification.requestPermission().then(() => { notifyBtn.hidden = Notification.permission !== 'default'; });
+notifyBtn.onclick = () => Notification.requestPermission().then(() => { notifyBtn.hidden = Notification.permission !== 'default'; render(); });
 function alertNew(p) {
   if (!('Notification' in window) || Notification.permission !== 'granted' || document.hasFocus()) return;
   const who = label(sessionOf(p.sessionId));
@@ -2579,7 +2601,8 @@ function renderOvThread() {
   const atEnd = $('h-scroll').scrollHeight - $('h-scroll').scrollTop - $('h-scroll').clientHeight < 40;
   want.forEach((n, i) => { if (box.children[i] !== n) box.insertBefore(n, box.children[i] ?? null); });
   while (box.children.length > want.length) box.lastChild.remove();
-  if (atEnd || ovPin) { $('h-scroll').scrollTop = $('h-scroll').scrollHeight; ovPin = false; }
+  // The setup checklist reads from the top; the conversation keeps to its newest line once there is one.
+  if ((atEnd || ovPin) && !(setupShown() && !ov.turns.length)) { $('h-scroll').scrollTop = $('h-scroll').scrollHeight; ovPin = false; }
 }
 let ovPin = true;
 function turnEl(t) {
@@ -2611,6 +2634,100 @@ $('h-send').onclick = () => sayOverseer($('h-say').value);
 $('h-model').onchange = async () => { const r = await api('/api/overseer/model', { model: $('h-model').value }); if (!r.ok) toast(r.error || 'The model did not change.', true); };
 $('h-close').onclick = () => { homeOpen = false; render(); };
 const MODEL_NAMES = { haiku: 'Haiku', sonnet: 'Sonnet', opus: 'Opus', fable: 'Fable' };
+
+// ---------- first run: the setup checklist ----------
+// The panel has no login of its own: it borrows the profile's Claude Code login and your gh. The checklist shows each,
+// with a live mark, on the overseer's page until you say it's done; Setup in its header brings it back.
+let setupReopened = false, setupPollAt = 0;
+const setupShown = () => Boolean(snap?.setup) && (!snap.setup.done || setupReopened);
+const canAlert = () => 'Notification' in window;
+function reopenSetup() { setupReopened = true; checkSetupNow(true); render(); $('h-scroll').scrollTop = 0; }
+async function checkSetupNow(now) {
+  if (!now && Date.now() - setupPollAt < 5000) return;
+  setupPollAt = Date.now();
+  await api('/api/setup/check', {}); // what it finds comes back with the next snapshot
+}
+const copyCmd = (cmd) => navigator.clipboard.writeText(cmd).then(() => toast('Copied ' + cmd), () => toast('Copy is blocked here. Select it: ' + cmd, true));
+const cmdChip = (cmd) => el('span', { class: 'su-cmd' }, el('code', { text: cmd }),
+  el('button', { class: 'btn quiet small', type: 'button', text: 'Copy', 'aria-label': 'Copy ' + cmd, onclick: () => copyCmd(cmd) }));
+async function openLogin(what, btn) {
+  btn.disabled = true;
+  const r = await api('/api/setup/login', { what });
+  btn.disabled = false;
+  if (!r.ok) return toast(r.error || 'Terminal did not open.', true);
+  toast(what === 'gh' ? 'Sign in to GitHub in the Terminal window. This ticks by itself when you are done.' : 'Sign in in the Terminal window. This ticks by itself when you are done.');
+}
+function setupRows() {
+  const S = snap.setup, p = snap.profile ?? {}, name = p.label ?? p.id ?? 'claude';
+  const row = (s, n, title, detail, acts, optional) => ({ s, n, title, detail, acts, optional });
+  const rows = [];
+  const c = S.claude ?? { state: 'unknown' };
+  const plan = c.plan ? ` · ${c.plan[0].toUpperCase()}${c.plan.slice(1)} plan` : '';
+  rows.push(c.state === 'ok'
+    ? row('ok', 1, 'Signed in to Claude', (c.email ? `${c.email}${plan}` : c.method === 'api_key' ? 'With an API key' : 'Signed in') + (p.label && p.label !== 'claude' ? `, on the ${name} profile.` : '.'))
+    : row(c.state === 'unknown' ? 'wait' : 'todo', 1, 'Sign in to Claude',
+      c.state === 'unknown' ? 'Checking… The overseer and new agents run on this profile’s own Claude Code login.'
+        : `The ${name} profile isn’t signed in. The overseer and new agents run on its Claude Code login, so they can’t start until it is.`,
+      () => [el('button', { class: 'btn primary small', type: 'button', text: 'Sign in in Terminal…', onclick: (e) => openLogin('claude', e.currentTarget) }),
+        el('span', { class: 'quiet', text: 'or run' }), cmdChip(S.loginCommand)]));
+  rows.push(p.connected
+    ? row('ok', 2, 'Connected', 'Sessions you start from now on report here: their requests, tools and subagents show as they happen. One that was already running keeps asking in its terminal until it restarts.')
+    : row('todo', 2, 'Connect this profile', `Adds the panel’s hooks to ${p.where ?? '~/.claude'}/settings.json and keeps a copy of the old file. Nothing else in it changes. Until then sessions are listed, but you can’t answer them here.`,
+      () => [el('button', { class: 'btn primary small', type: 'button', text: 'Connect this profile', onclick: (e) => connectThisProfile(e.currentTarget) })]));
+  const live = (snap.sessions ?? []).filter((s) => !s.hostsPanel).length;
+  rows.push(live
+    ? row('ok', 3, 'Your first agent', `${live === 1 ? 'One session is' : live + ' sessions are'} on the board. Click one to read it, answer it or write to it. When one asks for something it moves to Needs you, and n jumps there.`)
+    : row('todo', 3, 'Start your first agent', 'Give it a prompt and a folder and it runs in the background. A session you start with claude in any terminal shows up here too.',
+      () => [el('button', { class: 'btn small', type: 'button', text: 'New agent', onclick: () => openLauncher() })]));
+  const gh = S.github ?? { state: 'unknown' };
+  if (gh.state !== 'off') rows.push(
+    gh.state === 'ok' ? row('ok', 4, 'GitHub', `Signed in${gh.login ? ' as ' + gh.login : ''}. The GitHub button shows the pull requests and CI of the repositories your agents work in.`, null, true)
+    : gh.state === 'missing' ? row('opt', 4, 'GitHub', 'Install the GitHub CLI to see pull requests and CI here, and to let the panel tell an agent when its checks fail.', () => [cmdChip('brew install gh')], true)
+    : gh.state === 'signed-out' ? row('opt', 4, 'GitHub', 'Sign the GitHub CLI in to see pull requests and CI here. The panel uses gh’s own login and stores no token.',
+      () => [el('button', { class: 'btn small', type: 'button', text: 'Sign in in Terminal…', onclick: (e) => openLogin('gh', e.currentTarget) }), el('span', { class: 'quiet', text: 'or run' }), cmdChip('gh auth login')], true)
+    : row('wait', 4, 'GitHub', 'Checking whether the GitHub CLI is signed in…', null, true));
+  if (canAlert()) {
+    const perm = Notification.permission;
+    rows.push(perm === 'granted' ? row('ok', 5, 'Desktop alerts', 'On. A request that waits on you, or a check that fails, reaches you in any app.', null, true)
+      : perm === 'denied' ? row('opt', 5, 'Desktop alerts', 'Blocked. Turn them on for Agent Panel (or this browser) in System Settings › Notifications.', null, true)
+      : row('opt', 5, 'Desktop alerts', 'Get a notification when a session needs you while you’re in another app.',
+        () => [el('button', { class: 'btn small', type: 'button', text: 'Turn on', onclick: () => Notification.requestPermission().then(() => { notifyBtn.hidden = Notification.permission !== 'default'; render(); }) })], true));
+  }
+  return rows;
+}
+function renderSetup(on) {
+  const box = $('h-setup');
+  if (!on) { patch(box, '', () => null); return; }
+  const S = snap.setup, rows = setupRows();
+  const needed = rows.filter((r) => !r.optional && r.n <= 2), ready = needed.every((r) => r.s === 'ok');
+  const steps = rows.filter((r) => !r.optional), stepsDone = steps.filter((r) => r.s === 'ok').length;
+  // A sign-in happens in Terminal: while one is outstanding, look again every few seconds (only while this shows).
+  if (document.visibilityState === 'visible' && (S.claude?.state !== 'ok' || ['signed-out', 'unknown'].includes(S.github?.state))) checkSetupNow(false);
+  const sig = JSON.stringify([rows.map((r) => [r.s, r.title, r.detail]), S.loginCommand, ready, S.done]);
+  patch(box, sig, () => [
+    el('h3', { text: stepsDone === steps.length ? 'You’re set up.' : 'Set up the panel' }),
+    el('p', { text: 'The panel has no account of its own. It runs on your Claude Code login and, for GitHub, on your gh, and reaches your sessions through hooks in your Claude Code settings.' }),
+    el('ol', { class: 'su-list' }, rows.map((r) =>
+      el('li', { class: 'su-row', 'data-s': r.s },
+        el('span', { class: 'su-mark', 'aria-hidden': 'true', text: r.s === 'ok' ? '✓' : r.optional ? '·' : String(r.n) }),
+        el('span', { class: 'su-t' }, r.title, r.optional ? el('span', { class: 'su-opt', text: 'optional' }) : null,
+          el('span', { class: 'visually-hidden', text: r.s === 'ok' ? ' (done)' : r.s === 'wait' ? ' (checking)' : r.optional ? '' : ' (to do)' })),
+        el('span', { class: 'su-d', text: r.detail }),
+        r.acts && r.s !== 'ok' ? el('span', { class: 'su-acts' }, r.acts()) : null))),
+    el('div', { class: 'su-foot' },
+      el('button', { class: 'btn small' + (ready ? ' primary' : ''), type: 'button', text: ready ? 'Done' : 'Hide for now', onclick: () => finishSetup() }),
+      el('span', { text: ready ? 'Setup in the header brings this back.' : 'Steps 1 and 2 are what the panel needs. Setup in the header brings this back.' })),
+  ]);
+}
+async function finishSetup() {
+  setupReopened = false;
+  if (!snap.setup.done) { const r = await api('/api/setup/done', { done: true }); if (!r.ok) return toast(r.error || 'It did not save.', true); snap.setup.done = true; }
+  render();
+}
+// Back from Terminal (or System Settings): look again at once.
+window.addEventListener('focus', () => { if (setupShown()) checkSetupNow(true); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && setupShown()) checkSetupNow(false); });
+
 function renderHome(g) {
   const home = $('home'), st = snap.overseer;
   if (open) homeOpen = false; // a session opened: closing it goes back to the rail on a narrow window
@@ -2626,13 +2743,20 @@ function renderHome(g) {
     el('button', { class: 'btn small', type: 'button', onclick: () => { cancelAdvance(); open = next.sessionId; render(); } }, 'Open ' + label(next))] : null);
   const busy = st?.busy;
   setText($('h-meta'), st ? `${MODEL_NAMES[st.model] ?? st.model} · proposes, you confirm` : '');
-  patch($('h-tools'), JSON.stringify([ov.turns.length > 0, armed?.key === 'ovclear:']), () => ov.turns.length ? armBtn('ovclear:', 'Clear', 'Confirm clear', async () => {
-    const r = await api('/api/overseer/clear', {}); if (!r.ok) toast(r.error || 'It was not cleared.', true); ovNodes.clear(); }, 'soft small') : null);
-  patch($('h-intro'), String(ov.turns.length > 0), () => ov.turns.length ? null : [
+  const setupOn = setupShown();
+  patch($('h-tools'), JSON.stringify([ov.turns.length > 0, armed?.key === 'ovclear:', setupOn]), () => [
+    setupOn ? null : el('button', { class: 'btn quiet small', type: 'button', text: 'Setup', title: 'The setup checklist: your Claude and GitHub sign-ins, the hooks, alerts', onclick: () => reopenSetup() }),
+    ov.turns.length ? armBtn('ovclear:', 'Clear', 'Confirm clear', async () => {
+      const r = await api('/api/overseer/clear', {}); if (!r.ok) toast(r.error || 'It was not cleared.', true); ovNodes.clear(); }, 'soft small') : null]);
+  renderSetup(setupOn);
+  // The checklist stands in for the welcome until it is done; a conversation already under way keeps its place.
+  const intro = !setupOn && !ov.turns.length;
+  patch($('h-intro'), String(intro), () => intro ? [
     el('h3', { text: 'Ask about everything at once.' }),
-    el('p', { text: 'The overseer reads every session on this board, its repository and branch, what it asks you, and what GitHub shows for its pull request. It can propose a message to an agent, a new session or an interrupt, and nothing runs until you click.' })]);
-  patch($('h-chips'), String(ov.turns.length > 0 || Boolean(busy)), () => ov.turns.length || busy ? null
-    : STARTERS.map((q) => el('button', { class: 'chip', type: 'button', text: q, onclick: () => sayOverseer(q) })));
+    el('p', { text: 'The overseer reads every session on this board, its repository and branch, what it asks you, and what GitHub shows for its pull request. It can propose a message to an agent, a new session or an interrupt, and nothing runs until you click.' })] : null);
+  const starters = !setupOn && !ov.turns.length && !busy;
+  patch($('h-chips'), String(starters), () => starters
+    ? STARTERS.map((q) => el('button', { class: 'chip', type: 'button', text: q, onclick: () => sayOverseer(q) })) : null);
   renderOvThread();
   $('h-busy').hidden = !busy;
   if (busy) patch($('h-busy'), JSON.stringify([busy.phase, Math.floor((snap.now - busy.since) / 1000)]), () => [
@@ -3173,7 +3297,7 @@ function renderProfile() {
   const p = snap.profile;
   if (!p) return;
   const name = p.label ?? p.id;
-  $('prof-banner').hidden = p.connected;
+  $('prof-banner').hidden = p.connected || setupShown(); // the checklist has its own Connect
   setText($('pb-name'), name);
   setText($('pb-file'), `Adds its hooks to ${p.where}/settings.json and keeps a copy of the old file.`);
   setAttr($('pb-connect'), 'title', `Adds its hooks to ${p.where}/settings.json and keeps a copy of the old file.`);
@@ -3256,14 +3380,14 @@ $('theme-menu').addEventListener('keydown', (e) => {
   else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus(); }
 });
 applyTheme();
-$('pb-connect').onclick = async () => {
-  const b = $('pb-connect');
+$('pb-connect').onclick = () => connectThisProfile($('pb-connect'));
+async function connectThisProfile(b) {
   b.disabled = true;
   const r = await api('/api/profile/connect', { id: snap.profile.id });
   b.disabled = false;
   if (!r.ok) { toast(r.error || 'It did not connect.', true); return; }
-  toast(r.added ? `Connected. Its sessions report here once Claude Code reloads their settings.${r.backup ? ' The old file is kept at ' + r.backup + '.' : ''}` : 'It was already connected.');
-};
+  toast(r.added ? `Connected. Sessions you start from now on report here; one already running keeps asking in its terminal until it restarts.${r.backup ? ' The old file is kept at ' + r.backup + '.' : ''}` : 'It was already connected.');
+}
 
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || dlg.open || e.target.closest?.('textarea, input, select')) return;
