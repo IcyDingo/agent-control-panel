@@ -25,8 +25,10 @@ export function repoKey({ slug, common, dir } = {}) {
 }
 
 /** A desktop notification about a workspace that isn't in focus: its name and a count, never a repository, pull
- *  request, branch or session. `waits` for something waiting on your click, else a failed check. */
-export const countOnly = (name, { waits = false } = {}) => ({ title: 'Glue', text: `${name}: ${waits ? '1 needs you' : 'a check failed'}` });
+ *  request, branch or session. `waits` for something waiting on your click (`n` of them there, at least the one being
+ *  told of), else a failed check. */
+export const countOnly = (name, { waits = false, n = 1 } = {}) => ({ title: 'Glue',
+  text: `${name}: ${waits ? `${Number.isInteger(n) && n > 1 ? n : 1} needs you` : 'a check failed'}` });
 
 // A profile's folder label: the folder name without its leading dot (`.claude-contract` is `claude-contract`).
 const labelOf = (p) => (p.dir ? path.basename(p.dir) : p.plain ? 'claude' : `claude-${p.id}`).replace(/^\./, '');

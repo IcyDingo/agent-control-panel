@@ -2,7 +2,8 @@
 // ~/.claude-contract), each a workspace, and GitHub on. A stand-in `gh` knows three repositories: o/p (sorted into
 // default, where the default job works), o/n (sorted into contract, where the contract job works) and o/q (sorted into
 // none: only your own pull request is open there). Both jobs' pull requests have a check that failed half a minute ago,
-// so the first poll notifies, through a stand-in `osascript` that logs its argv.
+// so the first poll notifies, through a stand-in `osascript` that logs its argv. A second contract job works in o/x, sorted
+// into none: a repository only contract's sessions work in, which the default page must never be told of.
 // Run with `npm test`. Starts the server on a spare port.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -18,6 +19,7 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-wsgh-'));
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 const SID_D = 'aaaaaaaa-1111-4111-8111-111111111111', SID_C = 'cccccccc-2222-4222-8222-222222222222';
+const SID_X = 'cccccccc-5555-4555-8555-555555555555';
 const REFUSE = 'That belongs to another workspace. Switch to it to do this.';
 
 // A checkout per job. The panel reads the branch and the remote from these files, never from git.
@@ -28,12 +30,12 @@ function checkout(name, slug, branch) {
   fs.writeFileSync(path.join(dir, '.git', 'config'), `[core]\n\tbare = false\n[remote "origin"]\n\turl = https://github.com/${slug}.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n`);
   return dir;
 }
-const workD = checkout('p', 'o/p', 'feat/p'), workC = checkout('n', 'o/n', 'feat/x');
+const workD = checkout('p', 'o/p', 'feat/p'), workC = checkout('n', 'o/n', 'feat/x'), workX = checkout('x', 'o/x', 'feat/xx');
 const transcript = (text, cwd) => [
   JSON.stringify({ type: 'user', cwd, permissionMode: 'default', timestamp: '2026-11-12T10:00:00.000Z', message: { role: 'user', content: text } }),
   JSON.stringify({ type: 'assistant', cwd, timestamp: '2026-11-12T10:00:01.000Z', message: { role: 'assistant', model: 'claude-sonnet-5-5', content: [{ type: 'text', text: 'Done.' }] } }),
 ].join('\n') + '\n';
-for (const [dir, sid, cwd] of [['.claude', SID_D, workD], ['.claude-contract', SID_C, workC]]) {
+for (const [dir, sid, cwd] of [['.claude', SID_D, workD], ['.claude-contract', SID_C, workC], ['.claude-contract', SID_X, workX]]) {
   fs.mkdirSync(path.join(home, dir, 'projects', 'p'), { recursive: true });
   fs.writeFileSync(path.join(home, dir, 'settings.json'), '{}');
   fs.writeFileSync(path.join(home, dir, 'projects', 'p', `${sid}.jsonl`), transcript(`work in ${dir}`, cwd));
@@ -41,7 +43,7 @@ for (const [dir, sid, cwd] of [['.claude', SID_D, workD], ['.claude-contract', S
 // One background job per profile, up and idle: the PR watcher's fix request resumes it with --bg.
 const job = (sid, name, cwd) => ({ pid: null, id: sid.slice(0, 8), cwd, kind: 'background', startedAt: Date.now(), sessionId: sid, name, status: 'idle', state: 'running' });
 fs.writeFileSync(path.join(home, 'roster-default.json'), JSON.stringify([job(SID_D, 'default job', workD)]));
-fs.writeFileSync(path.join(home, 'roster-.claude-contract.json'), JSON.stringify([job(SID_C, 'contract job', workC)]));
+fs.writeFileSync(path.join(home, 'roster-.claude-contract.json'), JSON.stringify([job(SID_C, 'contract job', workC), job(SID_X, 'contract side job', workX)]));
 
 const calls = path.join(home, 'claude-calls.log'), ghCalls = path.join(home, 'gh-calls.log'), notes = path.join(home, 'osascript.log');
 const bin = path.join(home, 'bin');
@@ -104,6 +106,9 @@ fs.writeFileSync(prefs, JSON.stringify({ profile: 'default' }));
 fs.writeFileSync(path.join(home, 'panel', 'workspaces.json'), JSON.stringify({ v: 1,
   workspaces: { default: { name: 'claude', color: 'violet' }, contract: { name: 'claude-contract', color: 'blue' } }, order: ['contract', 'default'],
   repos: { 'gh:o/n': ['contract'], 'gh:o/p': ['default'] }, focus: 'default' }), { mode: 0o600 });
+// What the PR watcher last did on o/n's pull request (contract's) and on o/q's (in no workspace), from before this start.
+fs.writeFileSync(path.join(home, 'panel', 'watcher.json'), JSON.stringify({ v: 1, enabled: true, enabledBy: {}, done: {}, fixes: {}, capped: {}, retry: {},
+  last: { 'o/n#7': { kind: 'failing', at: Date.now() - 60_000, result: 'asked', fixes: 1 }, 'o/q#9': { kind: 'failing', at: Date.now() - 60_000, result: 'tell it yourself', fixes: 0 } } }), { mode: 0o600 });
 
 const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('CLAUDE') && !k.startsWith('ACP_')));
 const server = spawn(process.execPath, [SERVER], { env: { ...env, HOME: home, PATH: `${bin}:${env.PATH}`, ACP_PORT: String(PORT), ACP_PREFS: prefs }, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -163,6 +168,7 @@ test('the GitHub panel lists only the workspace\'s repositories', async () => {
   assert.ok(snap, JSON.stringify(A.latest()?.github));
   assert.deepEqual(snap.github.repos.map((r) => r.slug), ['o/p']);
   assert.equal(JSON.stringify(snap).includes('o/n'), false, 'page A carries o/n');
+  assert.equal(JSON.stringify(snap).includes('o/x'), false, 'page A carries o/x, which only contract\'s sessions work in');
   assert.equal(snap.sessions.find((s) => s.sessionId === SID_D)?.gh?.slug, 'o/p', 'its own job sees its pull request');
   const b = B.latest();
   assert.deepEqual(b.github.repos.map((r) => r.slug), ['o/n']);
@@ -175,11 +181,19 @@ test('the GitHub panel lists only the workspace\'s repositories', async () => {
 });
 
 test('unsorted repositories are a count', async () => {
-  const snap = await until(() => { const f = A.latest(); return f?.github?.unsorted === 1 ? f : null; });
-  assert.ok(snap, JSON.stringify(A.latest()?.github));
+  // Once o/x is polled too (contract's side job works in it).
+  assert.ok(await until(() => lines(ghCalls).some((c) => c.args[0] === 'pr' && c.args.includes('github.com/o/x'))), JSON.stringify(lines(ghCalls)));
+  const b = await until(() => { const f = B.latest(); return f?.github?.unsorted === 2 ? f : null; });
+  assert.ok(b, 'page B counts o/q and o/x: ' + JSON.stringify(B.latest()?.github));
+  assert.equal(JSON.stringify(b).includes('o/q'), false, 'page B names o/q');
+  // Page A counts o/q (no session works in it) but not o/x, which only another workspace's sessions work in.
+  const snap = A.latest();
+  assert.equal(snap.github.unsorted, 1, JSON.stringify(snap.github));
+  // And what neither watches is counted per workspace: each has its six, and nothing over.
+  assert.equal(snap.github.more, 0, JSON.stringify(snap.github));
+  assert.equal(b.github.more, 0, JSON.stringify(b.github));
   assert.equal(JSON.stringify(snap).includes('o/q'), false, 'page A names o/q');
-  assert.equal(B.latest().github.unsorted, 1);
-  assert.equal(JSON.stringify(B.latest()).includes('o/q'), false, 'page B names o/q');
+  assert.equal(JSON.stringify(snap).includes('o/x'), false, 'page A names o/x');
 });
 
 test('a failing check in another workspace notifies by count only', { skip: process.platform !== 'darwin' && 'notifications are macOS only' }, async () => {
@@ -198,7 +212,7 @@ test('a failing check in another workspace notifies by count only', { skip: proc
   assert.ok(fix.env?.endsWith('.claude-contract'));
   assert.ok(await until(() => lines(notes).filter((a) => a.at(-1) === 'claude-contract: a check failed').length >= 2), JSON.stringify(lines(notes)));
   assert.ok(await until(() => lines(notes).some((a) => a.at(-2) === 'Glue · fix asked' && a.at(-1).includes('o/p'))), 'the focused one\'s fix is told as today: ' + JSON.stringify(lines(notes)));
-  for (const a of lines(notes)) for (const bit of ['o/n', '#7', 'feat/x', 'contract job', 'Contract feature', 'o/q'])
+  for (const a of lines(notes)) for (const bit of ['o/n', '#7', 'feat/x', 'contract job', 'Contract feature', 'o/q', 'o/x'])
     assert.equal(a.some((x) => x.includes(bit)), false, `a notification carries ${bit}: ${JSON.stringify(a)}`);
 });
 
@@ -225,7 +239,20 @@ test('each overseer reads only its own workspace\'s GitHub', async () => {
   assert.equal(ask.env, null, 'on the default login');
   const prompt = ask.args.at(-1);
   assert.ok(prompt.includes('o/p'), prompt);
-  for (const bit of ['o/n', 'o/q', 'Contract feature', 'Stray change']) assert.equal(prompt.includes(bit), false, `the default overseer's prompt carries ${bit}`);
+  for (const bit of ['o/n', 'o/q', 'o/x', 'Contract feature', 'Stray change']) assert.equal(prompt.includes(bit), false, `the default overseer's prompt carries ${bit}`);
+});
+
+test('the PR watcher\'s record shows only the workspace\'s own repositories\' pull requests', async () => {
+  // Contract's page sees what was done on its o/n pull request; the default page does not, and neither sees o/q's, which
+  // is in no workspace.
+  const b = await until(() => { const f = B.latest(); return f?.watcher?.prs?.['o/n#7'] ? f : null; });
+  assert.ok(b, 'page B shows o/n#7: ' + JSON.stringify(B.latest()?.watcher));
+  assert.equal(Object.hasOwn(b.watcher.prs, 'o/q#9'), false, 'page B shows o/q#9: ' + JSON.stringify(b.watcher.prs));
+  for (const k of Object.keys(b.watcher.prs)) assert.ok(k.startsWith('o/n#'), `page B shows ${k}`);
+  const a = A.latest();
+  assert.equal(Object.hasOwn(a.watcher.prs, 'o/n#7'), false, 'page A shows o/n#7: ' + JSON.stringify(a.watcher.prs));
+  assert.equal(Object.hasOwn(a.watcher.prs, 'o/q#9'), false, 'page A shows o/q#9: ' + JSON.stringify(a.watcher.prs));
+  for (const k of Object.keys(a.watcher.prs)) assert.ok(k.startsWith('o/p#'), `page A shows ${k}`);
 });
 
 test('Auto-fix is set for the focused workspace only', async () => {
@@ -244,19 +271,22 @@ const unsortedOf = (client) => fetch(BASE + '/api/workspace/unsorted', { headers
   .then(async (x) => ({ status: x.status, ...(await x.json()) }));
 
 test('the list of unsorted repositories names those in no workspace, and no other', async () => {
-  const q = [{ key: 'gh:o/q', label: 'o/q' }];
-  for (const pg of [A, B]) {
+  const q = { key: 'gh:o/q', label: 'o/q' }, x = { key: 'gh:o/x', label: 'o/x' };
+  const byKey = (a, b) => a.key.localeCompare(b.key);
+  for (const [pg, want] of [[A, [q]], [B, [q, x]]]) {
     const r = await unsortedOf(pg.client);
     assert.equal(r.ok, true, JSON.stringify(r));
-    assert.deepEqual(r.repos, q, `page ${pg.client}`);
+    assert.deepEqual([...r.repos].sort(byKey), want, `page ${pg.client}`);
     assert.equal(JSON.stringify(r).includes('o/p'), false, 'it names o/p, which default holds');
     assert.equal(JSON.stringify(r).includes('o/n'), false, 'it names o/n, which contract holds');
   }
+  // o/x is in no workspace, but only contract's sessions work in it: the default page is never told its name.
+  assert.equal(JSON.stringify(await unsortedOf(A.client)).includes('o/x'), false, 'page A is told of o/x');
   assert.equal((await fetch(BASE + '/api/workspace/unsorted')).status, 403, 'not without the token');
   // Sorted into the other workspace, it is no longer unsorted: it is that workspace's, and not named to this page.
   assert.equal((await api('/api/workspace/assign', { key: 'gh:o/q', ws: ['contract'] }, A.client)).ok, true);
   assert.deepEqual((await unsortedOf(A.client)).repos, []);
-  assert.deepEqual((await unsortedOf(B.client)).repos, []);
+  assert.deepEqual((await unsortedOf(B.client)).repos, [x]);
   assert.ok(await until(() => A.latest()?.github?.unsorted === 0), JSON.stringify(A.latest()?.github));
   assert.equal(JSON.stringify(A.latest()).includes('o/q'), false, 'page A names o/q');
   // Sorted into this one too (by the workspace that holds it: a page may not claim another's), it is both workspaces' and

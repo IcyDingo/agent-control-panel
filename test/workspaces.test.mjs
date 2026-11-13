@@ -128,4 +128,8 @@ test('a notification about a workspace out of focus is its name and a count, not
   assert.deepEqual(countOnly('Work'), { title: 'Glue', text: 'Work: a check failed' });
   assert.deepEqual(countOnly('Work', { waits: true }), { title: 'Glue', text: 'Work: 1 needs you' });
   assert.deepEqual(countOnly('Private', { waits: false }), { title: 'Glue', text: 'Private: a check failed' });
+  // The count is how many things wait there, not always one.
+  assert.deepEqual(countOnly('Work', { waits: true, n: 3 }), { title: 'Glue', text: 'Work: 3 needs you' });
+  assert.deepEqual(countOnly('Work', { waits: true, n: 0 }), { title: 'Glue', text: 'Work: 1 needs you' }, 'never fewer than the one being told of');
+  assert.deepEqual(countOnly('Work', { waits: true, n: 'x' }), { title: 'Glue', text: 'Work: 1 needs you' });
 });

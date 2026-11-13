@@ -90,9 +90,10 @@ const baseEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => !
 
 // ---------------------------------------------------------------- profiles
 // A profile is a Claude Code config folder: ~/.claude for plain `claude`, ~/.claude-<name> for one run with
-// CLAUDE_CONFIG_DIR=~/.claude-<name>. The panel shows one at a time; the choice is remembered across starts.
+// CLAUDE_CONFIG_DIR=~/.claude-<name>. Each profile is a workspace (workspaces.mjs): all of them run at once, each page is
+// shown one, and the one last in view is remembered across starts.
 const HOME = os.homedir();
-// ACP_PREFS gives a second panel (another ACP_PORT) a profile choice of its own.
+// ACP_PREFS gives a second panel (another ACP_PORT) prefs of its own, and workspaces.json in the same folder.
 const PREFS = prefsPath();
 const HOOK_URL = `127.0.0.1:${PORT}/hook/`;
 function listProfiles() {
@@ -1896,10 +1897,11 @@ const placeOf = (s) => gitPlace(s.ranCwd ?? s.hereCwd ?? s.cwd);
 const github = createGithub({
   file: path.join(dataDir, 'github.json'), run, read: small, ghPath, cwd: dataDir, env: baseEnv,
   off: process.env.ACP_GITHUB === 'off', mine: true, // your own open pull requests too, in any repository
-  // Every session on the board, a finished background job waiting on its checks included.
+  // Every session on the board, a finished background job waiting on its checks included, with its workspace: each
+  // workspace has its own share of the repositories watched.
   targets: () => [...sessions.values()].filter((s) => s.inRoster || !isEnded(s)).map((s) => {
     const p = placeOf(s);
-    return p?.common ? { sessionId: s.sessionId, common: p.common, branch: p.branch, at: s.lastEventAt ?? s.startedAt ?? 0 } : null;
+    return p?.common ? { sessionId: s.sessionId, ws: s.ws, common: p.common, branch: p.branch, at: s.lastEventAt ?? s.startedAt ?? 0 } : null;
   }).filter(Boolean),
   notify: (title, text, about) => notifyFor(about?.slug, title, text),
   onEvent: (ev) => onGithubEvent(ev),
@@ -1914,25 +1916,45 @@ let onGithubEvent = () => {}, watcherCheck = () => {};
 const reposIn = (slug) => store.reposOf('gh:' + slug);
 const repoShownIn = (slug, wsId) => W.size === 1 || reposIn(slug).includes(wsId);
 /** `snap.github` for a page shown `wsId`: its repositories only, the session ids on their pull requests and runs its own
- *  only, and the repositories in no workspace as `unsorted`, a count. */
+ *  only, the repositories in no workspace that are its to sort as `unsorted`, a count, and as `more` how many of its own
+ *  sessions' repositories are not watched (never another workspace's count). */
 function githubFor(wsId) {
   const g = github.state();
   if (W.size === 1) return { ...g, unsorted: 0 };
   const own = (ids) => (Array.isArray(ids) ? ids.filter((sid) => sessions.get(sid)?.ws === wsId) : []);
+  const sortable = unsortedFor(wsId);
   let unsorted = 0;
   const repos = [];
   for (const r of g.repos) {
     const ws = reposIn(r.slug);
-    if (!ws.length) { unsorted++; continue; }
+    if (!ws.length) { if (sortable(r.slug)) unsorted++; continue; }
     if (!ws.includes(wsId)) continue;
     repos.push({ ...r, prs: r.prs.map((p) => ({ ...p, sessions: own(p.sessions) })), runs: r.runs.map((x) => ({ ...x, sessions: own(x.sessions) })) });
   }
-  return { ...g, repos, unsorted };
+  return { ...g, more: github.moreIn(wsId), repos, unsorted };
 }
-/** The repositories GitHub found that are in no workspace, as `{ key, label }`: what `githubFor` counts as `unsorted`. */
-function unsortedRepos() {
+/** Whether repository `slug`, in no workspace, is one a page shown `wsId` may be told of to sort: no session works in it
+ *  (one known from your own pull requests only), or one of `wsId`'s own does. One that only other workspaces' sessions
+ *  work in is theirs to sort; naming it here would tell this workspace what they work on. Reads the board once. */
+function unsortedFor(wsId) {
+  const working = workingMap();
+  return (slug) => { const w = working.get(slug); return !w?.size || w.has(wsId); };
+}
+/** Repository slug → the workspaces whose sessions work in it. */
+function workingMap() {
+  const working = new Map();
+  for (const s of sessions.values()) {
+    const p = placeOf(s), slug = p?.common ? github.forSession(p.common, p.branch)?.slug : null;
+    if (slug) (working.get(slug) ?? working.set(slug, new Set()).get(slug)).add(s.ws);
+  }
+  return working;
+}
+/** The repositories GitHub found that are in no workspace and are `focus`'s to sort, as `{ key, label }`: what
+ *  `githubFor(focus)` counts as `unsorted`. */
+function unsortedRepos(focus) {
   if (W.size === 1) return [];
-  return github.state().repos.filter((r) => !reposIn(r.slug).length).map((r) => ({ key: 'gh:' + r.slug, label: r.slug }));
+  const sortable = unsortedFor(focus);
+  return github.state().repos.filter((r) => !reposIn(r.slug).length && sortable(r.slug)).map((r) => ({ key: 'gh:' + r.slug, label: r.slug }));
 }
 /** GitHub's side of a session working at `place`, as workspace `wsId` sees it: none for a repository that only other
  *  workspaces hold. One in no workspace is the session's own to see. */
@@ -1943,10 +1965,7 @@ function sessionGh(place, wsId) {
   return ws.length && !ws.includes(wsId) ? null : gh;
 }
 /** The workspaces whose sessions work in repository `slug`. */
-const wsWorkingIn = (slug) => [...new Set([...sessions.values()].filter((s) => {
-  const p = placeOf(s);
-  return p?.common && github.forSession(p.common, p.branch)?.slug === slug;
-}).map((s) => s.ws))];
+const wsWorkingIn = (slug) => [...(workingMap().get(slug) ?? [])];
 /** Whether a page shown `wsId` may have a run in `slug` read or handed out: the repository is sorted there, or into no
  *  workspace while one of its own sessions works in it (that session's card shows the run). */
 const slugUsableIn = (slug, wsId) => repoShownIn(slug, wsId) || (!reposIn(slug).length && wsWorkingIn(slug).includes(wsId));
@@ -1957,7 +1976,7 @@ function notifyIn(ids, title, text, { waits = false } = {}) {
   if (W.size === 1 || ids.includes(store.focus())) return notify(title, text);
   const id = wsOrder().find((w) => ids.includes(w));
   if (!id) return notify('Glue', 'A check failed in a repository that is in no workspace yet.');
-  const c = countOnly(wsView(id).name, { waits });
+  const c = countOnly(wsView(id).name, { waits, n: waits ? waitingOf(id) : 1 });
   return notify(c.title, c.text);
 }
 /** A CI failure in repository `slug`: told in the workspaces it is sorted into, else those whose sessions work in it. */
@@ -2104,7 +2123,7 @@ function overseerOf(id) {
 /** The overseer whose feed a line about session `sessionId` goes in: its workspace's. None when no workspace knows it. */
 const overseerOfSession = (sessionId) => { const w = typeof sessionId === 'string' ? wsIdOfSession(sessionId) : null; return w ? overseerOf(w) : null; };
 // A GitHub event goes in the feed of each workspace whose sessions it is about. One about no session belongs to no
-// workspace's feed yet, so it is dropped (sealing GitHub to workspaces comes with its own task).
+// workspace's feed, so it is dropped: telling it to any overseer could carry one workspace's repository to another.
 onGithubEvent = (ev) => {
   // A session in another workspace's repository is not told about it: its workspace sees nothing of that repository.
   const ids = new Set((Array.isArray(ev?.sessions) ? ev.sessions : []).filter((sid) => typeof sid === 'string' && !(sessions.has(sid) && mismatched(sessions.get(sid))))
@@ -2241,7 +2260,6 @@ function termEnd(sessionId) {
 }
 const termClose = (body) => { termLeave(body?.client, body?.sessionId); return { ok: true }; };
 
-// ---------------------------------------------------------------- snapshot + SSE
 // ---------------------------------------------------------------- snapshot + SSE
 
 /** The watcher's state as a page shown `wsId` sees it: that workspace's switch, and only the pull requests of its repositories. */
@@ -2405,10 +2423,11 @@ async function handle(req, res) {
 
   // The repositories GitHub found that no workspace holds, by name: the one place they are named, because the page is
   // asking where they belong. A repository that any workspace holds is never listed (that would be its repository to
-  // show). With one workspace there is nothing to sort them into.
+  // show), nor one that only another workspace's sessions work in (that would tell what they work on). With one
+  // workspace there is nothing to sort them into.
   if (req.method === 'GET' && url.pathname === '/api/workspace/unsorted') {
     if (req.headers['x-acp-token'] !== TOKEN) return send(res, 403, { error: 'forbidden' });
-    return send(res, 200, { ok: true, repos: unsortedRepos() });
+    return send(res, 200, { ok: true, repos: unsortedRepos(focusOf(hdrClient)) });
   }
 
   if (req.method === 'POST' && url.pathname.startsWith('/api/')) {

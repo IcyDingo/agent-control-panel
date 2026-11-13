@@ -202,6 +202,57 @@ test('every session action is guarded', async () => {
   assert.equal((await api('/api/follow', { client: B.client, sessionId: null }, B.client)).ok, true);
 });
 
+/** A page whose stream also keeps its named events (`event: thread` and the like), as `{ name, data }`. */
+function streamOf(client) {
+  const frames = [], named = [], ctl = new AbortController();
+  fetch(`${BASE}/events?t=${token}&c=${client}`, { signal: ctl.signal }).then(async (r) => {
+    let buf = '';
+    for await (const chunk of r.body) {
+      buf += Buffer.from(chunk).toString();
+      for (let i; (i = buf.indexOf('\n\n')) >= 0;) {
+        const block = buf.slice(0, i), name = block.match(/^event: (.*)$/m)?.[1] ?? null, data = block.match(/^data: (.*)$/m)?.[1];
+        buf = buf.slice(i + 2);
+        let v;
+        try { v = JSON.parse(data); } catch { continue; }
+        if (name) named.push({ name, data: v, raw: block }); else frames.push(v);
+      }
+    }
+  }).catch(() => {});
+  const pg = { client, frames, named, latest: () => frames.findLast((f) => Array.isArray(f?.sessions)), close: () => ctl.abort() };
+  pages.push(pg);
+  return pg;
+}
+
+test('a session\'s live thread goes only to pages shown its workspace', async () => {
+  // Two pages look at contract and open the contract job's Chat. Then one of them moves to default.
+  const X = streamOf('page-x'), Y = streamOf('page-y');
+  assert.ok(await until(() => X.latest() && Y.latest()));
+  for (const pg of [X, Y]) {
+    assert.equal((await api('/api/workspace/focus', { ws: 'contract' }, pg.client)).ok, true);
+    const fo = await api('/api/follow', { client: pg.client, sessionId: SID_C }, pg.client);
+    assert.equal(fo.ok, true, JSON.stringify(fo));
+  }
+  assert.equal((await api('/api/workspace/focus', { ws: 'default' }, X.client)).ok, true);
+  assert.ok(await until(() => X.latest()?.workspace?.id === 'default'));
+  // The contract job writes on: page Y, still on contract, gets it live; page X gets nothing of that session.
+  const SECRET = 'contract line nobody on default may read';
+  fs.appendFileSync(path.join(home, '.claude-contract', 'projects', 'p', `${SID_C}.jsonl`), JSON.stringify({ parentUuid: null, uuid: 'a-secret', type: 'assistant', cwd: workC,
+    timestamp: '2026-11-12T10:05:00.000Z', message: { id: 'msg_secret', role: 'assistant', model: 'claude-sonnet-5-5', content: [{ type: 'text', text: SECRET }] } }) + '\n');
+  const got = await until(() => Y.named.find((e) => e.name === 'thread' && e.data.sessionId === SID_C && JSON.stringify(e.data).includes(SECRET)), 5000);
+  assert.ok(got, 'page Y got the line live: ' + JSON.stringify(Y.named.map((e) => e.name)) + ' | ' + log);
+  await pause(300);
+  const leaked = X.named.filter((e) => e.data?.sessionId === SID_C || e.raw.includes(SECRET));
+  assert.deepEqual(leaked.map((e) => e.name), [], 'page X got a stream event for the contract job');
+  assert.equal(X.frames.some((f) => JSON.stringify(f).includes(SECRET)), false, 'a snapshot carried the line to page X');
+  // Nor can it open the session again from default.
+  const again = await api('/api/follow', { client: X.client, sessionId: SID_C }, X.client);
+  assert.equal(again.ok, false, JSON.stringify(again));
+  assert.equal(again.error, REFUSE);
+  assert.equal((await api('/api/follow', { client: Y.client, sessionId: null }, Y.client)).ok, true);
+  X.close();
+  Y.close();
+});
+
 test('a reply runs under the session\'s own profile', async () => {
   const r = await api('/api/reply', { sessionId: SID_C, text: 'carry on, contract' }, B.client);
   assert.equal(r.ok, true, JSON.stringify(r) + ' | ' + log);
