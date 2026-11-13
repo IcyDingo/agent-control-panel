@@ -252,7 +252,7 @@ test('forget on a key known only from a session is a no-op', async () => {
 });
 
 test('glue prefs: seed once, then patch', async () => {
-  // The other keys in prefs.json (the last focused profile, the checklist being done) are kept on every write.
+  // The other keys in prefs.json (the last focused profile, setup being done) are kept on every write.
   const kept = JSON.parse(fs.readFileSync(prefs, 'utf8'));
   assert.equal(typeof kept.profile, 'string');
   const g = await get('/api/glue', A.client);

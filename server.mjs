@@ -1825,11 +1825,11 @@ async function revealIn(body) {
   const r = await runPlain('open', ['-R', at], { timeout: 10_000 });
   return r.err ? { ok: false, error: firstLine(r) } : { ok: true };
 }
-// Whether each workspace's profile is signed in to Claude Code (its `setup.claude`), and gh to GitHub: the checklist, the
+// Whether each workspace's profile is signed in to Claude Code (its `setup.claude`), and gh to GitHub: Settings, the
 // sign-in banner and the profile tab show it. Read when the panel starts, when a workspace appears or is shown, every few
-// minutes while a page is open, when a page asks (while the checklist waits on a sign-in, and when you come back to its
+// minutes while a page is open, when a page asks (while Settings is open, and when you come back to its
 // window), and when Claude Code fails with what reads as a login error. Never on the 1 s tick: each read starts a
-// process. gh and the checklist being done are one for all workspaces: one GitHub login, one checklist.
+// process. gh and setup being done are one for all workspaces: one GitHub login, one first run.
 const setup = { github: { state: process.env.ACP_GITHUB === 'off' ? 'off' : 'unknown' }, done: readPrefs().setupDone === true, checkedAt: 0 };
 let setupCheck = null;
 function checkSetup(force) {
@@ -1869,7 +1869,7 @@ function setupDone(body) {
 }
 /** Terminal, running Claude Code's own sign-in on this profile, or gh's: the panel never sees a password or token. */
 async function openLoginTerminal(body, ctx) {
-  // `ws`: Settings signs in any workspace; without it, the page's own (its sign-in banner and checklist).
+  // `ws`: Settings signs in any workspace; without it, the page's own (its sign-in banner).
   if (body?.ws !== undefined && !(typeof body.ws === 'string' && W.has(body.ws))) return { ok: false, error: 'No such workspace.' };
   if (process.platform !== 'darwin') return { ok: false, error: 'Opening Terminal is macOS only. Run the command shown in a terminal.' };
   const what = body?.what === 'gh' ? 'gh' : 'claude';
@@ -2726,7 +2726,7 @@ server.listen(PORT, '127.0.0.1', () => {
   // Each workspace's overseer, here and not at load (its state is declared further down): a missing file is seeded now.
   for (const id of W.keys()) overseerOf(id);
   serverUp = true;
-  checkSetup(true); // the checklist, and later the sign-in banner, say what it finds
+  checkSetup(true); // Settings, and later the sign-in banner, say what it finds
   pollAll().then(() => { if (looking()) checkVersions(); });
   setRosterPace(looking());
   setInterval(() => { if (looking()) checkVersions(); }, VERSIONS_MS);

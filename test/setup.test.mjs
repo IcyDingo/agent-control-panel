@@ -1,4 +1,4 @@
-// What the first-run checklist reads from claude and gh, and the Terminal script that signs you in. Run with `npm test`.
+// What Settings' first run reads from claude and gh, and the Terminal script that signs you in. Run with `npm test`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

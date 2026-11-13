@@ -2925,7 +2925,9 @@ function firstRun() {
   const claude = snap.setup.claude?.state ?? 'unknown', connected = Boolean(snap.profile.connected);
   if (claude === 'unknown' && connected) return; // still looking: decided once the sign-in is known
   if (claude === 'ok' && connected) { firstRunSeen = true; snap.setup.done = true; api('/api/setup/done', { done: true }); return; }
-  if (modalOpen() || tour) return; // asked again with the next snapshot
+  if (tour) return; // asked again with the next snapshot
+  const mine = $('settings').open; // opened by the user already: take it to Logins, and don't open it again after they close it
+  if (modalOpen() && !mine) return;
   firstRunSeen = true;
   openSettings('logins');
 }
@@ -3830,6 +3832,7 @@ function applyGlue(g) {
 }
 /** Changes Glue's prefs (`patch`: only what changes). While two are on their way, the first's answer is not drawn. */
 async function writeGlue(change) {
+  glueSeq++; // a fetch still on its way is older than this write: it must not draw over it
   glueWrites++;
   const r = await api('/api/settings/glue', { patch: change });
   glueWrites--;
@@ -4120,8 +4123,8 @@ function setLoginBlock(w, several, needs) {
   const need = (n) => { if (needs) { n.classList.add('req'); n.querySelector('.t').append(el('span', { class: 'set-req', text: 'Needed' })); } return n; };
   const a = w.here ? w.account : null;
   const claude = w.signedIn === true ? line('ok', '✓', 'Signed in to Claude', a?.email ? a.email + setPlan(a.plan) : a?.plan ? setPlan(a.plan).slice(3) : null)
-    : need(w.signedIn === false ? line('todo', '✗', 'Not signed in to Claude', `The overseer and new agents in ${w.name} can’t start until it signs in.`)
-      : line('wait', '·', 'Claude: checking…', null));
+    : w.signedIn === false ? need(line('todo', '✗', 'Not signed in to Claude', `The overseer and new agents in ${w.name} can’t start until it signs in.`))
+      : line('wait', '·', 'Claude: checking…', null);
   claude.append(el('span', { class: 'acts' },
     el('button', { class: 'btn small' + (w.signedIn === false ? ' primary' : ''), type: 'button', text: 'Sign in in Terminal…', onclick: (e) => setSignIn(w, e.currentTarget) }),
     el('button', { class: 'btn quiet small', type: 'button', text: 'Copy command', title: w.loginCommand, onclick: () => copyCmd(w.loginCommand) })));
