@@ -10,9 +10,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import net from 'node:net';
+// A port the system says is free: fixed ranges collided when test files ran side by side (EADDRINUSE).
+const freePort = () => new Promise((r) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => r(port)); }); });
 
 const SERVER = fileURLToPath(new URL('../server.mjs', import.meta.url));
-const PORT = 47800 + Math.floor(Math.random() * 100);
+const PORT = await freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-ws-'));
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -582,7 +585,7 @@ test('switching never asks first: a message waiting for a busy session stays wai
 });
 
 test('a machine with no profile yet keeps no workspace for the stand-in', async (t) => {
-  const h = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-ws0-')), port = PORT + 100;
+  const h = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-ws0-')), port = await freePort();
   const b = path.join(h, 'bin');
   fs.mkdirSync(b);
   fs.writeFileSync(path.join(b, 'claude'), '#!/bin/sh\ncase "$1" in agents) echo "[]";; auth) echo "{}";; *) exit 1;; esac\n', { mode: 0o755 });

@@ -12,9 +12,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import net from 'node:net';
+// A port the system says is free: fixed ranges collided when test files ran side by side (EADDRINUSE).
+const freePort = () => new Promise((r) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => r(port)); }); });
 
 const SERVER = fileURLToPath(new URL('../server.mjs', import.meta.url));
-const PORT = 47900 + Math.floor(Math.random() * 100);
+const PORT = await freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-wsgh-'));
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -312,7 +315,7 @@ test('the list of unsorted repositories names those in no workspace, and no othe
 });
 
 test('with one workspace there is nothing to sort into: the list is empty', async (t) => {
-  const h = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-wsgh1-')), port = PORT + 100;
+  const h = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-wsgh1-')), port = await freePort();
   fs.mkdirSync(path.join(h, '.claude'));
   fs.writeFileSync(path.join(h, '.claude', 'settings.json'), '{}');
   const pf = path.join(h, 'panel', 'prefs.json');

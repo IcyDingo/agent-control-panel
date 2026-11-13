@@ -7,6 +7,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import net from 'node:net';
+// A port the system says is free: fixed ranges collided when test files ran side by side (EADDRINUSE).
+const freePort = () => new Promise((r) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => r(port)); }); });
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const SKIP = new Set(['node_modules', '.git', '.github', '.claude', 'dist', 'test', 'docs', 'app', 'desktop']);
@@ -34,7 +37,7 @@ console.log(process.argv[2] === 'agents' ? '[]' : '{}');
   const prefs = path.join(home, 'panel', 'prefs.json');
   fs.mkdirSync(path.dirname(prefs));
   fs.writeFileSync(prefs, JSON.stringify({ profile: 'default' }));
-  const port = 47900 + Math.floor(Math.random() * 90), base = `http://127.0.0.1:${port}`;
+  const port = await freePort(), base = `http://127.0.0.1:${port}`;
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('CLAUDE') && !k.startsWith('ACP_')));
   const server = spawn(process.execPath, [path.join(tree, 'server.mjs')], { stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...env, HOME: home, PATH: `${bin}:${env.PATH}`, ACP_PORT: String(port), ACP_PREFS: prefs, ACP_GITHUB: 'off', ...extra } });

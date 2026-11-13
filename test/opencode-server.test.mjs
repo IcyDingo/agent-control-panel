@@ -10,9 +10,12 @@ import path from 'node:path';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import net from 'node:net';
+// A port the system says is free: fixed ranges collided when test files ran side by side (EADDRINUSE).
+const freePort = () => new Promise((r) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => r(port)); }); });
 
 const SERVER = fileURLToPath(new URL('../server.mjs', import.meta.url));
-const PORT = 47600 + Math.floor(Math.random() * 100);
+const PORT = await freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-oc-'));
 const proj = path.join(home, 'proj');
