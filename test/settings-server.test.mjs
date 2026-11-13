@@ -11,13 +11,16 @@ import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { logDir as xdgLogDir } from '../paths.mjs';
+import net from 'node:net';
+// A port the system says is free: fixed ranges collided when test files ran side by side (EADDRINUSE).
+const freePort = () => new Promise((r) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => r(port)); }); });
 
 const SERVER = fileURLToPath(new URL('../server.mjs', import.meta.url));
 // Off a Mac there is no launchd service (the Linux app runs the server), the log is in the XDG state folder, a folder is
 // opened with xdg-open, and a notification is notify-send's. The Mac and Linux expectations differ only there.
 const MAC = process.platform === 'darwin';
 const NOTE = MAC ? 'osascript' : 'notify-send';
-const PORT = 48000 + Math.floor(Math.random() * 100);
+const PORT = await freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-set-'));
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -494,7 +497,11 @@ test('a session that first works in a new repository nudges once, not on every t
 
 // ---------------------------------------------------------------- servers of their own
 
-let nextPort = 48200 + Math.floor(Math.random() * 600);
+// How long a fresh server may take to show its first pull requests. The page that opens asks for a poll, but that one
+// finds nothing to poll when the roster hasn't found the session's repository yet (a slow, busy machine); then the
+// first poll is the timed one, 20 s after the server starts, plus the poll itself. 20 s from the page was too close.
+const GH_FIRST_POLL = 45_000;
+
 /** A throwaway home with one profile (a single workspace) and stand-ins on PATH, started on a spare port. `gh` adds a
  *  stand-in GitHub CLI that reports the pull requests in `open.json`. */
 function solo({ gh = false, daemon = false } = {}) {
@@ -540,7 +547,7 @@ process.exit(1);
   fs.mkdirSync(path.dirname(prefsFile));
   fs.writeFileSync(prefsFile, JSON.stringify({ profile: 'default', setupDone: true }));
   return { home: h, dir, bin: b, prefs: prefsFile, running: null, async start() {
-    const port = nextPort++, base = `http://127.0.0.1:${port}`;
+    const port = await freePort(), base = `http://127.0.0.1:${port}`;
     const e = { ...env, HOME: h, PATH: `${b}:${env.PATH}`, ACP_PORT: String(port), ACP_PREFS: prefsFile, ...(gh ? {} : { ACP_GITHUB: 'off' }), ...(daemon ? { ACP_DAEMON: '1' } : {}) };
     const proc = spawn(process.execPath, [SERVER], { env: e, stdio: ['ignore', 'pipe', 'pipe'] });
     process.on('exit', () => { try { proc.kill(); } catch {} });
@@ -600,7 +607,7 @@ test('the notification toggles silence their events', async () => {
     assert.equal((await srv.api('/api/settings/glue', { patch: { notify: { ci: false } } })).ok, true);
     assert.equal((await srv.api('/api/watcher/enabled', { on: false })).ok, true);
     const page = srv.page();
-    assert.ok(await until(() => page.latest()?.github?.repos?.some((r) => r.prs?.length), 20_000), 'GitHub was polled: ' + srv.log);
+    assert.ok(await until(() => page.latest()?.github?.repos?.some((r) => r.prs?.length), GH_FIRST_POLL), 'GitHub was polled: ' + srv.log);
     await pause(1500);
     assert.deepEqual(calledOf(s.home, NOTE), [], 'nothing is logged with CI alerts off');
     // On again, and a new failure (another pull request: a failure is told once).
@@ -636,7 +643,7 @@ test('the PR watcher toggle silences its notifications', async () => {
     // CI alerts off throughout, so what notifies is the watcher alone; the watcher on (as it starts), its alerts off.
     assert.equal((await srv.api('/api/settings/glue', { patch: { notify: { ci: false, watcher: false } } })).ok, true);
     const page = srv.page();
-    assert.ok(await until(() => page.latest()?.github?.repos?.some((r) => r.prs?.length), 20_000), 'GitHub was polled: ' + srv.log);
+    assert.ok(await until(() => page.latest()?.github?.repos?.some((r) => r.prs?.length), GH_FIRST_POLL), 'GitHub was polled: ' + srv.log);
     const acted = () => { try { return JSON.parse(fs.readFileSync(path.join(s.home, 'panel', 'watcher.json'), 'utf8')).last ?? {}; } catch { return {}; } };
     assert.ok(await until(() => acted()['o/p#3'], 20_000), 'the watcher acted on #3: ' + JSON.stringify(acted()) + srv.log);
     await pause(1500);
