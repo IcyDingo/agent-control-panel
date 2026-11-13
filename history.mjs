@@ -39,7 +39,7 @@ export function summaryOf(tool, input = {}) {
 }
 
 /** The start of a tool's output: its first six lines or 600 characters, whichever is shorter, and how much is left. */
-function previewOf(content) {
+export function previewOf(content) {
   const text = typeof content === 'string' ? content
     : Array.isArray(content) ? content.filter((b) => b?.type === 'text').map((b) => b.text).join('\n') : '';
   const lines = text.trimEnd().split('\n');
