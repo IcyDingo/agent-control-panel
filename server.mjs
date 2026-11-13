@@ -22,12 +22,12 @@ import { createFollow } from './follow.mjs';
 import { createThread } from './thread.mjs';
 import { UNTRUSTED, trustKey, isTrusted, trustScript } from './trust.mjs';
 import { prefsPath } from './cli.mjs';
-import { createGithub } from './github.mjs';
+import { createGithub, slugOf } from './github.mjs';
 import { createOverseer, migrateFrom } from './overseer.mjs';
 import { createWatcher } from './watcher.mjs';
 import { parseClaudeAuth, parseGhAuth, claudeLoginCommand, loginScript, LOGIN_ERROR } from './setup.mjs';
 import { migrateFolders } from './migrate.mjs';
-import { createStore, countOnly } from './workspaces.mjs';
+import { createStore, countOnly, repoKey } from './workspaces.mjs';
 
 // `node server.mjs <command>` runs the CLI (cli.mjs) and never starts the server.
 if (process.argv.length > 2) { const { main } = await import('./cli.mjs'); process.exit(await main(process.argv.slice(2))); }
@@ -655,8 +655,27 @@ function launch(body, ws = shownWs()) {
     if (agent) args.push('--agent', agent);
     if (worktree) args.push('--worktree', ...(wtName ? [wtName] : []));
     args.push('--', prompt);
-    // Under its workspace's profile.
+    // Under its workspace's profile, and only in a repository of that workspace's. One nobody has sorted yet is asked
+    // about first; the answer (`assign`) is kept before it starts. With one workspace there is nothing to ask.
     if (!ws) return fail(NO_WS);
+    const repo = repoOf(cwd);
+    let inWs = sortedIn(repo.key);
+    if (!inWs.length) {
+      if (W.size === 1) store.assign(repo.key, [ws.id]); // the stand-in for no profile is not in the store: nothing kept
+      else if (body.assign === undefined) return resolve({ ok: false, ask: { ...repo, suggest: suggestFor(repo.key) } });
+      else {
+        const ids = body.assign;
+        if (!Array.isArray(ids) || !ids.length || ids.some((id) => typeof id !== 'string' || !W.has(id))) return fail('Pick the workspace this folder belongs to.');
+        const r = store.assign(repo.key, ids);
+        if (!r.ok) return fail(r.error);
+        inWs = sortedIn(repo.key);
+        broadcast();
+      }
+    }
+    if (W.size > 1 && !inWs.includes(ws.id)) {
+      const there = wsView(wsOrder().find((id) => inWs.includes(id)) ?? inWs[0]).name;
+      return fail(`${repo.label} is in ${there}. Switch to ${there} to start an agent there.`);
+    }
     run('claude', args, { cwd, timeout: 30_000, env: envOf(ws) }).then((r) => {
       const id = `${r.stdout}\n${r.stderr}`.match(/backgrounded · (\w+)/)?.[1];
       if (id) { setTimeout(() => pollRoster(ws), 400); return resolve({ ok: true, id, cwd }); }
@@ -1417,16 +1436,53 @@ function worktreeBase(place, ws) {
   }
   return place.branch ?? 'its current commit';
 }
+// ---------------------------------------------------------------- which workspace a folder belongs to
+
+/** The repository a folder is in, as the store names it (its GitHub slug, else its git common dir, else the folder
+ *  itself) and as the page names it (its main checkout's folder, else the folder's own name). */
+function repoOf(dir) {
+  const p = gitPlace(dir), slug = p?.common ? slugOf(p.common, small) : null;
+  return { key: repoKey({ slug, common: p?.common, dir }), label: path.basename(p?.repo ?? dir) || dir };
+}
+/** The live workspaces repository `key` is sorted into; [] while it is in none. */
+const sortedIn = (key) => store.reposOf(key).filter((id) => W.has(id));
+/** The one workspace whose sessions alone have worked in repository `key`, else null: what the folder question
+ *  preselects. Every workspace's sessions count; only the id leaves the server. */
+function suggestFor(key) {
+  const ws = new Set();
+  for (const s of sessions.values()) {
+    const d = s.ranCwd ?? s.hereCwd ?? s.cwd;
+    if (W.has(s.ws) && typeof d === 'string' && path.isAbsolute(d) && repoOf(d).key === key) ws.add(s.ws);
+  }
+  return ws.size === 1 ? [...ws][0] : null;
+}
+const REPO_KEY = /^(?:gh:[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[\w.-]{1,100}|(?:git|dir):\/[^\0]{0,4096})$/;
+/** `{ key, ws }`: sort a repository into workspaces ([] forgets it). A page may sort one that is in no workspace, or
+ *  move or forget one that is in its own; one only other workspaces hold is theirs to change. */
+function assignRepo(body, ctx) {
+  const key = String(body?.key ?? ''), ids = body?.ws;
+  if (!REPO_KEY.test(key)) return { ok: false, error: 'That is not a repository or folder the panel knows.' };
+  if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string' || !W.has(id))) return { ok: false, error: 'No such workspace.' };
+  const now = sortedIn(key);
+  if (now.length && !now.includes(ctx?.focus)) return { ok: false, error: REFUSE };
+  const r = store.assign(key, ids);
+  if (!r.ok) return r;
+  broadcast(); // its pull requests and runs move between the workspaces' GitHub panels
+  return { ok: true };
+}
+
 /** The launcher's look at a folder: is it there, and is it in a git repository. */
 function folderInfo(body, ctx) {
   const dir = path.resolve(expand(String(body?.path ?? '').trim()) || os.homedir());
   try { if (!fs.statSync(dir).isDirectory()) return { ok: true, folder: false }; } catch { return { ok: true, folder: false }; }
-  const p = gitPlace(dir), home = dir === os.homedir(), ws = ctx?.ws ?? shownWs(); // the workspace the launcher starts agents in: the page's
+  const p = gitPlace(dir), home = dir === os.homedir(), ws = ctx?.ws ?? shownWs(), repo = repoOf(dir); // the workspace the launcher starts agents in: the page's
   // A background session moves itself into a worktree before it edits, unless the repo turned that off.
   return { ok: true, folder: true, git: p && { branch: p.branch, worktree: p.worktree, repo: tilde(p.repo), base: worktreeBase(p, ws),
                                                isolates: worktreeSetting(p, 'bgIsolation', ws) !== 'none' },
            // Whether this profile has trusted it; a background session starts only where it has (never the home folder).
-           trusted: home ? null : isTrusted(ws.profile.config, trustKey(dir, p?.top)), home, profile: profileLabel(ws) };
+           trusted: home ? null : isTrusted(ws.profile.config, trustKey(dir, p?.top)), home, profile: profileLabel(ws),
+           // Which workspaces its repository is in. With one workspace it is always that one, and nothing is asked.
+           workspaces: { ...repo, in: W.size === 1 ? [ws.id] : sortedIn(repo.key), suggest: W.size === 1 ? null : suggestFor(repo.key) } };
 }
 
 const profileLabel = (ws) => path.basename(ws.profile.dir).slice(1);
@@ -2006,7 +2062,12 @@ function overseerOf(id) {
     history: (sessionId, limit) => (ownedBy(id, sessionId) ? history({ sessionId, limit }, { ws: ws() }) : { ok: false, error: REFUSE }),
     actions: {
       reply: (body) => (ownedBy(id, body?.sessionId) ? reply(body) : { ok: false, error: REFUSE }),
-      launch: (body) => (ws() ? launch(body, ws()) : { ok: false, error: 'That workspace is gone.' }),
+      // Its launches go where the page's would; a repository in no workspace yet is the page's to ask about.
+      launch: async (body) => {
+        if (!ws()) return { ok: false, error: 'That workspace is gone.' };
+        const r = await launch(body, ws());
+        return r.ask ? { ok: false, error: `${r.ask.label} is in no workspace yet. Start an agent there from New agent once, to say which workspace it belongs to.` } : r;
+      },
       interrupt: (body) => (ownedBy(id, body?.sessionId) ? interrupt(body) : { ok: false, error: REFUSE }),
       live: (sid) => { const s = sessions.get(sid); return s && s.ws === id && s.inRoster && !isEnded(s) ? s : null; },
       tellEffect, folders: () => overseerFolders(id),
@@ -2339,7 +2400,7 @@ async function handle(req, res) {
     }
     const ACTIONS = { '/api/end': end, '/api/remove': remove, '/api/reply': reply, '/api/unqueue': unqueue, '/api/mode': switchMode,
                       '/api/folders': listFolders, '/api/folder': folderInfo, '/api/pick-folder': pickFolder,
-                      '/api/workspace/focus': focusWorkspace,
+                      '/api/workspace/focus': focusWorkspace, '/api/workspace/assign': assignRepo,
                       // The profile tabs' old name for it, until the switch replaces them.
                       '/api/profile': (b, c) => focusWorkspace({ ws: b?.id, force: b?.force }, c),
                       '/api/profiles': profiles, '/api/profile/connect': connectProfile,

@@ -314,6 +314,80 @@ test('GET /api/workspaces lists names and colours', async () => {
   assert.equal((await fetch(BASE + '/api/workspaces')).status, 403, 'not without the token');
 });
 
+// A repository nobody has sorted yet, on GitHub as o/n, and a launch into it as a page makes one.
+const repoN = path.join(home, 'code', 'n');
+fs.mkdirSync(path.join(repoN, '.git'), { recursive: true });
+fs.writeFileSync(path.join(repoN, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+fs.writeFileSync(path.join(repoN, '.git', 'config'), '[remote "origin"]\n\turl = git@github.com:o/n.git\n');
+const launchIn = (cwd, client, extra = {}) => api('/api/launch', { prompt: `work in ${client}`, cwd, model: '', mode: 'default', ...extra }, client);
+const launchedBy = (client, from) => logged().slice(from).filter((x) => x.args[0] === '--bg' && x.args.at(-1) === `work in ${client}`);
+const assignedOf = async (client) => (await fetch(BASE + '/api/workspaces', { headers: { 'x-acp-token': token, 'x-acp-client': client } }).then((x) => x.json())).assigned;
+
+test('an unsorted folder asks before launching', async () => {
+  const f = await api('/api/folder', { path: repoN }, A.client);
+  assert.equal(f.ok, true, JSON.stringify(f));
+  assert.deepEqual(f.workspaces, { key: 'gh:o/n', label: 'n', in: [], suggest: null });
+  const before = logged().length;
+  const r = await launchIn(repoN, A.client);
+  assert.equal(r.ok, false, JSON.stringify(r));
+  assert.equal(r.ask?.label, 'n', JSON.stringify(r));
+  assert.deepEqual(r.ask, { key: 'gh:o/n', label: 'n', suggest: null });
+  assert.equal(launchedBy(A.client, before).length, 0, 'nothing ran before the answer');
+  assert.deepEqual(await assignedOf(A.client), [], 'nothing was sorted');
+});
+
+test('assign then launch', async () => {
+  const before = logged().length;
+  const r = await launchIn(repoN, A.client, { assign: ['default'] });
+  assert.equal(r.ok, true, JSON.stringify(r) + ' | ' + log);
+  const runs = launchedBy(A.client, before);
+  assert.equal(runs.length, 1, JSON.stringify(logged().slice(before)));
+  assert.equal(runs[0].env, null, 'under the plain profile, the focus of page A');
+  assert.deepEqual(await assignedOf(A.client), [{ key: 'gh:o/n', ws: ['default'] }]);
+  assert.deepEqual((await api('/api/folder', { path: repoN }, A.client)).workspaces.in, ['default']);
+  // Sorted now: no question the second time, and an `assign` sent anyway changes nothing.
+  const again = await launchIn(repoN, A.client, { assign: ['contract'] });
+  assert.equal(again.ok, true, JSON.stringify(again));
+  assert.deepEqual(await assignedOf(A.client), [{ key: 'gh:o/n', ws: ['default'] }]);
+});
+
+test('a folder in another workspace is refused', async () => {
+  const mv = await api('/api/workspace/assign', { key: 'gh:o/n', ws: ['contract'] }, A.client);
+  assert.deepEqual(mv, { status: 200, ok: true });
+  // Page A can no longer move it: it is not in A's workspace any more.
+  const back = await api('/api/workspace/assign', { key: 'gh:o/n', ws: ['default'] }, A.client);
+  assert.equal(back.ok, false);
+  assert.equal(back.error, REFUSE);
+  assert.deepEqual(await assignedOf(A.client), []);
+  const before = logged().length;
+  const r = await launchIn(repoN, A.client);
+  assert.equal(r.ok, false, JSON.stringify(r));
+  assert.equal(r.error, 'n is in claude-contract. Switch to claude-contract to start an agent there.');
+  assert.equal(launchedBy(A.client, before).length, 0, 'nothing ran');
+  assert.deepEqual((await api('/api/folder', { path: repoN }, A.client)).workspaces.in, ['contract']);
+  // From the contract page it launches, under the contract profile.
+  const b = await launchIn(repoN, B.client);
+  assert.equal(b.ok, true, JSON.stringify(b));
+  assert.ok(launchedBy(B.client, before)[0]?.env?.endsWith('.claude-contract'), JSON.stringify(logged().slice(before)));
+  // In both: both pages launch there.
+  assert.equal((await api('/api/workspace/assign', { key: 'gh:o/n', ws: ['contract', 'default'] }, B.client)).ok, true);
+  assert.equal((await launchIn(repoN, A.client)).ok, true);
+  assert.equal(launchedBy(A.client, before).length, 1);
+  // Nonsense is refused.
+  assert.equal((await api('/api/workspace/assign', { key: 'gh:o/n', ws: ['nope'] }, A.client)).ok, false);
+  assert.equal((await api('/api/workspace/assign', { key: 'whatever', ws: ['default'] }, A.client)).ok, false);
+});
+
+test('a folder only one workspace\'s sessions worked in suggests that workspace', async () => {
+  // Only contract's sessions worked in workC (not a git repository, so it is sorted as the folder itself).
+  const c = await api('/api/folder', { path: workC }, A.client);
+  assert.deepEqual(c.workspaces, { key: `dir:${workC}`, label: 'contract-w', in: [], suggest: 'contract' });
+  const r = await launchIn(workC, A.client);
+  assert.deepEqual(r.ask, { key: `dir:${workC}`, label: 'contract-w', suggest: 'contract' });
+  // Sessions of two workspaces worked in `work` (default's, and the new profile's): no suggestion.
+  assert.equal((await api('/api/folder', { path: work }, A.client)).workspaces.suggest, null);
+});
+
 test('a machine with no profile yet keeps no workspace for the stand-in', async (t) => {
   const h = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-ws0-')), port = PORT + 100;
   const b = path.join(h, 'bin');

@@ -615,6 +615,10 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .l-note { margin: -6px 0 0; color: var(--fg-dim); font-size: 12px; overflow-wrap: anywhere; }
 .l-note code { font: 11.5px var(--mono); color: var(--fg); }
 .l-trust { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 8px 0 0; padding: 10px 14px; border-radius: var(--r-2); background: var(--amber-fill); color: var(--fg); font-size: 12.5px; }
+/* the folder question: which workspace a repository nobody has sorted yet belongs to; Both is the quieter answer */
+.l-ws > span { color: var(--fg); }
+.seg label.both span { color: var(--fg-faint); font-weight: 400; }
+.seg label.both:hover span { color: var(--fg-dim); }
 .launcher .row { justify-content: flex-end; }
 
 #toasts { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); display: grid; gap: 6px; z-index: 50; pointer-events: none; }
@@ -945,6 +949,7 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
       <input id="l-wt-name" class="wt-name" maxlength="60" spellcheck="false" autocomplete="off" aria-label="Worktree name" hidden>
     </div>
     <p class="l-note" id="l-wt-note" hidden></p>
+    <div class="lf l-ws" role="radiogroup" aria-labelledby="l-ws-t" id="l-ws" hidden><span id="l-ws-t"></span><div class="seg" id="l-ws-seg"></div></div>
     <div class="pair">
       <label class="lf"><span>Name <small>(optional)</small></span><input id="l-name" maxlength="60" placeholder="fix-timesheet-tests" spellcheck="false"></label>
       <label class="lf"><span>Agent type <small>(optional)</small></span><input id="l-agent" list="l-agents" placeholder="e.g. code-reviewer" spellcheck="false"><datalist id="l-agents"></datalist></label>
@@ -3077,6 +3082,7 @@ function openLauncher() {
   $('l-agents').replaceChildren(...[...types].map((t) => el('option', { value: t })));
   if (!$('l-cwd').value) $('l-cwd').value = ranked[0] || '~';
   lErr.hidden = true;
+  setWsAsk(null); // asked again for this page's workspace, once the folder is looked at
   checkFolder();
   dlg.showModal();
   $('l-prompt').focus();
@@ -3114,9 +3120,32 @@ async function checkFolder() {
     if (launchAfterTrust) { launchAfterTrust = false; $('launch-form').requestSubmit(); }
     else toast(`The ${folderTrust.profile} profile trusts it now.`);
   }
+  setWsAsk(r.ok && r.folder && r.workspaces && !r.workspaces.in.length ? r.workspaces : null);
   showWorktree();
   showTrust();
 }
+// Which workspace a repository nobody has sorted yet belongs to: asked here, before Launch, with the page's workspace (or
+// the one whose sessions alone worked there) picked, and a quieter Both. With one workspace there is nothing to ask.
+let wsAsk = null; // { key, label, suggest } while the folder's repository is in no workspace
+function setWsAsk(a) {
+  const same = a && wsAsk && a.key === wsAsk.key;
+  wsAsk = a;
+  if (!same) showWsAsk();
+}
+function showWsAsk() {
+  const box = $('l-ws'), all = snap?.workspaces ?? [], focus = snap?.workspace?.id;
+  if (!wsAsk || all.length < 2 || !all.some((w) => w.id === focus)) { box.hidden = true; $('l-ws-seg').replaceChildren(); return; }
+  const list = [all.find((w) => w.id === focus), ...all.filter((w) => w.id !== focus)];
+  const pick = list.some((w) => w.id === wsAsk.suggest) ? wsAsk.suggest : focus;
+  const names = list.map((w) => w.name);
+  setText($('l-ws-t'), `Is ${wsAsk.label} ${names.length === 2 ? names.join(' or ') : names.slice(0, -1).join(', ') + ' or ' + names.at(-1)}?`);
+  const opt = (value, text, checked, cls) => el('label', { class: cls }, el('input', { type: 'radio', name: 'l-ws', value, checked }), el('span', { text, title: text }));
+  $('l-ws-seg').replaceChildren(...list.map((w) => opt(w.id, w.name, w.id === pick)),
+    opt(list.map((w) => w.id).join(','), list.length === 2 ? 'Both' : 'All', false, 'both'));
+  box.hidden = false;
+}
+/** What goes in `assign` on Launch: the picked workspace(s), or nothing when no question is shown. */
+const wsAnswer = () => (wsAsk && !$('l-ws').hidden ? picked('l-ws-seg').split(',').filter(Boolean) : undefined);
 // A folder this profile hasn't trusted: Terminal opens there on the profile so you can accept Claude Code's own prompt,
 // and the panel carries on once you have, launching by itself if you had already asked it to.
 let folderTrust = null, trustWait = null, trustUntil = 0, launchAfterTrust = false;
@@ -3164,14 +3193,22 @@ $('launch-form').addEventListener('submit', async (e) => {
   go.textContent = 'Launching…';
   lErr.hidden = true;
   const worktree = $('l-wt').checked && !$('l-wt').disabled, worktreeName = worktree ? wtName() : '';
-  const name = $('l-name').value.trim() || worktreeName;
+  const name = $('l-name').value.trim() || worktreeName, assign = wsAnswer();
   const r = await api('/api/launch', {
     prompt: $('l-prompt').value, cwd: $('l-cwd').value, name,
     agent: $('l-agent').value.trim(), model: picked('l-model'), effort: EFFORT_STOPS[$('l-effort').value][0], mode: picked('l-mode'), worktree, worktreeName,
+    assign,
   });
   go.disabled = false;
   go.textContent = 'Launch agent';
+  // Its repository is in no workspace yet (the folder changed, or the question never showed): ask, then Launch again.
+  if (r.ask) {
+    setWsAsk(r.ask);
+    if (!$('l-ws').hidden) { $('l-ws-seg').querySelector('input:checked')?.focus(); return; }
+    lErr.textContent = `${r.ask.label} is in no workspace yet.`; lErr.hidden = false; return;
+  }
   if (r.untrusted && folderTrust && !folderTrust.home) { launchAfterTrust = true; folderTrust.trusted = false; showTrust(); return; }
+  if (assign) checkFolder(); // the answer is kept even when it didn't start (another workspace's, untrusted): ask no more
   if (!r.ok) { lErr.textContent = r.error || 'It did not start.'; lErr.hidden = false; return; }
   dlg.close();
   $('l-prompt').value = '';
