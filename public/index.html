@@ -2823,15 +2823,16 @@ function setupRows() {
 const wsFolderLabel = (w) => (w.id === 'default' ? 'claude' : 'claude-' + w.id);
 /** A repository by name: owner/name for a GitHub one, else the folder's. */
 const repoLabel = (key) => (key.startsWith('gh:') ? key.slice(3) : base(key.replace(/^(?:git|dir):/, '').replace(/\/\.git\/?$/, '')) || key);
-let wsRepos = null, wsReposFor = null, wsMoving = null; // the shown workspace's repositories (null: loading), whose they are, the one asking where to go
+let wsRepos = null, wsReposFor = null, wsMoving = null; // the shown workspace's repositories (null: loading, false: could not be read), whose they are, the one asking where to go
 async function loadWsRepos() {
   const focus = snap?.workspace?.id;
+  if (wsReposFor !== focus) wsRepos = null; // another workspace's list never shows under this one's heading while this loads
   wsReposFor = focus;
   try {
     const r = await (await fetch('/api/workspaces', { headers: { 'x-acp-token': TOKEN, 'x-acp-client': CLIENT } })).json();
     if (wsReposFor !== focus) return; // another workspace was picked meanwhile
-    wsRepos = r.ok ? r.assigned.map((a) => ({ key: a.key, ws: a.ws, label: repoLabel(a.key) })).sort((a, b) => a.label.localeCompare(b.label)) : [];
-  } catch { wsReposFor = null; wsRepos = []; }
+    wsRepos = r.ok ? r.assigned.map((a) => ({ key: a.key, ws: a.ws, label: repoLabel(a.key) })).sort((a, b) => a.label.localeCompare(b.label)) : false;
+  } catch { if (wsReposFor === focus) wsRepos = false; } // asked once for this workspace: Setup reopening, or a Move, asks again
   render();
 }
 async function saveWorkspace(id, change) {
@@ -2863,6 +2864,7 @@ function wsStep() {
       style: `--sw:${hex}`, onclick: () => { if (c !== focus.color) saveWorkspace(focus.id, { color: c }); } })));
   const choice = [focus, ...others];
   const repos = wsRepos == null ? el('p', { text: 'Loading its repositories…' })
+    : wsRepos === false ? el('p', { text: 'Its repositories could not be loaded. Hide this and open Setup again to retry.' })
     : !wsRepos.length ? el('p', { text: `No repository is sorted into ${focus.name} yet. Glue asks the first time you start an agent in one, or you can sort the ones GitHub finds from its list.` })
     : el('div', { class: 'su-ws-repos' }, el('p', { text: `Repositories in ${focus.name}` }),
       ...wsRepos.map((r) => el('div', { class: 'su-ws-r' },
@@ -2887,7 +2889,7 @@ function renderSetup(on) {
   // A sign-in happens in Terminal: while one is outstanding, look again every few seconds (only while this shows).
   if (document.visibilityState === 'visible' && (S.claude?.state !== 'ok' || ['signed-out', 'unknown'].includes(S.github?.state))) checkSetupNow(false);
   if (severalWs() && wsReposFor !== snap.workspace?.id) loadWsRepos();
-  const sig = JSON.stringify([rows.map((r) => [r.s, r.title, r.detail]), S.loginCommand, ready, S.done, severalWs() ? [snap.workspaces, snap.workspace?.id, wsRepos, wsMoving] : null]);
+  const sig = JSON.stringify([rows.map((r) => [r.s, r.title, r.detail]), S.loginCommand, ready, S.done, severalWs() ? [snap.workspaces.map((w) => [w.id, w.name, w.color]), snap.workspace?.id, wsRepos, wsMoving] : null]);
   patch(box, sig, () => [
     el('h3', { text: stepsDone === steps.length ? 'You’re set up.' : 'Set up the panel' }),
     el('p', { text: 'The panel has no account of its own. It runs on your Claude Code login and, for GitHub, on your gh, and reaches your sessions through hooks in your Claude Code settings.' }),
