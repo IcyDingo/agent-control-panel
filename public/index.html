@@ -950,12 +950,15 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 .srow.ov[data-proposed="1"] .tdetail { color: var(--run); font-weight: 600; }
 
 /* Collapsed, the rail is a slim strip: a state light per session, a hairline between sections, and nothing that needs
-   you out of sight (Needs you never folds). Folded sections leave the strip; the name stays in the row for screen readers. */
+   you out of sight (Needs you never folds). A folded section keeps only its live rows there (an agent working, a pull
+   request failing) and leaves the strip when it has none; the name stays in the row for screen readers. */
 @media (min-width: 861px) {
   body.rail-slim .board { width: 44px; overflow-x: hidden; scrollbar-width: none; }
   body.rail-slim .board::-webkit-scrollbar { display: none; }
-  body.rail-slim :is(.r-grip, #rail-find, #rail-keys, .col-path, .ck, .col-hint, .col-empty, .board-empty, .sub, .rask, .qstop, .col.folded),
-  body.rail-slim .col[data-col="waiting"]:not(:has(.tile-wrap)) { display: none; }
+  body.rail-slim :is(.r-grip, #rail-find, #rail-keys, .col-path, .ck, .col-hint, .col-empty, .board-empty, .sub, .rask, .qstop),
+  body.rail-slim .col[data-col="waiting"]:not(:has(.tile-wrap)), body.rail-slim .col.folded:not(:has(.tile-wrap.rail-live)),
+  body.rail-slim .col.folded .tile-wrap:not(.rail-live) { display: none; }
+  body.rail-slim .col.folded .col-body { display: grid; }
   body.rail-slim .rail-head { justify-content: center; padding: 4px 0 2px; }
   body.rail-slim .rail-title { display: none; }
   body.rail-slim .col { padding: 0; }
@@ -965,7 +968,9 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
   body.rail-slim .col-body { gap: 4px; }
   body.rail-slim .srow, body.rail-slim .srow.ov { width: 28px; height: 28px; margin: 0; padding: 0; gap: 0; justify-content: center; }
   body.rail-slim .srow.ov { margin: 0 8px 2px; }
-  body.rail-slim .srow > :not(.glyph, .ov-mark, .tname) { display: none; }
+  body.rail-slim .srow > :not(.glyph, .ov-mark, .tname, .tci[data-c="failing"]) { display: none; }
+  body.rail-slim .srow { position: relative; }
+  body.rail-slim .srow > .tci[data-c="failing"] { position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; box-shadow: 0 0 0 1.5px var(--panel); }
   body.rail-slim .srow > .tname { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   body.rail-slim .srow .glyph { width: 9px; height: 9px; }
 }
@@ -1656,10 +1661,11 @@ railFind.onkeydown = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.st
 function railRows() {
   const rows = [];
   for (const c of shownSecs) {
-    if (c.kind !== 'waiting' && isFolded(c.key)) continue;
+    const shut = c.kind !== 'waiting' && isFolded(c.key);
+    if (shut && !slimShown()) continue;
     for (const w of c.body.children) {
       const s = w.dataset?.sid && sessionOf(w.dataset.sid);
-      if (!s) continue;
+      if (!s || (shut && !w.classList.contains('rail-live'))) continue;
       if (w.classList.contains('tile-wrap')) rows.push({ kind: 'session', s, el: w.firstChild });
       else if (w.classList.contains('sub') && !slimShown()) { const a = s.subagents.find((x) => x.agentId === w.dataset.aid); if (a) rows.push({ kind: 'sub', s, a, el: w }); }
     }
@@ -1869,6 +1875,8 @@ function tile(s) {
   setText(t.age, s.startedAt ? ago(snap.now - s.startedAt) : '');
   t.act = tileAction(s, st);
   t.wrap.classList.toggle('can-act', Boolean(t.act));
+  // Working, or its pull request failing: it stays in the slim rail even when its section is folded.
+  t.wrap.classList.toggle('rail-live', st === 'busy' || st === 'stopping' || ci === 'failing');
   t.q.hidden = !t.act;
   if (t.act) {
     const q = t.act, on = armed?.key === `tile-${q.kind}:${id}`;
