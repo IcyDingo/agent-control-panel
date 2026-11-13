@@ -48,7 +48,8 @@ fetch(`${BASE}/events?t=${token}`, { signal: watcher.signal }).then(async (r) =>
     buf = buf.slice(buf.lastIndexOf('\n\n') + 2);
   }
 }).catch(() => {});
-const latest = async () => { await api('/api/arm', { armed: true }); await new Promise((r) => setTimeout(r, 250)); return frames.at(-1); };
+// The latest snapshot: a named event's frame (`event: settings`, data {}) is not one.
+const latest = async () => { await api('/api/arm', { armed: true }); await new Promise((r) => setTimeout(r, 250)); return frames.findLast((f) => Array.isArray(f?.sessions)); };
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 // The server writes what it has not saved yet as it goes: its folder is removed once it has exited.
 after(async () => { watcher.abort(); if (server.exitCode === null && server.signalCode === null) await new Promise((r) => { server.once('exit', r); server.kill(); }); fs.rmSync(home, { recursive: true, force: true }); });

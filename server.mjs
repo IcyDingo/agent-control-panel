@@ -30,6 +30,8 @@ import { migrateFolders } from './migrate.mjs';
 import { createStore, countOnly, repoKey } from './workspaces.mjs';
 import { sanitizeGlue, mergeGlue } from './glue-prefs.mjs';
 import * as daemon from './daemon.mjs';
+import { terminalCommand } from './terminal.mjs';
+import { logDir as linuxLogDir } from './paths.mjs';
 
 // `node server.mjs <command>` runs the CLI (cli.mjs) and never starts the server.
 if (process.argv.length > 2) { const { main } = await import('./cli.mjs'); process.exit(await main(process.argv.slice(2))); }
@@ -67,8 +69,11 @@ const SPAWN_TOOLS = new Set(['Agent', 'Task']);
 const TOKEN = crypto.randomBytes(24).toString('hex');
 const HOSTS = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`]);
 const ORIGINS = new Set([...HOSTS].map((h) => `http://${h}`));
-// Read per load, so a UI edit shows on refresh without a restart.
-const page = () => fs.readFileSync(new URL('./public/index.html', import.meta.url), 'utf8');
+// Read per load, so a UI edit shows on refresh without a restart. The packaged app (ACP_PACKAGED=1) reads it once: an
+// upgrade replaces the files under a running server, and the page it serves must stay the one written for it.
+const PAGE_FILE = new URL('./public/index.html', import.meta.url);
+const packagedPage = process.env.ACP_PACKAGED === '1' ? fs.readFileSync(PAGE_FILE, 'utf8') : null;
+const page = () => packagedPage ?? fs.readFileSync(PAGE_FILE, 'utf8');
 
 /** sessionId → session record (roster fields + what the hooks told us). */
 const sessions = new Map();
@@ -88,6 +93,10 @@ let armed = true;
 // A server started from inside a Claude Code session inherits its markers (CLAUDE_CODE_CHILD_SESSION and
 // friends); passed on, they make a launched session skip its transcript and stay out of `claude agents`.
 // CLAUDE_CONFIG_DIR is the profile's (below).
+// The Linux app runs this server on Electron's own Node, which takes ELECTRON_RUN_AS_NODE. Left in the environment it
+// would reach every session the panel starts, and any Electron app started from one of those would run as Node.
+delete process.env.ELECTRON_RUN_AS_NODE;
+const MAC = process.platform === 'darwin';
 const baseEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('CLAUDE')));
 
 // ---------------------------------------------------------------- profiles
@@ -989,7 +998,9 @@ async function rosterSettles(ws, sessionId, done, ms = 12_000) {
  *  permission mode unless you picked others. A background job wakes as itself (see below). */
 // Sending to a background session: `claude --resume <id> -- <text>` without --bg hands the text to the running job
 // as your next message (queued if it is working, as if typed in agent view's peek panel), then attaches. It needs a
-// terminal, so it runs under script(1), and the client is closed once the message is in the transcript.
+// terminal. On a Mac that is script(1)'s. Linux's script takes a shell string rather than arguments, and Fedora
+// doesn't install it, so there it is pty-bridge.py's, the one the embedded view uses. The client is closed once the
+// message is in the transcript.
 const SEND_MS = 25_000;
 const sendingTo = new Set();
 async function sendToBackground(s, text) {
@@ -999,8 +1010,13 @@ async function sendToBackground(s, text) {
   if (!file) return { ok: false, error: 'It has no saved conversation yet.' };
   if (!ws) return { ok: false, error: NO_WS };
   sendingTo.add(s.sessionId);
-  const p = spawn('script', ['-q', '/dev/null', 'claude', '--resume', s.sessionId, '--', text],
-    { cwd: s.cwd, env: { ...envOf(ws), TERM: 'xterm-256color' }, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+  const resume = ['--resume', s.sessionId, '--', text];
+  const p = MAC
+    ? spawn('script', ['-q', '/dev/null', 'claude', ...resume],
+      { cwd: s.cwd, env: { ...envOf(ws), TERM: 'xterm-256color' }, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
+    : spawn('python3', [BRIDGE, '120', '40', '--', claudePath() ?? 'claude', ...resume],
+      { cwd: s.cwd, env: { ...envOf(ws), TERM: 'xterm-256color' }, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
+  p.stdin?.on('error', () => {});
   let out = '';
   p.stdout.on('data', (d) => { out = (out + d).slice(-4000); });
   p.stderr.on('data', (d) => { out = (out + d).slice(-4000); });
@@ -1015,6 +1031,7 @@ async function sendToBackground(s, text) {
     if (exited && !seen) break;
   }
   await new Promise((r) => setTimeout(r, seen ? 800 : 0));
+  try { p.stdin?.end(); } catch {} // the bridge hangs its client up when its stdin closes
   try { process.kill(-p.pid, 'SIGTERM'); } catch {}
   sendingTo.delete(s.sessionId);
   if (!seen) return { ok: false, error: 'It did not take your message. ' + (out.replace(/\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07/g, '').replace(/\s+/g, ' ').trim().slice(-160) || 'Try claude attach.') };
@@ -1558,10 +1575,26 @@ const profileLabel = (ws) => path.basename(ws.profile.dir).slice(1);
 /** Claude Code's own path, as the panel's commands find it (every workspace has the same PATH). */
 const claudePath = () => String(baseEnv.PATH ?? '').split(':').filter(Boolean).map((d) => path.join(d, 'claude'))
   .find((f) => { try { fs.accessSync(f, fs.constants.X_OK); return fs.statSync(f).isFile(); } catch { return false; } });
-/** Terminal in the folder, on this profile, running Claude Code: its trust prompt waits there for you to accept. The
- *  window opens from a .command file, so the panel needs no permission to control Terminal. */
+/** A terminal window running a script the panel wrote. On a Mac it opens from a .command file, so the panel needs no
+ *  permission to control Terminal. Elsewhere it is whichever terminal the desktop has (terminal.mjs); `none` says
+ *  there isn't one. */
+const SCRIPT_SHELL = MAC ? 'zsh' : 'bash', SCRIPT_EXT = MAC ? '.command' : '.sh';
+async function openInTerminal(file) {
+  if (MAC) {
+    const r = await run('open', ['-a', 'Terminal', file], { timeout: 10_000, env: baseEnv });
+    return r.err ? { ok: false, error: firstLine(r) } : { ok: true };
+  }
+  const t = terminalCommand(file, { env: baseEnv });
+  if (!t) return { ok: false, none: true };
+  return new Promise((resolve) => {
+    const p = spawn(t.cmd, t.args, { cwd: os.homedir(), env: baseEnv, stdio: 'ignore', detached: true });
+    p.once('error', (err) => resolve({ ok: false, error: `${path.basename(t.cmd)} didn't open: ${err.message}` }));
+    p.once('spawn', () => { p.unref(); resolve({ ok: true }); });
+  });
+}
+/** Terminal in the folder, on the page's workspace's profile, running Claude Code: its trust prompt waits there for
+ *  you to accept. */
 async function openTrustTerminal(body, ctx) {
-  if (process.platform !== 'darwin') return { ok: false, error: 'Opening Terminal is macOS only. Run claude in the folder once and accept its prompt.' };
   const dir = path.resolve(expand(String(body?.path ?? '').trim()) || os.homedir());
   try { if (!fs.statSync(dir).isDirectory()) throw new Error(); } catch { return { ok: false, error: `There is no folder at ${tilde(dir)}.` }; }
   if (dir === os.homedir()) return { ok: false, error: 'Claude Code never keeps trust for your home folder. Pick a project folder.' };
@@ -1570,11 +1603,11 @@ async function openTrustTerminal(body, ctx) {
   const where = path.join(path.dirname(PREFS), 'trust');
   fs.mkdirSync(where, { recursive: true, mode: 0o700 });
   for (const n of fs.readdirSync(where)) try { const f = path.join(where, n); if (Date.now() - fs.statSync(f).mtimeMs > 3_600_000) fs.unlinkSync(f); } catch {}
-  const file = path.join(where, `trust-${crypto.randomBytes(4).toString('hex')}.command`);
+  const file = path.join(where, `trust-${crypto.randomBytes(4).toString('hex')}${SCRIPT_EXT}`);
   const ws = ctx?.ws ?? shownWs(); // trust is for the launcher, which starts agents in the page's workspace
-  fs.writeFileSync(file, trustScript({ dir, configDir: ws.profile.plain ? null : ws.profile.dir, claude, label: profileLabel(ws) }), { mode: 0o700 });
-  const r = await run('open', ['-a', 'Terminal', file], { timeout: 10_000, env: baseEnv });
-  return r.err ? { ok: false, error: firstLine(r) } : { ok: true };
+  fs.writeFileSync(file, trustScript({ dir, configDir: ws.profile.plain ? null : ws.profile.dir, claude, label: profileLabel(ws), shell: SCRIPT_SHELL }), { mode: 0o700 });
+  const r = await openInTerminal(file);
+  return r.none ? { ok: false, error: 'No terminal app was found. Run claude in the folder once and accept its prompt.' } : r;
 }
 
 function listFolders(body) {
@@ -1800,31 +1833,51 @@ const VERSION = (() => { try { return JSON.parse(fs.readFileSync(new URL('./pack
 const COMMIT = shortCommit();
 /** About & maintenance: what is running, whether the background service is installed and running (launchd is asked
  *  even when this server isn't the service, so the app's own server can show the installed one), whether this server is
- *  the service (`self`: only then does Restart restart what the page talks to), and where the files are. */
+ *  the service (`self`: only then does Restart restart what the page talks to), and where the files are. The service is
+ *  a launchd agent, so off a Mac there is none (`service.available` false): the Linux app runs the server and logs it to
+ *  the XDG state folder (paths.mjs), and updates itself. */
+const LOG_FILE = MAC ? daemon.logPath(PORT) : path.join(linuxLogDir(), `server-${PORT}.log`);
 async function aboutInfo() {
+  if (!MAC) return {
+    version: VERSION, commit: COMMIT, platform: process.platform,
+    service: { available: false, installed: false, running: false, pid: null, self: false },
+    dataDir, logDir: path.dirname(LOG_FILE), update: null, uninstall: null,
+  };
   const installed = fs.existsSync(daemon.plistPath(PORT));
   let st = { loaded: false, pid: null };
   try { st = await daemon.status({ port: PORT, run: runPlain }); } catch {}
   return {
-    version: VERSION, commit: COMMIT, service: { installed, running: st.loaded && st.pid != null, pid: st.pid, self: DAEMON },
-    dataDir, logDir: path.dirname(daemon.logPath(PORT)), update: 'git pull && ./install.sh', uninstall: './install.sh --uninstall',
+    version: VERSION, commit: COMMIT, platform: process.platform,
+    service: { available: true, installed, running: st.loaded && st.pid != null, pid: st.pid, self: DAEMON },
+    dataDir, logDir: path.dirname(LOG_FILE), update: 'git pull && ./install.sh', uninstall: './install.sh --uninstall',
   };
 }
 const NO_SERVICE = "The background service isn't installed.";
 /** Restarts the background service, which is this server (it kills it, so the answer goes out first). A server started
- *  without it (the app's own, or a terminal's) refuses: the service it would restart is not the one this page talks to. */
+ *  without it (the app's own, or a terminal's) refuses: the service it would restart is not the one this page talks to.
+ *  Off a Mac there is no service to restart. */
 async function restartService() {
+  if (!MAC) return { ok: false, error: 'There is no background service on Linux: the Glue app runs the panel. Quit Glue and open it again to restart it.' };
   if (!fs.existsSync(daemon.plistPath(PORT))) return { ok: false, error: NO_SERVICE };
   if (!DAEMON) return { ok: false, error: "This window isn't using the background service." };
   setTimeout(() => { daemon.restart({ port: PORT, run: runPlain }).catch((e) => console.error('restart:', e?.message ?? e)); }, 200);
   return { ok: true };
 }
-/** `{ what: 'data'|'logs' }`: shows that folder's file in Finder. */
+/** `{ what: 'data'|'logs' }`: shows that folder's file in Finder. Off a Mac, opens the folder in the desktop's file
+ *  manager (xdg-open, which can't pick out a file); where there is none, says where the folder is. */
 async function revealIn(body) {
-  const target = body?.what === 'data' ? [PREFS, dataDir] : body?.what === 'logs' ? [daemon.logPath(PORT), path.dirname(daemon.logPath(PORT))] : null;
+  const target = body?.what === 'data' ? [PREFS, dataDir] : body?.what === 'logs' ? [LOG_FILE, path.dirname(LOG_FILE)] : null;
   if (!target) return { ok: false, error: 'Pick data or logs.' };
   const at = target.find((f) => fs.existsSync(f));
   if (!at) return { ok: false, error: 'There is nothing there yet.' };
+  if (!MAC) {
+    const dir = at === target[0] ? path.dirname(at) : at;
+    return new Promise((resolve) => {
+      const p = spawn('xdg-open', [dir], { cwd: os.homedir(), env: baseEnv, stdio: 'ignore', detached: true });
+      p.once('error', (err) => resolve({ ok: false, error: err.code === 'ENOENT' ? `No file manager was found (xdg-open). The folder is ${tilde(dir)}.` : `The folder didn't open: ${err.message}` }));
+      p.once('spawn', () => { p.unref(); resolve({ ok: true }); });
+    });
+  }
   const r = await runPlain('open', ['-R', at], { timeout: 10_000 });
   return r.err ? { ok: false, error: firstLine(r) } : { ok: true };
 }
@@ -1874,24 +1927,24 @@ function setupDone(body) {
 async function openLoginTerminal(body, ctx) {
   // `ws`: Settings signs in any workspace; without it, the page's own (its sign-in banner).
   if (body?.ws !== undefined && !(typeof body.ws === 'string' && W.has(body.ws))) return { ok: false, error: 'No such workspace.' };
-  if (process.platform !== 'darwin') return { ok: false, error: 'Opening Terminal is macOS only. Run the command shown in a terminal.' };
   const what = body?.what === 'gh' ? 'gh' : 'claude';
   const bin = what === 'gh' ? ghPath() : claudePath();
-  if (!bin) return { ok: false, error: what === 'gh' ? "The GitHub CLI (gh) isn't installed. Run brew install gh, then try again." : "Claude Code wasn't found on the panel's PATH." };
+  if (!bin) return { ok: false, error: what === 'gh' ? `The GitHub CLI (gh) isn't installed. ${MAC ? 'Run brew install gh' : 'Install it from cli.github.com'}, then try again.` : "Claude Code wasn't found on the panel's PATH." };
   const where = path.join(path.dirname(PREFS), 'trust');
   fs.mkdirSync(where, { recursive: true, mode: 0o700 });
   for (const n of fs.readdirSync(where)) try { const f = path.join(where, n); if (Date.now() - fs.statSync(f).mtimeMs > 3_600_000) fs.unlinkSync(f); } catch {}
-  const file = path.join(where, `login-${what}-${crypto.randomBytes(4).toString('hex')}.command`);
+  const file = path.join(where, `login-${what}-${crypto.randomBytes(4).toString('hex')}${SCRIPT_EXT}`);
   const ws = body?.ws !== undefined ? wsById(body.ws) : ctx?.ws ?? shownWs();
-  fs.writeFileSync(file, loginScript({ what, bin, configDir: ws.profile.plain ? null : ws.profile.dir, label: profileLabel(ws) }), { mode: 0o700 });
-  const r = await run('open', ['-a', 'Terminal', file], { timeout: 10_000, env: baseEnv });
-  return r.err ? { ok: false, error: firstLine(r) } : { ok: true };
+  fs.writeFileSync(file, loginScript({ what, bin, configDir: ws.profile.plain ? null : ws.profile.dir, label: profileLabel(ws), shell: SCRIPT_SHELL }), { mode: 0o700 });
+  const r = await openInTerminal(file);
+  return r.none ? { ok: false, error: 'No terminal app was found. Run the command shown in a terminal.' } : r;
 }
 
 /** The Mac's own folder dialog, opened where the field points. */
 let picking = false;
 async function pickFolder(body) {
-  if (process.platform !== 'darwin') return { ok: false, error: 'The folder dialog is macOS only. Type the path.' };
+  // Off a Mac the app shows its own dialog (desktop/main.mjs) and never asks here; this answers a browser.
+  if (!MAC) return { ok: false, error: 'The folder dialog opens in the Glue app. Here, type the path.' };
   if (picking) return { ok: false, error: 'The folder dialog is already open. It may be behind this window.' };
   let start = expand(String(body?.path ?? '').trim()) || os.homedir();
   try { if (!fs.statSync(start).isDirectory()) start = os.homedir(); } catch { start = os.homedir(); }
@@ -1914,6 +1967,7 @@ let oldVersions = [], checkingVersions = false;
 // ps and lsof read processes, not any profile's files.
 const runPlain = (cmd, args, opts = {}) => run(cmd, args, { env: baseEnv, ...opts });
 async function checkVersions() {
+  if (!MAC) return; // only macOS refuses a session over a deleted version; elsewhere there is nothing to warn about
   if (checkingVersions) return;
   checkingVersions = true;
   try {
@@ -2083,14 +2137,22 @@ async function followSession(body) {
 
 // ---------------------------------------------------------------- GitHub: pull requests and checks for the branches agents are on
 
-/** A macOS notification, which shows with no page open. Title and text go in as arguments, never as script. */
+/** A desktop notification, which shows with no page open. Title and text go in as arguments, never as script. Off a
+ *  Mac it is notify-send's; where that isn't installed there is none. */
 function notify(title, text) {
-  if (process.platform !== 'darwin') return;
+  if (!MAC) {
+    run('notify-send', ['--app-name=Glue', '--', String(title).slice(0, 120), String(text).slice(0, 400)], { timeout: 10_000, env: baseEnv })
+      .then((r) => { if (r.err && r.err.code !== 'ENOENT') console.error('notify:', firstLine(r)); });
+    return;
+  }
   run('osascript', ['-e', 'on run argv', '-e', 'display notification (item 2 of argv) with title (item 1 of argv)', '-e', 'end run',
     String(title).slice(0, 120), String(text).slice(0, 400)], { timeout: 10_000, env: baseEnv }).then((r) => { if (r.err) console.error('notify:', firstLine(r)); });
 }
-/** The gh CLI, as the panel's PATH finds it, else where Homebrew puts it: the app and the daemon bake a PATH that can lack it. */
-const ghPath = () => [...String(baseEnv.PATH ?? '').split(':').filter(Boolean).map((d) => path.join(d, 'gh')), '/opt/homebrew/bin/gh', '/usr/local/bin/gh']
+/** The gh CLI, as the panel's PATH finds it, else where Homebrew or a Linux package puts it: the app and the daemon
+ *  run on a PATH that can lack it. */
+const GH_ELSEWHERE = MAC ? ['/opt/homebrew/bin/gh', '/usr/local/bin/gh']
+  : ['/usr/bin/gh', '/usr/local/bin/gh', path.join(os.homedir(), '.local', 'bin', 'gh'), '/home/linuxbrew/.linuxbrew/bin/gh', '/snap/bin/gh'];
+const ghPath = () => [...String(baseEnv.PATH ?? '').split(':').filter(Boolean).map((d) => path.join(d, 'gh')), ...GH_ELSEWHERE]
   .find((f) => { try { fs.accessSync(f, fs.constants.X_OK); return fs.statSync(f).isFile(); } catch { return false; } }) ?? null;
 /** Where a session works, as git sees it: the checkout its tools ran in, else the one it started in. */
 const placeOf = (s) => gitPlace(s.ranCwd ?? s.hereCwd ?? s.cwd);
@@ -2571,12 +2633,15 @@ async function handle(req, res) {
     return send(res, 404, '');
   }
 
-  // The embedded terminal's library, vendored: these three files and nothing else under it.
-  const VENDOR = { '/vendor/xterm/xterm.js': 'text/javascript', '/vendor/xterm/addon-fit.js': 'text/javascript', '/vendor/xterm/xterm.css': 'text/css' };
+  // What the page loads besides itself, vendored: the embedded terminal's library and the two typefaces. These files
+  // and nothing else under public/vendor.
+  const VENDOR = { '/vendor/xterm/xterm.js': 'text/javascript; charset=utf-8', '/vendor/xterm/addon-fit.js': 'text/javascript; charset=utf-8',
+                   '/vendor/xterm/xterm.css': 'text/css; charset=utf-8',
+                   '/vendor/geist/Geist-Variable.woff2': 'font/woff2', '/vendor/geist/GeistMono-Variable.woff2': 'font/woff2' };
   if (req.method === 'GET' && Object.hasOwn(VENDOR, url.pathname)) {
     let body;
     try { body = fs.readFileSync(new URL('./public' + url.pathname, import.meta.url)); } catch { return send(res, 404, { error: 'not found' }); }
-    res.writeHead(200, { 'content-type': `${VENDOR[url.pathname]}; charset=utf-8`, 'cache-control': 'max-age=86400' });
+    res.writeHead(200, { 'content-type': VENDOR[url.pathname], 'cache-control': 'max-age=86400' });
     return res.end(body);
   }
   if (req.method === 'GET' && url.pathname === '/') {

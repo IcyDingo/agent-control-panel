@@ -10,8 +10,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { logDir as xdgLogDir } from '../paths.mjs';
 
 const SERVER = fileURLToPath(new URL('../server.mjs', import.meta.url));
+// Off a Mac there is no launchd service (the Linux app runs the server), the log is in the XDG state folder, a folder is
+// opened with xdg-open, and a notification is notify-send's. The Mac and Linux expectations differ only there.
+const MAC = process.platform === 'darwin';
+const NOTE = MAC ? 'osascript' : 'notify-send';
 const PORT = 48000 + Math.floor(Math.random() * 100);
 const BASE = `http://127.0.0.1:${PORT}`;
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-set-'));
@@ -52,10 +57,10 @@ if (a[0] === 'agents') {
 if (a[0] === 'auth') { console.log(cfg && path.basename(cfg) === '.claude-contract' ? JSON.stringify({ loggedIn: true, email: ${JSON.stringify(EMAIL_C)}, orgName: 'Contract Org', subscriptionType: 'max' }) : '{}'); process.exit(0); }
 process.exit(1);
 `, { mode: 0o755 });
-// Stand-ins for what Settings runs: the real launchctl and open must never be called from a test. launchctl knows no
-// service (print fails, as it does when nothing is loaded); each logs its arguments.
+// Stand-ins for what Settings runs: the real launchctl, open, xdg-open and notifiers must never be called from a test.
+// launchctl knows no service (print fails, as it does when nothing is loaded); each logs its arguments.
 const standIns = (dir, logs) => {
-  for (const [name, code] of [['launchctl', 'process.exit(process.argv[2] === "print" ? 113 : 0);'], ['open', ''], ['osascript', '']]) {
+  for (const [name, code] of [['launchctl', 'process.exit(process.argv[2] === "print" ? 113 : 0);'], ['open', ''], ['osascript', ''], ['xdg-open', ''], ['notify-send', '']]) {
     fs.writeFileSync(path.join(dir, name), `#!${process.execPath}\nrequire('fs').appendFileSync(${JSON.stringify(path.join(logs, name + '.log'))}, JSON.stringify(process.argv.slice(2)) + '\\n');\n${code}\n`, { mode: 0o755 });
   }
 };
@@ -148,7 +153,7 @@ test('settings shows both workspaces, the email only for the focus', async () =>
   for (const x of r.repos) assert.deepEqual(Object.keys(x).sort(), ['key', 'label', 'stored', 'ws']);
   assert.ok([true, false, null].includes(byId.contract.signedIn));
   assert.deepEqual(Object.keys(r).filter((k) => k !== 'status').sort(), ['about', 'github', 'glue', 'ok', 'overseer', 'repos', 'watcher', 'workspaces']);
-  assert.deepEqual(Object.keys(r.about).sort(), ['commit', 'dataDir', 'logDir', 'service', 'uninstall', 'update', 'version']);
+  assert.deepEqual(Object.keys(r.about).sort(), ['commit', 'dataDir', 'logDir', 'platform', 'service', 'uninstall', 'update', 'version']);
   assert.equal(typeof r.watcher.enabled, 'boolean');
   assert.ok(Array.isArray(r.overseer.models) && r.overseer.models.includes(r.overseer.model), JSON.stringify(r.overseer));
   assert.deepEqual(Object.keys(r.github).sort(), ['login', 'state']);
@@ -306,10 +311,19 @@ test('about: the version, the commit, the folders and the service (none installe
   const pkg = JSON.parse(fs.readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'));
   assert.equal(r.about.version, pkg.version);
   assert.equal(r.about.dataDir, path.dirname(prefs), 'the prefs folder');
-  assert.equal(r.about.logDir, path.join(home, 'Library', 'Logs', 'Glue'));
-  assert.deepEqual(r.about.service, { installed: false, running: false, pid: null, self: false });
-  assert.equal(r.about.update, 'git pull && ./install.sh');
-  assert.equal(r.about.uninstall, './install.sh --uninstall');
+  assert.equal(r.about.platform, process.platform);
+  if (MAC) {
+    assert.equal(r.about.logDir, path.join(home, 'Library', 'Logs', 'Glue'));
+    assert.deepEqual(r.about.service, { available: true, installed: false, running: false, pid: null, self: false });
+    assert.equal(r.about.update, 'git pull && ./install.sh');
+    assert.equal(r.about.uninstall, './install.sh --uninstall');
+  } else {
+    // Where the Linux app logs the server it runs (desktop/main.mjs); no service, and install.sh is the Mac's.
+    assert.equal(r.about.logDir, xdgLogDir({ home, env }));
+    assert.deepEqual(r.about.service, { available: false, installed: false, running: false, pid: null, self: false });
+    assert.equal(r.about.update, null);
+    assert.equal(r.about.uninstall, null);
+  }
   // The short sha, read from the .git files (this checkout may be a linked worktree), as git itself says.
   const root = fileURLToPath(new URL('..', import.meta.url));
   const want = execFileSync('git', ['rev-parse', '--short=7', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
@@ -317,7 +331,20 @@ test('about: the version, the commit, the folders and the service (none installe
   assert.ok(calledOf(home, 'launchctl').every((a) => a[0] === 'print'), 'only asked launchd about the service');
 });
 
-test('restart is refused without an installed service, and by a server that is not the service', async () => {
+test('off a Mac, restart is refused: there is no service', { skip: MAC && 'a Mac has the launchd service' }, async () => {
+  const plist = path.join(home, 'Library', 'LaunchAgents', `local.glue.${PORT}.plist`);
+  fs.mkdirSync(path.dirname(plist), { recursive: true });
+  fs.writeFileSync(plist, '<plist/>'); // even a plist left in the Mac's place doesn't make one
+  try {
+    const r = await api('/api/settings/restart', {}, A.client);
+    assert.equal(r.ok, false);
+    assert.match(r.error, /no background service on Linux/);
+    assert.equal((await get('/api/settings', A.client)).about.service.installed, false);
+  } finally { fs.rmSync(plist, { force: true }); }
+  assert.deepEqual(calledOf(home, 'launchctl'), [], 'launchctl is never run');
+});
+
+test('restart is refused without an installed service, and by a server that is not the service', { skip: !MAC && 'only a Mac has the service' }, async () => {
   const none = await api('/api/settings/restart', {}, A.client);
   assert.equal(none.ok, false);
   assert.equal(none.error, "The background service isn't installed.");
@@ -336,7 +363,7 @@ test('restart is refused without an installed service, and by a server that is n
   assert.equal(calledOf(home, 'launchctl').some((a) => a[0] === 'kickstart'), false, 'nothing was kicked');
 });
 
-test('reveal shows the data or the logs in Finder', async () => {
+test('reveal shows the data or the logs in Finder', { skip: !MAC && 'a Mac shows them in Finder' }, async () => {
   assert.deepEqual(await api('/api/settings/reveal', { what: 'data' }, A.client), { status: 200, ok: true });
   assert.deepEqual(calledOf(home, 'open').at(-1), ['-R', prefs]);
   assert.equal((await api('/api/settings/reveal', { what: 'elsewhere' }, A.client)).ok, false);
@@ -349,6 +376,25 @@ test('reveal shows the data or the logs in Finder', async () => {
   fs.writeFileSync(logFile, 'x\n');
   assert.deepEqual(await api('/api/settings/reveal', { what: 'logs' }, A.client), { status: 200, ok: true });
   assert.deepEqual(calledOf(home, 'open').at(-1), ['-R', logFile]);
+  const r = await fetch(BASE + '/api/settings/reveal', { method: 'POST', body: '{"what":"data"}', headers: { 'content-type': 'application/json', origin: BASE } });
+  assert.equal(r.status, 403, 'not without the token');
+});
+
+test('off a Mac, reveal opens the data or the logs folder with xdg-open', { skip: MAC && 'a Mac shows them in Finder' }, async () => {
+  assert.deepEqual(await api('/api/settings/reveal', { what: 'data' }, A.client), { status: 200, ok: true });
+  assert.ok(await until(() => calledOf(home, 'xdg-open').length === 1), 'xdg-open ran');
+  assert.deepEqual(calledOf(home, 'xdg-open').at(-1), [path.dirname(prefs)], 'the folder: xdg-open can’t pick out a file');
+  assert.equal((await api('/api/settings/reveal', { what: 'elsewhere' }, A.client)).ok, false);
+  assert.equal((await api('/api/settings/reveal', {}, A.client)).ok, false);
+  // No log yet: nothing to show.
+  assert.equal((await api('/api/settings/reveal', { what: 'logs' }, A.client)).ok, false);
+  const logFile = path.join(xdgLogDir({ home, env }), `server-${PORT}.log`);
+  fs.mkdirSync(path.dirname(logFile), { recursive: true });
+  fs.writeFileSync(logFile, 'x\n');
+  assert.deepEqual(await api('/api/settings/reveal', { what: 'logs' }, A.client), { status: 200, ok: true });
+  assert.ok(await until(() => calledOf(home, 'xdg-open').length === 2), 'xdg-open ran again');
+  assert.deepEqual(calledOf(home, 'xdg-open').at(-1), [path.dirname(logFile)]);
+  assert.deepEqual(calledOf(home, 'open'), [], 'never the Mac’s open');
   const r = await fetch(BASE + '/api/settings/reveal', { method: 'POST', body: '{"what":"data"}', headers: { 'content-type': 'application/json', origin: BASE } });
   assert.equal(r.status, 403, 'not without the token');
 });
@@ -506,7 +552,7 @@ test('answering here is never persisted', async () => {
   } finally { await s.done(); }
 });
 
-test('the notification toggles silence their events', { skip: process.platform !== 'darwin' && 'notifications are macOS only' }, async () => {
+test('the notification toggles silence their events', async () => {
   const s = solo({ gh: true });
   try {
     const srv = await s.start();
@@ -517,18 +563,18 @@ test('the notification toggles silence their events', { skip: process.platform !
     const page = srv.page();
     assert.ok(await until(() => page.latest()?.github?.repos?.some((r) => r.prs?.length), 20_000), 'GitHub was polled: ' + srv.log);
     await pause(1500);
-    assert.deepEqual(calledOf(s.home, 'osascript'), [], 'nothing is logged with CI alerts off');
+    assert.deepEqual(calledOf(s.home, NOTE), [], 'nothing is logged with CI alerts off');
     // On again, and a new failure (another pull request: a failure is told once).
     assert.equal((await srv.api('/api/settings/glue', { patch: { notify: { ci: true } } })).ok, true);
     fs.writeFileSync(path.join(s.home, 'open.json'), '[3, 4]');
     assert.equal((await srv.api('/api/github/refresh')).ok, true);
-    const told = await until(() => calledOf(s.home, 'osascript').find((a) => a.at(-2) === 'Glue · CI failed'), 20_000);
-    assert.ok(told, 'it logs as before: ' + JSON.stringify(calledOf(s.home, 'osascript')) + srv.log);
+    const told = await until(() => calledOf(s.home, NOTE).find((a) => a.at(-2) === 'Glue · CI failed'), 20_000);
+    assert.ok(told, 'it logs as before: ' + JSON.stringify(calledOf(s.home, NOTE)) + srv.log);
     assert.match(told.at(-1), /#4/);
   } finally { await s.done(); }
 });
 
-test('the service restarts itself from Settings', async () => {
+test('the service restarts itself from Settings', { skip: !MAC && 'only a Mac has the service' }, async () => {
   const s = solo({ daemon: true });
   try {
     const srv = await s.start();
@@ -544,7 +590,7 @@ test('the service restarts itself from Settings', async () => {
   } finally { await s.done(); }
 });
 
-test('the PR watcher toggle silences its notifications', { skip: process.platform !== 'darwin' && 'notifications are macOS only' }, async () => {
+test('the PR watcher toggle silences its notifications', async () => {
   const s = solo({ gh: true });
   try {
     const srv = await s.start();
@@ -555,15 +601,15 @@ test('the PR watcher toggle silences its notifications', { skip: process.platfor
     const acted = () => { try { return JSON.parse(fs.readFileSync(path.join(s.home, 'panel', 'watcher.json'), 'utf8')).last ?? {}; } catch { return {}; } };
     assert.ok(await until(() => acted()['o/p#3'], 20_000), 'the watcher acted on #3: ' + JSON.stringify(acted()) + srv.log);
     await pause(1500);
-    assert.deepEqual(calledOf(s.home, 'osascript'), [], 'nothing is logged with watcher alerts off');
+    assert.deepEqual(calledOf(s.home, NOTE), [], 'nothing is logged with watcher alerts off');
     // On again, and a new pull request to act on.
     assert.equal((await srv.api('/api/settings/glue', { patch: { notify: { watcher: true } } })).ok, true);
     fs.writeFileSync(path.join(s.home, 'open.json'), '[3, 4]');
     assert.equal((await srv.api('/api/github/refresh')).ok, true);
-    const told = await until(() => calledOf(s.home, 'osascript').find((a) => /^Glue · (fix|PR)/.test(a.at(-2) ?? '')), 20_000);
-    assert.ok(told, 'the watcher notifies: ' + JSON.stringify(calledOf(s.home, 'osascript')) + srv.log);
+    const told = await until(() => calledOf(s.home, NOTE).find((a) => /^Glue · (fix|PR)/.test(a.at(-2) ?? '')), 20_000);
+    assert.ok(told, 'the watcher notifies: ' + JSON.stringify(calledOf(s.home, NOTE)) + srv.log);
     assert.match(told.at(-1), /#4/);
-    assert.equal(calledOf(s.home, 'osascript').some((a) => a.at(-2) === 'Glue · CI failed'), false, 'not the CI alert');
+    assert.equal(calledOf(s.home, NOTE).some((a) => a.at(-2) === 'Glue · CI failed'), false, 'not the CI alert');
   } finally { await s.done(); }
 });
 

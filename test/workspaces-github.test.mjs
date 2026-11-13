@@ -2,7 +2,7 @@
 // ~/.claude-contract), each a workspace, and GitHub on. A stand-in `gh` knows three repositories: o/p (sorted into
 // default, where the default job works), o/n (sorted into contract, where the contract job works) and o/q (sorted into
 // none: only your own pull request is open there). Both jobs' pull requests have a check that failed half a minute ago,
-// so the first poll notifies, through a stand-in `osascript` that logs its argv. A second contract job works in o/x, sorted
+// so the first poll notifies, through a stand-in `osascript` (or, off a Mac, `notify-send`) that logs its argv. A second contract job works in o/x, sorted
 // into none: a repository only contract's sessions work in, which the default page must never be told of.
 // Run with `npm test`. Starts the server on a spare port.
 import { test, after } from 'node:test';
@@ -95,7 +95,8 @@ if (a[0] === 'run' && a[1] === 'view' && has('--log-failed')) out('CI / build\\t
 process.stderr.write('unexpected gh call: ' + a.join(' ') + '\\n');
 process.exit(1);
 `, { mode: 0o755 });
-fs.writeFileSync(path.join(bin, 'osascript'), `#!${process.execPath}
+// The Mac's notifier, or Linux's: both take the title and then the text as their last two arguments.
+for (const name of ['osascript', 'notify-send']) fs.writeFileSync(path.join(bin, name), `#!${process.execPath}
 require('fs').appendFileSync(${JSON.stringify(notes)}, JSON.stringify(process.argv.slice(2)) + '\\n');
 `, { mode: 0o755 });
 
@@ -196,7 +197,7 @@ test('unsorted repositories are a count', async () => {
   assert.equal(JSON.stringify(snap).includes('o/x'), false, 'page A names o/x');
 });
 
-test('a failing check in another workspace notifies by count only', { skip: process.platform !== 'darwin' && 'notifications are macOS only' }, async () => {
+test('a failing check in another workspace notifies by count only', async () => {
   // The focused workspace's failure, as today.
   // (The stand-in logs as each call lands, which need not be the order they were made in.)
   const own = await until(() => lines(notes).find((a) => a.at(-2) === 'Glue · CI failed'));

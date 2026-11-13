@@ -34,12 +34,18 @@ test('the Terminal script runs Claude Code in the folder, on the profile, whatev
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "it's a folder "));
   const fake = path.join(dir, 'fake claude');
   fs.writeFileSync(fake, '#!/bin/sh\necho "$PWD|${CLAUDE_CONFIG_DIR-unset}"\n', { mode: 0o755 });
-  const run = (configDir) => {
-    const script = path.join(dir, 'trust.command');
-    fs.writeFileSync(script, trustScript({ dir, configDir, claude: fake, label: 'claude-x' }), { mode: 0o700 });
-    return execFileSync('/bin/zsh', [script], { env: { ...process.env, CLAUDE_CONFIG_DIR: '/from/your/shell' }, encoding: 'utf8' }).trim();
-  };
-  assert.equal(run("/Users/someone/.claude-x's"), `${dir}|/Users/someone/.claude-x's`);
-  assert.equal(run(null), `${dir}|unset`, 'the plain profile: not one your shell happens to set');
+  // zsh on a Mac (Terminal's .command files), bash elsewhere; each is run where it is installed.
+  const shells = ['zsh', 'bash'].filter((s) => fs.existsSync(`/bin/${s}`));
+  assert.ok(shells.length, 'neither zsh nor bash is installed');
+  for (const shell of shells) {
+    const run = (configDir) => {
+      const script = path.join(dir, 'trust.command');
+      fs.writeFileSync(script, trustScript({ dir, configDir, claude: fake, label: 'claude-x', shell }), { mode: 0o700 });
+      return execFileSync(`/bin/${shell}`, [script], { env: { ...process.env, CLAUDE_CONFIG_DIR: '/from/your/shell' }, encoding: 'utf8' }).trim();
+    };
+    assert.equal(run("/Users/someone/.claude-x's"), `${dir}|/Users/someone/.claude-x's`, shell);
+    assert.equal(run(null), `${dir}|unset`, 'the plain profile: not one your shell happens to set');
+  }
   assert.match(trustScript({ dir: '/a', configDir: null, claude: '/c', label: 'claude' }), /^#!\/bin\/zsh\n# Opened by Glue/);
+  assert.match(trustScript({ dir: '/a', configDir: null, claude: '/c', label: 'claude', shell: 'bash' }), /^#!\/bin\/bash\n# Opened by Glue/);
 });

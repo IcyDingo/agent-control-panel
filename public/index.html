@@ -7,12 +7,17 @@
 <!-- The tab's icon: app/icon.svg in small (the overseer's mark on its dark tile). Inline, so the page fetches nothing. -->
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='2' y='2' width='60' height='60' rx='14' fill='%2314171c'/%3E%3Crect x='14' y='14' width='36' height='36' rx='11.5' fill='%23e4e8ee'/%3E%3Ccircle cx='32' cy='32' r='9.8' fill='%2314171c'/%3E%3C/svg%3E">
 <script>
-// Dark unless you picked Light or Match the Mac (the theme menu, top right). Set before the page paints.
+// Dark unless you picked Light or the system's own (the theme menu, top right). Set before the page paints.
 try { const t = localStorage.getItem('acp.theme'); if (t !== 'system') document.documentElement.dataset.theme = t === 'light' ? 'light' : 'dark'; }
 catch { document.documentElement.dataset.theme = 'dark'; }
+// A Mac hides its scrollbars until you scroll. Elsewhere they always show, so there they are drawn thin (below).
+if (!/Mac|iPhone|iPad/.test(navigator.platform)) document.documentElement.classList.add('bars');
 </script>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
 <style>
+/* Geist and Geist Mono, served by the panel (public/vendor/geist, SIL Open Font License): the page looks the same
+   with no network, and asks no other site for anything. One variable file each carries every weight. */
+@font-face { font-family: "Geist"; src: url("/vendor/geist/Geist-Variable.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: "Geist Mono"; src: url("/vendor/geist/GeistMono-Variable.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
 /* The four state queues stack in a rail on the left; the open session fills the rest of the width.
    Matte graphite first, hairlines over shadows, soft corners:
    6px on controls, 8px on cards and tiles, 12px on the panel. */
@@ -51,6 +56,7 @@ catch { document.documentElement.dataset.theme = 'dark'; }
   --del: rgba(191, 61, 43, .08); --add: rgba(30, 122, 75, .08); --shade: rgba(17, 20, 24, .14); color-scheme: light;
 }
 * { box-sizing: border-box; }
+.bars, .bars * { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
 html, body { height: 100%; }
 body { margin: 0; display: flex; flex-direction: column; background: var(--bg); color: var(--fg); font: 14px/1.45 var(--sans); -webkit-font-smoothing: antialiased; }
 button, input, textarea, select { font: inherit; color: inherit; }
@@ -1131,6 +1137,10 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 
 <script>
 const TOKEN = '__ACP_TOKEN__';
+// The page runs in a browser, in the Mac app and in the Linux app. Where its words name the Mac, they ask this first.
+const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform);
+// Where the app's icon shows the count: the Dock on a Mac, the launcher elsewhere.
+const DOCK = IS_MAC ? 'Dock' : 'launcher';
 // This page, to the server: the thread of the session it has open comes on its stream, under this id.
 const CLIENT = crypto.randomUUID?.() ?? Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
 const COLS = [['waiting', 'Needs you'], ['busy', 'Working'], ['idle', 'Idle'], ['finished', 'Finished']];
@@ -1348,7 +1358,8 @@ function alertNew(p) {
   const title = p.toolName === 'AskUserQuestion' ? `${who} has a question for you`
     : p.toolName === 'ExitPlanMode' ? `${who} has a plan ready for review` : `${who} wants to use ${p.toolName}`;
   const n = new Notification(title, { body: summary(p), tag: p.id });
-  n.onclick = () => { window.focus(); open = p.sessionId; render(); n.close(); };
+  // The Linux app's window may be closed, which a page can't undo by itself: the app brings it back.
+  n.onclick = () => { window.glueApp?.focus?.(); window.focus(); open = p.sessionId; render(); n.close(); };
 }
 function summary(p) {
   const i = p.toolInput || {};
@@ -3351,11 +3362,12 @@ function openLauncher() {
   $('l-prompt').focus();
 };
 $('l-cancel').onclick = () => dlg.close();
-// Any folder: the Mac's folder dialog, or suggestions of the folders under the path you type.
+// Any folder: the system's folder dialog (the Linux app's own, else the one the server opens on a Mac), or suggestions
+// of the folders under the path you type.
 $('l-pick').onclick = async () => {
   const b = $('l-pick');
   b.disabled = true; b.textContent = 'Opening…';
-  const r = await api('/api/pick-folder', { path: $('l-cwd').value });
+  const r = appInfo?.pickFolder ? await appInfo.pickFolder($('l-cwd').value) : await api('/api/pick-folder', { path: $('l-cwd').value });
   b.disabled = false; b.textContent = 'Choose…';
   if (r.ok) { $('l-cwd').value = r.path; $('l-cwd').focus(); checkFolder(); }
   else if (!r.cancelled) toast(r.error || 'The folder dialog did not open.', true);
@@ -3780,11 +3792,12 @@ document.addEventListener('keydown', (e) => {
 function alertWorkspace(w) {
   if (!alertsOn() || document.hasFocus()) return;
   const n = new Notification('Glue', { body: `${w.name}: ${w.waiting} needs you`, tag: 'ws:' + w.id });
-  n.onclick = () => { window.focus(); const i = snap?.workspaces?.findIndex((x) => x.id === w.id) ?? -1; if (i >= 0) chooseWorkspace(i); n.close(); };
+  n.onclick = () => { window.glueApp?.focus?.(); window.focus(); const i = snap?.workspaces?.findIndex((x) => x.id === w.id) ?? -1; if (i >= 0) chooseWorkspace(i); n.close(); };
 }
 
-// ---------- theme: dark unless you pick Light or Match the Mac; Glue's `theme`, which this browser caches for its first paint ----------
-const THEMES = [['dark', 'Dark', 'Always dark'], ['light', 'Light', 'Always light'], ['system', 'Match the Mac', 'Follows its Light or Dark appearance']];
+// ---------- theme: dark unless you pick Light or the system's own; Glue's `theme`, which this browser caches for its first paint ----------
+const THEMES = [['dark', 'Dark', 'Always dark'], ['light', 'Light', 'Always light'],
+  IS_MAC ? ['system', 'Match the Mac', 'Follows its Light or Dark appearance'] : ['system', 'Match the system', 'Follows your desktop’s light or dark setting']];
 const macDark = matchMedia('(prefers-color-scheme: dark)');
 let theme = 'dark';
 try { const t = localStorage.getItem('acp.theme'); if (THEMES.some(([k]) => k === t)) theme = t; } catch {}
@@ -3797,6 +3810,8 @@ function applyTheme() {
   if (termView?.term) termView.term.options.theme = termTheme();
   // The app's title bar follows the page.
   try { window.webkit?.messageHandlers?.theme?.postMessage(theme === 'system' ? (macDark.matches ? 'dark' : 'light') : theme); } catch {}
+  // The Linux app takes the choice itself: told "dark" for a system that is dark now, it would stop following it.
+  try { window.glueApp?.setTheme?.(theme); } catch {}
 }
 macDark.addEventListener('change', () => theme === 'system' && applyTheme());
 function openThemes() {
@@ -4241,7 +4256,8 @@ function setGithubTab(panel) {
     const login = gh.state === 'ok' ? setLine('ok', '✓', gh.login ? `Signed in as ${gh.login}` : 'Signed in', 'Pull requests and CI show for the repositories your agents work in.')
       : gh.state === 'signed-out' ? setLine('todo', '✗', 'Not signed in', 'Sign the GitHub CLI in to see pull requests and CI here, and to let Auto-fix tell an agent when its checks fail.',
         [el('button', { class: 'btn primary small', type: 'button', text: 'Sign in in Terminal…', 'data-f': 'gh-login', onclick: (e) => openLogin('gh', e.currentTarget) }), cmdChip('gh auth login')])
-      : gh.state === 'missing' ? setLine('todo', '✗', 'Not installed', 'Install the GitHub CLI to see pull requests and CI here.', [cmdChip('brew install gh')])
+      : gh.state === 'missing' ? setLine('todo', '✗', 'Not installed', 'Install the GitHub CLI to see pull requests and CI here.',
+        [IS_MAC ? cmdChip('brew install gh') : el('span', { class: 'set-quiet', text: 'It is in most package managers as gh; cli.github.com has the rest.' })])
       : gh.state === 'off' ? setLine('off', '·', 'Turned off', 'GitHub is turned off for this panel (ACP_GITHUB=off).')
       : setLine('wait', '·', 'Checking…', 'Looking at whether the GitHub CLI is signed in.');
     const models = setData.overseer?.models ?? [];
@@ -4332,7 +4348,7 @@ function setGlueLook(box, g) {
     ...(app ? [[[app.newAgent ?? '⌘T'], 'Start a new agent']] : []), ...(app?.settings ? [[[app.settings], 'Open Settings, from the Glue menu']] : [])];
   const fold = (k) => g.folded.includes(k);
   setPatch(box, JSON.stringify([g.theme, fold('loose'), fold('finished'), Boolean(app)]), () => [
-    setOpt('Theme', 'Dark, Light, or the Mac’s own appearance, as it changes.',
+    setOpt('Theme', IS_MAC ? 'Dark, Light, or the Mac’s own appearance, as it changes.' : 'Dark, Light, or your desktop’s own light or dark setting, as it changes.',
       el('div', { class: 'seg set-seg', role: 'radiogroup', 'aria-label': 'Theme' },
         ...THEMES.map(([k, name, say]) => el('label', { title: say },
           el('input', { type: 'radio', name: 'set-theme', value: k, 'data-f': 'theme-' + k, checked: g.theme === k, onchange: () => setGlue({ theme: k }) }), el('span', { text: name }))))),
@@ -4352,7 +4368,7 @@ function setFold(key, on) {
 function setGlueAlerts(box, g) {
   const perm = 'Notification' in window ? Notification.permission : 'none';
   const alerts = perm === 'granted' ? el('span', { class: 'set-ok', text: '✓ On' })
-    : perm === 'denied' ? el('span', { class: 'set-quiet', text: 'Blocked — turn them on in System Settings › Notifications.' })
+    : perm === 'denied' ? el('span', { class: 'set-quiet', text: `Blocked — turn them on in ${IS_MAC ? 'System Settings › Notifications' : 'your desktop’s notification settings'}.` })
     : perm === 'default' ? el('button', { class: 'btn small', type: 'button', text: 'Turn on', 'data-f': 'alerts-on',
       onclick: () => Notification.requestPermission().then(() => render()) })
     : el('span', { class: 'set-quiet', text: 'This browser can’t show them.' });
@@ -4364,7 +4380,7 @@ function setGlueAlerts(box, g) {
     setOpt('Requests waiting on you', 'A permission, a question or a plan.', setSwitch('n-requests', 'Alert for requests waiting on you', n.requests, (on) => setGlue({ notify: { requests: on } }))),
     setOpt('CI failures', 'A check fails on a pull request or on the default branch.', setSwitch('n-ci', 'Alert for CI failures', n.ci, (on) => setGlue({ notify: { ci: on } }))),
     setOpt('The PR watcher', 'Auto-fix asked an agent for a fix, needs your click, or gave up.', setSwitch('n-watcher', 'Alert for the PR watcher', n.watcher, (on) => setGlue({ notify: { watcher: on } }))),
-    setOpt('Count in the title and Dock', 'How many requests wait, as (2) before the window’s name and on the Dock icon.', setSwitch('title-count', 'Count in the title and Dock', g.titleCount, (on) => setGlue({ titleCount: on }))),
+    setOpt(`Count in the title and ${DOCK}`, `How many requests wait, as (2) before the window’s name and on the ${DOCK} icon.`, setSwitch('title-count', `Count in the title and ${DOCK}`, g.titleCount, (on) => setGlue({ titleCount: on }))),
   ]);
 }
 /** Answering here: the server's switch, never remembered. The snapshot says what it is now. */
@@ -4386,12 +4402,14 @@ function setGlueAgents(box, g) {
 }
 function setGlueAbout(box, ab) {
   const sv = ab.service ?? {};
-  const service = !sv.installed ? 'Not installed: Glue runs while the app or a terminal runs it.' : sv.running ? `Running${sv.pid ? `, process ${sv.pid}` : ''}.` : 'Installed, not running.';
+  // Off a Mac there is no background service (a launchd agent): the Linux app runs the panel and updates itself.
+  const service = sv.available === false ? 'None on Linux: the Glue app runs the panel. Start at login, in its Glue menu, starts it with you.'
+    : !sv.installed ? 'Not installed: Glue runs while the app or a terminal runs it.' : sv.running ? `Running${sv.pid ? `, process ${sv.pid}` : ''}.` : 'Installed, not running.';
   // Restart only where it restarts what this page talks to: a server started without the service (the app's own, or a
   // terminal's) would restart another one.
   const restart = sv.installed && sv.self ? el('button', { class: 'btn small', type: 'button', 'data-f': 'restart', disabled: setRestart === 'busy', text: setRestart === 'busy' ? 'Restarting…' : 'Restart', onclick: setRestartNow }) : null;
   const folder = (what, label, dir) => setOpt(label, el('code', { text: tilde(dir ?? '') }),
-    el('button', { class: 'btn small', type: 'button', text: 'Show in Finder', 'data-f': 'reveal-' + what, onclick: (e) => setReveal(what, e.currentTarget) }));
+    el('button', { class: 'btn small', type: 'button', text: IS_MAC ? 'Show in Finder' : 'Open folder', 'data-f': 'reveal-' + what, onclick: (e) => setReveal(what, e.currentTarget) }));
   const kick = `launchctl kickstart -k gui/$UID/${svcLabel()}`;
   setPatch(box, JSON.stringify([ab, setRestart]), () => [
     setOpt('Version', null, el('span', { class: 'set-val', text: (ab.version ?? 'unknown') + (ab.commit ? ` (${ab.commit})` : '') })),
@@ -4400,8 +4418,8 @@ function setGlueAbout(box, ab) {
       : setRestart === 'busy' ? 'Restarting… This page reconnects by itself.' : service, restart),
     folder('data', 'Settings and data', ab.dataDir),
     folder('logs', 'Logs', ab.logDir),
-    setOpt('Update', null, ab.update ? cmdChip(ab.update) : null),
-    setOpt('Uninstall', null, ab.uninstall ? cmdChip(ab.uninstall) : null),
+    setOpt('Update', ab.update ? null : sv.available === false ? 'The Glue app looks for updates by itself, and Check for updates… is in its Glue menu.' : null, ab.update ? cmdChip(ab.update) : null),
+    setOpt('Uninstall', ab.uninstall ? null : sv.available === false ? 'Remove the glue package (a .deb), or delete the AppImage.' : null, ab.uninstall ? cmdChip(ab.uninstall) : null),
   ]);
 }
 /** The service's launchd label (daemon.mjs LABEL): `local.glue` on the default port, `local.glue.<port>` on another. */
@@ -4420,7 +4438,7 @@ async function setReveal(what, b) {
   b.disabled = true;
   const r = await api('/api/settings/reveal', { what });
   b.disabled = false;
-  if (!r.ok) toast(r.error || 'Finder did not open.', true);
+  if (!r.ok) toast(r.error || (IS_MAC ? 'Finder did not open.' : 'The folder did not open.'), true);
 }
 /** Every repository, with a pill for each workspace it is in (× takes it out of that one), Move, and Forget. */
 function setGlueRepos(box) {

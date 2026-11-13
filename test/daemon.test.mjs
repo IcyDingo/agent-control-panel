@@ -26,7 +26,7 @@ test('the plist runs the server from the repo with PATH, the port and ACP_DAEMON
   assert.equal((xml.match(/<string>\/tmp\/d\.log<\/string>/g) ?? []).length, 2, 'stdout and stderr both go to the log');
   const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'daemon-')), 'x.plist');
   fs.writeFileSync(f, xml);
-  execFileSync('plutil', ['-lint', f]); // throws when launchd would refuse it
+  if (process.platform === 'darwin') execFileSync('plutil', ['-lint', f]); // throws when launchd would refuse it; only a Mac has plutil
 });
 
 test('install writes the plist and the log folder, boots the old one out, then bootstraps the new', async () => {

@@ -41,11 +41,12 @@ export const LOGIN_ERROR = /not logged in|run \/login|invalid api key|oauth toke
 export const claudeLoginCommand = (p) => (p.plain ? 'claude auth login' : `CLAUDE_CONFIG_DIR=~/${p.dir.split('/').pop()} claude auth login`);
 
 /**
- * The script Terminal runs to sign you in: Claude Code's own login on the profile, or gh's. It waits for a key at the
- * end, so what happened stays readable, and says to go back to the panel, which notices by itself.
+ * The script a terminal runs to sign you in: Claude Code's own login on the profile, or gh's. It waits for a key at
+ * the end, so what happened stays readable, and says to go back to the panel, which notices by itself. `shell` is zsh
+ * on a Mac (Terminal's .command files) and bash elsewhere; they differ in how they wait for one key.
  */
-export const loginScript = ({ what, bin, configDir, label }) => [
-  '#!/bin/zsh',
+export const loginScript = ({ what, bin, configDir, label, shell = 'zsh' }) => [
+  `#!/bin/${shell}`,
   what === 'claude'
     ? `# Opened by Glue: sign the ${label} profile in to Claude Code.`
     : '# Opened by Glue: sign the GitHub CLI in to github.com.',
@@ -53,6 +54,6 @@ export const loginScript = ({ what, bin, configDir, label }) => [
   what === 'claude' ? `${sh(bin)} auth login` : `${sh(bin)} auth login --hostname github.com --web`,
   'echo',
   'echo "Go back to Glue: it notices by itself. Press any key to close this window."',
-  'read -k 1 -s',
+  shell === 'bash' ? 'read -n 1 -s -r' : 'read -k 1 -s',
   '',
 ].filter((l) => l != null).join('\n');

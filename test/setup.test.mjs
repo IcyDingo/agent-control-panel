@@ -60,8 +60,27 @@ test('the login script is valid zsh, on the right profile, and quotes what it is
   assert.doesNotMatch(scripts.gh, /CLAUDE_CONFIG_DIR/);
   assert.match(scripts.gh, /^'\/opt\/homebrew\/bin\/gh' auth login --hostname github\.com --web$/m);
   for (const [name, text] of Object.entries(scripts)) {
+    assert.match(text, /^#!\/bin\/zsh\n/);
     const f = path.join(dir, name + '.command');
     fs.writeFileSync(f, text);
-    execFileSync('zsh', ['-n', f]); // throws on a syntax error
+    if (fs.existsSync('/bin/zsh')) execFileSync('/bin/zsh', ['-n', f]); // throws on a syntax error; a Linux runner has no zsh
+  }
+});
+
+test('off a Mac the login script is bash: its own first line, and a wait for a key that bash understands', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'setup-'));
+  const scripts = {
+    work: loginScript({ what: 'claude', bin: "/odd path/it's/claude", configDir: '/home/x/.claude-work', label: 'claude-work', shell: 'bash' }),
+    gh: loginScript({ what: 'gh', bin: '/usr/bin/gh', label: 'claude', shell: 'bash' }),
+  };
+  assert.match(scripts.work, /^export CLAUDE_CONFIG_DIR='\/home\/x\/\.claude-work'$/m);
+  assert.match(scripts.work, /^'\/odd path\/it'\\''s\/claude' auth login$/m);
+  for (const [name, text] of Object.entries(scripts)) {
+    assert.match(text, /^#!\/bin\/bash\n/);
+    assert.match(text, /^read -n 1 -s -r$/m);
+    assert.doesNotMatch(text, /read -k/, 'read -k is zsh only: bash stops on it');
+    const f = path.join(dir, name + '.sh');
+    fs.writeFileSync(f, text);
+    execFileSync('/bin/bash', ['-n', f]);
   }
 });
