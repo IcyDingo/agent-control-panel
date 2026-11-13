@@ -185,7 +185,7 @@ panel looks as it always has.
   out. A message you were typing stays with its session. Each workspace's agents run on its own profile's login.
 - **The seal.** The page is sent the workspace in view and, for each other, only its name, colour and that count. No session,
   conversation, repository, pull request, branch or check of the other reaches the page, a desktop notification (which says
-  only `Private: 1 needs you` or `Private: a check failed`), the overseer's digest or a model call. Every action on a session
+  only `Private: 2 needs you`, with the count, or `Private: a check failed`), the overseer's digest or a model call. Every action on a session
   is refused for a page that is not in its workspace: "That belongs to another workspace. Switch to it to do this." The Dock
   badge counts what waits across all of them, since it is only a number.
 - **Folders: Glue asks.** A repository belongs to the workspaces you sort it into (a GitHub one by its `owner/name`, so every clone and
@@ -204,8 +204,9 @@ panel looks as it always has.
   **Forget** (it is asked again next time). Another workspace's name is changed from its own side: switch to it first. The
   step is optional and never blocks **Done**; **Setup** in the overseer's header brings it back.
 - **What is kept.** Names, colours, order, repositories and the workspace last in view are in
-  `~/Library/Application Support/Glue/workspaces.json` (beside `prefs.json`; `ACP_PREFS` names another folder for a second
-  panel on another port). A page opens on the workspace last in view and keeps its own after that.
+  `~/Library/Application Support/Glue/workspaces.json` (beside `prefs.json`; for a second panel on another port, `ACP_PREFS`
+  names another prefs file, and `workspaces.json` sits in that file's folder, so give each panel a folder of its own).
+  A page opens on the workspace last in view and keeps its own after that.
 
 A profile's sessions report here only once its settings have the hooks. When a profile doesn't have
 them, the panel shows **Connect this profile**. Clicking it adds the entries from
@@ -239,7 +240,8 @@ token: when `gh` is missing or signed out, it says so once and shows nothing els
   whether it can merge, and its review state.
 - It polls each repository every minute while a page is open, every 20 seconds while something
   runs, and every 5 minutes with no page (1 minute while something runs). Errors back off to 15
-  minutes. At most six repositories, the most recently active first.
+  minutes. At most six repositories per workspace, each workspace's most recently active first, so a busy workspace
+  never pushes another's out (a repository both work in counts for each, and is polled once).
 - A failure notifies once, as a macOS notification, so it reaches you with no page open: a PR's
   checks failing at a new commit, or a run on the default branch failing. After a restart it won't
   repeat one, and only failures from the last 15 minutes notify.
@@ -281,7 +283,8 @@ Ask what needs you, what everyone is doing, or what is failing, or say what you 
   or send a message that starts with `/` or `!`. A card says when sending would restart a session
   (for a terminal session, that closes Claude in its terminal). Proposals expire after an hour.
 - Its model is Sonnet unless you pick another under its box. There is one overseer per workspace, each on its own login, and it
-  reads only that workspace's sessions. Its conversation and feed are kept per workspace, in `overseer.json` beside `prefs.json`.
+  reads only that workspace's sessions. Its conversation and feed are kept per workspace, in `overseer-<workspace>.json`
+  beside `prefs.json` (an `overseer.json` from before workspaces seeds each one once, and is left as it was).
 - **What leaves the Mac:** the digest and the excerpts it reads go to the profile's own Claude
   account, as any Claude Code session's prompts do. Nothing goes anywhere else.
 
@@ -489,9 +492,9 @@ Full Disk Access doesn't help. A restart on the installed version does.
 Every minute the panel checks each running session, in every profile, and the processes it was started from
 (`versions.mjs`: one `ps` and one `lsof`, comparing each program file with what is on disk now).
 
-- **A banner** over the board counts them, other profiles' sessions too: the one that loses access is often not the
-  one on screen. **Show which** unfolds the list with each one's restart command; **×** puts the banner away until the
-  list changes. A **toast** says when it finds a new one.
+- **A banner** over the board counts them, for the workspace in view only: another workspace's sessions stay sealed, and
+  show in its own banner when you switch to it. **Show which** unfolds the list with each one's restart command; **×**
+  puts the banner away until the list changes. A **toast** says when it finds a new one.
 - **Its row** carries a small amber mark before its age, and **its panel** says why and how.
 - **To restart**: a terminal session quits in its terminal and resumes with the command the panel gives you to copy.
   A background job is ended in the panel, then sent a message, and comes back on the installed version.

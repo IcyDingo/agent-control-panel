@@ -1092,6 +1092,23 @@ function el(tag, attrs = {}, ...kids) {
   for (const k of kids.flat()) if (k != null && k !== false) n.append(k instanceof Node ? k : String(k));
   return n;
 }
+// A radio whose pick saves at once (where a repository belongs): it commits on a click, or on Space or Enter. The arrow
+// keys only move between the options: the browser checks each option it lands on, and that alone commits nothing, so a
+// keyboard user can pass over one option to reach another (Both, say) without first saving the one passed over.
+let radioArrow = false;
+document.addEventListener('keydown', (e) => {
+  if (e.target instanceof HTMLInputElement && e.target.type === 'radio' && e.key.startsWith('Arrow')) {
+    radioArrow = true;
+    setTimeout(() => { radioArrow = false; }); // the change the arrow causes fires before this
+  }
+}, true);
+function commitRadio(attrs, commit) {
+  return el('input', { ...attrs, type: 'radio',
+    onchange: () => { if (!radioArrow) commit(); },
+    // Space on an option not yet checked checks it (a change, above); on the one the arrows left checked, and Enter on
+    // any, nothing happens by itself, so they commit here.
+    onkeydown: (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.currentTarget.checked) { e.preventDefault(); commit(); } } });
+}
 function ago(ms) {
   const s = Math.max(0, Math.round(ms / 1000));
   if (s < 60) return s + 's';
@@ -2872,8 +2889,8 @@ function wsStep() {
           el('button', { class: 'btn quiet small', type: 'button', text: 'Move', 'aria-expanded': String(wsMoving === r.key), onclick: () => { wsMoving = wsMoving === r.key ? null : r.key; render(); } }),
           el('button', { class: 'btn quiet small', type: 'button', text: 'Forget', title: `${focus.name} stops holding ${r.label}. Glue asks again the next time you start an agent in it.`, onclick: () => moveRepo(r.key, []) })),
         wsMoving === r.key ? el('div', { class: 'seg', role: 'radiogroup', 'aria-label': `Which workspace ${r.label} belongs to` },
-          ...choice.map((w) => el('label', {}, el('input', { type: 'radio', name: 'mv-' + r.key, value: w.id, checked: r.ws.length === 1 && r.ws[0] === w.id, onchange: () => moveRepo(r.key, [w.id]) }), el('span', { text: w.name, title: w.name }))),
-          el('label', { class: 'both' }, el('input', { type: 'radio', name: 'mv-' + r.key, value: 'both', checked: choice.every((w) => r.ws.includes(w.id)), onchange: () => moveRepo(r.key, choice.map((w) => w.id)) }),
+          ...choice.map((w) => el('label', {}, commitRadio({ name: 'mv-' + r.key, value: w.id, checked: r.ws.length === 1 && r.ws[0] === w.id }, () => moveRepo(r.key, [w.id])), el('span', { text: w.name, title: w.name }))),
+          el('label', { class: 'both' }, commitRadio({ name: 'mv-' + r.key, value: 'both', checked: choice.every((w) => r.ws.includes(w.id)) }, () => moveRepo(r.key, choice.map((w) => w.id))),
             el('span', { text: choice.length === 2 ? 'Both' : 'All' }))) : null)));
   return el('div', { class: 'su-ws' },
     el('div', { class: 'su-ws-edit' }, input, swatches),
@@ -3113,8 +3130,8 @@ function sortLine() {
     ghSort?.length ? el('div', { class: 'gh-sort-list' }, ...ghSort.map((r) => el('div', { class: 'gh-sort-r', role: 'radiogroup', 'aria-label': `Which workspace ${r.label} belongs to` },
       el('span', { class: 'gh-sort-n', text: r.label, title: r.label }),
       el('div', { class: 'seg' },
-        ...list.map((w) => el('label', {}, el('input', { type: 'radio', name: 'gs-' + r.key, value: w.id, onchange: () => sortFromPanel(r.key, [w.id]) }), el('span', { text: w.name, title: w.name }))),
-        el('label', { class: 'both' }, el('input', { type: 'radio', name: 'gs-' + r.key, value: list.map((w) => w.id).join(','), onchange: () => sortFromPanel(r.key, list.map((w) => w.id)) }),
+        ...list.map((w) => el('label', {}, commitRadio({ name: 'gs-' + r.key, value: w.id }, () => sortFromPanel(r.key, [w.id])), el('span', { text: w.name, title: w.name }))),
+        el('label', { class: 'both' }, commitRadio({ name: 'gs-' + r.key, value: list.map((w) => w.id).join(',') }, () => sortFromPanel(r.key, list.map((w) => w.id))),
           el('span', { text: names.length === 2 ? 'Both' : 'All' })))))) : null);
 }
 /** What the GitHub list shows for one repository, worst first. */
@@ -3233,8 +3250,10 @@ function render() {
   renderHome(g);
   renderOld(snap.oldVersions ?? []);
   renderGhBtn();
-  // The app's Dock badge reads the count off the title: what waits here, and what waits in the other workspaces.
-  const waits = snap.pending.length + waitingElsewhere();
+  // The app's Dock badge reads the count off the title. With several workspaces, everything that waits across all of
+  // them, counted by the server the same way for each (so it does not change with the workspace in view); with one,
+  // what waits here, as before workspaces.
+  const waits = severalWs() ? snap.workspaces.reduce((n, w) => n + (w.waiting || 0), 0) : snap.pending.length;
   document.title = waits ? `(${waits}) Glue` : 'Glue';
   // A two-click control keeps the keyboard focus through a redraw.
   if (armed && (!document.activeElement || document.activeElement === document.body)) document.querySelector(`[data-key="${CSS.escape(armed.key)}"]`)?.focus({ preventScroll: true });
@@ -3669,8 +3688,6 @@ function renderProfile() {
 // What a workspace's colour name is drawn with: the palette of workspaces.mjs (COLORS), which the server names.
 const WS_COLORS = { blue: '#7ea6e6', violet: '#a98af0', green: '#55b985', teal: '#5bb8c4', rose: '#e07a9a' };
 const severalWs = () => (snap?.workspaces?.length ?? 0) > 1;
-/** What waits on you in the workspaces not shown: each one's count, nothing else of them reaches the page. */
-const waitingElsewhere = () => (severalWs() ? snap.workspaces.filter((w) => w.id !== snap.workspace?.id).reduce((n, w) => n + (w.waiting || 0), 0) : 0);
 function renderWorkspaces() {
   const list = severalWs() ? snap.workspaces : [], cur = snap.workspace?.id, root = document.documentElement;
   // The accent is the shown workspace's colour, and only when there is another to tell it from.
