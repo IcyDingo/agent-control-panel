@@ -76,7 +76,18 @@ async function setup(t) {
   return { home, port, projA, api, hook, stream, log: () => out, pid: child.pid };
 }
 /** How many open files the server has on `file` (a watch holds one). */
-const openOn = (pid, file) => execFileSync('lsof', ['-p', String(pid)]).toString().split('\n').filter((l) => l.endsWith(path.basename(file))).length;
+const openOn = (pid, file) => (process.platform === 'linux' ? watchesOn(pid, file)
+  : execFileSync('lsof', ['-p', String(pid)]).toString().split('\n').filter((l) => l.endsWith(path.basename(file))).length);
+/** The same on Linux, where a watch is an inotify entry and holds no open file: /proc lists each by the file's inode. */
+function watchesOn(pid, file) {
+  let ino;
+  try { ino = fs.statSync(file).ino.toString(16); } catch { return 0; }
+  let n = 0;
+  for (const fd of fs.readdirSync(`/proc/${pid}/fdinfo`)) {
+    try { for (const l of fs.readFileSync(`/proc/${pid}/fdinfo/${fd}`, 'utf8').split('\n')) if (l.startsWith('inotify ') && l.includes(` ino:${ino} `)) n++; } catch {}
+  }
+  return n;
+}
 
 test('follow returns the backfill and later lines arrive as thread events within 300 ms', async (t) => {
   const s = await setup(t), id = crypto.randomUUID(), file = path.join(s.projA, id + '.jsonl');

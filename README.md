@@ -5,6 +5,8 @@ them without switching terminals.
 
 ## Get started
 
+**On Linux,** download the app: see [The Linux app](#the-linux-app). The rest of this section is for a Mac.
+
 You need a Mac (macOS 14 or newer) with Node 20 or newer, and Claude Code 2.1.303 or newer.
 
 ```bash
@@ -14,8 +16,8 @@ cd agent-control-panel
 ```
 
 `install.sh` checks for Node 20+ and Apple's Command Line Tools (`xcode-select --install`; Xcode
-itself isn't needed), tells you what to install if something is missing, and builds **Agent
-Panel.app** into `~/Applications`. Then:
+itself isn't needed), tells you what to install if something is missing, and builds **Glue.app**
+into `~/Applications`. Then:
 
 1. Open **Glue**. macOS may ask whether it may use your Documents folder: the panel reads the
    repositories your sessions work in.
@@ -54,8 +56,8 @@ profile choice, the overseer's conversation, the PR watcher's memory) and `~/Lib
 again for your Documents folder and for notifications, and the app's own view settings (theme, folded queues) start
 fresh. The `ACP_*` environment variables keep their names. The repository is still `agent-control-panel`.
 
-Everything stays on your Mac: the server listens on 127.0.0.1 only, and the page fetches nothing but its typeface
-(from Google Fonts).
+Everything stays on your computer: the server listens on 127.0.0.1 only, and the page fetches nothing from anywhere
+else (its typeface, Geist, comes with it).
 
 **The board** stacks four queues in a rail on the left: **Needs you**, **Working**, **Idle** and
 **Finished**. Needs you is always open. Click any other queue's header to fold it to one line, which
@@ -135,6 +137,10 @@ Node 20+, and `python3` (it comes with macOS's command-line tools) for the helpe
 session's screen: switching its mode, answering a question it no longer holds, running a `/command`. Nothing to
 install. `ACP_PORT` changes the port; if you change it, change the hook URLs too.
 
+This works on Linux as well (`xdg-open` in place of `open`): the server keeps its data in `~/.config/glue` there, and
+opens your desktop's terminal where a Mac opens Terminal. The folder button's dialog is the app's, so in a browser
+you type the path.
+
 Installed with `./install.sh`, the panel also runs as a launchd service (`local.glue`, or
 `local.glue.<port>` on another port): `launchctl print gui/$UID/local.glue` shows it,
 `launchctl kickstart -k gui/$UID/local.glue` restarts it, and its log is
@@ -167,6 +173,48 @@ node's path and your shell's `PATH`. Build it again when one of those moves (an 
 The first time it starts the server, macOS asks whether Glue may use your Documents folder: the
 panel lives there, and it reads the sessions' repositories. The app is signed for this Mac only, so a
 rebuilt app may ask again.
+
+## The Linux app
+
+Download it from the [releases page](https://github.com/IcyDingo/agent-control-panel/releases). It carries its own
+Node, so you need only **Claude Code 2.1.303 or newer** and **python3** (which nearly every distribution has).
+
+| Your system | Download | Then |
+|---|---|---|
+| Debian, Ubuntu and their relatives | `Glue-amd64.deb` (or `Glue-arm64.deb`) | `sudo apt install ./Glue-amd64.deb`, then open **Glue** from your applications |
+| Anything else | `Glue-x86_64.AppImage` (or `Glue-arm64.AppImage`) | `chmod +x Glue-x86_64.AppImage`, then run it. **Glue › Add to applications menu** gives it a launcher and its icon |
+
+Prefer the .deb where you can. On Ubuntu 24.04 and later an AppImage can't use Chromium's sandbox, so it starts
+without it; the .deb installs the permission the sandbox needs.
+
+It then works like the Mac app: follow **Set up the panel**, the checklist it opens with (see
+[Get started](#get-started), from step 2). What differs:
+
+- **Closing the window keeps Glue running**, so it goes on holding requests. Open Glue again to bring the window
+  back; **Quit Glue** (Ctrl+Q) ends it and stops the panel. Where your desktop has a tray, Glue has an icon in it.
+- **Start at login** (in the Glue menu; press Alt to show the menu bar) opens it hidden when you sign in. There is
+  no separate background service: the hooks reach the panel while Glue is running, and a session asks in its
+  terminal when it isn't.
+- **New Agent is Ctrl+Shift+T and Reload is Ctrl+Shift+R.** Plain Ctrl+T, Ctrl+R and Ctrl+C go to the session in the
+  embedded terminal.
+- **Sign in in Terminal…** opens your desktop's terminal: the one in `$TERMINAL` if you set it, else the desktop's
+  default. If it finds none, copy the command shown and run it yourself.
+- **Updates.** An AppImage downloads a new version by itself and shows **Restart to update** in the Glue menu. With
+  the .deb, Glue tells you when there is one: download it and install it over the old one.
+- **Where things are.** Data in `~/.config/glue`, the server's log in `~/.local/state/glue/server-4747.log`
+  (`XDG_CONFIG_HOME` and `XDG_STATE_HOME` move them).
+- **It shows only its own panel.** If something else already answers on port 4747 (a `node server.mjs` you started,
+  or another person's Glue on the same computer), the app says so instead of showing it. `ACP_PORT=4750 glue` runs
+  it on another port; change the hook URLs to match.
+- The count of waiting requests shows on the launcher icon only on desktops that support it (KDE, Ubuntu's dock).
+- [Sessions on a deleted version](#sessions-on-a-deleted-version) doesn't apply: that is a macOS restriction.
+
+Glue is made for a computer one person uses. See [Security](#security) before running it on a shared one.
+
+To build it yourself: `npm ci && npm run dist:linux` on Linux leaves both packages in `dist/`; `npm run desktop`
+runs it from the checkout. To release: set `version` in `package.json`, merge, and push the tag `v<version>`. The
+**Linux app** workflow builds x64 and arm64, starts each package to check it, and drafts the release for you to
+publish. The app's icons come from `app/icon.svg` by way of `app/render-linux-icons.sh` (run on a Mac).
 
 ## Profiles
 
@@ -479,6 +527,10 @@ Every minute the panel checks each running session, in every profile, and the pr
 
 An endpoint that approves commands is worth protecting, even on localhost:
 
+- **Glue is for a computer one person uses.** The page carries the token (below), and the server gives the page to
+  anything on the computer that asks for it. So another person signed in to the same computer could read your panel
+  and act through it. Don't run it on a shared machine until that is closed. The Linux app at least never shows a
+  panel it didn't start, so you won't be handed someone else's.
 - It listens on `127.0.0.1` only and refuses any other `Host` header, which blocks DNS rebinding.
 - Browser calls need a random token minted at each start, plus a same-origin `Origin`. That
   blocks other tabs from posting decisions.
@@ -512,3 +564,7 @@ An endpoint that approves commands is worth protecting, even on localhost:
 Run `./install.sh --uninstall` from the clone: it removes the background service and `~/Applications/Glue.app`.
 Then remove the hook entries that point at `127.0.0.1:4747` from each profile's settings, and delete
 `~/Library/Application Support/Glue` and `~/Library/Logs/Glue`.
+
+On Linux: quit Glue, then `sudo apt remove glue` (or delete the AppImage). Remove the hook entries as above, and
+delete `~/.config/glue`, `~/.local/state/glue`, and, if you used them, `~/.config/autostart/glue.desktop`,
+`~/.local/share/applications/glue.desktop` and `~/.local/share/icons/hicolor/512x512/apps/glue.png`.
