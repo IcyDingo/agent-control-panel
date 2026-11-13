@@ -1441,9 +1441,15 @@ function worktreeBase(place, ws) {
 /** The repository a folder is in, as the store names it (its GitHub slug, else its git common dir, else the folder
  *  itself) and as the page names it (its main checkout's folder, else the folder's own name). */
 function repoOf(dir) {
+  const hit = repoOfs.get(dir);
+  if (hit && Date.now() - hit.at < 4000) return hit.repo; // read for every session in each snapshot, as gitPlace is
   const p = gitPlace(dir), slug = p?.common ? slugOf(p.common, small) : null;
-  return { key: repoKey({ slug, common: p?.common, dir }), label: path.basename(p?.repo ?? dir) || dir };
+  const repo = { key: repoKey({ slug, common: p?.common, dir }), label: path.basename(p?.repo ?? dir) || dir };
+  repoOfs.set(dir, { at: Date.now(), repo });
+  if (repoOfs.size > 500) repoOfs.delete(repoOfs.keys().next().value);
+  return repo;
 }
+const repoOfs = new Map();
 /** The live workspaces repository `key` is sorted into; [] while it is in none. */
 const sortedIn = (key) => store.reposOf(key).filter((id) => W.has(id));
 /** The one workspace whose sessions alone have worked in repository `key`, else null: what the folder question
@@ -1456,16 +1462,32 @@ function suggestFor(key) {
   }
   return ws.size === 1 ? [...ws][0] : null;
 }
+/** Session `s`'s repository, as workspaces sort it. `ask` while it is in no workspace: the row asks once, and shows the
+ *  repository as before, since its own login reached it. `mismatch` (the first holder's name) when only other workspaces
+ *  hold it: everything of the repository is withheld from the session's workspace. Neither with one workspace, or for a
+ *  session with no folder (or in the home folder, which is no repository to sort). */
+function sortOf(s) {
+  const here = s.ranCwd ?? s.hereCwd ?? s.cwd;
+  if (W.size === 1 || typeof here !== 'string' || !path.isAbsolute(here) || here === os.homedir()) return { ask: null, mismatch: null };
+  const repo = repoOf(here), holders = sortedIn(repo.key);
+  if (!holders.length) return { ask: { ...repo, suggest: suggestFor(repo.key) }, mismatch: null };
+  return { ask: null, mismatch: holders.includes(s.ws) ? null : { name: wsView(holders[0]).name } };
+}
+const mismatched = (s) => sortOf(s).mismatch != null;
+/** Whether folder `dir`'s repository is held only by workspaces other than `wsId` (never, with one workspace). */
+const othersOnly = (dir, wsId) => { if (W.size === 1) return false; const h = sortedIn(repoOf(dir).key); return h.length > 0 && !h.includes(wsId); };
 const REPO_KEY = /^(?:gh:[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[\w.-]{1,100}|(?:git|dir):\/[^\0]{0,4096})$/;
-/** `{ key, ws }`: sort a repository into workspaces ([] forgets it). A page may sort one that is in no workspace, or
- *  move or forget one that is in its own; one only other workspaces hold is theirs to change. */
+/** `{ key, ws }`: sort a repository into workspaces. A page may sort one that is in no workspace, or change one that is
+ *  in its own; one only other workspaces hold is theirs to change. It may add any workspace, but take the repository
+ *  only out of its own: the other workspaces holding it keep it ([] forgets it here only). */
 function assignRepo(body, ctx) {
   const key = String(body?.key ?? ''), ids = body?.ws;
   if (!REPO_KEY.test(key)) return { ok: false, error: 'That is not a repository or folder the panel knows.' };
   if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string' || !W.has(id))) return { ok: false, error: 'No such workspace.' };
   const now = sortedIn(key);
   if (now.length && !now.includes(ctx?.focus)) return { ok: false, error: REFUSE };
-  const r = store.assign(key, ids);
+  const kept = store.reposOf(key).filter((id) => id !== ctx?.focus && store.get(id)); // a vanished profile's hold too
+  const r = store.assign(key, [...kept, ...ids]);
   if (!r.ok) return r;
   broadcast(); // its pull requests and runs move between the workspaces' GitHub panels
   return { ok: true };
@@ -1972,7 +1994,7 @@ async function githubHand(body, ctx) {
 
 // ---------------------------------------------------------------- the overseers: one chat per workspace, about its sessions
 
-const labelOf = (s) => s.name || path.basename(s.cwd ?? '') || s.sessionId.slice(0, 8);
+const labelOf = (s) => s.name || (mismatched(s) ? '' : path.basename(s.cwd ?? '')) || s.sessionId.slice(0, 8); // never another workspace's folder name
 /** Its state in the page's words: waiting, busy, idle, finished or failed. */
 function boardState(s) {
   if (isEnded(s)) return s.state === 'failed' ? 'failed' : 'finished';
@@ -1993,6 +2015,7 @@ const onBoard = (wsId) => { const now = Date.now(); return [...sessions.values()
 function overseerFolders(wsId) {
   const out = new Set();
   for (const s of onBoard(wsId)) {
+    if (mismatched(s)) continue; // another workspace's repository: never a place to start this one's work
     const p = placeOf(s), here = s.ranCwd ?? s.hereCwd ?? s.cwd;
     for (const d of [p?.repo, p?.top, here]) if (d && path.isAbsolute(d) && d !== os.homedir()) out.add(d);
     if (out.size >= 12) break;
@@ -2001,9 +2024,10 @@ function overseerFolders(wsId) {
 }
 function overseerBoard(wsId) {
   return { folders: overseerFolders(wsId), sessions: onBoard(wsId).map((s) => {
-    const p = placeOf(s), held = heldFor(s.sessionId);
+    // In another workspace's repository, it reads what the page shows: nothing of the repository.
+    const off = mismatched(s), p = off ? null : placeOf(s), held = heldFor(s.sessionId);
     return { sessionId: s.sessionId, name: labelOf(s), kind: s.kind, state: boardState(s), since: s.startedAt ?? s.lastEventAt,
-      repo: p ? path.basename(p.repo) : null, worktree: p?.worktree ?? null, branch: p?.branch ?? null, folder: s.ranCwd ?? s.hereCwd ?? s.cwd ?? null,
+      repo: p ? path.basename(p.repo) : null, worktree: p?.worktree ?? null, branch: p?.branch ?? null, folder: off ? null : s.ranCwd ?? s.hereCwd ?? s.cwd ?? null,
       mode: s.mode ?? null, tool: isWorking(s) && s.lastTool ? `${s.lastTool.tool}: ${s.lastTool.text}` : null, asks: held.map(askOf),
       subagents: [...s.subagents.values()].map((a) => ({ type: a.agentType ?? null, title: a.title ?? null, running: !a.stoppedAt })),
       said: s.lastMessage ?? null, gh: sessionGh(p, wsId) };
@@ -2083,7 +2107,9 @@ const overseerOfSession = (sessionId) => { const w = typeof sessionId === 'strin
 // A GitHub event goes in the feed of each workspace whose sessions it is about. One about no session belongs to no
 // workspace's feed yet, so it is dropped (sealing GitHub to workspaces comes with its own task).
 onGithubEvent = (ev) => {
-  const ids = new Set((Array.isArray(ev?.sessions) ? ev.sessions : []).map((sid) => (typeof sid === 'string' ? wsIdOfSession(sid) : null)).filter(Boolean));
+  // A session in another workspace's repository is not told about it: its workspace sees nothing of that repository.
+  const ids = new Set((Array.isArray(ev?.sessions) ? ev.sessions : []).filter((sid) => typeof sid === 'string' && !(sessions.has(sid) && mismatched(sessions.get(sid))))
+    .map((sid) => wsIdOfSession(sid)).filter(Boolean));
   for (const id of ids) overseerOf(id)?.note(ev.type, { slug: ev.slug, text: ev.text });
 };
 // The PR watcher: tells the agent on a pull request's branch to fix it when it fails, conflicts, gets changes requested or
@@ -2233,10 +2259,14 @@ function snapshot(wsId) {
     now, armed, rosterError: ws.rosterError, port: PORT, profile: ws.info, setup: setupOut(ws),
     workspace: wsView(wsId), workspaces: wsOrder().map((id) => ({ ...wsView(id), waiting: waitingOf(id) })),
     oldVersions: oldVersions.filter((o) => o.ws === wsId).map(({ ws: _, ...o }) => ({ ...o, shown: true })),
-    sessions: [...sessions.values()].filter((s) => s.ws === wsId).map(({ spawns, hereCwd, rosterCwd, ranCwd, editTops, ...s }) => {
+    sessions: [...sessions.values()].filter((s) => s.ws === wsId).map((whole) => {
+      const { spawns, hereCwd, rosterCwd, ranCwd, editTops, ...s } = whole, { ask, mismatch } = sortOf(whole);
       const here = ranCwd ?? hereCwd ?? s.cwd, place = gitPlace(here), git = placeOut(place);
+      // In another workspace's repository: its name, conversation and state show (its own login's), nothing of the repository.
+      const repoSide = mismatch ? { git: null, workCwd: null, cwd: null, gh: null, elsewhere: null }
+        : { git, workCwd: here, gh: sessionGh(place, wsId), elsewhere: (editTops ?? []).filter((t) => t !== git?.top && !othersOnly(t, wsId)).slice(0, 3).map((t) => placeOut(gitPlace(t))).filter(Boolean) };
       return {
-      ...s, git, workCwd: here, gh: sessionGh(place, wsId), elsewhere: (editTops ?? []).filter((t) => t !== git?.top).slice(0, 3).map((t) => placeOut(gitPlace(t))).filter(Boolean),
+      ...s, ...repoSide, repoAsk: ask, mismatch,
       stopping: stops.has(stopKey(s.sessionId, null)), hostsPanel: hostPids.has(s.pid), termable: !termable(s),
       queued: inbox.get(s.sessionId) ?? [], working: isWorking(s),
       subagents: [...s.subagents.values()].map((a) => ({ ...a, stopping: !a.stoppedAt && stops.has(stopKey(s.sessionId, a.agentId)) })),

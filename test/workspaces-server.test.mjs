@@ -388,6 +388,68 @@ test('a folder only one workspace\'s sessions worked in suggests that workspace'
   assert.equal((await api('/api/folder', { path: work }, A.client)).workspaces.suggest, null);
 });
 
+test('a page forgets a repository only for its own workspace', async () => {
+  // o/n is in both, from the test before last. Page A (default) forgetting it leaves contract's hold alone.
+  assert.deepEqual((await assignedOf(B.client)).find((a) => a.key === 'gh:o/n')?.ws.sort(), ['contract', 'default']);
+  assert.deepEqual(await api('/api/workspace/assign', { key: 'gh:o/n', ws: [] }, A.client), { status: 200, ok: true });
+  assert.deepEqual(await assignedOf(B.client), [{ key: 'gh:o/n', ws: ['contract'] }]);
+  assert.deepEqual(await assignedOf(A.client), []);
+});
+
+// A default-profile session started in a terminal in o/n, on branch feat/x.
+const SID_R = 'bbbbbbbb-6666-4666-8666-666666666666';
+const inRepoN = () => hookPost('event', { session_id: SID_R, transcript_path: path.join(home, '.claude', 'projects', 'p', `${SID_R}.jsonl`), cwd: repoN,
+  hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: '/x' }, permission_mode: 'default' });
+
+test('a session in an unsorted repository is asked about', async () => {
+  // Page B forgets it for contract, the last workspace holding it: o/n is in none now.
+  assert.equal((await api('/api/workspace/assign', { key: 'gh:o/n', ws: [] }, B.client)).ok, true);
+  assert.deepEqual(await assignedOf(B.client), []);
+  fs.writeFileSync(path.join(repoN, '.git', 'HEAD'), 'ref: refs/heads/feat/x\n');
+  assert.equal((await inRepoN()).status, 200);
+  const s = await until(() => { const x = A.latest()?.sessions.find((y) => y.sessionId === SID_R); return x?.git?.branch === 'feat/x' ? x : null; });
+  assert.ok(s, 'page A shows the session, on its branch: ' + JSON.stringify(A.latest()?.sessions.find((y) => y.sessionId === SID_R)));
+  assert.equal(s.repoAsk?.label, 'n', JSON.stringify(s.repoAsk));
+  assert.equal(s.repoAsk.key, 'gh:o/n');
+  // Until it is answered, everything shows as before.
+  assert.equal(s.mismatch, null);
+  assert.equal(s.workCwd, repoN);
+  assert.equal(s.cwd, repoN);
+  // A session of its own workspace in a repository that workspace holds is asked nothing.
+  const d = A.latest().sessions.find((y) => y.sessionId === SID_D);
+  assert.ok(d);
+  assert.equal(d.mismatch, null);
+});
+
+test('a session in another workspace\'s repository shows nothing of it', async () => {
+  // "It's claude-contract", from the contract page: o/n → ['contract'].
+  assert.equal((await api('/api/workspace/assign', { key: 'gh:o/n', ws: ['contract'] }, B.client)).ok, true);
+  const s = await until(() => A.latest()?.sessions.find((y) => y.sessionId === SID_R && y.mismatch));
+  assert.ok(s, 'page A marks the session: ' + JSON.stringify(A.latest()?.sessions.find((y) => y.sessionId === SID_R)));
+  assert.equal(s.mismatch.name, 'claude-contract');
+  assert.equal(s.repoAsk, null);
+  for (const k of ['git', 'elsewhere', 'gh', 'workCwd', 'cwd']) assert.equal(s[k], null, k);
+  const text = JSON.stringify(s);
+  for (const bit of ['o/n', 'feat/x', repoN]) assert.equal(text.includes(bit), false, `the session carries ${bit}: ${text}`);
+  // Its own data still shows: it came from its own login.
+  assert.equal(s.ws, 'default');
+  assert.equal(s.lastTool?.tool, 'Read');
+  // Its workspace's overseer sees the same: no repository, branch or folder for it.
+  const before = logged().length;
+  assert.equal((await api('/api/overseer/say', { text: 'Where does everyone work?' }, A.client)).ok, true);
+  assert.ok(await answered(A), 'it answered: ' + log);
+  const ask = logged().slice(before).find((x) => x.args[0] === '-p');
+  assert.ok(ask, JSON.stringify(logged().slice(before)));
+  const prompt = ask.args.at(-1);
+  const id8 = SID_R.slice(0, 8), at = prompt.indexOf(`[${id8}]`);
+  assert.ok(at >= 0, 'the session is on its board');
+  // Its block on the board, and the folders a launch may use. (The feed keeps page A's own launch in o/n, from when A held it.)
+  const block = prompt.slice(at).split('\n\n')[0], folders = prompt.slice(prompt.indexOf('Folders a new session can start in:')).split('\n\n')[0];
+  assert.match(block, new RegExp(`^\\[${id8}\\] "${id8}"`), 'named by its id, not its folder');
+  for (const bit of ['feat/x', repoN, '~/code/n', ' n @ ']) assert.equal(block.includes(bit), false, `its board block carries ${bit}: ${block}`);
+  assert.equal(folders.includes('~/code/n'), false, folders);
+});
+
 test('a machine with no profile yet keeps no workspace for the stand-in', async (t) => {
   const h = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-ws0-')), port = PORT + 100;
   const b = path.join(h, 'bin');

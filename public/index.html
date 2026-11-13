@@ -247,6 +247,13 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .srow[data-state="stopping"] .tdetail { color: var(--stop); }
 .tage { flex: none; width: 28px; text-align: right; font: 11.5px var(--mono); color: var(--fg-dim); }
 .told { flex: none; font: 600 10.5px var(--mono); color: var(--amber); }
+/* A session in a repository no workspace holds yet asks once, under its row; one in another workspace's repository is
+   marked in amber, and nothing of that repository shows. */
+.rask { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; padding: 0 10px 6px 26px; font-size: 12px; color: var(--fg-dim); }
+.rask > span { margin-right: 2px; }
+.rask .btn.small { height: 22px; padding: 0 8px; font-size: 11.5px; background: var(--fill); }
+.trepo.mismatch, .kv dd.mismatch { color: var(--amber); }
+.pl.mismatch { background: var(--amber-fill); color: var(--amber); font-family: inherit; }
 .chev-slot svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; transition: transform .12s; }
 .chev-slot.open svg { transform: rotate(90deg); }
 @media (prefers-reduced-motion: reduce) { .chev-slot svg { transition: none; } }
@@ -1064,7 +1071,8 @@ function ago(ms) {
   return Math.round(s / 86400) + 'd';
 }
 const base = (p) => (p ? p.split('/').filter(Boolean).pop() : '');
-const label = (s) => s?.name || base(s?.cwd) || 'session';
+// One in another workspace's repository has no folder here: its id stands in, never that repository's name.
+const label = (s) => s?.name || base(s?.cwd) || (s?.mismatch ? s.sessionId.slice(0, 8) : 'session');
 const textOf = (parts) => parts.map((p) => (typeof p === 'string' ? p : p.textContent)).join(' ');
 // The first line of prose in a reply, without its markdown, cut at the first sentence.
 function gist(t) {
@@ -1439,11 +1447,13 @@ function detailOf(s, st) {
   if (st === 'busy') return { text: s.lastTool?.tool ?? '', full: s.lastTool ? `${s.lastTool.tool} ${s.lastTool.text}` : '' };
   return { text: '', full: '' };
 }
-/** The tooltip: where it works, its folder, and what the row has no room for. */
+const mismatchText = (s) => `Works in a repository from ${s.mismatch.name}`;
+/** The tooltip: where it works, its folder, and what the row has no room for. In another workspace's repository, only
+ *  that, with no folder or branch (the server sends none). */
 function tipOf(s, st) {
   const w = whereOf(s.git), d = detailOf(s, st);
   const more = d.full || (['busy', 'waiting', 'stopping'].includes(st) ? '' : textOf(lineOf(s)));
-  return [w?.long, s.workCwd ?? s.cwd, more].filter(Boolean).join('\n') || label(s);
+  return [s.mismatch && mismatchText(s), w?.long, s.workCwd ?? s.cwd, more].filter(Boolean).join('\n') || label(s);
 }
 // ---- subagent trees: a session's subagents under its row. Open by itself while one runs or waits, folds 20 s after the
 // last one finishes; a chevron click or a key wins until a new subagent starts. Nothing folds or unfolds by itself while
@@ -1539,12 +1549,14 @@ function tile(s) {
   setAttr(t.glyph, 'data-s', st);
   setText(t.name, label(s));
   // Under Needs you a row is away from its repository's section, so it names the repository.
-  const away = st === 'waiting' && repoOf(s.git);
-  setText(t.repo, away || '');
+  const away = st === 'waiting' && repoOf(s.git), tag = s.mismatch ? `from ${s.mismatch.name}` : away;
+  setText(t.repo, tag || '');
+  t.repo.classList.toggle('mismatch', Boolean(s.mismatch));
   const ci = ciOf(s);
   t.ci.hidden = !ci;
   if (ci) { setAttr(t.ci, 'data-c', ci); setAttr(t.ci, 'title', `Pull request #${s.gh.pr.number}: ${CHECKS[ci]}`); }
-  t.repo.hidden = !away;
+  t.repo.hidden = !tag;
+  t.askRow = repoAskRow(t, s);
   const d = detailOf(s, st);
   setText(t.detail, d.text);
   t.detail.hidden = !d.text;
@@ -1564,6 +1576,25 @@ function tile(s) {
     setText(t.q, on ? q.ask : '');
   }
   return t.wrap;
+}
+/** Under the row of a session whose repository is in no workspace yet: "Remember n as Work?", Yes or It's Private (one
+ *  button for each other workspace). Asked once; the answer moves the repository, and the row stops asking. */
+function repoAskRow(t, s) {
+  const q = s.repoAsk, all = snap?.workspaces ?? [], focus = all.find((w) => w.id === snap?.workspace?.id);
+  if (!q || all.length < 2 || !focus) return null;
+  const others = all.filter((w) => w !== focus);
+  t.ask ??= el('div', { class: 'rask', role: 'group' });
+  setAttr(t.ask, 'aria-label', `Which workspace ${q.label} belongs to`);
+  patch(t.ask, JSON.stringify([q.key, q.label, focus.id, focus.name, others.map((w) => [w.id, w.name])]), () => [
+    el('span', { text: `Remember ${q.label} as ${focus.name}?` }),
+    el('button', { class: 'btn quiet small', type: 'button', text: 'Yes', onclick: () => sortRepo(q.key, focus.id) }),
+    ...others.map((w) => el('button', { class: 'btn quiet small', type: 'button', text: `It's ${w.name}`, onclick: () => sortRepo(q.key, w.id) })),
+  ]);
+  return t.ask;
+}
+async function sortRepo(key, ws) {
+  const r = await api('/api/workspace/assign', { key, ws: [ws] });
+  if (!r.ok) toast(r.error || 'That did not save. Try again.', true);
 }
 let shownSecs = []; // the sections on the rail now, in order
 /** A section's bulk buttons: Interrupt all and End idle in a repository or other folders, Clear in Finished. */
@@ -1623,7 +1654,8 @@ function renderBoard(g, vis) {
     let lastTop = null;
     for (const s of rows) {
       if (labelled && s.git.top !== lastTop) { want.push(ckLabel(sec, s)); lastTop = s.git.top; }
-      want.push(tile(s), ...tiles.get(s.sessionId).subRows);
+      const row = tile(s), tl = tiles.get(s.sessionId);
+      want.push(row, ...(tl.askRow ? [tl.askRow] : []), ...tl.subRows);
     }
     want.push(c.empty);
     // Move only what is out of place.
@@ -1639,7 +1671,7 @@ function renderBoard(g, vis) {
   const keepCk = new Set(list.flatMap((x) => x.kind === 'repo' ? x.list.map((s) => `${x.repo}|${s.git.top}`) : []));
   for (const k of ckEls.keys()) if (!keepCk.has(k)) ckEls.delete(k);
   const keep = new Set(vis.map((s) => s.sessionId));
-  for (const [id, t] of tiles) if (!keep.has(id)) { t.wrap.remove(); tiles.delete(id); trees.delete(id); }
+  for (const [id, t] of tiles) if (!keep.has(id)) { t.wrap.remove(); t.ask?.remove(); tiles.delete(id); trees.delete(id); }
   const agents = new Set(vis.flatMap((s) => s.subagents.map((a) => a.agentId)));
   for (const [id, b] of subEls) if (!agents.has(id)) { b.remove(); subEls.delete(id); }
   if (subFocus && !agents.has(subFocus)) subFocus = null;
@@ -1703,7 +1735,7 @@ function renderDrawer(vis) {
   d.classList.toggle('term-on', termOn);
   $('d-term').hidden = !termOn;
   if (termOn) openTerm(s); else if (termView) closeTerm();
-  patch($('d-head'), JSON.stringify([s.sessionId, st, label(s), s.cwd, here, s.kind, s.inRoster, Boolean(s.leftRosterAt), s.state, noteText, s.hostsPanel, s.mode, s.git, s.gh, sharers, elsewhere, s.oldVersion, snap.profile?.command, wideSession, s.termable, termOn]), () => [
+  patch($('d-head'), JSON.stringify([s.sessionId, st, label(s), s.cwd, here, s.kind, s.inRoster, Boolean(s.leftRosterAt), s.state, noteText, s.hostsPanel, s.mode, s.git, s.gh, s.mismatch, sharers, elsewhere, s.oldVersion, snap.profile?.command, wideSession, s.termable, termOn]), () => [
     el('div', { class: 'd-top' }, glyph(st), el('h2', { class: 'd-name', text: label(s), title: label(s) }),
       el('span', { class: 'd-meta', title: where ? where.long : null },
         el('span', { class: 'st', 'data-s': st, text: stateWord }), ' · ', KIND[s.kind]?.replace(' session', '') || 'Headless',
@@ -1748,8 +1780,9 @@ function renderDrawer(vis) {
   renderCompose(s, st);
 
   // The column: where it works, how to reopen it, its subagents, and the buttons that stop it.
-  patch($('d-info'), JSON.stringify([s.sessionId, s.cwd, here, s.git, s.kind, s.id, Boolean(s.leftRosterAt), snap.profile?.command, sharers, elsewhere]), () => el('dl', { class: 'kv' },
-    el('dt', { text: 'Folder' }), el('dd', { class: 'mono', text: here || 'unknown', title: here !== s.cwd && s.cwd ? `Started in ${s.cwd}` : null }),
+  patch($('d-info'), JSON.stringify([s.sessionId, s.cwd, here, s.git, s.mismatch, s.kind, s.id, Boolean(s.leftRosterAt), snap.profile?.command, sharers, elsewhere]), () => el('dl', { class: 'kv' },
+    s.mismatch ? [el('dt', { text: 'Folder' }), el('dd', { class: 'mismatch', text: mismatchText(s), title: MISMATCH_WHY })]
+      : [el('dt', { text: 'Folder' }), el('dd', { class: 'mono', text: here || 'unknown', title: here !== s.cwd && s.cwd ? `Started in ${s.cwd}` : null })],
     where ? [el('dt', { text: 'Branch' }), el('dd', { class: 'mono' + (s.git.worktree ? ' where-b wt' : ' where-b'), text: where.on, title: where.long }), el('dt', { text: 'Checkout' }), el('dd', { text: where.at[0].toUpperCase() + where.at.slice(1) })] : null,
     sharers.length ? [el('dt', { text: 'Shares with' }), el('dd', { title: sharers.join('\n'), text: listOf(sharers) })] : null,
     elsewhere.length ? [el('dt', { text: 'Also edits' }), el('dd', { text: listOf(elsewhere) })] : null,
@@ -1778,6 +1811,7 @@ function renderDrawer(vis) {
       el('button', { class: 'linkish', type: 'button', text: 'Stay here', onclick: () => { cancelAdvance(); render(); } }))
     : null));
 }
+const MISMATCH_WHY = 'Its login is this workspace’s, its repository another’s. Its repository, branch, folder and pull request stay in that workspace.';
 /** Where it works, under its name: repository, checkout and branch, then its folder, which a click copies. */
 function placeBar(s, here) {
   const g = s.git, w = whereOf(g);
@@ -1786,7 +1820,8 @@ function placeBar(s, here) {
     g ? [el('span', { class: 'pl', title: `Repository: ${g.repo}`, text: repoOf(g) }),
       el('span', { class: 'pl ' + (g.worktree ? 'wt' : 'main'), title: g.worktree ? `Its own worktree: ${g.top}` : `The main checkout: ${g.top}`, text: g.worktree ?? 'main checkout' }),
       el('span', { class: 'pl br', title: w.long, text: w.on })]
-      : here ? el('span', { class: 'pl dir', title: 'Not in a git repository', text: base(here) || here }) : null,
+      : here ? el('span', { class: 'pl dir', title: 'Not in a git repository', text: base(here) || here })
+      : s.mismatch ? el('span', { class: 'pl mismatch', title: MISMATCH_WHY, text: mismatchText(s) }) : null,
     s.gh?.pr ? el('a', { class: 'pl pr', 'data-c': s.gh.pr.checks, href: s.gh.pr.url, target: '_blank', rel: 'noopener',
       title: `Pull request #${s.gh.pr.number}${s.gh.pr.draft ? ', a draft' : ''}: ${CHECKS[s.gh.pr.checks]}. Opens on GitHub.`, text: `#${s.gh.pr.number} · ${CHECKS[s.gh.pr.checks]}` })
       : s.gh?.main === 'failing' ? el('a', { class: 'pl pr', 'data-c': 'failing', href: s.gh.failed?.url ?? s.gh.url, target: '_blank', rel: 'noopener', title: 'The default branch’s latest run failed. Opens on GitHub.', text: 'default branch failing' }) : null,
