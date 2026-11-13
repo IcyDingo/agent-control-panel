@@ -83,7 +83,7 @@ subagent marked in the details.
 The keys move you: ↑ and ↓ step through the rows and open each session as they go (into an open tree
 too), → and ← unfold and fold the selected session's subagents, `n` jumps to the next session that
 needs you, `/` opens a find field that filters the rows by name (Esc clears it), and `[` collapses the rail to a
-slim strip or shows it again (so does the sidebar button at the top bar's left). None of them fire
+slim strip or shows it again (so does the button at the top of the rail). None of them fire
 while you type. Click a row to open its panel in the rest of the window. The
 panel reads like a chat: one line on top with its name, state, kind, mode and age (Close is the icon
 at its right), the conversation in the middle, and what it's asking and the box to
