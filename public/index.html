@@ -660,7 +660,7 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
   --i-gear: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill-rule='evenodd' d='M13.4 6.51L15.21 6.84L15.21 9.16L13.4 9.49L12.87 10.76L13.92 12.27L12.27 13.92L10.76 12.87L9.49 13.4L9.16 15.21L6.84 15.21L6.51 13.4L5.24 12.87L3.73 13.92L2.08 12.27L3.13 10.76L2.6 9.49L0.79 9.16L0.79 6.84L2.6 6.51L3.13 5.24L2.08 3.73L3.73 2.08L5.24 3.13L6.51 2.6L6.84 0.79L9.16 0.79L9.49 2.6L10.76 3.13L12.27 2.08L13.92 3.73L12.87 5.24ZM10.3 8a2.3 2.3 0 1 0 -4.6 0a2.3 2.3 0 1 0 4.6 0Z'/%3E%3C/svg%3E"); }
 dialog.settings { width: min(760px, calc(100vw - 32px)); height: min(620px, calc(100vh - 48px)); padding: 0; border: 0; border-radius: var(--r-3); background: var(--panel); color: var(--fg); box-shadow: 0 30px 80px -30px var(--shade); }
 dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
-.set-shell { position: relative; display: grid; grid-template-columns: 196px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; height: 100%; }
+.set-shell { position: relative; display: grid; grid-template-columns: 196px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; height: 100%; }
 .set-nav { grid-row: 1 / -1; display: flex; flex-direction: column; gap: 2px; padding: 20px 12px; border-right: 1px solid var(--line); background: var(--bg); border-radius: var(--r-3) 0 0 var(--r-3); }
 .set-tablist { display: flex; flex-direction: column; gap: 2px; }
 .set-nav h2 { margin: 0 0 12px; padding: 0 10px; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
@@ -668,7 +668,17 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 .set-tab:hover { color: var(--fg); background: var(--fill); }
 .set-tab[aria-selected="true"] { background: var(--fill-strong); color: var(--fg); font-weight: 550; }
 .set-x { position: absolute; top: 14px; right: 14px; z-index: 1; }
-.set-panel { min-width: 0; overflow: auto; padding: 22px 28px 28px; outline: none; }
+/* The workspace picker: which workspace the tab's own parts show and change. Only on a tab that has some. */
+.set-top { grid-column: 2; grid-row: 1; display: flex; align-items: center; gap: 10px; min-width: 0; padding: 14px 60px 0 28px; }
+.set-top[hidden] { display: none; }
+.set-top-l { flex: none; color: var(--fg-dim); font-size: 12px; font-weight: 500; }
+.set-wsp { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px; min-width: 0; padding: 3px; border-radius: var(--r-pill); background: var(--fill); }
+.set-wsp button { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 16em; height: 26px; padding: 0 12px 0 10px; border: 0; border-radius: var(--r-pill); background: none; color: var(--fg-dim); font-size: 12.5px; font-weight: 500; cursor: pointer; }
+.set-wsp button > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.set-wsp button:hover { color: var(--fg); }
+.set-wsp button[aria-checked="true"] { background: color-mix(in srgb, var(--sw) 22%, var(--raise)); color: var(--fg); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sw) 45%, transparent); }
+.set-wsp button:focus-visible { outline: 2px solid var(--run); outline-offset: 1px; }
+.set-panel { grid-column: 2; grid-row: 2; min-width: 0; overflow: auto; padding: 22px 28px 28px; outline: none; }
 .set-panel h3 { margin: 0 40px 4px 0; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
 .set-lead { max-width: 60ch; margin: 0 0 18px; color: var(--fg-dim); font-size: 12.5px; line-height: 1.55; }
 .set-h4 { margin: 24px 0 8px; font-size: 13px; font-weight: 600; }
@@ -741,7 +751,7 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 /* First run: what Glue needs for the workspace in view is marked, and Done or Skip for now puts setup away */
 .set-line.req { background: var(--amber-fill); }
 .set-req { margin-left: 8px; padding: 1px 7px; border-radius: var(--r-pill); background: var(--amber-dim); color: var(--amber); font-size: 11px; font-weight: 550; vertical-align: 1px; }
-.set-foot { grid-column: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 12px 28px; border-top: 1px solid var(--line); color: var(--fg-dim); font-size: 12.5px; }
+.set-foot { grid-column: 2; grid-row: 3; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 12px 28px; border-top: 1px solid var(--line); color: var(--fg-dim); font-size: 12.5px; }
 .set-foot[hidden] { display: none; }
 .set-foot > span { flex: 1 1 18em; min-width: 0; }
 .set-val { font: 12.5px var(--mono); color: var(--fg); }
@@ -760,9 +770,11 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
   .set-opt { grid-template-columns: minmax(0, 1fr); }
   .set-opt-c { justify-content: flex-start; }
   .set-seg { min-width: 0; width: 100%; }
-  .set-shell { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr) auto; }
-  .set-foot { grid-column: 1; padding: 12px 16px; }
-  .set-nav { grid-row: auto; flex-direction: row; flex-wrap: wrap; padding: 14px 52px 10px 14px; border-right: 0; border-bottom: 1px solid var(--line); border-radius: var(--r-3) var(--r-3) 0 0; }
+  .set-shell { grid-template-columns: 1fr; grid-template-rows: auto auto minmax(0, 1fr) auto; }
+  .set-top { grid-column: 1; grid-row: 2; padding: 12px 16px 0; }
+  .set-panel { grid-column: 1; grid-row: 3; }
+  .set-foot { grid-column: 1; grid-row: 4; padding: 12px 16px; }
+  .set-nav { grid-row: 1; flex-direction: row; flex-wrap: wrap; padding: 14px 52px 10px 14px; border-right: 0; border-bottom: 1px solid var(--line); border-radius: var(--r-3) var(--r-3) 0 0; }
   .set-nav h2 { width: 100%; margin-bottom: 6px; }
   .set-tablist { flex-direction: row; flex-wrap: wrap; }
   .set-panel { padding: 18px 16px 24px; }
@@ -1198,6 +1210,7 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
       <h2 id="set-title">Settings</h2>
       <div class="set-tablist" id="set-tabs" role="tablist" aria-orientation="vertical" aria-labelledby="set-title"></div>
     </nav>
+    <div class="set-top" id="set-top" hidden><span class="set-top-l" id="set-top-l">Workspace</span><div class="set-wsp" id="set-wsp" role="radiogroup" aria-labelledby="set-top-l"></div></div>
     <section class="set-panel" id="set-panel" role="tabpanel" tabindex="-1"></section>
     <div class="set-foot" id="set-foot" hidden></div>
     <button class="btn icon set-x" type="button" id="set-close" aria-label="Close settings" title="Close (Esc)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
@@ -4052,7 +4065,17 @@ $('ws-switch').addEventListener('keydown', (e) => {
 window.addEventListener('keydown', (e) => {
   if (!e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
   const d = /^Digit([1-9])$/.exec(e.code)?.[1] ?? (/^[1-9]$/.test(e.key) ? e.key : null);
-  if (!d || !severalWs() || modalOpen()) return;
+  if (!d) return;
+  // In Settings, on a tab with the picker: ⌃n picks workspace n there, and the window stays where it is.
+  if (setDlg.open && document.querySelector('dialog[open]') === setDlg) {
+    const list = setData?.workspaces ?? [], i = Number(d) - 1;
+    if (!SET_TABS.find((t) => t.id === setTab)?.perWs || i >= list.length || list.length < 2) return;
+    e.preventDefault();
+    e.stopPropagation();
+    pickSetWs(list[i].id, $('set-wsp').contains(document.activeElement));
+    return;
+  }
+  if (!severalWs() || modalOpen()) return;
   const i = Number(d) - 1;
   if (i >= snap.workspaces.length) return;
   e.preventDefault();
@@ -4178,9 +4201,9 @@ document.addEventListener('keydown', (e) => {
 // event, and kept in setData, which nothing outside the dialog reads. Closing it drops it.
 const setDlg = $('settings');
 const SET_TABS = [
-  { id: 'workspaces', name: 'Workspaces', build: setWorkspacesTab },
+  { id: 'workspaces', name: 'Workspaces', build: setWorkspacesTab, perWs: true },
   { id: 'logins', name: 'Logins & connection', build: setLoginsTab },
-  { id: 'github', name: 'GitHub, alerts & Auto-fix', build: setGithubTab },
+  { id: 'github', name: 'GitHub, alerts & Auto-fix', build: setGithubTab, perWs: true },
   { id: 'providers', name: 'Providers', build: setProvidersTab },
   { id: 'glue', name: 'Glue', build: setGlueTab },
 ];
@@ -4189,6 +4212,7 @@ let setData = null;        // GET /api/settings while it is open: null loading, 
 let setOc = null, setOcAsked = false; // /api/opencode for the Providers tab: asked again each time Settings opens
 let setSeq = 0;            // the latest fetch: an answer to an older one is dropped
 let setMoving = null;      // the repository whose Move choice is open
+let setWs = null;          // the workspace the picker shows (id): null is the one this page is on
 let setBack = null;        // what had the focus before it opened
 let setAskedFor = null;    // the focus it last asked again for, after this page moved: asked once, never in a loop
 let setOrderWant = null;   // the workspace order it is saving (ids): a refetch meanwhile shows this order, not the old one
@@ -4206,7 +4230,7 @@ function openSettings(tab, group = null) {
   setScrollTo = group;
   if (setDlg.open) { showSetTab(setTab); return; }
   setBack = document.activeElement;
-  setData = null; setMoving = null; setAskedFor = null; setRestart = null;
+  setData = null; setMoving = null; setAskedFor = null; setRestart = null; setWs = null;
   setOc = null; setOcAsked = false;
   closeThemes();
   renderSettings();
@@ -4223,7 +4247,7 @@ function showSetTab(id) {
   $('set-tab-' + id).focus();
 }
 setDlg.addEventListener('close', () => {
-  setData = null; setSeq++; setMoving = null; setRows.clear(); setAskedFor = null; setRestart = null; setScrollTo = null; clearTimeout(setRestartTimer);
+  setData = null; setSeq++; setMoving = null; setWs = null; setRows.clear(); setAskedFor = null; setRestart = null; setScrollTo = null; clearTimeout(setRestartTimer);
   const panel = $('set-panel');
   panel.replaceChildren(); panel._tab = null;
   if (setBack?.isConnected) setBack.focus({ preventScroll: true });
@@ -4274,9 +4298,41 @@ function renderSettings() {
   // This page was moved to another workspace while it was open: what it marks "you're here" is asked for again.
   const here = setData?.workspaces?.find((w) => w.here)?.id;
   if (here && snap?.workspace?.id && here !== snap.workspace.id && setAskedFor !== snap.workspace.id) { setAskedFor = snap.workspace.id; loadSettings(); }
+  setPicker(tab);
   tab.build(panel);
   setFirstRunFoot();
 }
+/** The workspace the picker shows: the one picked, else (none picked, or it is gone) the one this page is on. */
+function setPicked() {
+  const list = setData?.workspaces ?? [];
+  return list.find((w) => w.id === setWs) ?? list.find((w) => w.here) ?? null;
+}
+/** Shows workspace `id` in the tab's own parts (Auto-fix, the overseer, its repositories). The window stays where it is. */
+function pickSetWs(id, focus) {
+  if (!setData?.workspaces?.some((w) => w.id === id)) return;
+  if (id !== setPicked()?.id) { setWs = id; setMoving = null; renderSettings(); }
+  if (focus) $('set-wsp').querySelector(`[data-id="${CSS.escape(id)}"]`)?.focus();
+}
+/** The picker: a button per workspace, on a tab that has parts of one workspace's own, when there are several. */
+function setPicker(tab) {
+  const top = $('set-top'), box = $('set-wsp'), list = setData?.workspaces ?? [], on = Boolean(tab.perWs) && list.length > 1;
+  top.hidden = !on;
+  const cur = on ? setPicked()?.id : null;
+  patch(box, JSON.stringify(on ? [list.map((w) => [w.id, w.name, w.color, w.here]), cur] : null), () => (on ? list.map((w, i) => {
+    const sel = w.id === cur;
+    return el('button', { type: 'button', role: 'radio', 'aria-checked': String(sel), tabindex: sel ? '0' : '-1', 'data-id': w.id, style: `--sw:${WS_COLORS[w.color]}`,
+      title: w.name + (w.here ? ' (you’re here)' : '') + (i < 9 ? ` (⌃${i + 1})` : ''), onclick: () => pickSetWs(w.id) },
+      el('span', { class: 'set-dot', 'aria-hidden': 'true' }), el('span', { text: w.name }));
+  }) : null));
+}
+// Left and Right (or Up and Down) move between the workspaces, as in any radio group.
+$('set-wsp').addEventListener('keydown', (e) => {
+  const by = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key], list = setData?.workspaces ?? [];
+  if (!by || list.length < 2) return;
+  e.preventDefault();
+  const i = list.findIndex((w) => w.id === setPicked()?.id);
+  pickSetWs(list[(i + by + list.length) % list.length].id, true);
+});
 /** While setup isn't done: what the workspace in view still needs, and Done or Skip for now. */
 function setFirstRunFoot() {
   const foot = $('set-foot'), on = setupPending();
@@ -4310,7 +4366,7 @@ function setWorkspacesTab(panel) {
   const [, lead, rowsBox, more, note] = panel.children;
   const list = setData?.workspaces ?? [], several = list.length > 1;
   setText(lead, several
-    ? 'Each Claude Code profile is a workspace. Name each one and pick its colour: the one in view is drawn along the top of the window. The order is the switch’s, and ⌃1, ⌃2… follow it.'
+    ? 'Each Claude Code profile is a workspace. Name each one and pick its colour: the one in view is drawn along the top of the window. The order is the switch’s, and ⌃1, ⌃2… follow it. The picker at the top chooses whose repositories show below.'
     : 'Each Claude Code profile is a workspace. Name it and pick its colour.');
   if (!setReady(rowsBox)) { more.hidden = note.hidden = true; return; }
   if (rowsBox._sig !== 'rows') { rowsBox._sig = 'rows'; rowsBox.replaceChildren(); setRows.clear(); }
@@ -4327,7 +4383,7 @@ function setWorkspacesTab(panel) {
   note.hidden = several;
   more.hidden = !several;
   if (!several) return;
-  const focus = list.find((w) => w.here), [h4, reposBox, sortBox] = more.children;
+  const focus = setPicked(), [h4, reposBox, sortBox] = more.children;
   setText(h4, focus ? `Repositories in ${focus.name}` : 'Repositories');
   const mine = focus ? setData.repos.filter((r) => r.ws.includes(focus.id)) : [];
   patch(reposBox, JSON.stringify([focus?.id, list.map((w) => [w.id, w.name]), mine, setMoving]), () => {
@@ -4520,12 +4576,12 @@ async function setGlue(change) {
 function setGithubTab(panel) {
   if (!panel.firstChild) panel.append(
     el('h3', { text: 'GitHub, alerts & Auto-fix' }),
-    el('p', { class: 'set-lead', text: 'Glue reads pull requests and CI through the GitHub CLI, on gh’s own login: it stores no token. One sign-in serves every workspace.' }),
+    el('p', { class: 'set-lead', text: 'Glue reads pull requests and CI through the GitHub CLI, on gh’s own login: it stores no token. One sign-in serves every workspace. Auto-fix and the overseer are each workspace’s own: the picker at the top chooses which.' }),
     el('div', { class: 'set-blocks' }));
   const box = panel.children[2];
   if (!setReady(box)) return;
-  const gh = setData.github ?? { state: 'unknown' }, list = setData.workspaces, focus = list.find((w) => w.here), several = list.length > 1;
-  setPatch(box, JSON.stringify([gh, setData.watcher, setData.overseer, focus?.name, focus?.color, several]), () => {
+  const gh = setData.github ?? { state: 'unknown' }, list = setData.workspaces, focus = setPicked(), several = list.length > 1;
+  setPatch(box, JSON.stringify([gh, setData.overseer?.models, focus, several]), () => {
     const login = gh.state === 'ok' ? setLine('ok', '✓', gh.login ? `Signed in as ${gh.login}` : 'Signed in', 'Pull requests and CI show for the repositories your agents work in.')
       : gh.state === 'signed-out' ? setLine('todo', '✗', 'Not signed in', 'Sign the GitHub CLI in to see pull requests and CI here, and to let Auto-fix tell an agent when its checks fail.',
         [el('button', { class: 'btn primary small', type: 'button', text: 'Sign in in Terminal…', 'data-f': 'gh-login', onclick: (e) => openLogin('gh', e.currentTarget) }), cmdChip('gh auth login')])
@@ -4537,27 +4593,33 @@ function setGithubTab(panel) {
     return [
       el('section', { class: 'set-block', 'aria-label': 'GitHub CLI' }, setBlockHead(null, 'GitHub CLI'), login),
       el('section', { class: 'set-block', 'aria-label': several && focus ? focus.name : 'This workspace' },
-        setBlockHead(several ? focus : null, 'Auto-fix and the overseer', several ? 'you’re here' : null),
+        setBlockHead(several ? focus : null, 'Auto-fix and the overseer', several && focus?.here ? 'you’re here' : null),
         el('div', { class: 'set-opts' },
           setOpt('Auto-fix', 'When a pull request on an agent’s branch fails, conflicts, gets changes requested or has checks stuck, the PR watcher asks that agent to fix it and push again, at most 3 times. The GitHub panel has the same switch.',
-            setSwitch('autofix', 'Auto-fix', Boolean(setData.watcher?.enabled), setAutofix, gh.state === 'off')),
+            setSwitch('autofix', several && focus ? `Auto-fix in ${focus.name}` : 'Auto-fix', Boolean(focus?.autofix ?? setData.watcher?.enabled), (on) => setAutofix(focus?.id, on), gh.state === 'off')),
           setOpt('Overseer model', 'The model the overseer answers with. The same choice sits under its composer.',
-            setSelect('ov-model', 'The overseer’s model', models.map((m) => [m, MODEL_NAMES[m] ?? m]), setData.overseer?.model, setOverseerModel)))),
+            setSelect('ov-model', several && focus ? `The overseer’s model in ${focus.name}` : 'The overseer’s model', models.map((m) => [m, MODEL_NAMES[m] ?? m]),
+              focus?.overseerModel ?? setData.overseer?.model, (m) => setOverseerModel(focus?.id, m))))),
       el('p', { class: 'set-note' }, 'Which of these alert you, CI failures and the PR watcher among them, is under ',
         el('button', { class: 'linkish', type: 'button', text: 'Glue › Answering & alerts', 'data-f': 'to-alerts', onclick: () => { showSetTab('glue'); $('set-g-alerts')?.scrollIntoView({ block: 'start' }); } }), '.'),
     ];
   });
 }
-async function setAutofix(on) {
-  const r = await api('/api/watcher/enabled', { on });
+/** Auto-fix and the overseer's model of workspace `ws`, whichever the picker shows: Settings' own routes take any. */
+async function setAutofix(ws, on) {
+  const r = await api('/api/settings/autofix', { ws, on });
   if (!r.ok) { toast(r.error || 'Auto-fix did not change.', true); setRedraw(); return; }
-  if (setData?.watcher) setData.watcher.enabled = on;
-  renderSettings();
+  setWsField(ws, { autofix: on });
 }
-async function setOverseerModel(model) {
-  const r = await api('/api/overseer/model', { model });
+async function setOverseerModel(ws, model) {
+  const r = await api('/api/settings/overseer-model', { ws, model });
   if (!r.ok) { toast(r.error || 'The model did not change.', true); setRedraw(); return; }
-  if (setData?.overseer) setData.overseer.model = model;
+  setWsField(ws, { overseerModel: model });
+}
+function setWsField(ws, change) {
+  const w = setData?.workspaces?.find((x) => x.id === ws);
+  if (w) Object.assign(w, change);
+  if (w?.here) { if ('autofix' in change && setData.watcher) setData.watcher.enabled = change.autofix; if ('overseerModel' in change && setData.overseer) setData.overseer.model = change.overseerModel; }
   renderSettings();
 }
 
@@ -4631,7 +4693,7 @@ function setGlueTab(panel) {
 function setGlueLook(box, g) {
   const app = window.glueApp;
   const keys = [[['↑', '↓'], 'Move through the sessions in the rail'], [['→', '←'], 'Open or close a session’s subagents'], [['n'], 'The next session that needs you'],
-    [['/'], 'Find a session by name'], [['['], 'Collapse the sessions to a strip, or show them'], [[']'], 'Collapse GitHub to a strip, or show it'], [['⌃1–9'], 'Show that workspace'], [[','], 'Open Settings'], [['Esc'], 'Close what is open'],
+    [['/'], 'Find a session by name'], [['['], 'Collapse the sessions to a strip, or show them'], [[']'], 'Collapse GitHub to a strip, or show it'], [['⌃1–9'], 'Show that workspace (in Settings, pick it in the picker)'], [[','], 'Open Settings'], [['Esc'], 'Close what is open'],
     ...(app ? [[[app.newAgent ?? '⌘T'], 'Start a new agent']] : []), ...(app?.settings ? [[[app.settings], 'Open Settings, from the Glue menu']] : [])];
   const fold = (k) => g.folded.includes(k);
   setPatch(box, JSON.stringify([g.theme, fold('loose'), fold('finished'), Boolean(app)]), () => [
