@@ -139,6 +139,15 @@ test('a made-up reply from a local command is not Claude talking', () => {
   assert.deepEqual(items.map((m) => m.who), ['you']);
 });
 
+test('a usage limit, written as a made-up reply with its error, is a note that says so', () => {
+  const items = chatOf([you('go', 1), JSON.stringify({ parentUuid: 'x', isSidechain: false, error: 'rate_limit', apiErrorStatus: 429,
+    message: { model: '<synthetic>', id: 'm', type: 'message', role: 'assistant', content: [{ type: 'text', text: "You've hit your 5-hour limit · resets 3pm" }] },
+    type: 'assistant', timestamp: ts(2) })]);
+  assert.deepEqual(items.map((m) => m.who), ['you', 'note']);
+  assert.equal(items[1].text, "You've hit your 5-hour limit · resets 3pm");
+  assert.equal(items[1].limit, true);
+});
+
 /** A transcript file with `turns` turns, each with a big tool result between question and answer. */
 function transcript(turns, pad = 3000) {
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'chat-')), 's.jsonl'), lines = [];
