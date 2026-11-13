@@ -239,7 +239,7 @@ folder (`claude`, `claude-work`) until you rename it in Settings. With one profi
 panel looks as it always has.
 
 - **The switch.** With two or more, the top bar shows a switch naming each workspace (`Work | Private`). Click one, or press
-  ⌃1, ⌃2 and so on in the switch's order (not while you type). The workspace in view is drawn in its colour: a thin line along the
+  ⌃1, ⌃2 and so on in the switch's order (from anywhere, a reply box or the terminal too). The workspace in view is drawn in its colour: a thin line along the
   top of the window, the active half of the switch and Glue's mark. Amber is never a workspace colour: it means something needs you.
 - **The count.** The half of the switch you are not in carries a number (`Private ·1`) when something there needs you: a held
   permission request, a question or plan, or an overseer proposal waiting for a click. That number is all you see of it.
