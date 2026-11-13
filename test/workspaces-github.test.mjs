@@ -68,10 +68,14 @@ process.exit(1);
 `, { mode: 0o755 });
 
 // Each job's pull request, with a check that failed half a minute before gh is asked (fresh enough to notify on the first
-// poll). o/q holds only your own pull request.
+// poll). o/q holds only your own pull request. The checks fail only once `ciFailing` exists: a notification follows the
+// focus at the moment it is sent, so the failures must not reach the panel until the test has settled the focus (a poll
+// can start as soon as the first page opens, and a fast machine finishes it while the focus is still moving).
+const ciFailing = path.join(home, 'ci-failing');
 fs.writeFileSync(path.join(bin, 'gh'), `#!${process.execPath}
 const fs = require('fs');
 const a = process.argv.slice(2), has = (x) => a.includes(x), after = (x) => a[a.indexOf(x) + 1];
+const failing = fs.existsSync(${JSON.stringify(ciFailing)});
 fs.appendFileSync(${JSON.stringify(ghCalls)}, JSON.stringify({ args: a }) + '\\n');
 const out = (v) => { process.stdout.write(typeof v === 'string' ? v : JSON.stringify(v)); process.exit(0); };
 const at = new Date(Date.now() - 30000).toISOString(), began = new Date(Date.now() - 90000).toISOString();
@@ -81,8 +85,8 @@ const pr = (slug, number, title, branch, checks, login) => ({ number, title, url
   headRefName: branch, headRefOid: 'abc' + number, baseRefName: 'main', isCrossRepository: false, mergeable: 'MERGEABLE',
   mergeStateStatus: checks.length ? 'UNSTABLE' : 'CLEAN', reviewDecision: '', statusCheckRollup: checks, updatedAt: at, author: { login } });
 const OPEN = {
-  'github.com/o/n': [pr('o/n', 7, 'Contract feature', 'feat/x', [check('o/n', 123, 456)], 'someone')],
-  'github.com/o/p': [pr('o/p', 3, 'Private feature', 'feat/p', [check('o/p', 321, 654)], 'someone')],
+  'github.com/o/n': [pr('o/n', 7, 'Contract feature', 'feat/x', failing ? [check('o/n', 123, 456)] : [], 'someone')],
+  'github.com/o/p': [pr('o/p', 3, 'Private feature', 'feat/p', failing ? [check('o/p', 321, 654)] : [], 'someone')],
   'github.com/o/q': [pr('o/q', 9, 'Stray change', 'feat/q', [], 'me')],
 };
 if (a[0] === 'auth') { process.stderr.write('Logged in to github.com account me\\n'); process.exit(0); }
@@ -158,6 +162,9 @@ assert.ok(await until(() => A.latest()?.sessions.some((s) => s.sessionId === SID
   'both rosters are read: ' + log);
 // The desktop's focus is the workspace focused last, by any page: default, again.
 assert.equal((await api('/api/workspace/focus', { ws: 'default' }, A.client)).ok, true);
+// Only now do the checks fail, and GitHub is asked again at once rather than at its next beat.
+fs.writeFileSync(ciFailing, '');
+assert.equal((await api('/api/github/refresh', {}, A.client)).ok, true);
 watch('page-poll');
 const polled = (pg) => { const f = pg.latest(); return f?.github?.repos?.some((r) => r.prs?.length) ? f : null; };
 assert.ok(await until(() => polled(A) && polled(B), 20_000), `GitHub was polled: ${JSON.stringify(A.latest()?.github)} | ${JSON.stringify(lines(ghCalls))} | ${log}`);
