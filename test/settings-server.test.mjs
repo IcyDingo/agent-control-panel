@@ -1,6 +1,6 @@
 // Settings, end to end: the real server on a throwaway home with two profiles (~/.claude and ~/.claude-contract), each
 // a workspace. Settings is the one place a page learns more of another workspace than { id, name, color, waiting }, and
-// only through GET /api/settings: its name, colour, order, sign-in state, hooks and login command, and the repositories
+// only through GET /api/settings: its name, colour, order, sign-in state, hooks, login command, Auto-fix and overseer model, and the repositories
 // Glue knows. Never its account, sessions or pull requests, and nothing of it in an SSE frame: a change is told with an
 // empty `settings` event. Run with `npm test`. Starts the server on a spare port.
 import { test, after } from 'node:test';
@@ -149,7 +149,12 @@ test('settings shows both workspaces, the email only for the focus', async () =>
   assert.equal(Object.hasOwn(byId.contract, 'account'), false, 'no account for another workspace');
   assert.equal(byId.default.account?.email, EMAIL_D);
   // Nothing but the allowed fields, for every workspace and repository.
-  for (const w of r.workspaces) for (const k of Object.keys(w)) assert.ok(['id', 'name', 'color', 'order', 'here', 'signedIn', 'connected', 'loginCommand', 'account'].includes(k), k);
+  for (const w of r.workspaces) for (const k of Object.keys(w)) assert.ok(['id', 'name', 'color', 'order', 'here', 'signedIn', 'connected', 'loginCommand', 'account', 'autofix', 'overseerModel'].includes(k), k);
+  // Each workspace's own settings (for Settings' picker): Auto-fix on or off, and its overseer's model.
+  for (const w of r.workspaces) {
+    assert.equal(typeof w.autofix, 'boolean', JSON.stringify(w));
+    assert.ok(r.overseer.models.includes(w.overseerModel), JSON.stringify(w));
+  }
   for (const x of r.repos) assert.deepEqual(Object.keys(x).sort(), ['key', 'label', 'stored', 'ws']);
   assert.ok([true, false, null].includes(byId.contract.signedIn));
   assert.deepEqual(Object.keys(r).filter((k) => k !== 'status').sort(), ['about', 'github', 'glue', 'ok', 'overseer', 'repos', 'watcher', 'workspaces']);
@@ -417,6 +422,40 @@ test('turning Auto-fix on or off, or choosing the overseer model, nudges every p
   await pause(600);
   assert.equal(A.raw.slice(d).includes(SETTINGS_EVENT), false, 'a refused model nudges nothing');
   await api('/api/overseer/model', { model: was.overseer.model }, A.client);
+});
+
+test('settings changes Auto-fix and the overseer model of either workspace; the page routes stay on its own', async () => {
+  const was = await get('/api/settings', A.client), of = (r, id) => r.workspaces.find((w) => w.id === id);
+  const c0 = of(was, 'contract'), d0 = of(was, 'default');
+  const model = was.overseer.models.find((m) => m !== c0.overseerModel);
+  const a = A.raw.length, b = B.raw.length;
+  // From page A (on default), contract's.
+  assert.deepEqual(await api('/api/settings/autofix', { ws: 'contract', on: !c0.autofix }, A.client), { status: 200, ok: true, enabled: !c0.autofix });
+  assert.ok(await until(() => A.raw.slice(a).includes(SETTINGS_EVENT) && B.raw.slice(b).includes(SETTINGS_EVENT)), 'Auto-fix nudges both pages');
+  const m = await api('/api/settings/overseer-model', { ws: 'contract', model }, A.client);
+  assert.equal(m.ok, true, JSON.stringify(m));
+  const now = await get('/api/settings', A.client);
+  assert.equal(of(now, 'contract').autofix, !c0.autofix);
+  assert.equal(of(now, 'contract').overseerModel, model);
+  assert.equal(of(now, 'default').autofix, d0.autofix, 'default\'s Auto-fix is untouched');
+  assert.equal(of(now, 'default').overseerModel, d0.overseerModel, 'default\'s model is untouched');
+  assert.equal(now.watcher.enabled, d0.autofix, 'the top-level value stays the page\'s own');
+  assert.equal(now.overseer.model, d0.overseerModel);
+  // Contract's own page sees the same.
+  const fromB = await get('/api/settings', B.client);
+  assert.equal(fromB.watcher.enabled, !c0.autofix);
+  assert.equal(fromB.overseer.model, model);
+  // Refused: an unknown workspace, a model not on the list. Neither nudges.
+  await pause(600);
+  const d = A.raw.length;
+  for (const [route, body] of [['/api/settings/autofix', { ws: 'nope', on: true }], ['/api/settings/autofix', { on: true }],
+    ['/api/settings/overseer-model', { ws: 'nope', model }], ['/api/settings/overseer-model', { ws: 'contract', model: 'gpt' }]]) {
+    assert.equal((await api(route, body, A.client)).ok, false, route + ' ' + JSON.stringify(body));
+  }
+  await pause(600);
+  assert.equal(A.raw.slice(d).includes(SETTINGS_EVENT), false, 'a refused change nudges nothing');
+  assert.equal((await api('/api/settings/autofix', { ws: 'contract', on: c0.autofix }, A.client)).ok, true);
+  assert.equal((await api('/api/settings/overseer-model', { ws: 'contract', model: c0.overseerModel }, A.client)).ok, true);
 });
 
 test('connected means every hook entry is there, not that the file mentions the panel', async () => {

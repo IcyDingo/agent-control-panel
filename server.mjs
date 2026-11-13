@@ -1791,7 +1791,9 @@ function settingsFor(focus, about = {}) {
     ok: true,
     workspaces: wsOrder().map((id, order) => {
       const ws = W.get(id), here = id === focus;
-      const out = { ...wsView(id), order, here, signedIn: signedInOf(ws), connected: hooksHere(ws.profile), loginCommand: claudeLoginCommand(ws.profile) };
+      const out = { ...wsView(id), order, here, signedIn: signedInOf(ws), connected: hooksHere(ws.profile), loginCommand: claudeLoginCommand(ws.profile),
+        // Its settings, not its content: Settings' workspace picker shows and changes them from any workspace.
+        autofix: Boolean(watcher.status(id).enabled), overseerModel: overseerOf(id)?.status().model ?? g.overseerModel };
       if (here) out.account = { email: describeProfile(ws.profile).account?.email ?? ws.setup.claude.email ?? null, plan: ws.setup.claude.plan ?? null };
       return out;
     }),
@@ -2740,6 +2742,10 @@ async function handle(req, res) {
                       '/api/folders': listFolders, '/api/folder': folderInfo, '/api/pick-folder': pickFolder,
                       '/api/workspace/focus': focusWorkspace, '/api/workspace/assign': assignRepo, '/api/workspace/update': updateWorkspace,
                       '/api/workspace/reorder': reorderWorkspaces, '/api/settings/assign': settingsAssign,
+                      // Any workspace's, from Settings' picker. The page routes (/api/watcher/enabled, /api/overseer/model)
+                      // stay on the page's own workspace.
+                      '/api/settings/autofix': (b) => (typeof b?.ws === 'string' && W.has(b.ws) ? nudgeIfOk(watcher.setEnabled(b?.on, b.ws)) : { ok: false, error: 'No such workspace.' }),
+                      '/api/settings/overseer-model': (b) => { const o = typeof b?.ws === 'string' && W.has(b.ws) ? overseerOf(b.ws) : null; return o ? nudgeIfOk(o.setModel(b?.model)) : { ok: false, error: 'No such workspace.' }; },
                       '/api/glue/seed': seedGlue, '/api/settings/glue': patchGlue,
                       // Any workspace's: Settings' Logins tab connects each of them.
                       '/api/profile/connect': (b) => (typeof b?.id === 'string' && W.has(b.id) ? connectProfile(b) : { ok: false, error: 'No such workspace.' }),

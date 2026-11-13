@@ -199,6 +199,8 @@ Settings is the only place where the page receives data about a workspace it isn
 color, waiting }`. It may receive exactly:
 - for every workspace: `id`, `name`, `color`, `order`, `signedIn` (true, false or unknown), `connected` (true or
   false), and the command that signs it in (its `CLAUDE_CONFIG_DIR`, a folder path the user owns anyway);
+- for every workspace, its own settings (added 2026-11-14 for Settings' workspace picker): `autofix` (on or off) and
+  `overseerModel`. These are settings, not content;
 - for every repository Glue knows: `key`, `label`, and the workspace ids it is in;
 - for the workspace in focus only: the account email and plan (as today).
 
@@ -222,6 +224,9 @@ no data keeps the seal tests simple.)*
   - `/api/profile/connect` refuses a non-focused id. It must accept any.
   - `/api/setup/login` signs in the focused workspace. It needs a `ws` parameter for any workspace.
   - Relax each of these on purpose, and keep them refusing unknown ids.
+  - *(2026-11-14, the workspace picker.)* `POST /api/settings/autofix { ws, on }` and
+    `POST /api/settings/overseer-model { ws, model }` change any workspace's Auto-fix and overseer model. The page
+    routes `/api/watcher/enabled` and `/api/overseer/model` stay on the page's own workspace.
 - `/api/workspace/assign` enforces "remove only your own; don't claim others' repositories" for pages. Settings needs
   a separate route (e.g. `POST /api/settings/assign`) without those two rules. Keep the page route as it is, so the
   board's and GitHub panel's questions stay sealed.
