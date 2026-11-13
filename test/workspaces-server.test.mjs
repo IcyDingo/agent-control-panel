@@ -552,3 +552,32 @@ test('a machine with no profile yet keeps no workspace for the stand-in', async 
   assert.ok(s, `the new profile is kept: ${JSON.stringify(saved())} | ${out}`);
   assert.deepEqual(Object.keys(s.workspaces), ['work']);
 });
+
+test('renaming a workspace shows in both pages\' snapshots', async () => {
+  const before = B.latest().workspace;
+  assert.equal((await api('/api/workspace/focus', { ws: 'contract' }, B.client)).ok, true);
+  const r = await api('/api/workspace/update', { id: 'contract', name: 'Work', color: 'blue' }, B.client);
+  assert.deepEqual(r, { status: 200, ok: true });
+  assert.ok(await until(() => B.latest()?.workspace.name === 'Work' && B.latest().workspace.color === 'blue'), 'its own page sees it');
+  assert.ok(await until(() => A.latest()?.workspaces.some((w) => w.id === 'contract' && w.name === 'Work' && w.color === 'blue')), 'the other page sees it in its switch');
+  // Put it back, so the tests after this one meet the names they were written for.
+  assert.equal((await api('/api/workspace/update', { id: 'contract', name: before.name, color: before.color }, B.client)).ok, true);
+});
+
+test('a page cannot rename or recolour the other workspace', async () => {
+  const r = await api('/api/workspace/update', { id: 'default', name: 'Mine now' }, B.client);
+  assert.equal(r.ok, false);
+  assert.equal(r.error, 'That belongs to another workspace. Switch to it to do this.');
+  assert.notEqual(A.latest().workspace.name, 'Mine now');
+  assert.equal((await api('/api/workspace/update', { id: 'default', color: 'rose' }, B.client)).ok, false);
+});
+
+test('an invalid name or colour is refused with the store\'s error', async () => {
+  const bad = async (body) => api('/api/workspace/update', { id: 'contract', ...body }, B.client);
+  assert.deepEqual(await bad({ name: '   ' }), { status: 422, ok: false, error: 'A workspace needs a name.' });
+  assert.equal((await bad({ name: 'x'.repeat(25) })).ok, false);
+  assert.equal((await bad({ name: A.latest().workspace.name.toUpperCase() })).error, 'Another workspace has that name.');
+  assert.equal((await bad({ name: 7 })).ok, false);
+  assert.deepEqual(await bad({ color: 'amber' }), { status: 422, ok: false, error: 'Unknown colour.' });
+  assert.equal((await api('/api/workspace/update', { id: 'nope', name: 'x' }, B.client)).ok, false);
+});

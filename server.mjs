@@ -1493,6 +1493,17 @@ function assignRepo(body, ctx) {
   return { ok: true };
 }
 
+/** `{ id, name?, color? }`: rename or recolour a workspace. Only the page's own: another workspace's name is not this
+ *  page's to change (the checklist shows the others, read-only). Every page's switch follows. */
+function updateWorkspace(body, ctx) {
+  const id = String(body?.id ?? '');
+  if (!store.get(id)) return { ok: false, error: 'No such workspace.' };
+  if (id !== ctx?.focus) return { ok: false, error: REFUSE };
+  const r = store.update(id, { name: body?.name, color: body?.color });
+  if (r.ok) broadcast();
+  return r;
+}
+
 /** The launcher's look at a folder: is it there, and is it in a git repository. */
 function folderInfo(body, ctx) {
   const dir = path.resolve(expand(String(body?.path ?? '').trim()) || os.homedir());
@@ -2428,7 +2439,7 @@ async function handle(req, res) {
     }
     const ACTIONS = { '/api/end': end, '/api/remove': remove, '/api/reply': reply, '/api/unqueue': unqueue, '/api/mode': switchMode,
                       '/api/folders': listFolders, '/api/folder': folderInfo, '/api/pick-folder': pickFolder,
-                      '/api/workspace/focus': focusWorkspace, '/api/workspace/assign': assignRepo,
+                      '/api/workspace/focus': focusWorkspace, '/api/workspace/assign': assignRepo, '/api/workspace/update': updateWorkspace,
                       // Only the profile the page shows: another workspace's settings are not this page's to change.
                       '/api/profile/connect': (b, c) => (b?.id === c.focus ? connectProfile(b) : { ok: false, error: REFUSE }),
                       '/api/answer-open': answerOpen, '/api/history': history, '/api/follow': followSession,

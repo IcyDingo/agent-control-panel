@@ -724,6 +724,23 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .su-d { max-width: 62ch; color: var(--fg-dim); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 .su-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
 .su-acts:empty { display: none; }
+/* The Workspaces step: this workspace's name and colour, the others read-only, and its repositories. */
+.su-ws { display: grid; gap: 14px; margin-top: 8px; min-width: 0; }
+.su-ws-edit { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.su-ws-edit .field { flex: 0 1 14em; width: auto; min-width: 8em; }
+.ws-sw-set { display: inline-flex; gap: 8px; }
+.ws-sw { --sw-tone: var(--sw); width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: var(--sw-tone); cursor: pointer; }
+:root[data-theme="light"] .ws-sw { --sw-tone: color-mix(in oklab, var(--sw) 66%, #000); }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) .ws-sw { --sw-tone: color-mix(in oklab, var(--sw) 66%, #000); } }
+.ws-sw[aria-checked="true"] { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--fg); }
+.ws-sw:focus-visible { outline: 2px solid var(--run); outline-offset: 3px; }
+.su-ws-others { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 13px; color: var(--fg-dim); }
+.su-ws-others i { display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: var(--sw); }
+.su-ws-repos { display: grid; gap: 6px; }
+.su-ws-repos > p { margin: 0; font-size: 13px; color: var(--fg-dim); }
+.su-ws-r { display: grid; gap: 4px; }
+.su-ws-r > div { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.su-ws-r b { flex: 1 1 12em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 550; }
 .su-cmd { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 0 2px 0 8px; border-radius: var(--r-1); background: var(--code); font: 12px/26px var(--mono); }
 .su-cmd code { overflow-wrap: anywhere; line-height: 1.4; padding: 4px 0; }
 /* The tour: one part of the screen at a time, lit through a dimmed page, with a card beside it. */
@@ -2742,7 +2759,7 @@ const MODEL_NAMES = { haiku: 'Haiku', sonnet: 'Sonnet', opus: 'Opus', fable: 'Fa
 let setupReopened = false, setupPollAt = 0;
 const setupShown = () => Boolean(snap?.setup) && (!snap.setup.done || setupReopened);
 const canAlert = () => 'Notification' in window;
-function reopenSetup() { setupReopened = true; checkSetupNow(true); render(); $('h-scroll').scrollTop = 0; }
+function reopenSetup() { setupReopened = true; wsReposFor = null; checkSetupNow(true); render(); $('h-scroll').scrollTop = 0; }
 async function checkSetupNow(now, gap = 5000) {
   if (!now && Date.now() - setupPollAt < gap) return;
   setupPollAt = Date.now();
@@ -2780,6 +2797,11 @@ function setupRows() {
     ? row('ok', 3, 'Your first agent', `${live === 1 ? 'One session is' : live + ' sessions are'} on the board. Click one to read it, answer it or write to it. When one asks for something it moves to Needs you, and n jumps there.`)
     : row('todo', 3, 'Start your first agent', 'Give it a prompt and a folder and it runs in the background. A session you start with claude in any terminal shows up here too.',
       () => [el('button', { class: 'btn small', type: 'button', text: 'New agent', onclick: () => openLauncher() })]));
+  if (severalWs()) {
+    const renamed = snap.workspaces.some((w) => w.name !== wsFolderLabel(w));
+    rows.push({ s: renamed ? 'ok' : 'opt', n: 6, title: 'Workspaces', optional: true, body: wsStep,
+      detail: 'Each Claude Code profile is a workspace. Give yours names that mean something to you, and pick a colour for each: the one in view is drawn along the top of the window. A repository belongs to the workspaces you sort it into, and each workspace sees only its own.' });
+  }
   const gh = S.github ?? { state: 'unknown' };
   if (gh.state !== 'off') rows.push(
     gh.state === 'ok' ? row('ok', 4, 'GitHub', `Signed in${gh.login ? ' as ' + gh.login : ''}. The GitHub button shows the pull requests and CI of the repositories your agents work in.`, null, true)
@@ -2796,6 +2818,66 @@ function setupRows() {
   }
   return rows;
 }
+// ---------- the Workspaces step of the checklist ----------
+// What the folder of a workspace's profile is called: what its name was until you changed it (workspaces.mjs: labelOf).
+const wsFolderLabel = (w) => (w.id === 'default' ? 'claude' : 'claude-' + w.id);
+/** A repository by name: owner/name for a GitHub one, else the folder's. */
+const repoLabel = (key) => (key.startsWith('gh:') ? key.slice(3) : base(key.replace(/^(?:git|dir):/, '').replace(/\/\.git\/?$/, '')) || key);
+let wsRepos = null, wsReposFor = null, wsMoving = null; // the shown workspace's repositories (null: loading), whose they are, the one asking where to go
+async function loadWsRepos() {
+  const focus = snap?.workspace?.id;
+  wsReposFor = focus;
+  try {
+    const r = await (await fetch('/api/workspaces', { headers: { 'x-acp-token': TOKEN, 'x-acp-client': CLIENT } })).json();
+    if (wsReposFor !== focus) return; // another workspace was picked meanwhile
+    wsRepos = r.ok ? r.assigned.map((a) => ({ key: a.key, ws: a.ws, label: repoLabel(a.key) })).sort((a, b) => a.label.localeCompare(b.label)) : [];
+  } catch { wsReposFor = null; wsRepos = []; }
+  render();
+}
+async function saveWorkspace(id, change) {
+  const r = await api('/api/workspace/update', { id, ...change });
+  if (!r.ok) { toast(r.error || 'That did not save. Try again.', true); render(); return false; }
+  return true; // every page's snapshot carries the new name and colour
+}
+async function moveRepo(key, ids) {
+  wsMoving = null;
+  if (ids.length === 1 && ids[0] === snap.workspace?.id) return render();
+  const r = await api('/api/workspace/assign', { key, ws: ids });
+  if (!r.ok) toast(r.error || 'That did not save. Try again.', true);
+  await loadWsRepos();
+}
+function wsStep() {
+  const all = snap.workspaces, focus = all.find((w) => w.id === snap.workspace?.id), others = all.filter((w) => w !== focus);
+  if (!focus) return null;
+  const input = el('input', { class: 'field', type: 'text', maxlength: '24', spellcheck: 'false', 'aria-label': 'Name of this workspace' });
+  input.value = focus.name;
+  const commit = async () => {
+    const name = input.value.trim();
+    if (name === focus.name) { input.value = focus.name; return; }
+    if (!(await saveWorkspace(focus.id, { name }))) input.value = focus.name;
+  };
+  input.onchange = commit;
+  input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } else if (e.key === 'Escape') { input.value = focus.name; input.blur(); } };
+  const swatches = el('span', { class: 'ws-sw-set', role: 'radiogroup', 'aria-label': 'Colour of this workspace' },
+    ...Object.entries(WS_COLORS).map(([c, hex]) => el('button', { class: 'ws-sw', type: 'button', role: 'radio', 'aria-checked': String(c === focus.color), 'aria-label': c, title: c,
+      style: `--sw:${hex}`, onclick: () => { if (c !== focus.color) saveWorkspace(focus.id, { color: c }); } })));
+  const choice = [focus, ...others];
+  const repos = wsRepos == null ? el('p', { text: 'Loading its repositories…' })
+    : !wsRepos.length ? el('p', { text: `No repository is sorted into ${focus.name} yet. Glue asks the first time you start an agent in one, or you can sort the ones GitHub finds from its list.` })
+    : el('div', { class: 'su-ws-repos' }, el('p', { text: `Repositories in ${focus.name}` }),
+      ...wsRepos.map((r) => el('div', { class: 'su-ws-r' },
+        el('div', {}, el('b', { text: r.label, title: r.label }),
+          el('button', { class: 'btn quiet small', type: 'button', text: 'Move', 'aria-expanded': String(wsMoving === r.key), onclick: () => { wsMoving = wsMoving === r.key ? null : r.key; render(); } }),
+          el('button', { class: 'btn quiet small', type: 'button', text: 'Forget', title: `${focus.name} stops holding ${r.label}. Glue asks again the next time you start an agent in it.`, onclick: () => moveRepo(r.key, []) })),
+        wsMoving === r.key ? el('div', { class: 'seg', role: 'radiogroup', 'aria-label': `Which workspace ${r.label} belongs to` },
+          ...choice.map((w) => el('label', {}, el('input', { type: 'radio', name: 'mv-' + r.key, value: w.id, checked: r.ws.length === 1 && r.ws[0] === w.id, onchange: () => moveRepo(r.key, [w.id]) }), el('span', { text: w.name, title: w.name }))),
+          el('label', { class: 'both' }, el('input', { type: 'radio', name: 'mv-' + r.key, value: 'both', checked: choice.every((w) => r.ws.includes(w.id)), onchange: () => moveRepo(r.key, choice.map((w) => w.id)) }),
+            el('span', { text: choice.length === 2 ? 'Both' : 'All' }))) : null)));
+  return el('div', { class: 'su-ws' },
+    el('div', { class: 'su-ws-edit' }, input, swatches),
+    others.length ? el('ul', { class: 'su-ws-others' }, ...others.map((w) => el('li', { style: `--sw:${WS_COLORS[w.color]}` }, el('i', { 'aria-hidden': 'true' }), `${w.name} · switch to it to rename`))) : null,
+    repos);
+}
 function renderSetup(on) {
   const box = $('h-setup');
   if (!on) { patch(box, '', () => null); return; }
@@ -2804,7 +2886,8 @@ function renderSetup(on) {
   const steps = rows.filter((r) => !r.optional), stepsDone = steps.filter((r) => r.s === 'ok').length;
   // A sign-in happens in Terminal: while one is outstanding, look again every few seconds (only while this shows).
   if (document.visibilityState === 'visible' && (S.claude?.state !== 'ok' || ['signed-out', 'unknown'].includes(S.github?.state))) checkSetupNow(false);
-  const sig = JSON.stringify([rows.map((r) => [r.s, r.title, r.detail]), S.loginCommand, ready, S.done]);
+  if (severalWs() && wsReposFor !== snap.workspace?.id) loadWsRepos();
+  const sig = JSON.stringify([rows.map((r) => [r.s, r.title, r.detail]), S.loginCommand, ready, S.done, severalWs() ? [snap.workspaces, snap.workspace?.id, wsRepos, wsMoving] : null]);
   patch(box, sig, () => [
     el('h3', { text: stepsDone === steps.length ? 'You’re set up.' : 'Set up the panel' }),
     el('p', { text: 'The panel has no account of its own. It runs on your Claude Code login and, for GitHub, on your gh, and reaches your sessions through hooks in your Claude Code settings.' }),
@@ -2814,6 +2897,7 @@ function renderSetup(on) {
         el('span', { class: 'su-t' }, r.title, r.optional ? el('span', { class: 'su-opt', text: 'optional' }) : null,
           el('span', { class: 'visually-hidden', text: r.s === 'ok' ? ' (done)' : r.s === 'wait' ? ' (checking)' : r.optional ? '' : ' (to do)' })),
         el('span', { class: 'su-d', text: r.detail }),
+        r.body ? r.body() : null,
         r.acts && r.s !== 'ok' ? el('span', { class: 'su-acts' }, r.acts()) : null))),
     el('div', { class: 'su-foot' },
       el('button', { class: 'btn small' + (ready ? ' primary' : ''), type: 'button', text: ready ? 'Done' : 'Hide for now', onclick: () => finishSetup() }),
