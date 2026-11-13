@@ -12,7 +12,7 @@ const T0 = Date.parse('2026-11-12T12:00:00Z'), MIN = 60_000;
 const pr = (over = {}) => ({ number: 12, title: 'Fix login', url: 'https://github.com/o/n/pull/12', branch: 'fix/login', sha: 'aaa', draft: false,
   checks: 'passing', counts: {}, failing: [], mergeable: 'MERGEABLE', mergeState: 'CLEAN', review: null, runningSince: null, mine: false, sessions: ['S1'], ...over });
 
-function harness({ prs = [pr()], kind = 'background', file, sendResult = { ok: true, sent: true }, log = null } = {}) {
+function harness({ prs = [pr()], kind = 'background', file, sendResult = { ok: true, sent: true }, log = null, wsOf = () => 'default', repoIn = () => true } = {}) {
   const world = { prs, kind, sendResult, clock: T0 };
   const sent = [], suggested = [], notes = [], notified = [], logs = [];
   const w = createWatcher({
@@ -22,6 +22,7 @@ function harness({ prs = [pr()], kind = 'background', file, sendResult = { ok: t
     send: async (id, text) => { sent.push({ id, text }); return typeof world.sendResult === 'function' ? world.sendResult() : world.sendResult; },
     suggest: (id, text, why, say) => { suggested.push({ id, text, why, say }); return { state: 'proposed' }; },
     failedLog: async () => (log ? { ok: true, message: log } : { ok: false, error: 'no log' }),
+    wsOf: (id) => wsOf(id), repoIn: (slug, w) => repoIn(slug, w),
     notify: (title, text) => notified.push({ title, text }), note: (type, f) => notes.push({ type, ...f }),
     now: () => world.clock, log: (m) => logs.push(m),
   });
@@ -119,15 +120,74 @@ test('what it asked survives a restart, in a private file, and off asks nothing'
   const b = harness({ prs: [pr({ checks: 'failing' })], file });
   await b.w.check();
   assert.equal(b.sent.length, 0, 'not asked again after a restart');
-  b.w.setEnabled(false);
+  b.w.setEnabled(false, 'default');
   b.world.prs = [pr({ checks: 'failing', sha: 'zzz' })];
   await b.w.check();
   assert.equal(b.sent.length, 0);
-  assert.equal(harness({ prs: [pr({ checks: 'failing', sha: 'zzz' })], file }).w.status().enabled, false, 'off is remembered too');
+  assert.equal(harness({ prs: [pr({ checks: 'failing', sha: 'zzz' })], file }).w.status('default').enabled, false, 'off is remembered too');
 });
 
 test('a pull request with no agent on its branch is left alone', async () => {
   const h = harness({ prs: [pr({ checks: 'failing', sessions: [], mine: true })] });
   await h.w.check();
   assert.equal(h.sent.length + h.suggested.length + h.notes.length, 0);
+});
+
+const wsBySession = { S1: 'default', S2: 'contract' };
+
+test('Auto-fix is per workspace', async () => {
+  const h = harness({ prs: [pr({ checks: 'failing', sessions: ['S2'] }), pr({ number: 13, checks: 'failing', sessions: ['S1'] })], wsOf: (id) => wsBySession[id] });
+  h.w.setEnabled(false, 'contract');
+  await h.w.check();
+  assert.deepEqual(h.sent.map((m) => m.id), ['S1'], 'the one in default is asked, the one in contract is not');
+  assert.equal(h.w.status('contract').enabled, false);
+  assert.equal(h.w.status('default').enabled, true);
+  h.w.setEnabled(true, 'contract');
+  await h.w.check();
+  assert.deepEqual(h.sent.map((m) => m.id).sort(), ['S1', 'S2'], 'turned on, it looks at once');
+});
+
+test('an old single switch seeds every workspace', () => {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'watch-')), 'watcher.json');
+  fs.writeFileSync(file, JSON.stringify({ v: 1, enabled: false, done: {}, fixes: {}, capped: {}, last: {}, retry: {} }));
+  const h = harness({ file });
+  assert.equal(h.w.status('default').enabled, false);
+  assert.equal(h.w.status('contract').enabled, false);
+  h.w.setEnabled(true, 'contract');
+  assert.equal(h.w.status('contract').enabled, true);
+  assert.equal(h.w.status('default').enabled, false, 'one workspace turned on leaves the others as they were');
+  assert.equal(harness({ file }).w.status('contract').enabled, true, 'and that is remembered');
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+});
+
+test('an unsorted repository is not acted on', async () => {
+  const h = harness({ prs: [pr({ checks: 'failing' })], repoIn: () => false });
+  await h.w.check();
+  assert.equal(h.sent.length + h.suggested.length + h.notes.length + h.notified.length, 0);
+});
+
+test('a shared repository is asked once, however many workspaces have sessions on the branch', async () => {
+  const h = harness({ prs: [pr({ checks: 'failing', sessions: ['S1', 'S2'] })], wsOf: (id) => wsBySession[id], repoIn: () => true });
+  await h.w.check();
+  await h.w.check();
+  assert.equal(h.sent.length, 1);
+  assert.equal(h.w.status('default').prs['o/n#12'].fixes, 1);
+});
+
+test('a session whose workspace is off is passed over for one whose workspace is on', async () => {
+  const h = harness({ prs: [pr({ checks: 'failing', sessions: ['S1', 'S2'] })], wsOf: (id) => wsBySession[id] });
+  h.w.setEnabled(false, 'default');
+  await h.w.check();
+  assert.deepEqual(h.sent.map((m) => m.id), ['S2']);
+});
+
+test('a session no workspace knows is left alone, and a repository is judged by the session\'s own workspace', async () => {
+  const seen = [];
+  const a = harness({ prs: [pr({ checks: 'failing' })], wsOf: () => null });
+  await a.w.check();
+  assert.equal(a.sent.length, 0);
+  const b = harness({ prs: [pr({ checks: 'failing', sessions: ['S2'] })], wsOf: (id) => wsBySession[id], repoIn: (slug, w) => { seen.push([slug, w]); return w === 'default'; } });
+  await b.w.check();
+  assert.equal(b.sent.length, 0);
+  assert.deepEqual(seen, [['o/n', 'contract']]);
 });

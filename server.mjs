@@ -1981,6 +1981,10 @@ const watcher = createWatcher({
     return { kind, name: labelOf(s) };
   },
   send: (sessionId, text) => reply({ sessionId, text }),
+  // It acts on a pull request through the workspace of the session on its branch, when that workspace has auto-fix on and
+  // holds the repository. With one workspace there are no folders to sort repositories into, so it holds them all.
+  wsOf: (sessionId) => sessions.get(sessionId)?.ws ?? null,
+  repoIn: (slug, wsId) => W.size === 1 || store.reposOf('gh:' + slug).includes(wsId),
   // Its cards and lines go to the overseer of the session's own workspace (none, and dropped, when no workspace knows it).
   suggest: (sessionId, text, why, say) => overseerOfSession(sessionId)?.suggest({ sessionId, text, why, say }) ?? null,
   failedLog: (q) => github.failedLog(q), notify, note: (type, f) => overseerOfSession(f?.sessionId)?.note(type, f), onChange: () => broadcast(),
@@ -2093,6 +2097,12 @@ const termClose = (body) => { termLeave(body?.client, body?.sessionId); return {
 // ---------------------------------------------------------------- snapshot + SSE
 // ---------------------------------------------------------------- snapshot + SSE
 
+/** The watcher's state as a page shown `wsId` sees it: that workspace's switch, and only the pull requests of its repositories. */
+function watcherOf(wsId) {
+  const st = watcher.status(wsId);
+  return W.size === 1 ? st : { ...st, prs: Object.fromEntries(Object.entries(st.prs).filter(([k]) => store.reposOf('gh:' + k.slice(0, k.lastIndexOf('#'))).includes(wsId))) };
+}
+
 // What a page shown workspace `wsId` gets: that workspace's sessions, requests, profile, roster error, setup and old
 // versions, and of every workspace only { id, name, color, waiting }. Nothing else of another workspace leaves here.
 function snapshot(wsId) {
@@ -2110,7 +2120,7 @@ function snapshot(wsId) {
       subagents: [...s.subagents.values()].map((a) => ({ ...a, stopping: !a.stoppedAt && stops.has(stopKey(s.sessionId, a.agentId)) })),
     }; }),
     pending: [...[...pending.values()].filter((p) => p.ws === wsId).map(({ res, timer, ...p }) => p), ...openRequests(wsId)],
-    github: github.state(), overseer: overseerOf(wsId)?.status() ?? null, watcher: watcher.status(),
+    github: github.state(), overseer: overseerOf(wsId)?.status() ?? null, watcher: watcherOf(wsId),
     _ts: now,
   };
 }
@@ -2277,7 +2287,7 @@ async function handle(req, res) {
                       '/api/setup/check': setupCheckNow, '/api/setup/done': setupDone, '/api/setup/login': openLoginTerminal,
                       '/api/github/refresh': () => { github.refresh(); return { ok: true, github: github.state() }; },
                       '/api/github/log': githubLog, '/api/github/hand': githubHand, ...OVERSEER,
-                      '/api/watcher/enabled': (b) => watcher.setEnabled(b?.on),
+                      '/api/watcher/enabled': (b, c) => watcher.setEnabled(b?.on, c.focus),
                       '/api/term/open': termOpen, '/api/term/input': termInput, '/api/term/resize': termResize, '/api/term/close': termClose };
     if (Object.hasOwn(ACTIONS, url.pathname)) {
       let r;
