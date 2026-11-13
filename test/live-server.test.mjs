@@ -208,7 +208,7 @@ test('a profile switch keeps the follow: every workspace stays live, so a line a
   await s.api('/api/follow', { client: page.client, sessionId: id });
   fs.appendFileSync(file, said('before', 2) + '\n');
   assert.ok(await until(() => page.thread(id).some((e) => e.text === 'before')));
-  const sw = await s.api('/api/profile', { id: 'b' });
+  const sw = await s.api('/api/workspace/focus', { ws: 'b' });
   assert.equal(sw.ok, true, JSON.stringify(sw));
   fs.appendFileSync(file, said('after', 3) + '\n');
   assert.ok(await until(() => page.thread(id).some((e) => e.text === 'after')), 'the switch stopped the follow');

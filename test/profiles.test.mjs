@@ -86,7 +86,7 @@ test('a request from another workspace is held too, out of sight until that work
   assert.equal(JSON.stringify(snap).includes('s-other'), false);
   assert.equal(snap.workspaces.find((w) => w.id === 'other').waiting, 1);
 
-  const r = await api('/api/profile', { id: 'other' });
+  const r = await api('/api/workspace/focus', { ws: 'other' });
   assert.equal(r.ok, true, JSON.stringify(r));
   snap = await latest();
   assert.equal(snap.profile.dir, path.join(home, '.claude-other'));
@@ -95,11 +95,11 @@ test('a request from another workspace is held too, out of sight until that work
   assert.notEqual(pendingOf(snap, 's-other')[0].open, true);
 
   // Back and forth: still held, still answerable once its profile shows again.
-  assert.equal((await api('/api/profile', { id: 'default' })).ok, true);
+  assert.equal((await api('/api/workspace/focus', { ws: 'default' })).ok, true);
   await pause(200);
   assert.equal(h.answered, false);
   assert.equal(pendingOf(await latest(), 's-other').length, 0);
-  assert.equal((await api('/api/profile', { id: 'other' })).ok, true);
+  assert.equal((await api('/api/workspace/focus', { ws: 'other' })).ok, true);
   snap = await latest();
   const p = pendingOf(snap, 's-other')[0];
   assert.ok(p);

@@ -1543,39 +1543,22 @@ function listFolders(body) {
   } catch {}
   return { ok: true, folders: names.map((n) => tilde(path.join(parent, n))) };
 }
-// ---------------------------------------------------------------- switching profile
+// ---------------------------------------------------------------- switching workspace
 
-/** Who a profile is signed in as, and on which plan, from Claude Code itself: its files can lag a fresh sign-in, and
- *  two profiles on one email differ only by plan. Undefined when it can't tell. */
-async function signedIn(p) {
-  const r = await run('claude', ['auth', 'status', '--json'], { env: envFor(p), timeout: 5000 });
-  try {
-    const a = JSON.parse(r.stdout);
-    return a.loggedIn ? { email: a.email ?? null, org: a.orgName ?? null, plan: a.subscriptionType ?? null } : null;
-  } catch { return undefined; }
-}
-const profiles = async (body, ctx) => ({ ok: true, active: ctx?.focus ?? shownId, profiles: await Promise.all(listProfiles().map(async (p) => {
-  const d = describeProfile(p), a = await signedIn(p);
-  return a === undefined ? d : { ...d, account: a };
-})) });
 /** A page that went away and didn't come back in time forgets its focus. */
 function forgetFocusLater(client) {
   setTimeout(() => { if (!clientRes.has(client)) clientFocus.delete(client); }, RECONNECT_MS);
 }
-/** `{ ws, force }`: the asking page is shown workspace `ws`. Nothing is cleared or stopped: every workspace stays live,
- *  its sessions, held requests and waiting messages with it. Only what the page itself had open from the workspace it
- *  leaves (a session's chat, its terminal) stops reaching it. It is also the focus a new page starts on. */
+/** `{ ws }`: the asking page is shown workspace `ws`. Nothing is cleared or stopped: every workspace stays live,
+ *  its sessions, held requests and waiting messages with it, so there is nothing to ask before switching. Only what the
+ *  page itself had open from the workspace it leaves (a session's chat, its terminal) stops reaching it. It is also the
+ *  focus a new page starts on. */
 function focusWorkspace(body, ctx = {}) {
   const id = typeof body?.ws === 'string' ? body.ws : '';
   if (id && !W.has(id)) syncWorkspaces(); // a profile folder made since the last roster read
   const ws = id ? wsById(id) : null;
   if (!ws) return { ok: false, error: 'There is no such workspace.' };
-  const client = ctx.client ?? null, was = focusOf(client);
-  if (ws.id !== was) {
-    // Messages still waiting to go out to the sessions on screen: ask first, as switching always has.
-    const queued = [...inbox].filter(([sid]) => sessions.get(sid)?.ws === was).reduce((n, [, q]) => n + q.length, 0);
-    if (queued && body.force !== true) return { ok: false, confirm: true, queued };
-  }
+  const client = ctx.client ?? null;
   if (client) {
     clientFocus.set(client, ws.id);
     if (!clientRes.has(client)) forgetFocusLater(client);
@@ -2433,9 +2416,8 @@ async function handle(req, res) {
     const ACTIONS = { '/api/end': end, '/api/remove': remove, '/api/reply': reply, '/api/unqueue': unqueue, '/api/mode': switchMode,
                       '/api/folders': listFolders, '/api/folder': folderInfo, '/api/pick-folder': pickFolder,
                       '/api/workspace/focus': focusWorkspace, '/api/workspace/assign': assignRepo,
-                      // The profile tabs' old name for it, until the switch replaces them.
-                      '/api/profile': (b, c) => focusWorkspace({ ws: b?.id, force: b?.force }, c),
-                      '/api/profiles': profiles, '/api/profile/connect': connectProfile,
+                      // Only the profile the page shows: another workspace's settings are not this page's to change.
+                      '/api/profile/connect': (b, c) => (b?.id === c.focus ? connectProfile(b) : { ok: false, error: REFUSE }),
                       '/api/answer-open': answerOpen, '/api/history': history, '/api/follow': followSession,
                       '/api/trust-terminal': openTrustTerminal,
                       '/api/setup/check': setupCheckNow, '/api/setup/done': setupDone, '/api/setup/login': openLoginTerminal,

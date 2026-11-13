@@ -32,6 +32,9 @@ for (const [dir, sid, cwd] of [['.claude', SID_D, work], ['.claude-contract', SI
   fs.writeFileSync(path.join(home, dir, 'settings.json'), '{}');
   fs.writeFileSync(path.join(home, dir, 'projects', 'p', `${sid}.jsonl`), transcript(`work in ${dir}`, cwd));
 }
+// The contract profile's account, which a page shown the plain profile must never be able to read.
+const EMAIL_C = 'contract-person@example.test';
+fs.writeFileSync(path.join(home, '.claude-contract', '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: EMAIL_C, organizationName: 'Contract Org' } }));
 // One background job per profile, up and idle with no process of its own: a reply resumes it with --bg.
 const job = (sid, name, cwd) => ({ pid: null, id: sid.slice(0, 8), cwd, kind: 'background', startedAt: Date.now(), sessionId: sid, name, status: 'idle', state: 'running' });
 fs.writeFileSync(path.join(home, 'roster-default.json'), JSON.stringify([job(SID_D, 'default job', work)]));
@@ -49,7 +52,8 @@ if (a[0] === 'agents') {
   process.exit(0);
 }
 fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ args: a, env: cfg }) + '\\n');
-if (a[0] === 'auth') { console.log('{}'); process.exit(0); }
+// Signed in on contract only, as someone a page shown the plain profile must not learn of.
+if (a[0] === 'auth') { console.log(cfg && path.basename(cfg) === '.claude-contract' ? JSON.stringify({ loggedIn: true, email: ${JSON.stringify(EMAIL_C)}, orgName: 'Contract Org' }) : '{}'); process.exit(0); }
 if (a[0] === '--bg') { const i = a.indexOf('--resume'); console.log('backgrounded · ' + (i >= 0 ? a[i + 1].slice(0, 8) : 'deadbeef')); process.exit(0); }
 if (a[0] === '-p') {
   // The overseer's call (its prompt is the last argument, logged above): it answers after a moment, saying whose login it ran on.
@@ -479,6 +483,50 @@ test('a page may sort an unsorted repository into another workspace, but not cla
   }
   assert.deepEqual((await assignedOf(B.client)).find((a) => a.key === key), { key, ws: ['contract'] });
   assert.equal((await assignedOf(A.client)).some((a) => a.key === key), false);
+});
+
+test('a page shown one workspace can read no other workspace\'s account, by any route', async () => {
+  assert.equal((await api('/api/workspace/focus', { ws: 'contract' }, B.client)).ok, true);
+  assert.equal((await api('/api/workspace/focus', { ws: 'default' }, A.client)).ok, true);
+  // The contract page sees its own account: the control.
+  assert.ok(await until(() => B.latest()?.profile?.account?.email === EMAIL_C), `B: ${JSON.stringify(B.latest()?.profile)}`);
+  const seen = [];
+  for (const [route, body] of [['/api/profiles', {}], ['/api/profile', { id: 'contract' }], ['/api/setup/check', {}], ['/api/profile/connect', { id: 'contract' }],
+    ['/api/folder', { dir: path.join(home, '.claude-contract') }], ['/api/folders', { typed: home + '/' }], ['/api/github/refresh', {}]]) {
+    const r = await api(route, body, A.client);
+    seen.push(r);
+  }
+  seen.push(await fetch(BASE + '/api/workspaces', { headers: { 'x-acp-token': token, 'x-acp-client': A.client } }).then((x) => x.json()));
+  for (const f of A.frames) seen.push(f);
+  assert.equal(seen[3].error, REFUSE, 'page A may not connect the contract profile\'s hooks');
+  assert.equal(fs.readFileSync(path.join(home, '.claude-contract', 'settings.json'), 'utf8'), '{}', 'its settings are untouched');
+  const text = JSON.stringify(seen);
+  assert.equal(text.includes(EMAIL_C), false, 'page A read the contract profile\'s email');
+  assert.equal(text.includes('Contract Org'), false, 'page A read the contract profile\'s organisation');
+  assert.equal(A.latest().workspace.id, 'default');
+  // The old profile list is gone: nothing answers there any more.
+  assert.equal((await api('/api/profiles', {}, A.client)).status, 404);
+});
+
+test('switching never asks first: a message waiting for a busy session stays waiting, and is still there on the way back', async (t) => {
+  // A terminal session of the plain profile, busy, so a reply to it waits in its inbox.
+  const sid = 'dddddddd-5555-4555-8555-555555555555', proc = spawn('sleep', ['60']);
+  t.after(() => proc.kill());
+  fs.writeFileSync(path.join(home, '.claude', 'projects', 'p', `${sid}.jsonl`), JSON.stringify({ type: 'user', cwd: work, timestamp: '2026-11-12T10:00:00.000Z', message: { role: 'user', content: 'keep going' } }) + '\n');
+  const rosterD = path.join(home, 'roster-default.json'), before = fs.readFileSync(rosterD, 'utf8');
+  t.after(() => fs.writeFileSync(rosterD, before));
+  fs.writeFileSync(rosterD, JSON.stringify([...JSON.parse(before), { pid: proc.pid, id: sid.slice(0, 8), cwd: work, kind: 'interactive', startedAt: Date.now(), sessionId: sid, name: 'busy one', status: 'busy', state: 'running' }]));
+  assert.equal((await api('/api/workspace/focus', { ws: 'default' }, A.client)).ok, true);
+  assert.ok(await until(() => A.latest()?.sessions.find((s) => s.sessionId === sid && s.working), 8000), `the busy session shows: ${log}`);
+  const r = await api('/api/reply', { sessionId: sid, text: 'after this, the tests' }, A.client);
+  assert.equal(r.queued, true, JSON.stringify(r));
+  const f = await api('/api/workspace/focus', { ws: 'contract' }, A.client);
+  assert.deepEqual(f, { status: 200, ok: true }, 'it switches at once, with nothing to confirm');
+  assert.ok(await until(() => A.latest()?.workspace.id === 'contract'));
+  assert.equal((await api('/api/workspace/focus', { ws: 'default' }, A.client)).ok, true);
+  const s = await until(() => { const l = A.latest(); return l?.workspace.id === 'default' && l.sessions.find((x) => x.sessionId === sid); });
+  assert.deepEqual(s.queued.map((m) => m.text), ['after this, the tests'], 'the waiting message is still there');
+  assert.equal((await api('/api/unqueue', { sessionId: sid, id: s.queued[0].id }, A.client)).ok, true);
 });
 
 test('a machine with no profile yet keeps no workspace for the stand-in', async (t) => {
