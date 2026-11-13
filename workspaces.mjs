@@ -115,6 +115,15 @@ export function createStore({ file, profiles = [] } = {}) {
       save();
       return { ok: true };
     },
+    /** Put the workspaces in this order. `ids` must be every current id, once each. */
+    reorder(ids) {
+      const same = Array.isArray(ids) && ids.length === st.order.length && new Set(ids).size === ids.length
+        && ids.every((id) => typeof id === 'string' && Object.hasOwn(st.workspaces, id));
+      if (!same) return { ok: false, error: 'The order must name every workspace once.' };
+      st.order = [...ids];
+      save();
+      return { ok: true };
+    },
     /** The workspace ids a repository is in; [] when it is unsorted. */
     reposOf: (key) => [...(st.repos[key] ?? [])],
     /** Put a repository in these workspaces; [] forgets it. */

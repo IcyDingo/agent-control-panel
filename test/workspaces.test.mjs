@@ -133,3 +133,20 @@ test('a notification about a workspace out of focus is its name and a count, not
   assert.deepEqual(countOnly('Work', { waits: true, n: 0 }), { title: 'Glue', text: 'Work: 1 needs you' }, 'never fewer than the one being told of');
   assert.deepEqual(countOnly('Work', { waits: true, n: 'x' }), { title: 'Glue', text: 'Work: 1 needs you' });
 });
+
+test('reorder takes a permutation of the workspace ids and keeps it', () => {
+  const file = tmp();
+  const s = createStore({ file, profiles: PROFILES });
+  assert.deepEqual(s.list().map((w) => w.id), ['contract', 'default']);
+  assert.equal(s.reorder(['default']).ok, false);
+  assert.equal(s.reorder(['default', 'x']).ok, false);
+  assert.equal(s.reorder(['default', 'default']).ok, false);
+  assert.equal(s.reorder(['default', 'contract', 'x']).ok, false);
+  assert.equal(s.reorder(['__proto__', 'constructor']).ok, false);
+  assert.equal(s.reorder('default,contract').ok, false);
+  assert.deepEqual(s.list().map((w) => w.id), ['contract', 'default']);
+  assert.equal(s.reorder(['default', 'contract']).ok, true);
+  assert.deepEqual(s.list().map((w) => [w.id, w.order]), [['default', 0], ['contract', 1]]);
+  assert.deepEqual(createStore({ file, profiles: PROFILES }).list().map((w) => w.id), ['default', 'contract']);
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+});
