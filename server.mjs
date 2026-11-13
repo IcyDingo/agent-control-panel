@@ -76,7 +76,8 @@ const pending = new Map();
 const stops = new Map();
 /** Sessions removed or hidden from the panel. One comes back only if it runs again (a resumed terminal session). */
 const dismissed = new Set();
-const clients = new Set();
+/** Each open /events stream → the page's id (null for a stream that gave none). */
+const clients = new Map();
 /** Set while no page is connected but one may still come back (RECONNECT_MS). */
 let releaseTimer = null;
 const watched = () => clients.size > 0 || releaseTimer !== null;
@@ -144,8 +145,8 @@ const wsById = (id) => W.get(id) ?? null;
 const envOf = (ws) => ws?.env ?? null;
 /** The workspace a session belongs to: set when the event or roster that introduced it arrived. */
 const wsOfSession = (s) => (s ? wsById(s.ws) : null);
-// Which workspace the snapshot's `profile` and banners describe, and where the launcher starts agents. The panel's
-// profile tabs set it; until each page has a focus of its own, it is one for all of them.
+// The workspace focused last, by any page: the one overseer's (until there is one per workspace), where an event that
+// names no transcript goes, and the focus of a page that has not picked one. Each page's own focus is focusOf(client).
 let shownId = null;
 let serverUp = false;
 /** Brings W in line with the profile folders: a new one becomes a workspace, one whose folder is gone leaves (with its
@@ -153,7 +154,7 @@ let serverUp = false;
  *  folder can't be read never empties the panel. */
 function syncWorkspaces() {
   const list = listProfiles(), want = list.length ? list : [FALLBACK];
-  store.sync(want);
+  store.sync(list); // the real profiles only: the stand-in is never kept as a workspace of its own
   let changed = false;
   for (const p of want) if (W.get(p.id)?.profile.dir !== p.dir) { W.set(p.id, makeWs(p)); changed = true; }
   for (const ws of [...W.values()]) {
@@ -188,6 +189,70 @@ function dropWorkspace(ws) {
   store.setFocus(shownId);
 }
 const shownWs = () => wsById(shownId);
+
+// ---------------------------------------------------------------- the seal
+// Each page (a client id: c= on its stream, x-acp-client on its calls) is shown one workspace. Its snapshot holds that
+// workspace's sessions and requests only, plus { id, name, color, waiting } for each workspace; every action on a
+// session or request outside it is refused.
+const REFUSE = 'That belongs to another workspace. Switch to it to do this.';
+/** clientId → the workspace that page shows. One that never picked shows the last focused (the store's). */
+const clientFocus = new Map();
+function focusOf(client) {
+  const f = client ? clientFocus.get(client) : null;
+  if (f && W.has(f)) return f;
+  const last = store.focus();
+  return W.has(last) ? last : W.has(shownId) ? shownId : W.keys().next().value;
+}
+/** The pages in `ids` that are shown workspace `wsId`. */
+const sealedTo = (ids, wsId) => [...ids].filter((c) => focusOf(c) === wsId);
+/** A session's transcript in workspace `ws`'s profile, or null. */
+function findTranscript(ws, sessionId) {
+  const root = path.join(ws.profile.dir, 'projects');
+  try {
+    for (const d of fs.readdirSync(root)) {
+      const f = path.join(root, d, sessionId + '.jsonl');
+      if (fs.existsSync(f)) return f;
+    }
+  } catch {}
+  return null;
+}
+/** Whose a session is: its record's workspace, else the one whose profile holds its transcript; null when none knows it. */
+function wsIdOfSession(sessionId) {
+  const s = sessions.get(sessionId);
+  if (s) return s.ws;
+  if (typeof sessionId !== 'string' || !UUID.test(sessionId)) return null;
+  for (const ws of W.values()) if (findTranscript(ws, sessionId)) return ws.id;
+  return null;
+}
+/** Whether an action from a page shown `wsId` may touch the session. One no workspace knows has nothing to give away. */
+function ownedBy(wsId, sessionId) {
+  const w = wsIdOfSession(sessionId);
+  return w == null || w === wsId;
+}
+/** What a page calls a workspace: its name and colour from the store (the stand-in for no profile has none there). */
+function wsView(id) {
+  const w = store.get(id);
+  return { id, name: w?.name ?? path.basename(W.get(id)?.profile.dir ?? id).replace(/^\./, ''), color: w?.color ?? 'violet' };
+}
+/** The live workspaces, in the store's order. */
+const wsOrder = () => { const known = store.list().map((w) => w.id).filter((id) => W.has(id)); return [...known, ...[...W.keys()].filter((id) => !known.includes(id))]; };
+/** What waits on you in a workspace: held requests, open questions and plans, and (for the one overseer's workspace) the
+ *  overseer's cards waiting for a click. */
+function waitingOf(wsId) {
+  let n = openRequests(wsId).length;
+  for (const p of pending.values()) if (p.ws === wsId) n++;
+  if (wsId === shownId) n += overseer.status().proposed ?? 0;
+  return n;
+}
+/** An event whose transcript lies in a profile's projects/ says whose its session is. */
+const namesProfile = (e, ws) => typeof e?.transcript_path === 'string' && e.transcript_path.startsWith(path.join(ws.profile.dir, 'projects') + path.sep);
+/** Moves a session (and what it holds open here) to workspace `id`. */
+function setWs(s, id) {
+  if (s.ws === id) return;
+  s.ws = id;
+  for (const p of pending.values()) if (p.sessionId === s.sessionId) p.ws = id;
+}
+
 /** The workspace a hook event's session runs under: its transcript lives in that profile's projects/. A profile seen
  *  for the first time is looked for at once, so its first event is not lost. An event that names no transcript is the
  *  shown workspace's, as it always was; one under no profile at all is nobody's (null). */
@@ -254,6 +319,8 @@ function onHookEvent(e, ws) {
     dismissed.delete(e.session_id); // it is running again
   }
   const s = session(e.session_id, ws.id);
+  // First seen through an event that named no transcript, it was put in the focused workspace: this one says whose it is.
+  if (namesProfile(e, ws)) setWs(s, ws.id);
   s.lastEventAt = Date.now();
   if (e.cwd && !s.cwd) s.cwd = e.cwd;
   // Where it is now, for showing its branch only: a session can move (into a worktree, say) after it starts.
@@ -379,7 +446,7 @@ async function pollRoster(ws) {
     if (dismissed.has(r.sessionId)) { if (over) continue; dismissed.delete(r.sessionId); }
     seen.add(r.sessionId);
     const s = session(r.sessionId, ws.id), was = { inRoster: s.inRoster, state: s.state, status: s.status };
-    s.ws = ws.id; // its profile's own list says whose it is, over an event that named no transcript
+    setWs(s, ws.id); // its profile's own list says whose it is, over an event that named no transcript
     // The roster moving it (into its worktree, say) is newer than the folder its last hook event named.
     if (r.cwd && r.cwd !== s.rosterCwd) { s.rosterCwd = r.cwd; s.hereCwd = null; }
     Object.assign(s, { id: r.id ?? null, name: r.name ?? null, cwd: r.cwd ?? s.cwd, kind: r.kind ?? null,
@@ -459,22 +526,25 @@ function prune() {
 // back would leave a background session's prompt open with no screen to answer it on.
 function holdPermission(e, ws, res) {
   const id = crypto.randomUUID();
+  // An event that names no transcript was guessed into the focused workspace: a session already known says better.
+  const s = e.session_id ? session(e.session_id, ws.id) : null;
+  if (s && namesProfile(e, ws)) setWs(s, ws.id);
   const p = { id, sessionId: e.session_id, agentId: e.agent_id ?? null, agentType: e.agent_type ?? null,
               toolName: e.tool_name, toolInput: e.tool_input ?? {}, toolUseId: e.tool_use_id ?? null, suggestions: e.permission_suggestions ?? [],
               cwd: e.cwd ?? null, permissionMode: e.permission_mode ?? null, createdAt: Date.now(),
-              deadline: Date.now() + HOLD_MS, ws: ws.id, res, timer: null };
+              deadline: Date.now() + HOLD_MS, ws: s?.ws ?? ws.id, res, timer: null };
   p.timer = setTimeout(() => settle(id, null, 'expired'), HOLD_MS);
   // The hook timed out or its session went away. (A terminal answer does NOT close it: see pollRoster.)
   res.on('close', () => { if (pending.has(id)) settle(id, null, 'closed by Claude Code'); });
   pending.set(id, p);
-  if (e.session_id) {
-    session(e.session_id, ws.id).lastEventAt = Date.now();
+  if (s) {
+    s.lastEventAt = Date.now();
     feed('needs-you', sessions.get(e.session_id), `${labelOf(sessions.get(e.session_id))} asks: ${askOf(p)}`);
     // A subagent's call is not in this thread.
     try { if (!e.agent_id) threadOf(e.session_id).request(e, { waiting: true }); }
     catch (err) { console.error('thread:', err?.message ?? err); }
   }
-  broadcast({ type: 'new-request', id });
+  broadcast({ type: 'new-request', id, ws: p.ws }); // only pages shown its workspace hear of it
 }
 /** The requests held for a session. */
 const heldFor = (sessionId) => [...pending.values()].filter((p) => p.sessionId === sessionId);
@@ -493,13 +563,15 @@ function settle(id, decision, why) {
   try { if (!p.agentId) threads.get(p.sessionId)?.request({ tool_use_id: p.toolUseId, tool_name: p.toolName, tool_input: p.toolInput }, { why }); }
   catch (err) { console.error('thread:', err?.message ?? err); }
   if (['allow', 'deny', 'answer', 'approve-plan'].includes(why) && sessions.has(p.sessionId)) feed('answered', sessions.get(p.sessionId), `${labelOf(sessions.get(p.sessionId))}: ${p.toolName} ${why === 'allow' ? 'allowed' : why === 'deny' ? 'denied' : why === 'answer' ? 'answered' : 'plan approved'} from the panel.`);
-  broadcast({ type: 'settled', id, why });
+  broadcast({ type: 'settled', id, why, ws: p.ws });
   return true;
 }
 
-function decide(body) {
+/** Answer a held request from a page shown workspace `wsId`: only that workspace's requests. */
+function decide(body, wsId) {
   const p = pending.get(body?.id);
   if (!p) return { ok: false, error: 'That request is gone: answered in the terminal or expired.' };
+  if (p.ws !== wsId || !ownedBy(wsId, p.sessionId)) return { ok: false, error: REFUSE };
   let decision;
   if (body.behavior === 'deny') {
     decision = { behavior: 'deny', message: String(body.message || 'Denied from Glue.') };
@@ -542,8 +614,9 @@ function decide(body) {
 
 // ---------------------------------------------------------------- launch + stop
 
-/** Start a background session: `claude --bg` with argv only (no shell), every value checked. */
-function launch(body) {
+/** Start a background session in workspace `ws` (the page's focus; the overseer's for its proposals): `claude --bg` with
+ *  argv only (no shell), every value checked. */
+function launch(body, ws = shownWs()) {
   return new Promise((resolve) => {
     const fail = (error) => resolve({ ok: false, error });
     const prompt = typeof body?.prompt === 'string' ? body.prompt.trim() : '';
@@ -576,8 +649,8 @@ function launch(body) {
     if (agent) args.push('--agent', agent);
     if (worktree) args.push('--worktree', ...(wtName ? [wtName] : []));
     args.push('--', prompt);
-    // In the workspace on screen, under its profile.
-    const ws = shownWs();
+    // Under its workspace's profile.
+    if (!ws) return fail(NO_WS);
     run('claude', args, { cwd, timeout: 30_000, env: envOf(ws) }).then((r) => {
       const id = `${r.stdout}\n${r.stderr}`.match(/backgrounded · (\w+)/)?.[1];
       if (id) { setTimeout(() => pollRoster(ws), 400); return resolve({ ok: true, id, cwd }); }
@@ -681,21 +754,17 @@ const RESUME_MODES = new Set(['default', 'acceptEdits', 'plan', 'auto']);
 /** The model, effort and permission mode of a session's last turn, read from the tail of its transcript. */
 const files = new Map(); // sessionId → its transcript
 /** A session's transcript, in its own workspace's profile. One the panel has no record of yet (just launched, say) is
- *  looked for in the workspace on screen. */
-function transcriptFile(sessionId) {
+ *  looked for in workspace `where` (the asking page's focus), else in the one focused last. */
+function transcriptFile(sessionId, where = null) {
   if (!UUID.test(sessionId)) return null;
-  const s = sessions.get(sessionId), ws = s ? wsOfSession(s) : shownWs();
+  const s = sessions.get(sessionId), ws = s ? wsOfSession(s) : where ?? shownWs();
   if (!ws) return null;
   const root = path.join(ws.profile.dir, 'projects');
   const hit = files.get(sessionId);
   if (hit && hit.startsWith(root + path.sep) && fs.existsSync(hit)) return hit;
-  try {
-    for (const d of fs.readdirSync(root)) {
-      const f = path.join(root, d, sessionId + '.jsonl');
-      if (fs.existsSync(f)) { files.set(sessionId, f); return f; }
-    }
-  } catch {}
-  return null;
+  const f = findTranscript(ws, sessionId);
+  if (f) files.set(sessionId, f);
+  return f;
 }
 function tailOf(file, bytes) {
   const fd = fs.openSync(file, 'r');
@@ -793,8 +862,8 @@ function lastSaid(sessionId) {
   return null;
 }
 /** A session's conversation for the panel's chat, newest last; asking for more reads further back. */
-async function history(body) {
-  const file = transcriptFile(body?.sessionId);
+async function history(body, ctx) {
+  const file = transcriptFile(body?.sessionId, ctx?.ws);
   if (!file) return { ok: false, error: 'Its transcript is not in this profile.' };
   const limit = Number.isInteger(body?.limit) ? Math.min(2000, Math.max(20, body.limit)) : 60;
   const before = Number.isInteger(body?.before) ? body.before : Infinity; // a byte offset: only what starts before it
@@ -1176,9 +1245,9 @@ function openAsk(s) {
   asks.set(s.sessionId, { size: st.size, mtimeMs: st.mtimeMs, ask });
   return ask;
 }
-/** Open dialogs, shaped like held requests so the page shows them the same way. */
-const openRequests = () => [...sessions.values()].flatMap((s) => {
-  const a = openAsk(s);
+/** Workspace `wsId`'s open dialogs, shaped like held requests so the page shows them the same way. */
+const openRequests = (wsId) => [...sessions.values()].flatMap((s) => {
+  const a = s.ws === wsId ? openAsk(s) : null;
   return a ? [{ id: `open:${s.sessionId}:${a.toolUseId}`, open: true, sessionId: s.sessionId, agentId: null, toolName: a.toolName,
                 toolInput: a.toolInput, toolUseId: a.toolUseId, permissionMode: s.mode ?? null, createdAt: a.at ?? Date.now() }] : [];
 });
@@ -1343,10 +1412,10 @@ function worktreeBase(place, ws) {
   return place.branch ?? 'its current commit';
 }
 /** The launcher's look at a folder: is it there, and is it in a git repository. */
-function folderInfo(body) {
+function folderInfo(body, ctx) {
   const dir = path.resolve(expand(String(body?.path ?? '').trim()) || os.homedir());
   try { if (!fs.statSync(dir).isDirectory()) return { ok: true, folder: false }; } catch { return { ok: true, folder: false }; }
-  const p = gitPlace(dir), home = dir === os.homedir(), ws = shownWs(); // the workspace the launcher starts agents in
+  const p = gitPlace(dir), home = dir === os.homedir(), ws = ctx?.ws ?? shownWs(); // the workspace the launcher starts agents in: the page's
   // A background session moves itself into a worktree before it edits, unless the repo turned that off.
   return { ok: true, folder: true, git: p && { branch: p.branch, worktree: p.worktree, repo: tilde(p.repo), base: worktreeBase(p, ws),
                                                isolates: worktreeSetting(p, 'bgIsolation', ws) !== 'none' },
@@ -1360,7 +1429,7 @@ const claudePath = () => String(baseEnv.PATH ?? '').split(':').filter(Boolean).m
   .find((f) => { try { fs.accessSync(f, fs.constants.X_OK); return fs.statSync(f).isFile(); } catch { return false; } });
 /** Terminal in the folder, on this profile, running Claude Code: its trust prompt waits there for you to accept. The
  *  window opens from a .command file, so the panel needs no permission to control Terminal. */
-async function openTrustTerminal(body) {
+async function openTrustTerminal(body, ctx) {
   if (process.platform !== 'darwin') return { ok: false, error: 'Opening Terminal is macOS only. Run claude in the folder once and accept its prompt.' };
   const dir = path.resolve(expand(String(body?.path ?? '').trim()) || os.homedir());
   try { if (!fs.statSync(dir).isDirectory()) throw new Error(); } catch { return { ok: false, error: `There is no folder at ${tilde(dir)}.` }; }
@@ -1371,7 +1440,7 @@ async function openTrustTerminal(body) {
   fs.mkdirSync(where, { recursive: true, mode: 0o700 });
   for (const n of fs.readdirSync(where)) try { const f = path.join(where, n); if (Date.now() - fs.statSync(f).mtimeMs > 3_600_000) fs.unlinkSync(f); } catch {}
   const file = path.join(where, `trust-${crypto.randomBytes(4).toString('hex')}.command`);
-  const ws = shownWs(); // trust is for the launcher, which starts agents in the workspace on screen
+  const ws = ctx?.ws ?? shownWs(); // trust is for the launcher, which starts agents in the page's workspace
   fs.writeFileSync(file, trustScript({ dir, configDir: ws.profile.plain ? null : ws.profile.dir, claude, label: profileLabel(ws) }), { mode: 0o700 });
   const r = await run('open', ['-a', 'Terminal', file], { timeout: 10_000, env: baseEnv });
   return r.err ? { ok: false, error: firstLine(r) } : { ok: true };
@@ -1401,25 +1470,43 @@ async function signedIn(p) {
     return a.loggedIn ? { email: a.email ?? null, org: a.orgName ?? null, plan: a.subscriptionType ?? null } : null;
   } catch { return undefined; }
 }
-const profiles = async () => ({ ok: true, active: shownId, profiles: await Promise.all(listProfiles().map(async (p) => {
+const profiles = async (body, ctx) => ({ ok: true, active: ctx?.focus ?? shownId, profiles: await Promise.all(listProfiles().map(async (p) => {
   const d = describeProfile(p), a = await signedIn(p);
   return a === undefined ? d : { ...d, account: a };
 })) });
-/** Shows another workspace's profile: its banners, and the launcher starts agents in it. Nothing is cleared or stopped:
- *  every workspace stays live, its sessions, held requests and waiting messages with it. */
-function switchProfile(body) {
-  if (!W.has(body?.id)) syncWorkspaces(); // a profile folder made since the last roster read
-  const ws = wsById(body?.id);
-  if (!ws) return { ok: false, error: 'There is no such profile.' };
-  if (ws.id === shownId) return { ok: true };
-  const queued = [...inbox.values()].reduce((n, q) => n + q.length, 0);
-  if (queued && body.force !== true) return { ok: false, confirm: true, queued };
-  shownId = ws.id;
+/** A page that went away and didn't come back in time forgets its focus. */
+function forgetFocusLater(client) {
+  setTimeout(() => { if (!clientRes.has(client)) clientFocus.delete(client); }, RECONNECT_MS);
+}
+/** `{ ws, force }`: the asking page is shown workspace `ws`. Nothing is cleared or stopped: every workspace stays live,
+ *  its sessions, held requests and waiting messages with it. Only what the page itself had open from the workspace it
+ *  leaves (a session's chat, its terminal) stops reaching it. It is also the focus a new page starts on. */
+function focusWorkspace(body, ctx = {}) {
+  const id = typeof body?.ws === 'string' ? body.ws : '';
+  if (id && !W.has(id)) syncWorkspaces(); // a profile folder made since the last roster read
+  const ws = id ? wsById(id) : null;
+  if (!ws) return { ok: false, error: 'There is no such workspace.' };
+  const client = ctx.client ?? null, was = focusOf(client);
+  if (ws.id !== was) {
+    // Messages still waiting to go out to the sessions on screen: ask first, as switching always has.
+    const queued = [...inbox].filter(([sid]) => sessions.get(sid)?.ws === was).reduce((n, [, q]) => n + q.length, 0);
+    if (queued && body.force !== true) return { ok: false, confirm: true, queued };
+  }
+  if (client) {
+    clientFocus.set(client, ws.id);
+    if (!clientRes.has(client)) forgetFocusLater(client);
+    const open = clientOpen.get(client);
+    if (open && !ownedBy(ws.id, open)) { leave(client, open); clientOpen.delete(client); }
+    for (const [sid, t] of terms) if (t.clients.has(client) && !ownedBy(ws.id, sid)) termLeave(client, sid);
+  }
   store.setFocus(ws.id);
-  savePrefs({ profile: ws.id });
-  overseer.use(overseerId(ws.profile));
+  if (ws.id !== shownId) {
+    shownId = ws.id;
+    savePrefs({ profile: ws.id });
+    overseer.use(overseerId(ws.profile));
+    checkSetup(true);
+  }
   broadcast();
-  checkSetup(true);
   return { ok: true };
 }
 /**
@@ -1500,7 +1587,7 @@ function checkSetup(force) {
 /** A failure from Claude Code that reads as a login problem: look again, so the banner says so. */
 function loginFailed(text) { if (LOGIN_ERROR.test(String(text ?? ''))) checkSetup(true); }
 const setupOut = (ws) => ({ claude: ws.setup.claude, github: setup.github, done: setup.done, loginCommand: claudeLoginCommand(ws.profile) });
-async function setupCheckNow() { await checkSetup(false); return { ok: true, setup: setupOut(shownWs()) }; }
+async function setupCheckNow(body, ctx) { await checkSetup(false); return { ok: true, setup: setupOut(ctx?.ws ?? shownWs()) }; }
 function setupDone(body) {
   setup.done = body?.done !== false;
   savePrefs({ setupDone: setup.done });
@@ -1508,7 +1595,7 @@ function setupDone(body) {
   return { ok: true };
 }
 /** Terminal, running Claude Code's own sign-in on this profile, or gh's: the panel never sees a password or token. */
-async function openLoginTerminal(body) {
+async function openLoginTerminal(body, ctx) {
   if (process.platform !== 'darwin') return { ok: false, error: 'Opening Terminal is macOS only. Run the command shown in a terminal.' };
   const what = body?.what === 'gh' ? 'gh' : 'claude';
   const bin = what === 'gh' ? ghPath() : claudePath();
@@ -1517,7 +1604,7 @@ async function openLoginTerminal(body) {
   fs.mkdirSync(where, { recursive: true, mode: 0o700 });
   for (const n of fs.readdirSync(where)) try { const f = path.join(where, n); if (Date.now() - fs.statSync(f).mtimeMs > 3_600_000) fs.unlinkSync(f); } catch {}
   const file = path.join(where, `login-${what}-${crypto.randomBytes(4).toString('hex')}.command`);
-  const ws = shownWs(); // the sign-in banner and checklist on screen are this workspace's
+  const ws = ctx?.ws ?? shownWs(); // the sign-in banner and checklist on this page are its workspace's
   fs.writeFileSync(file, loginScript({ what, bin, configDir: ws.profile.plain ? null : ws.profile.dir, label: profileLabel(ws) }), { mode: 0o700 });
   const r = await run('open', ['-a', 'Terminal', file], { timeout: 10_000, env: baseEnv });
   return r.err ? { ok: false, error: firstLine(r) } : { ok: true };
@@ -1603,9 +1690,10 @@ function threadOf(sessionId) {
   let t = threads.get(sessionId);
   if (!t) {
     // Changes go to the pages that follow it, except one still waiting for its /api/follow reply: that carries them.
+    // Only pages shown the session's workspace.
     t = createThread({ emit: (events) => {
       const f = follows.get(sessionId);
-      const to = f ? [...f.clients].filter((c) => !f.hush.has(c)) : [];
+      const to = f ? sealedTo([...f.clients].filter((c) => !f.hush.has(c)), followWs(f)) : [];
       if (to.length) sendTo(to, 'thread', { sessionId, events: events.map(bare) });
     } });
     threads.set(sessionId, t);
@@ -1613,13 +1701,15 @@ function threadOf(sessionId) {
   return t;
 }
 
+/** The workspace a followed session is in: its record's, else the one it was first followed from. */
+const followWs = (f) => sessions.get(f.sessionId)?.ws ?? f.ws;
 /** Start following a session's transcript, if it has one now. The follow opens first, at the file's end, and what lies
  *  before that offset is read back into the thread, so no line lands in neither and none in both; lines the follow
  *  reads meanwhile go in after it. Resolves whether it is live, and never rejects: an open that fails is logged and
  *  forgotten, so the next /api/follow or retry tries again. */
 function openFollow(f) {
   if (f.ready) return f.ready;
-  const file = transcriptFile(f.sessionId);
+  const file = transcriptFile(f.sessionId, wsById(f.ws));
   if (!file) return Promise.resolve(false);
   const id = f.sessionId, t = threadOf(id);
   let follow = null;
@@ -1628,7 +1718,7 @@ function openFollow(f) {
     follow = createFollow(file, {
       onItems: (items) => { try { if (early) early.push(...items); else t.addItems(items); } catch (err) { console.error('follow:', err?.message ?? err); } },
       // Shrunk or replaced: what the pages have is gone, and they ask again.
-      onReset: () => { try { if (early) early = []; t.reset(); sendTo(f.clients, 'thread-reset', { sessionId: id }); } catch (err) { console.error('follow:', err?.message ?? err); } },
+      onReset: () => { try { if (early) early = []; t.reset(); sendTo(sealedTo(f.clients, followWs(f)), 'thread-reset', { sessionId: id }); } catch (err) { console.error('follow:', err?.message ?? err); } },
     });
     await follow.start(); // rejects if it is gone again since it was found
     if (f.stopped) { follow.stop(); return false; }
@@ -1692,6 +1782,8 @@ async function followSession(body) {
   if (typeof client !== 'string' || !CLIENT.test(client)) return { ok: false, error: 'Which page is this?' };
   if (id !== null && (typeof id !== 'string' || !UUID.test(id))) return { ok: false, error: 'There is no such session.' };
   const limit = Number.isInteger(body.limit) ? Math.min(2000, Math.max(1, body.limit)) : 60;
+  // Already followed from another workspace's page (a session no workspace knows yet): not this page's to join.
+  if (id !== null && follows.has(id) && followWs(follows.get(id)) !== focusOf(client)) return { ok: false, error: REFUSE };
   const was = clientOpen.get(client);
   if (was && was !== id) leave(client, was);
   if (id === null) { clientOpen.delete(client); return { ok: true, items: [], more: false }; }
@@ -1699,8 +1791,8 @@ async function followSession(body) {
   // A page that asks before its stream is up gets the grace a reload does; one that never opens a stream is let go.
   if (!clientRes.has(client)) setTimeout(() => { if (!clientRes.has(client)) dropClient(client); }, RECONNECT_MS);
   let f = follows.get(id);
-  if (!f) follows.set(id, f = { sessionId: id, clients: new Set(), hush: new Set(), follow: null, ready: null, more: false, limit,
-                                retry: null, release: null, stopped: false });
+  if (!f) follows.set(id, f = { sessionId: id, ws: wsIdOfSession(id) ?? focusOf(client), clients: new Set(), hush: new Set(), follow: null,
+                                ready: null, more: false, limit, retry: null, release: null, stopped: false });
   clearTimeout(f.release);
   f.release = null;
   f.clients.add(client);
@@ -1838,10 +1930,13 @@ function askModel(args, { timeout = 90_000, signal, env } = {}) {
 const overseer = createOverseer({
   // The one overseer is the shown workspace's, on its login.
   file: path.join(dataDir, 'overseer.json'), ask: (args, o) => askModel(args, { ...o, env: envOf(shownWs()) }), board: overseerBoard, github: () => github.state(),
-  history: (sessionId, limit) => history({ sessionId, limit }),
+  // It reads and acts on its own workspace's sessions only.
+  history: (sessionId, limit) => (ownedBy(shownId, sessionId) ? history({ sessionId, limit }, { ws: shownWs() }) : { ok: false, error: REFUSE }),
   actions: {
-    reply: (body) => reply(body), launch: (body) => launch(body), interrupt: (body) => interrupt(body),
-    live: (id) => { const s = sessions.get(id); return s && s.inRoster && !isEnded(s) ? s : null; },
+    reply: (body) => (ownedBy(shownId, body?.sessionId) ? reply(body) : { ok: false, error: REFUSE }),
+    launch: (body) => launch(body, shownWs()),
+    interrupt: (body) => (ownedBy(shownId, body?.sessionId) ? interrupt(body) : { ok: false, error: REFUSE }),
+    live: (id) => { const s = sessions.get(id); return s && s.ws === shownId && s.inRoster && !isEnded(s) ? s : null; },
     tellEffect, folders: overseerFolders,
     trusted: (cwd) => isTrusted(shownWs().profile.config, trustKey(cwd, gitPlace(cwd)?.top)) === true,
   },
@@ -1918,7 +2013,7 @@ function termOpen(body) {
       while (t.size > TERM_KEEP && t.buf.length > 1) t.size -= t.buf.shift().length;
       // Output comes in many small writes: a page gets it in one message every 16 ms.
       t.out.push(d);
-      t.flush ??= setTimeout(() => { t.flush = null; const data = Buffer.concat(t.out).toString('base64'); t.out = []; sendTo([...t.clients], 'term', { sessionId: s.sessionId, data }); }, 16);
+      t.flush ??= setTimeout(() => { t.flush = null; const data = Buffer.concat(t.out).toString('base64'); t.out = []; sendTo(sealedTo(t.clients, s.ws), 'term', { sessionId: s.sessionId, data }); }, 16);
     };
     proc.stdout.on('data', take);
     proc.stderr.on('data', take);
@@ -1927,7 +2022,7 @@ function termOpen(body) {
       if (terms.get(s.sessionId) !== t) return;
       terms.delete(s.sessionId);
       clearTimeout(t.flush); clearTimeout(t.release);
-      sendTo([...t.clients], 'term-exit', { sessionId: s.sessionId });
+      sendTo(sealedTo(t.clients, s.ws), 'term-exit', { sessionId: s.sessionId });
     };
     proc.on('exit', gone);
     proc.on('error', (e) => { console.error('terminal:', e?.message ?? e); gone(); });
@@ -1969,14 +2064,15 @@ const termClose = (body) => { termLeave(body?.client, body?.sessionId); return {
 // ---------------------------------------------------------------- snapshot + SSE
 // ---------------------------------------------------------------- snapshot + SSE
 
-// Every workspace's sessions and requests, each tagged with its workspace (`ws`); `profile`, the roster error and the
-// setup are the shown workspace's.
-function snapshot() {
-  const now = Date.now(), shown = shownWs();
+// What a page shown workspace `wsId` gets: that workspace's sessions, requests, profile, roster error, setup and old
+// versions, and of every workspace only { id, name, color, waiting }. Nothing else of another workspace leaves here.
+function snapshot(wsId) {
+  const now = Date.now(), ws = wsById(wsId);
   return {
-    now, armed, rosterError: shown.rosterError, port: PORT, profile: shown.info, setup: setupOut(shown),
-    oldVersions: oldVersions.map(({ ws, ...o }) => ({ ...o, shown: ws === shownId })),
-    sessions: [...sessions.values()].map(({ spawns, hereCwd, rosterCwd, ranCwd, editTops, ...s }) => {
+    now, armed, rosterError: ws.rosterError, port: PORT, profile: ws.info, setup: setupOut(ws),
+    workspace: wsView(wsId), workspaces: wsOrder().map((id) => ({ ...wsView(id), waiting: waitingOf(id) })),
+    oldVersions: oldVersions.filter((o) => o.ws === wsId).map(({ ws: _, ...o }) => ({ ...o, shown: true })),
+    sessions: [...sessions.values()].filter((s) => s.ws === wsId).map(({ spawns, hereCwd, rosterCwd, ranCwd, editTops, ...s }) => {
       const here = ranCwd ?? hereCwd ?? s.cwd, place = gitPlace(here), git = placeOut(place);
       return {
       ...s, git, workCwd: here, gh: place ? github.forSession(place.common, place.branch) : null, elsewhere: (editTops ?? []).filter((t) => t !== git?.top).slice(0, 3).map((t) => placeOut(gitPlace(t))).filter(Boolean),
@@ -1984,14 +2080,16 @@ function snapshot() {
       queued: inbox.get(s.sessionId) ?? [], working: isWorking(s),
       subagents: [...s.subagents.values()].map((a) => ({ ...a, stopping: !a.stoppedAt && stops.has(stopKey(s.sessionId, a.agentId)) })),
     }; }),
-    pending: [...[...pending.values()].map(({ res, timer, ...p }) => p), ...openRequests()],
-    github: github.state(), overseer: overseer.status(), watcher: watcher.status(),
+    pending: [...[...pending.values()].filter((p) => p.ws === wsId).map(({ res, timer, ...p }) => p), ...openRequests(wsId)],
+    // The one overseer is the last-focused workspace's (one each comes later): another workspace's page gets none of it.
+    github: github.state(), overseer: wsId === shownId ? overseer.status() : null, watcher: watcher.status(),
     _ts: now,
   };
 }
 
 // Changes close together go out as one snapshot, which carries every event since the last one (two requests held in
-// the same moment are two `new-request`s, not the second alone).
+// the same moment are two `new-request`s, not the second alone). One snapshot per workspace a page is shown; an event
+// about a request goes only with its own workspace's.
 let queued = false;
 let events = [];
 function broadcast(event) {
@@ -2000,9 +2098,13 @@ function broadcast(event) {
   queued = true;
   setTimeout(() => {
     queued = false;
-    const data = `data: ${JSON.stringify({ ...snapshot(), events })}\n\n`;
+    const evs = events, frames = new Map();
     events = [];
-    for (const c of clients) c.write(data);
+    for (const [res, client] of clients) {
+      const wsId = focusOf(client);
+      if (!frames.has(wsId)) frames.set(wsId, `data: ${JSON.stringify({ ...snapshot(wsId), events: evs.filter((e) => e.ws == null || e.ws === wsId).map(({ ws, ...e }) => e) })}\n\n`);
+      res.write(frames.get(wsId));
+    }
   }, 30);
 }
 
@@ -2071,11 +2173,13 @@ async function handle(req, res) {
 
   if (req.method === 'GET' && url.pathname === '/events') {
     if (url.searchParams.get('t') !== TOKEN) return send(res, 403, { error: 'token' });
-    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
-    res.write(`retry: 2000\ndata: ${JSON.stringify(snapshot())}\n\n`);
-    clients.add(res);
-    // The page's own id, for the thread of the session it has open (a reconnect brings the same one back).
+    // The page's own id, for its focus and the thread of the session it has open (a reconnect brings the same one back).
     const client = CLIENT.test(url.searchParams.get('c') ?? '') ? url.searchParams.get('c') : null;
+    // A new page starts on the workspace focused last and keeps it, whatever another page picks after.
+    if (client && !clientFocus.has(client)) clientFocus.set(client, focusOf(client));
+    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
+    res.write(`retry: 2000\ndata: ${JSON.stringify(snapshot(focusOf(client)))}\n\n`);
+    clients.set(res, client);
     if (client) clientRes.set(client, res);
     if (DAEMON && setRosterPace(true)) pollAll().then(checkVersions); // back from idle: catch up at once
     github.tick({ watched: true }); // a page that opens sees checks as fresh as the next poll
@@ -2085,7 +2189,7 @@ async function handle(req, res) {
     req.on('close', () => {
       clearInterval(ping);
       clients.delete(res);
-      if (client && clientRes.get(client) === res) { clientRes.delete(client); dropClient(client); }
+      if (client && clientRes.get(client) === res) { clientRes.delete(client); dropClient(client); forgetFocusLater(client); }
       // Last tab gone and not back in time: hand every held request back to the terminal, and (under the daemon) slow
       // the roster down. Not before: until then a held request still needs the fast polls to see a terminal answer.
       if (clients.size === 0 && releaseTimer === null) releaseTimer = setTimeout(() => {
@@ -2098,18 +2202,37 @@ async function handle(req, res) {
     return;
   }
 
+  // The page's id, which says which workspace it is shown (null: the one focused last).
+  const hdr = req.headers['x-acp-client'], hdrClient = typeof hdr === 'string' && CLIENT.test(hdr) ? hdr : null;
+
+  // Workspace names and colours, which any page may see, and the repositories sorted into the asking page's workspace.
+  if (req.method === 'GET' && url.pathname === '/api/workspaces') {
+    if (req.headers['x-acp-token'] !== TOKEN) return send(res, 403, { error: 'forbidden' });
+    const focus = focusOf(hdrClient);
+    return send(res, 200, { ok: true, workspaces: store.list(), assigned: store.assigned().filter((a) => a.ws.includes(focus)) });
+  }
+
   if (req.method === 'POST' && url.pathname.startsWith('/api/')) {
     if (!ORIGINS.has(req.headers.origin) || req.headers['x-acp-token'] !== TOKEN) return send(res, 403, { error: 'forbidden' });
     let body;
     try { body = await readBody(req); } catch { return send(res, 400, { error: 'bad body' }); }
+    // The seal: every action runs as the asking page, on its workspace. A session from another workspace is refused here,
+    // before any handler sees it (whatever the route: a sessionId always names the target).
+    const bodyClient = typeof body?.client === 'string' && CLIENT.test(body.client) ? body.client : null;
+    if (hdrClient && bodyClient && hdrClient !== bodyClient) return send(res, 400, { ok: false, error: 'Which page is this?' });
+    const client = hdrClient ?? bodyClient, focus = focusOf(client), ctx = { client, focus, ws: wsById(focus) };
+    const refused = () => send(res, 409, { ok: false, error: REFUSE });
+    if (body?.sessionId != null && !ownedBy(focus, String(body.sessionId))) return refused();
+    // The one overseer is the last-focused workspace's: another workspace's page can't read or act through it.
+    if (url.pathname.startsWith('/api/overseer/') && focus !== shownId) return refused();
     if (url.pathname === '/api/decide') {
-      const r = decide(body);
+      const r = decide(body, focus);
       return send(res, r.ok ? 200 : 409, r);
     }
     if (url.pathname === '/api/launch') {
-      const r = await launch(body);
+      const r = await launch(body, ctx.ws);
       if (!r.ok) loginFailed(r.error);
-      if (r.ok) feed('launched', null, `You started a session in ${tilde(r.cwd ?? '')}.`);
+      if (r.ok && focus === shownId) feed('launched', null, `You started a session in ${tilde(r.cwd ?? '')}.`);
       return send(res, r.ok ? 200 : 422, r);
     }
     if (url.pathname === '/api/interrupt') {
@@ -2119,7 +2242,10 @@ async function handle(req, res) {
     }
     const ACTIONS = { '/api/end': end, '/api/remove': remove, '/api/reply': reply, '/api/unqueue': unqueue, '/api/mode': switchMode,
                       '/api/folders': listFolders, '/api/folder': folderInfo, '/api/pick-folder': pickFolder,
-                      '/api/profiles': profiles, '/api/profile': switchProfile, '/api/profile/connect': connectProfile,
+                      '/api/workspace/focus': focusWorkspace,
+                      // The profile tabs' old name for it, until the switch replaces them.
+                      '/api/profile': (b, c) => focusWorkspace({ ws: b?.id, force: b?.force }, c),
+                      '/api/profiles': profiles, '/api/profile/connect': connectProfile,
                       '/api/answer-open': answerOpen, '/api/history': history, '/api/follow': followSession,
                       '/api/trust-terminal': openTrustTerminal,
                       '/api/setup/check': setupCheckNow, '/api/setup/done': setupDone, '/api/setup/login': openLoginTerminal,
@@ -2129,7 +2255,7 @@ async function handle(req, res) {
                       '/api/term/open': termOpen, '/api/term/input': termInput, '/api/term/resize': termResize, '/api/term/close': termClose };
     if (Object.hasOwn(ACTIONS, url.pathname)) {
       let r;
-      try { r = await ACTIONS[url.pathname](body); } catch (err) { r = { ok: false, error: String(err?.message ?? err).slice(0, 300) }; }
+      try { r = await ACTIONS[url.pathname](body, ctx); } catch (err) { r = { ok: false, error: String(err?.message ?? err).slice(0, 300) }; }
       if (!r.ok) loginFailed(r.error); // a reply or restart that failed for want of a login
       return send(res, r.ok ? 200 : 422, r);
     }

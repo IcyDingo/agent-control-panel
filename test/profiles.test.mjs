@@ -1,5 +1,5 @@
-// Held requests and profiles: a permission request from any profile is held, shown while its profile is the one on
-// the board, and kept when you switch. Run with `npm test`. Starts the server on a spare port under a throwaway home.
+// Held requests and profiles: a permission request from any profile is held, shown only while its workspace is the one
+// in focus, and kept when you switch. Run with `npm test`. Starts the server on a spare port under a throwaway home.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -76,14 +76,15 @@ test('a request from the profile on the board is held and shown', async () => {
   assert.match(await h.promise, /"behavior":"deny"/);
 });
 
-test('a request from another profile is held too, out of sight until that profile is on the board', async () => {
+test('a request from another workspace is held too, out of sight until that workspace is in focus', async () => {
   const h = hook('s-other', path.join(home, '.claude-other'));
   await pause(300);
-  assert.equal(h.answered, false, 'the panel keeps a request from another profile open instead of handing it back');
+  assert.equal(h.answered, false, 'the panel keeps a request from another workspace open instead of handing it back');
   let snap = await latest();
-  // Every workspace is live and the snapshot is not yet sealed per workspace: it is listed, tagged with its own.
-  assert.equal(pendingOf(snap, 's-other').length, 1);
-  assert.equal(pendingOf(snap, 's-other')[0].ws, 'other');
+  // The snapshot is sealed to the workspace in focus: the other workspace's request shows only as its count.
+  assert.equal(pendingOf(snap, 's-other').length, 0);
+  assert.equal(JSON.stringify(snap).includes('s-other'), false);
+  assert.equal(snap.workspaces.find((w) => w.id === 'other').waiting, 1);
 
   const r = await api('/api/profile', { id: 'other' });
   assert.equal(r.ok, true, JSON.stringify(r));
@@ -97,7 +98,7 @@ test('a request from another profile is held too, out of sight until that profil
   assert.equal((await api('/api/profile', { id: 'default' })).ok, true);
   await pause(200);
   assert.equal(h.answered, false);
-  assert.equal(pendingOf(await latest(), 's-other').length, 1);
+  assert.equal(pendingOf(await latest(), 's-other').length, 0);
   assert.equal((await api('/api/profile', { id: 'other' })).ok, true);
   snap = await latest();
   const p = pendingOf(snap, 's-other')[0];

@@ -1127,7 +1127,8 @@ function waitForServer() {
 }
 async function api(path, body) {
   try {
-    const r = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json', 'x-acp-token': TOKEN }, body: JSON.stringify(body) });
+    // x-acp-client: the server answers as this page, on the workspace it shows.
+    const r = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json', 'x-acp-token': TOKEN, 'x-acp-client': CLIENT }, body: JSON.stringify(body) });
     return await r.json();
   } catch { return { ok: false, error: 'No answer from the panel server.' }; }
 }
