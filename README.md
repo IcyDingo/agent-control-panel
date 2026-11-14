@@ -65,11 +65,11 @@ fresh. The `ACP_*` environment variables keep their names. The repository is sti
 Everything stays on your computer: the server listens on 127.0.0.1 only, and the page fetches nothing from anywhere
 else (its typeface, Geist, comes with it).
 
-**The board** is a rail on the left: **Needs you**, then a section for each repository agents work in,
-**Other folders** and **Finished** (see [The rail](#the-rail)). Needs you is always open. Click any other
+**The board** is a rail on the left: **Needs you**, then your **spaces**, a section for each repository agents
+work in, **Other folders** and **Finished** (see [The rail](#the-rail)). Needs you is always open. Click any other
 section's header to fold it to one line, which keeps its count and the name of its newest session.
 Finished starts folded; Settings › Glue › Look & keys offers Other folders and Finished, and what you
-fold there is the same in every window. A repository's section you fold stays folded in that browser
+fold there is the same in every window. A repository's or space's section you fold stays folded in that browser
 (or the app) only. Drag the rail's right edge to widen it (double-click for the default).
 Each session is one row: its state square, its name, what it is doing (the tool it runs, or what it asks
 for: `Bash`, `Asks`, `Plan`, with `sub:` in front when a subagent is asking) and its age. Hover a row for its
@@ -347,6 +347,18 @@ checkouts in use (the main one and worktrees), a quiet label heads each checkout
 outside any repository are under Other folders, and ended ones under Finished. A session under Needs
 you names its repository on its row. The open session's header shows its repository, checkout and
 branch as chips, its folder beneath (a click copies it), and its pull request when it has one.
+
+### Spaces
+
+A space groups agents by what they work on ("Checkout redesign", "Billing bug"), across repositories. It is
+not a workspace: a workspace is one Claude login, and its spaces live inside it, so another workspace's page
+never sees them. Spaces come right after Needs you, in the order you made them. An agent in a space is
+listed there instead of under its repository, its row naming the repository; every agent you never sort
+stays where it was. Pick a space in **New agent** (or **New space…** to name one there), or move an agent
+from the **Space** picker in its details (None sends it back to its repository). An agent that carries on as a
+new session (in OpenCode, or a copy in its worktree) keeps its space. Hover a space's header for **Rename**
+and **Delete**; deleting sends its agents back to their repositories. A space stays until you delete it,
+empty or not, so the next agent can start in it.
 
 ## GitHub
 
