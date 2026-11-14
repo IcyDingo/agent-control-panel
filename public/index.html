@@ -681,6 +681,7 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 .set-panel { grid-column: 2; grid-row: 2; min-width: 0; overflow: auto; padding: 22px 28px 28px; outline: none; }
 .set-panel h3 { margin: 0 40px 4px 0; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
 .set-lead { max-width: 60ch; margin: 0 0 18px; color: var(--fg-dim); font-size: 12.5px; line-height: 1.55; }
+.set-lead.set-in { margin: 4px 16px 12px; }
 .set-h4 { margin: 24px 0 8px; font-size: 13px; font-weight: 600; }
 .set-quiet { margin: 0; color: var(--fg-dim); font-size: 12.5px; line-height: 1.55; }
 .set-here { flex: none; padding: 2px 8px; border-radius: var(--r-pill); background: var(--fill-strong); color: var(--fg-dim); font-size: 11px; font-weight: 550; white-space: nowrap; }
@@ -3048,6 +3049,18 @@ $('h-send').onclick = () => sayOverseer($('h-say').value);
 $('h-model').onchange = async () => { const r = await api('/api/overseer/model', { model: $('h-model').value }); if (!r.ok) toast(r.error || 'The model did not change.', true); };
 $('h-close').onclick = () => { homeOpen = false; render(); };
 const MODEL_NAMES = { haiku: 'Haiku', sonnet: 'Sonnet', opus: 'Opus', fable: 'Fable' };
+/** The overseer's model in words: Claude's by name, an OpenCode one (opencode:provider/model) as OpenCode's. */
+const ovModelName = (m) => MODEL_NAMES[m] ?? (String(m).startsWith('opencode:') ? `${m.slice(9)} (OpenCode)` : m);
+/** The overseer's models by provider: Claude, then each OpenCode provider; the one it uses is kept even when OpenCode
+ *  isn't answering now. */
+function ovModelOptions(models, now) {
+  const list = [...(models ?? [])];
+  if (now && !list.includes(now)) list.push(now);
+  const claude = list.filter((m) => !m.startsWith('opencode:')), oc = new Map();
+  for (const m of list.filter((x) => x.startsWith('opencode:'))) { const p = m.slice(9).split('/')[0]; oc.set(p, [...(oc.get(p) ?? []), m]); }
+  return [el('optgroup', { label: 'Claude' }, ...claude.map((m) => el('option', { value: m, text: MODEL_NAMES[m] ?? m }))),
+    ...[...oc].map(([p, ms]) => el('optgroup', { label: `OpenCode · ${p}` }, ...ms.map((m) => el('option', { value: m, text: m.slice(9 + p.length + 1) }))))];
+}
 
 // ---------- sign-ins, and the first run ----------
 // The panel has no login of its own: it borrows each profile's Claude Code login and your gh. Settings › Logins &
@@ -3212,7 +3225,7 @@ function renderHome(g) {
     el('span', { text: `${n === 1 ? 'One session needs' : n + ' sessions need'} you.` }),
     el('button', { class: 'btn small', type: 'button', onclick: () => { cancelAdvance(); open = next.sessionId; render(); } }, 'Open ' + label(next))] : null);
   const busy = st?.busy;
-  setText($('h-meta'), st ? `${MODEL_NAMES[st.model] ?? st.model} · proposes, you confirm` : '');
+  setText($('h-meta'), st ? `${ovModelName(st.model)} · proposes, you confirm` : '');
   patch($('h-tools'), JSON.stringify([ov.turns.length > 0, armed?.key === 'ovclear:']), () => [
     ov.turns.length ? armBtn('ovclear:', 'Clear', 'Confirm clear', async () => {
       const r = await api('/api/overseer/clear', {}); if (!r.ok) toast(r.error || 'It was not cleared.', true); ovNodes.clear(); }, 'soft small') : null]);
@@ -3230,7 +3243,7 @@ function renderHome(g) {
     el('span', { class: 'quiet', text: ago(snap.now - busy.since) }), el('span', { class: 'grow' }),
     el('button', { class: 'btn quiet small', type: 'button', text: 'Stop', onclick: () => api('/api/overseer/stop', {}) })]);
   if (st) {
-    patch($('h-model'), JSON.stringify(st.models), () => (st.models ?? []).map((m) => el('option', { value: m, text: MODEL_NAMES[m] ?? m })));
+    patch($('h-model'), JSON.stringify([st.models, st.model]), () => ovModelOptions(st.models, st.model));
     if ($('h-model').value !== st.model) $('h-model').value = st.model;
   }
   syncSay();
@@ -4479,13 +4492,15 @@ async function setAssign(key, ws) {
 function setLoginsTab(panel) {
   if (!panel.firstChild) panel.append(
     el('h3', { text: 'Logins & connection' }),
-    el('p', { class: 'set-lead', text: 'Glue has no account of its own. Each workspace runs on its profile’s own Claude Code login, and reaches its sessions through hooks in that profile’s settings.' }),
+    el('p', { class: 'set-lead', text: 'Glue has no account of its own. Each workspace runs on its profile’s own Claude Code login, and reaches its sessions through hooks in that profile’s settings. OpenCode has one set of sign-ins for the whole computer, kept by OpenCode itself.' }),
     el('div', { class: 'set-blocks' }));
   const box = panel.children[2];
   if (!setReady(box)) return;
   const list = setData.workspaces;
   const first = setupPending();
-  patch(box, JSON.stringify([first, list.map((w) => [w.id, w.name, w.color, w.here, w.signedIn, w.connected, w.loginCommand, w.account])]), () => list.map((w) => setLoginBlock(w, list.length > 1, first && w.here)));
+  askSetOc();
+  patch(box, JSON.stringify([first, list.map((w) => [w.id, w.name, w.color, w.here, w.signedIn, w.connected, w.loginCommand, w.account]), setOc]),
+    () => [...list.map((w) => setLoginBlock(w, list.length > 1, first && w.here)), setOcBlock(list.length > 1)]);
 }
 /** One line of a block: a mark (✓ ✗ ·), what it is, a sentence on it, and what you can do. */
 const setLine = (s, mark, t, d, acts, cls) => el('div', { class: 'set-line' + (cls ? ' ' + cls : ''), 'data-s': s },
@@ -4598,7 +4613,7 @@ function setGithubTab(panel) {
           setOpt('Auto-fix', 'When a pull request on an agent’s branch fails, conflicts, gets changes requested or has checks stuck, the PR watcher asks that agent to fix it and push again, at most 3 times. The GitHub panel has the same switch.',
             setSwitch('autofix', several && focus ? `Auto-fix in ${focus.name}` : 'Auto-fix', Boolean(focus?.autofix ?? setData.watcher?.enabled), (on) => setAutofix(focus?.id, on), gh.state === 'off')),
           setOpt('Overseer model', 'The model the overseer answers with. The same choice sits under its composer.',
-            setSelect('ov-model', several && focus ? `The overseer’s model in ${focus.name}` : 'The overseer’s model', models.map((m) => [m, MODEL_NAMES[m] ?? m]),
+            setSelect('ov-model', several && focus ? `The overseer’s model in ${focus.name}` : 'The overseer’s model', models.map((m) => [m, ovModelName(m)]),
               focus?.overseerModel ?? setData.overseer?.model, (m) => setOverseerModel(focus?.id, m))))),
       el('p', { class: 'set-note' }, 'Which of these alert you, CI failures and the PR watcher among them, is under ',
         el('button', { class: 'linkish', type: 'button', text: 'Glue › Answering & alerts', 'data-f': 'to-alerts', onclick: () => { showSetTab('glue'); $('set-g-alerts')?.scrollIntoView({ block: 'start' }); } }), '.'),
@@ -4632,13 +4647,8 @@ function setProvidersTab(panel) {
   const box = panel.children[2];
   if (!setReady(box)) return;
   const list = setData.workspaces;
-  // OpenCode's state comes from its own service, asked each time the tab shows (it may start or stop outside Glue).
-  if (!setOcAsked) {
-    setOcAsked = true;
-    api('/api/opencode', {}).then((r) => { setOc = r.ok ? r : { error: r.error }; renderSettings(); }, () => { setOc = { error: 'Glue could not ask OpenCode.' }; renderSettings(); });
-  }
-  const o = setOc, ocAct = (path) => async () => { const r = await api(path, {}); if (!r.ok) toast(r.error || 'That did not work.', true); setOcAsked = false; renderSettings(); };
-  setPatch(box, JSON.stringify([list.map((w) => [w.id, w.name, w.color, w.signedIn]), o]), () => {
+  askSetOc();
+  setPatch(box, JSON.stringify([list.map((w) => [w.id, w.name, w.color, w.signedIn]), setOc]), () => {
     const soon = (name, text) => el('section', { class: 'set-block off', 'aria-label': name, 'aria-disabled': 'true' },
       setBlockHead(null, name), setLine('off', '·', text, null));
     return [
@@ -4650,18 +4660,31 @@ function setProvidersTab(panel) {
               [el('button', { class: 'btn small', type: 'button', text: 'Logins & connection', 'data-f': 'to-logins-' + w.id, onclick: () => showSetTab('logins') })])
             : setLine('wait', '·', name, 'Checking…');
         })),
-      el('section', { class: 'set-block', 'aria-label': 'OpenCode' }, setBlockHead(null, 'OpenCode', o?.running ? 'Running' : o?.installed ? 'Installed' : null),
-        !o ? setLine('wait', '·', 'OpenCode', 'Checking…')
-          : o.error && !o.installed && !o.running ? setLine('todo', '✗', 'OpenCode', o.error)
-          : !o.installed && !o.running ? setLine('off', '·', 'Not installed', IS_MAC ? "brew install anomalyco/tap/opencode-v2" : "Install it from opencode.ai")
-          : !o.running ? setLine('todo', '·', `OpenCode${o.version ? ' ' + o.version : ''}`, 'Not running. Glue starts it when an agent needs it.',
-              [el('button', { class: 'btn small', type: 'button', text: 'Start it', onclick: ocAct('/api/opencode/start') })])
-          : setLine(o.models.length ? 'ok' : 'todo', o.models.length ? '✓' : '✗', `OpenCode ${o.version ?? ''}`.trim(),
-              o.models.length ? `${o.models.length} models from ${new Set(o.models.map((m) => m.provider)).size} providers${o.defaultModel ? `, default ${o.defaultModel}` : ''}` : 'No models yet: sign it in to a provider',
-              [el('button', { class: 'btn small', type: 'button', text: o.models.length ? 'Add a provider' : 'Sign in', onclick: ocAct('/api/opencode/login') })])),
+      setOcBlock(list.length > 1),
       soon('Codex', "Coming next: run agents with OpenAI's Codex"),
     ];
   });
+}
+// OpenCode's state comes from its own service, asked each time Settings opens (it may start or stop outside Glue).
+function askSetOc() {
+  if (setOcAsked) return;
+  setOcAsked = true;
+  api('/api/opencode', {}).then((r) => { setOc = r.ok ? r : { error: r.error }; renderSettings(); }, () => { setOc = { error: 'Glue could not ask OpenCode.' }; renderSettings(); });
+}
+/** OpenCode's block, in Providers and in Logins & connection: one for every workspace, since OpenCode is one service per
+ *  computer with one set of sign-ins. */
+function setOcBlock(several) {
+  const o = setOc, ocAct = (path) => async () => { const r = await api(path, {}); if (!r.ok) toast(r.error || 'That did not work.', true); setOcAsked = false; renderSettings(); };
+  return el('section', { class: 'set-block', 'aria-label': 'OpenCode' }, setBlockHead(null, 'OpenCode', several ? 'every workspace' : o?.running ? 'Running' : o?.installed ? 'Installed' : null),
+    !o ? setLine('wait', '·', 'OpenCode', 'Checking…')
+      : o.error && !o.installed && !o.running ? setLine('todo', '✗', 'OpenCode', o.error)
+      : !o.installed && !o.running ? setLine('off', '·', 'Not installed', IS_MAC ? 'brew install anomalyco/tap/opencode-v2' : 'Install it from opencode.ai')
+      : !o.running ? setLine('todo', '·', `OpenCode${o.version ? ' ' + o.version : ''}`, 'Not running. Glue starts it when an agent or the overseer needs it.',
+          [el('button', { class: 'btn small', type: 'button', text: 'Start it', onclick: ocAct('/api/opencode/start') })])
+      : setLine(o.models.length ? 'ok' : 'todo', o.models.length ? '✓' : '✗', `OpenCode ${o.version ?? ''}`.trim(),
+          o.models.length ? `Signed in: ${o.models.length} models from ${[...new Set(o.models.map((m) => m.provider))].join(', ')}${o.defaultModel ? `. Default ${o.defaultModel}` : ''}` : 'Not signed in to any provider yet',
+          [el('button', { class: 'btn small' + (o.models.length ? '' : ' primary'), type: 'button', text: o.models.length ? 'Add a provider…' : 'Sign in in Terminal…', onclick: ocAct('/api/opencode/login') })]),
+    several ? el('p', { class: 'set-lead set-in', text: 'One OpenCode for this computer: its sign-ins are shared by every workspace. Each OpenCode session shows only in the workspace that started it.' }) : null);
 }
 
 // The Glue tab: what applies to every workspace and every page, kept on the server (prefs.json › glue), and every
@@ -4746,7 +4769,7 @@ function setGlueAgents(box, g) {
     setOpt('Permissions', null, setSelect('ad-mode', 'Permissions a new agent starts with', AGENT_MODES, a.mode, (v) => setGlue({ agentDefaults: { mode: v } }))),
     setOpt('Its own worktree', 'A new branch in a folder of its own, off the one you are on.', setSwitch('ad-wt', 'Its own worktree', a.worktree, (on) => setGlue({ agentDefaults: { worktree: on } }))),
     setOpt('Overseer model for a new workspace', 'What the overseer of a workspace added from now on answers with.',
-      setSelect('ad-ov', 'Overseer model for a new workspace', models.map((m) => [m, MODEL_NAMES[m] ?? m]), g.overseerModel, (v) => setGlue({ overseerModel: v }))),
+      setSelect('ad-ov', 'Overseer model for a new workspace', models.map((m) => [m, ovModelName(m)]), g.overseerModel, (v) => setGlue({ overseerModel: v }))),
   ]);
 }
 function setGlueAbout(box, ab) {

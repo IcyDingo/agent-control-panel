@@ -23,7 +23,7 @@ import { createThread } from './thread.mjs';
 import { UNTRUSTED, trustKey, isTrusted, trustScript } from './trust.mjs';
 import { prefsPath } from './cli.mjs';
 import { createGithub, slugOf } from './github.mjs';
-import { createOverseer, migrateFrom, MODELS as OVERSEER_MODELS } from './overseer.mjs';
+import { createOverseer, migrateFrom, MODELS as OVERSEER_MODELS, OC_PREFIX as OVERSEER_OC } from './overseer.mjs';
 import { createWatcher } from './watcher.mjs';
 import { parseClaudeAuth, parseGhAuth, claudeLoginCommand, loginScript, LOGIN_ERROR } from './setup.mjs';
 import { migrateFolders } from './migrate.mjs';
@@ -1831,7 +1831,7 @@ function settingsFor(focus, about = {}) {
     glue: g,
     github: { state: setup.github.state, login: setup.github.login ?? null },
     watcher: { enabled: watcher.status(focus).enabled },
-    overseer: { model: overseerOf(focus)?.status().model ?? g.overseerModel, models: [...OVERSEER_MODELS] },
+    overseer: { model: overseerOf(focus)?.status().model ?? g.overseerModel, models: overseerModels() },
     about,
   };
 }
@@ -2409,6 +2409,7 @@ function overseerOf(id) {
   o = createOverseer({
     file, profile: key, seed,
     ask: (args, opts) => askModel(args, { ...opts, env: envOf(ws()) }), board: () => overseerBoard(id), github: () => githubFor(id),
+    askOpenCode: askOverseerOc, models: overseerModels,
     history: (sessionId, limit) => (ownedBy(id, sessionId) ? history({ sessionId, limit }, { ws: ws() }) : { ok: false, error: REFUSE }),
     actions: {
       reply: (body) => (ownedBy(id, body?.sessionId) ? reply(body) : { ok: false, error: REFUSE }),
@@ -2855,6 +2856,43 @@ async function ocHistory(s, limit = 60) {
   return { ok: true, items: items.slice(cut), more: cut > 0 };
 }
 
+// ---------------------------------------------------------------- the overseer on an OpenCode model
+// Every workspace's overseer may answer with an OpenCode model (opencode:provider/model) as well as one of Claude's.
+// OpenCode is one service for the whole computer, so its models are the same in every workspace. Each call is one
+// answer from the model outside any conversation (`generate`), on a session of Glue's own in the overseer's empty
+// folder, made once per model, with every permission denied and kept off the board.
+let ocModelCache = [];
+/** The models every overseer offers now: Claude's, then OpenCode's while its service answers. */
+const overseerModels = () => [...OVERSEER_MODELS, ...ocModelCache.map((m) => OVERSEER_OC + m.ref)];
+async function refreshOcModels() {
+  try { const next = pickable(await oc.models()); if (JSON.stringify(next) !== JSON.stringify(ocModelCache)) { ocModelCache = next; broadcast(); settingsChanged(); } }
+  catch { if (ocModelCache.length) { ocModelCache = []; broadcast(); } }
+}
+const ocOverseerSessions = new Map(); // model → the session its answers are asked on
+async function askOverseerOc({ model, system, prompt, timeout }) {
+  if (!modelRef(model)) return { error: 'That is not an OpenCode model.' };
+  const up = await ocEnsure();
+  if (!up.ok) return { error: up.error };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let id = ocOverseerSessions.get(model);
+    try {
+      if (!id) {
+        try { fs.mkdirSync(overseerCwd, { recursive: true, mode: 0o700 }); } catch {}
+        const s = await oc.createSession({ directory: overseerCwd, agent: 'plan', model: modelRef(model), title: 'Glue overseer',
+                                           permissions: ['*', 'read', 'edit', 'shell', 'webfetch', 'websearch', 'subagent', 'external_directory'].map((action) => ({ action, resource: '*', effect: 'deny' })) });
+        if (!OC_ID.test(String(s?.id ?? ''))) return { error: 'OpenCode did not say which session it made.' };
+        ocOverseerSessions.set(model, id = s.id);
+      }
+      const r = await oc.generate(id, `${system}\n\n${prompt}`, { ms: timeout });
+      return { text: typeof r?.text === 'string' ? r.text : '' };
+    } catch (e) {
+      if (attempt === 0 && id && e.status === 404) { ocOverseerSessions.delete(model); continue; } // its session went: make another
+      return { error: e.message };
+    }
+  }
+  return { error: 'OpenCode did not answer.' };
+}
+
 /** What Settings and the launcher show of OpenCode: installed, running, its models and default. */
 async function ocStatus(body) {
   const bin = findOcBinary(ocWhere);
@@ -2862,7 +2900,7 @@ async function ocStatus(body) {
   try { info = await oc.info(); } catch (e) { error = e.message; }
   if (info && body?.models !== false) {
     const dir = typeof body?.cwd === 'string' && path.isAbsolute(body.cwd) ? body.cwd : undefined;
-    try { models = pickable(await oc.models(dir)); } catch (e) { error = e.message; }
+    try { models = pickable(await oc.models(dir)); if (!dir) ocModelCache = models; } catch (e) { error = e.message; }
     try { const d = await oc.defaultModel(dir); defaultModel = d?.providerID ? `${d.providerID}/${d.id ?? d.modelID}` : null; } catch {}
   }
   return { ok: true, installed: Boolean(bin), running: Boolean(info), version: info?.version ?? null, models, defaultModel, error,
@@ -3232,6 +3270,8 @@ server.listen(PORT, '127.0.0.1', () => {
   pollAll().then(() => { if (looking()) checkVersions(); });
   setRosterPace(looking());
   setInterval(() => { if (looking()) checkVersions(); }, VERSIONS_MS);
+  refreshOcModels(); // the overseer's OpenCode models, read again each minute someone may be looking
+  setInterval(() => { if (looking()) refreshOcModels(); }, 60_000);
   setInterval(() => { prune(); broadcast(); }, 10_000);
   // GitHub: one beat every 15 s, each repository on its own pace; the first a little after start, once the roster is in.
   setTimeout(() => { github.tick({ watched: clients.size > 0 }); setInterval(() => github.tick({ watched: clients.size > 0 }), 15_000); }, 20_000);

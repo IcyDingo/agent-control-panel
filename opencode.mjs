@@ -118,6 +118,8 @@ export function createClient({ service, fetch: doFetch = globalThis.fetch, timeo
       location: { directory }, ...(agent ? { agent } : {}), ...(model ? { model } : {}), ...(permissions ? { permissions } : {}), ...(title ? { metadata: { title } } : {}) } }),
     session: async (id) => req('GET', `/session/${sid(id)}`),
     prompt: async (id, text, { delivery = 'queue' } = {}) => req('POST', `/session/${sid(id)}/prompt`, { body: { text, delivery } }),
+    /** One answer from the session's model to `prompt`, outside its conversation: `{ text, tokens, cost }`. */
+    generate: async (id, prompt, { ms = 90_000 } = {}) => req('POST', `/session/${sid(id)}/generate`, { body: { prompt }, ms }),
     synthetic: async (id, text) => req('POST', `/session/${sid(id)}/synthetic`, { body: { text, resume: false } }),
     messages: async (id, { limit = 400 } = {}) => req('GET', `/session/${sid(id)}/message`, { query: { limit, order: 'asc' } }),
     interrupt: async (id) => req('POST', `/session/${sid(id)}/interrupt`),

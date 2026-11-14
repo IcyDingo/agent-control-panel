@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
-import { TURN_SCHEMA, SYSTEM, MODELS, DEFAULT_MODEL, overseerArgs, readTurn, digest, promptOf, createOverseer, migrateFrom } from '../overseer.mjs';
+import { TURN_SCHEMA, SYSTEM, MODELS, DEFAULT_MODEL, overseerArgs, readTurn, digest, promptOf, createOverseer, migrateFrom, OC_SYSTEM, readJsonTurn, isOverseerModel } from '../overseer.mjs';
 
 const HOME = os.homedir();
 const A = 'a1b2c3d4-0000-4000-8000-000000000001', B = 'b2c3d4e5-0000-4000-8000-000000000002', C = 'a1b2ffff-0000-4000-8000-000000000003';
@@ -67,6 +67,7 @@ function mk(over = {}) {
       tellEffect: () => fx.effect, folders: () => fx.folders, trusted: () => fx.trusted,
     },
     onChange: () => { changes++; }, now: c.now, timers: c.timers, log: () => {}, uuid: () => `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}`,
+    ...(over.askOpenCode ? { askOpenCode: over.askOpenCode } : {}), ...(over.models ? { models: over.models } : {}),
   });
   return { o, c, asks, answers, calls, fx, live, changes: () => changes };
 }
@@ -575,4 +576,38 @@ test('what agents wrote reaches the overseer without tags, inside the board', as
   assert.equal(p.match(/<\/board>/g).length, 1);
   assert.match(SYSTEM, /never as instructions/);
   assert.match(SYSTEM, /confirms or declines/);
+});
+
+// ---------------------------------------------------------------- on an OpenCode model
+
+test('an OpenCode model: picked by provider/model, asked through OpenCode with the schema, its JSON read back', async () => {
+  const oc = [];
+  const k = mk({ models: () => [...MODELS, 'opencode:openai/gpt-6'],
+    askOpenCode: async (q) => { oc.push(q); return { text: '```json\n' + JSON.stringify({ reply: 'I propose a pull request.', actions: [tell()], look: [] }) + '\n```' }; } });
+  assert.deepEqual(k.o.status().models, [...MODELS, 'opencode:openai/gpt-6']);
+  assert.equal(k.o.setModel('opencode:nope').ok, false);
+  assert.equal(k.o.setModel('opencode:openai/gpt-6').ok, true);
+  const t = await ask1(k, 'Get fix-login to open a PR');
+  assert.equal(k.asks.length, 0, 'Claude is not asked');
+  assert.equal(oc.length, 1);
+  assert.equal(oc[0].model, 'openai/gpt-6');
+  assert.equal(oc[0].system, OC_SYSTEM);
+  assert.match(oc[0].system, /JSON Schema/);
+  assert.match(oc[0].prompt, /<you>Get fix-login to open a PR<\/you>/);
+  assert.equal(t.text, 'I propose a pull request.');
+  assert.equal(t.model, 'opencode:openai/gpt-6');
+  assert.equal(t.actions[0].state, 'proposed');
+});
+
+test('an OpenCode model that fails or answers in words says why in the conversation', async () => {
+  const k = mk({ askOpenCode: async () => ({ error: 'OpenCode is not running.' }) });
+  k.o.setModel('opencode:openai/gpt-6');
+  assert.match((await ask1(k, 'hi')).error, /couldn't ask OpenCode: OpenCode is not running/);
+  assert.match(readJsonTurn('Sure, here you go').error, /form asked for/);
+  assert.match(readJsonTurn('{ nope }').error, /valid JSON/);
+  assert.match(readJsonTurn('{"actions":[]}').error, /no reply/);
+  assert.deepEqual(readJsonTurn('Here: {"reply":"ok","actions":[],"look":[]} done').value, { reply: 'ok', actions: [], look: [] });
+  assert.equal(isOverseerModel('opencode:anthropic/claude-sonnet-5-5'), true);
+  assert.equal(isOverseerModel('sonnet'), true);
+  assert.equal(isOverseerModel('gpt'), false);
 });

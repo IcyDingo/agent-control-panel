@@ -82,6 +82,9 @@ const svc = http.createServer((req, res) => {
       return json(res, 200, { data: { id: 'msg_x', sessionID: m[1], type: 'user' } });
     }
     if ((m = p.match(/^\/api\/session\/(ses_\w+)\/message$/))) return json(res, 200, { data: oc.messages.get(m[1]) ?? [] });
+    if ((m = p.match(/^\/api\/session\/(ses_\w+)\/generate$/))) {
+      return json(res, 200, { data: { text: JSON.stringify({ reply: 'Two sessions: export is at its limit.', actions: [], look: [] }), tokens: {}, cost: 0 } });
+    }
     if ((m = p.match(/^\/api\/session\/(ses_\w+)\/permission\/(per_\w+)\/reply$/))) {
       oc.perms = oc.perms.filter((x) => x.id !== m[2]);
       return json(res, 204);
@@ -230,4 +233,24 @@ test('a Claude session at its usage limit says so, and carries on in OpenCode wh
   const carried = after.sessions.find((y) => y.sessionId === r.sessionId);
   assert.equal(carried.continuedFrom, SID);
   assert.equal(carried.agent, 'opencode');
+});
+
+test('the overseer offers OpenCode\'s models and answers through OpenCode on one, kept off the board', async () => {
+  const snap = await until((x) => x.overseer?.models?.includes('opencode:fake/m1'), 'the overseer lists OpenCode models');
+  assert.ok(snap.overseer.models.includes('sonnet'));
+  assert.equal((await api('/api/overseer/model', { model: 'opencode:fake/m1' })).ok, true);
+  assert.equal((await api('/api/overseer/model', { model: 'opencode:bad' })).ok, false);
+  const before = oc.sessions.size;
+  assert.equal((await api('/api/overseer/say', { text: 'What is going on?' })).ok, true);
+  let turns;
+  for (let i = 0; i < 40; i++) { turns = (await api('/api/overseer/turns', {})).turns; if (turns?.at(-1)?.who === 'overseer') break; await new Promise((r) => setTimeout(r, 250)); }
+  const last = turns.at(-1);
+  assert.equal(last.text, 'Two sessions: export is at its limit.', JSON.stringify(last));
+  assert.equal(last.model, 'opencode:fake/m1');
+  const made = [...oc.sessions].slice(before).map(([, b]) => b);
+  assert.equal(made.length, 1, 'one session of its own');
+  assert.ok(made[0].permissions.every((r) => r.effect === 'deny'));
+  assert.match(oc.calls.findLast((c) => c.path.endsWith('/generate')).body.prompt, /JSON Schema[\s\S]*<you>What is going on\?<\/you>/);
+  const own = [...oc.sessions.keys()].at(-1);
+  assert.ok(!(await snapshot()).sessions.some((s) => s.sessionId === own), 'its session is not on the board');
 });
