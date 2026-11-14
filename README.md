@@ -21,14 +21,14 @@ into `~/Applications`. Then:
 
 1. Open **Glue**. macOS may ask whether it may use your Documents folder: the panel reads the
    repositories your sessions work in.
-2. The first time, **Settings** opens by itself on **Logins & connection**. Open it yourself any time with the gear (⚙)
+2. The first time, **Settings** opens by itself on **Live updates**. Open it yourself any time with the gear (⚙)
    in the top bar, **⌘,** in the app (**Glue › Settings…**), or `,` in a browser when you aren't typing. It is where
    everything is set, for every workspace and for Glue itself (see [Settings](#settings)). A first run needs two things,
    for the workspace in view, marked **Needed**:
    - **Sign in to Claude.** The panel has no login of its own: the overseer and new agents run on the
      profile's Claude Code login. **Sign in in Terminal…** opens Terminal running `claude auth login` on that
      profile (or copy the command).
-   - **Connect.** It adds the panel's hooks to that profile's `settings.json` (and keeps a copy of
+   - **Turn on live updates.** It adds the panel's hooks to that profile's `settings.json` (and keeps a copy of
      the old file). Sessions you start after that show up on the board; one already running keeps asking in its
      terminal until it restarts.
 
@@ -40,7 +40,7 @@ into `~/Applications`. Then:
 
    Later on, a lapsed login shows by itself. Signed out of Claude, an amber banner says so with **Sign in in
    Terminal…**, **Copy command** and **Open Settings**, and goes once you're back in. The banner is about the workspace
-   in view. A profile without the hooks gets a **Connect this profile** banner the same way. With `gh` signed out, the
+   in view. A profile without the hooks gets a "Live updates are off" banner with **Turn on live updates** the same way. With `gh` signed out, the
    GitHub button turns amber and its panel has the same Terminal sign-in. The panel looks every few minutes while a page
    is open, when you come back to its window, while Settings is open, and at once when the overseer, a launch or a reply
    fails with a login error.
@@ -199,7 +199,7 @@ Node, so you need only **Claude Code 2.1.303 or newer** and **python3** (which n
 Prefer the .deb where you can. On Ubuntu 24.04 and later an AppImage can't use Chromium's sandbox, so it starts
 without it; the .deb installs the permission the sandbox needs.
 
-It then works like the Mac app: the first time, **Settings** opens by itself on **Logins & connection** (see
+It then works like the Mac app: the first time, **Settings** opens by itself on **Live updates** (see
 [Get started](#get-started), from step 2). What differs:
 
 - **Closing the window keeps Glue running**, so it goes on holding requests. Open Glue again to bring the window
@@ -271,7 +271,7 @@ panel looks as it always has.
   A page opens on the workspace last in view and keeps its own after that.
 
 A profile's sessions report here only once its settings have the hooks. When a profile doesn't have
-them, the panel shows a **Connect this profile** banner, and Settings shows **Connect** for every workspace. Either adds the entries from
+them, the panel shows a "Live updates are off" banner, and Settings › Live updates shows **Turn on live updates** for every workspace. Either adds the entries from
 `hooks.example.json` that the profile's `settings.json` lacks. It changes nothing else in the file,
 and keeps a dated copy of the old file beside it.
 
@@ -286,21 +286,26 @@ the last tab while the page is open. It has six tabs:
   marked "you're here". With two or more, below the rows are the repositories of the workspace in view, each with
   **Move** and **Forget**, and the "N repositories aren't in a workspace yet · Sort" line. With one workspace there is just
   its row, and a note that a second Claude Code profile (`~/.claude-<name>`) becomes a second workspace.
-- **Logins & connection.** A block per workspace, each acting on its own profile without switching: **Claude** signed in or
-  not (**Sign in in Terminal…** and **Copy command**, for that workspace's own `CLAUDE_CONFIG_DIR`), and **Connected** or
-  not (**Connect**, which keeps a dated copy of `settings.json`). The account's email and plan show for the workspace in
-  view only. A "Codex: coming next" line is a placeholder. OpenCode is not here: it is one for the whole computer, and a
-  line points at **Providers**.
+- **Live updates.** A block per workspace, each acting on its own profile without switching: whether its Claude Code
+  sessions report here as they run (their tools, subagents and permission requests), and **Turn on live updates** when
+  they don't (Glue adds its hooks to that profile's `settings.json` and keeps a dated copy). Off, sessions still show,
+  but ask in their own terminal. Sign-ins are under **Providers**; on a first run the Claude sign-in the workspace in view
+  still needs shows here too.
 - **GitHub, alerts & Auto-fix.** The GitHub CLI sign-in (shared: one `gh` login), then **Auto-fix** for the workspace in
   view. It is the same switch as the GitHub panel's, and shows the same state.
 - **Overseer.** What the overseer does, then the **model** of the workspace in view's overseer (the same select as the
   one under the overseer's box, showing the same state) and the **model a new workspace's overseer starts with** (kept
   with Glue's own settings in `prefs.json`).
-- **Providers.** What runs your agents. **Claude Code**, active, with each workspace's sign-in status. **OpenCode**: whether
-  it is installed and running (**Start it**), the accounts it is signed in to by name (**Providers…** opens the connect
-  dialog, where a key or a browser sign-in goes through to OpenCode itself, which keeps it), and the models it can run on,
-  with its own default. One OpenCode for the computer: its sign-ins are shared by every workspace, and each OpenCode session
-  shows only in the workspace that started it. **Codex** is listed as coming next.
+- **Providers.** What runs your agents, one tab each, with a dot for how it stands (green: set up; amber: it needs you).
+  - **Claude**: each workspace's own Claude account (**Sign in in Terminal…** and **Copy command**, for that workspace's
+    `CLAUDE_CONFIG_DIR`). The account's email and plan show for the workspace in view only.
+  - **OpenAI**: OpenAI's models run through OpenCode today, so this connects OpenAI there (**Connect OpenAI…**, by API key
+    or ChatGPT sign-in). **Codex** is listed as coming next.
+  - **OpenCode**: set up in four steps on a rail that fills as each is done: **Install** (in a Terminal window, with
+    Homebrew or OpenCode's own script), **Start it**, **Connect a provider** (a key or a browser sign-in, kept by OpenCode
+    itself), and **Pick a model** new OpenCode agents start on. Once it is ready, the steps fold into one row, and the
+    providers it is connected to show as tiles (one more to connect another). One OpenCode for the computer: its sign-ins
+    are shared by every workspace, and each OpenCode session shows only in the workspace that started it.
 - **Glue.** Settings that apply to every workspace and every page, kept on the server in `prefs.json` so the app and any
   browser tab agree:
   - **Look & keys:** the theme (Dark, Light, or the Mac's own appearance; on Linux, the desktop's), which queues start folded (Other folders,
@@ -333,7 +338,7 @@ data. The board, the GitHub panel, the overseer, notifications, the title and th
 before, and nothing else changes the seal.
 
 **First run.** While setup isn't done, Settings opens by itself on **Logins & connection** and marks the two required
-steps for the workspace in view (Claude sign-in and Connect) as **Needed**. A footer has **Skip for now** and **Done**
+steps for the workspace in view (Claude sign-in and live updates) as **Needed**. A footer has **Skip for now** and **Done**
 (primary once both are in place); either one ends the first run, closes the dialog and starts the tour if this browser
 hasn't seen it. Esc or ✕ closes it for that page load only. If the workspace in view is already signed in and connected, setup is marked done quietly
 and nothing opens. Anyone who finished setup before is not interrupted.
@@ -428,7 +433,7 @@ Ask what needs you, what everyone is doing, or what is failing, or say what you 
 
 ## Wire the hooks (once)
 
-Click **Connect** in Settings (or **Connect this profile** in its banner), or merge `hooks.example.json` into your user settings
+Click **Turn on live updates** in Settings › Live updates (or in its banner), or merge `hooks.example.json` into your user settings
 yourself (`~/.claude/settings.json`, or `$CLAUDE_CONFIG_DIR/settings.json`). Sessions started after
 that report to the panel; one that
 was already running keeps asking in its terminal until you restart it. To try it

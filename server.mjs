@@ -3051,7 +3051,7 @@ async function ocStatus(body) {
         label: String(c.label ?? 'Account'), active: c.active === true })).slice(0, 30);
     } catch {}
   }
-  return { ok: true, installed: Boolean(bin), running: Boolean(info), version: info?.version ?? null, models, defaultModel, connected, accounts, error,
+  return { ok: true, installed: Boolean(bin), running: Boolean(info), version: info?.version ?? null, models, defaultModel, connected, accounts, error, installCommand: bin ? null : ocInstallCommand().show,
            sessions: Object.keys(ocRecords).length };
 }
 const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
@@ -3065,6 +3065,23 @@ async function ocLogin() {
   fs.writeFileSync(file, `#!/bin/${SCRIPT_SHELL}\necho 'Sign OpenCode in to a provider. Glue never sees your key.'\n${shq(bin)} auth login\necho\necho 'Done. You can close this window.'\n`, { mode: 0o700 });
   const r = await openInTerminal(file);
   return r.none ? { ok: false, error: `No terminal app was found. Run ${bin} auth login in a terminal.` } : r;
+}
+/** How OpenCode installs here: Homebrew's tap on a Mac that has Homebrew, else OpenCode's own install script. */
+function ocInstallCommand() {
+  const brew = MAC ? ['/opt/homebrew/bin/brew', '/usr/local/bin/brew'].find((f) => { try { fs.accessSync(f, fs.constants.X_OK); return true; } catch { return false; } }) : null;
+  return brew ? { cmd: `${shq(brew)} install anomalyco/tap/opencode-v2`, show: 'brew install anomalyco/tap/opencode-v2' }
+    : { cmd: 'curl -fsSL https://opencode.ai/v2/install | bash', show: 'curl -fsSL https://opencode.ai/v2/install | bash' };
+}
+/** Terminal, installing OpenCode where you can watch it. Settings asks again when you come back. */
+async function ocInstall() {
+  if (findOcBinary(ocWhere)) return { ok: true, already: true };
+  const { cmd, show } = ocInstallCommand();
+  const where = path.join(path.dirname(PREFS), 'trust');
+  fs.mkdirSync(where, { recursive: true, mode: 0o700 });
+  const file = path.join(where, `install-opencode-${crypto.randomBytes(4).toString('hex')}${SCRIPT_EXT}`);
+  fs.writeFileSync(file, `#!/bin/${SCRIPT_SHELL}\necho 'Installing OpenCode for Glue:'\necho ${shq(show)}\necho\n${cmd}\necho\necho 'Done. Go back to Glue: Settings › Providers › OpenCode picks it up.'\n`, { mode: 0o700 });
+  const r = await openInTerminal(file);
+  return r.none ? { ok: false, error: `No terminal app was found. Run ${show} in a terminal.` } : r;
 }
 
 // ---------------------------------------------------------------- a Claude session at its usage limit
@@ -3376,7 +3393,7 @@ async function handle(req, res) {
                       '/api/github/log': githubLog, '/api/github/hand': githubHand, ...OVERSEER,
                       '/api/watcher/enabled': (b, c) => nudgeIfOk(watcher.setEnabled(b?.on, c.focus)),
                       '/api/settings/restart': restartService, '/api/settings/reveal': revealIn,
-                      '/api/opencode': ocStatus, '/api/opencode/start': ocEnsure, '/api/opencode/login': ocLogin,
+                      '/api/opencode': ocStatus, '/api/opencode/start': ocEnsure, '/api/opencode/login': ocLogin, '/api/opencode/install': ocInstall,
                       '/api/opencode/continue': continueInOpenCode,
                       '/api/opencode/providers': ocProviders, '/api/opencode/connect': ocConnect, '/api/opencode/disconnect': ocDisconnect,
                       '/api/term/open': termOpen, '/api/term/input': termInput, '/api/term/resize': termResize, '/api/term/close': termClose };
