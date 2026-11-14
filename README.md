@@ -298,7 +298,7 @@ and keeps a dated copy of the old file beside it.
 
 One dialog holds every setting, for every workspace and for Glue itself. Open it with the gear (⚙) in the top bar, **⌘,**
 in the app (**Glue › Settings…**; Ctrl+, in the Linux app), or `,` in a browser when focus isn't in a text field. Esc or ✕ closes it; it remembers
-the last tab while the page is open. It has six tabs:
+the last tab while the page is open. It has six tabs, seven with two or more workspaces:
 
 - **Workspaces.** A row for each workspace: its name (1–24 characters, unique), one of five colours, and up and down
   buttons that set its place in the switch (⌃1, ⌃2…). Every row can be edited from either workspace; the one you are in is
@@ -306,9 +306,11 @@ the last tab while the page is open. It has six tabs:
   while sessions run in it: its logins stay, its repositories are unsorted again). **New workspace** makes one,
   starting with the logins of the workspace in view. Below, **Logins**: a table with a column per workspace and a row
   per login (Claude, OpenAI, and OpenCode as one row). Tick a box to let a workspace use a login; ☆ marks what that
-  workspace's new agents start on. With two or more workspaces, every workspace's repositories follow under its name,
-  each with **Move** and **Forget**, and the "N repositories aren't in a workspace yet · Sort" line. No tab in Settings
-  has a workspace picker: what is a workspace's own shows a row per workspace.
+  workspace's new agents start on. No tab in Settings has a workspace picker: what is a workspace's own shows a row per
+  workspace.
+- **Repositories** (shown with two or more workspaces). Every repository Glue knows of, with a pill for each workspace it
+  is in (× takes it out of that one) or "unsorted", and **Move** and **Forget**; then the "N repositories aren't in a
+  workspace yet · Sort" line. Inside Settings these act on any repository and any workspace.
 - **Live updates.** A block per Claude login: whether its sessions report here as they run (their tools, subagents and
   permission requests), and **Turn on live updates** when they don't (Glue adds its hooks to that profile's
   `settings.json` and keeps a dated copy). Off, sessions still show, but ask in their own terminal. Sign-ins are under
@@ -356,8 +358,6 @@ the last tab while the page is open. It has six tabs:
     Finder**, and the commands to update (`git pull && ./install.sh`) and uninstall (`./install.sh --uninstall`). On
     Linux there is no service and no Restart, the buttons are **Open folder**, and update and uninstall point at the
     app (see [The Linux app](#the-linux-app)).
-  - **Repositories** (shown with two or more workspaces): every repository Glue knows of, with its workspaces or
-    "unsorted", and **Move** and **Forget** for each. Inside Settings these act on any repository and any workspace.
 
 **The exceptions are inside Settings only.** It is the one place that shows the other workspace's name, colour, order and
 whether it is signed in and connected, and the full map of repositories to workspaces, because those are what it exists to

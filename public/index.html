@@ -752,8 +752,6 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 .set-ws .set-order .btn.icon.set-rm.armed { width: auto; padding: 0 9px; font-size: 12px; color: var(--stop); }
 .more-m button.armed { background: var(--stop-fill); }
 .acct-ren.field { height: 26px; width: 14em; max-width: 100%; }
-.set-repo-ws + .set-repo-ws { margin-top: 10px; }
-.set-repo-h { display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 12.5px; font-weight: 600; }
 /* OpenCode's setup: four steps on a rail that fills as each is done */
 .ocs { list-style: none; margin: 0; padding: var(--s-4) var(--s-4) var(--s-2); }
 .ocs li { position: relative; display: grid; grid-template-columns: 28px 1fr; column-gap: var(--s-3); padding-bottom: var(--s-5); }
@@ -4680,6 +4678,8 @@ document.addEventListener('keydown', (e) => {
 const setDlg = $('settings');
 const SET_TABS = [
   { id: 'workspaces', name: 'Workspaces', build: setWorkspacesTab }, // shows every workspace at once: no picker
+  // Which workspace each repository is in: only there is more than one to sort them into.
+  { id: 'repos', name: 'Repositories', build: setReposTab, when: () => (snap?.workspaces?.length ?? 0) > 1 },
   { id: 'logins', name: 'Live updates', build: setLoginsTab },
   { id: 'github', name: 'GitHub, alerts & Auto-fix', build: setGithubTab },
   { id: 'overseer', name: 'Overseer', build: setOverseerTab },
@@ -4740,11 +4740,11 @@ $('set-close').onclick = closeSettings;
 $('settings-btn').onclick = () => openSettings();
 // Up and Down (or Left and Right) move between the tabs, as in any tab list; Home and End go to the ends.
 $('set-tabs').addEventListener('keydown', (e) => {
-  const i = SET_TABS.findIndex((t) => t.id === setTab), n = SET_TABS.length;
+  const tabs = setTabsShown(), i = tabs.findIndex((t) => t.id === setTab), n = tabs.length;
   const j = { ArrowDown: i + 1, ArrowRight: i + 1, ArrowUp: i - 1 + n, ArrowLeft: i - 1 + n, Home: 0, End: n - 1 }[e.key];
   if (j == null) return;
   e.preventDefault();
-  showSetTab(SET_TABS[j % n].id);
+  showSetTab(tabs[j % n].id);
 });
 // , opens it (the browser keeps ⌘, for itself): not while typing, under another dialog, or during the tour.
 document.addEventListener('keydown', (e) => {
@@ -4768,9 +4768,13 @@ async function loadSettings() {
   setData = r?.ok ? r : (setData || false); // a failed refetch keeps what it showed
   renderSettings();
 }
+/** The tabs shown now: one with a `when` only while it has something to show. */
+const setTabsShown = () => SET_TABS.filter((t) => !t.when || t.when());
 function renderSettings() {
+  if (!setTabsShown().some((t) => t.id === setTab)) setTab = 'workspaces';
   for (const t of SET_TABS) {
     const b = $('set-tab-' + t.id), on = t.id === setTab;
+    b.hidden = Boolean(t.when) && !t.when();
     setAttr(b, 'aria-selected', String(on));
     setAttr(b, 'tabindex', on ? '0' : '-1');
   }
@@ -4807,17 +4811,16 @@ const iconBtn = (d, attrs) => el('button', { class: 'btn icon', type: 'button', 
   (() => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('aria-hidden', 'true');
     const p = document.createElementNS('http://www.w3.org/2000/svg', 'path'); p.setAttribute('d', d); s.append(p); return s; })());
 
-// The Workspaces tab: a row each (name, colour, order), then the repositories of the one this page is on.
+// The Workspaces tab: a row each (name, colour, order), New workspace, then which logins each may use.
 function setWorkspacesTab(panel) {
   if (!panel.firstChild) panel.append(
     el('h3', { text: 'Workspaces' }), el('p', { class: 'set-lead' }), el('div', { class: 'set-rows' }), el('div', {}),
-    el('div', { class: 'set-more' }, el('h4', { class: 'set-h4' }), el('div', { class: 'set-box' })),
-    el('div', { class: 'set-more' }, el('h4', { class: 'set-h4' }), el('div', { class: 'set-repos' }), el('div', { class: 'set-sort' })));
-  const [, lead, rowsBox, addBox, logs, more] = panel.children;
+    el('div', { class: 'set-more' }, el('h4', { class: 'set-h4' }), el('div', { class: 'set-box' })));
+  const [, lead, rowsBox, addBox, logs] = panel.children;
   const list = setData?.workspaces ?? [], several = list.length > 1;
   setText(lead, 'A workspace is how you work: its repositories, agents and overseer. Name each one, pick its colour, and tick the logins it may use.'
     + (several ? ' The order is the switch’s, and ⌃1, ⌃2… follow it.' : ''));
-  if (!setReady(rowsBox)) { addBox.hidden = logs.hidden = more.hidden = true; return; }
+  if (!setReady(rowsBox)) { addBox.hidden = logs.hidden = true; return; }
   addBox.hidden = logs.hidden = false;
   patch(addBox, '', () => setNewWsForm());
   setText(logs.firstChild, 'Logins');
@@ -4833,29 +4836,17 @@ function setWorkspacesTab(panel) {
   });
   // A row that moved took the focus with it out of the page for a moment: it goes back where it was.
   if (had && had !== document.activeElement && had.isConnected && setDlg.contains(had) && !had.disabled) had.focus({ preventScroll: true });
-  more.hidden = !several;
-  if (!several) return;
-  const [h4, reposBox, sortBox] = more.children;
-  setText(h4, 'Repositories');
-  // Every workspace's, under its name: nothing here depends on a workspace picked at the top.
-  patch(reposBox, JSON.stringify([list.map((w) => [w.id, w.name, w.color]), setData.repos, setMoving]), () => list.map((ws) => {
-    const mine = setData.repos.filter((r) => r.ws.includes(ws.id)), choice = [ws, ...list.filter((w) => w !== ws)];
-    return el('div', { class: 'set-repo-ws' }, el('div', { class: 'set-repo-h' }, el('span', { class: 'set-dot', style: `--sw:${WS_COLORS[ws.color]}`, 'aria-hidden': 'true' }), ' ', ws.name),
-      mine.length ? mine.map((r) => {
-        const k = `${ws.id}:${r.key}`;
-        return el('div', { class: 'su-ws-r' },
-          el('div', {}, el('b', { text: r.label, title: r.label }),
-            el('button', { class: 'btn quiet small', type: 'button', text: 'Move', 'data-move': k, 'aria-expanded': String(setMoving === k),
-              onclick: () => { setMoving = setMoving === k ? null : k; renderSettings(); reposBox.querySelector(`[data-move="${CSS.escape(k)}"]`)?.focus(); } }),
-            el('button', { class: 'btn quiet small', type: 'button', text: 'Forget', title: `${ws.name} stops holding ${r.label}. Glue asks again the next time you start an agent in it.`,
-              onclick: () => setAssign(r.key, r.ws.filter((id) => id !== ws.id)) })),
-          setMoving === k ? el('div', { class: 'seg', role: 'radiogroup', 'aria-label': `Which workspace ${r.label} belongs to` },
-            ...choice.map((w) => el('label', {}, commitRadio({ name: 'set-mv-' + k, value: w.id, checked: r.ws.length === 1 && r.ws[0] === w.id }, () => setAssign(r.key, [w.id])), el('span', { text: w.name, title: w.name }))),
-            el('label', { class: 'both' }, commitRadio({ name: 'set-mv-' + k, value: 'both', checked: choice.every((w) => r.ws.includes(w.id)) }, () => setAssign(r.key, choice.map((w) => w.id))),
-              el('span', { text: choice.length === 2 ? 'Both' : 'All' }))) : null);
-      }) : el('p', { class: 'set-quiet', text: 'None yet. Glue asks the first time you start an agent in one.' }));
-  }));
-  // The GitHub panel's own line: what GitHub found that no workspace holds yet, and Sort.
+}
+// The Repositories tab (only with two workspaces or more): every repository Glue knows of, with the workspaces it is
+// in, then the GitHub panel's own line: what GitHub found that no workspace holds yet, and Sort.
+function setReposTab(panel) {
+  if (!panel.firstChild) panel.append(
+    el('h3', { text: 'Repositories' }),
+    el('p', { class: 'set-lead', text: 'Every repository Glue knows of, and the workspaces it belongs to. Each workspace sees only its own. Glue asks which the first time you start an agent in one that is in none.' }),
+    el('div', { class: 'set-box' }), el('div', { class: 'set-sort' }));
+  const [, , box, sortBox] = panel.children;
+  if (!setReady(box)) return;
+  setReposList(box);
   patch(sortBox, JSON.stringify([snap?.github?.unsorted ?? 0, ghSort, snap?.workspaces?.map((w) => [w.id, w.name]), snap?.workspace?.id]), () => (snap ? sortLine() : null));
 }
 /** New workspace: a name, then it is made, using the default Claude login of the workspace in view to start with. */
@@ -5428,9 +5419,8 @@ async function ocDo(path) {
   renderSettings();
 }
 
-// The Glue tab: what applies to every workspace and every page, kept on the server (prefs.json › glue), and every
-// repository Glue knows of with the workspaces it is in: the one list of them all, and it stays in this dialog.
-const SET_GLUE = [['look', 'Look & keys'], ['alerts', 'Answering & alerts'], ['agents', 'Agent defaults'], ['about', 'About & maintenance'], ['repos', 'Repositories']];
+// The Glue tab: what applies to every workspace and every page, kept on the server (prefs.json › glue).
+const SET_GLUE = [['look', 'Look & keys'], ['alerts', 'Answering & alerts'], ['agents', 'Agent defaults'], ['about', 'About & maintenance']];
 const AGENT_MODELS = [['', 'Default'], ['opus', 'Opus'], ['opus[1m]', 'Opus 1M'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku'], ['fable', 'Fable']];
 const AGENT_MODES = [['default', 'Ask each tool'], ['acceptEdits', 'Accept edits'], ['plan', 'Plan first'], ['auto', 'Auto']];
 function setGlueTab(panel) {
@@ -5449,9 +5439,6 @@ function setGlueTab(panel) {
   setGlueAlerts(box('alerts'), g);
   setGlueAgents(box('agents'), g);
   setGlueAbout(box('about'), setData.about ?? {});
-  const several = setData.workspaces.length > 1;
-  $('set-g-repos').hidden = !several;
-  if (several) setGlueRepos(box('repos'));
   if (setScrollTo) { $('set-g-' + setScrollTo)?.scrollIntoView({ block: 'start' }); setScrollTo = null; }
 }
 function setGlueLook(box, g) {
@@ -5569,12 +5556,11 @@ async function setReveal(what, b) {
   if (!r.ok) toast(r.error || (IS_MAC ? 'Finder did not open.' : 'The folder did not open.'), true);
 }
 /** Every repository, with a pill for each workspace it is in (× takes it out of that one), Move, and Forget. */
-function setGlueRepos(box) {
+function setReposList(box) {
   const list = setData.workspaces, repos = setData.repos ?? [], byId = new Map(list.map((w) => [w.id, w]));
   setPatch(box, JSON.stringify([list.map((w) => [w.id, w.name, w.color]), repos, setMoving]), () => {
-    const head = el('p', { class: 'set-quiet set-sub', text: 'Every repository Glue knows of, and the workspaces it belongs to. Each workspace sees only its own. Forget leaves one unsorted, and Glue asks again the next time you start an agent in it.' });
-    if (!repos.length) return [head, el('p', { class: 'set-quiet', text: 'Glue doesn’t know of a repository yet.' })];
-    return [head, el('div', { class: 'set-repos set-all' }, ...repos.map((r) => {
+    if (!repos.length) return el('p', { class: 'set-quiet set-sub', text: 'Glue doesn’t know of a repository yet.' });
+    return [el('div', { class: 'set-repos set-all' }, ...repos.map((r) => {
       const ws = r.ws.filter((id) => byId.has(id));
       return el('div', { class: 'su-ws-r' },
         el('div', {}, el('b', { text: r.label, title: r.label }),
