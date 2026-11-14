@@ -308,9 +308,10 @@ the last tab while the page is open. It has six tabs, seven with two or more wor
   per login (Claude, OpenAI, and OpenCode as one row). Tick a box to let a workspace use a login; ☆ marks what that
   workspace's new agents start on. No tab in Settings has a workspace picker: what is a workspace's own shows a row per
   workspace.
-- **Repositories** (shown with two or more workspaces). Every repository Glue knows of, with a pill for each workspace it
-  is in (× takes it out of that one) or "unsorted", and **Move** and **Forget**; then the "N repositories aren't in a
-  workspace yet · Sort" line. Inside Settings these act on any repository and any workspace.
+- **Repositories** (shown with two or more workspaces). A table of every repository Glue knows of, always open: a column
+  per workspace, and a box to tick for each workspace a repository is in. None ticked is "unsorted", and Glue asks again
+  the next time an agent starts in it. Then the "N repositories aren't in a workspace yet · Sort" line. Inside Settings
+  these act on any repository and any workspace.
 - **Live updates.** A block per Claude login: whether its sessions report here as they run (their tools, subagents and
   permission requests), and **Turn on live updates** when they don't (Glue adds its hooks to that profile's
   `settings.json` and keeps a dated copy). Off, sessions still show, but ask in their own terminal. Sign-ins are under

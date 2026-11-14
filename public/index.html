@@ -743,7 +743,7 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 .wst-p td { color: var(--fg-faint); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; padding-bottom: 3px; }
 .wst-out { margin-left: 8px; color: var(--amber); font-size: 11.5px; }
 .wst-c { display: inline-flex; align-items: center; gap: 6px; }
-.wst-c input { width: 16px; height: 16px; margin: 0; accent-color: var(--run); cursor: pointer; }
+.wst input[type=checkbox] { width: 16px; height: 16px; margin: 0; accent-color: var(--run); cursor: pointer; vertical-align: middle; }
 .wst-star { width: 16px; padding: 0; border: 0; background: none; color: var(--fg-faint); font-size: 14px; cursor: pointer; }
 .wst-star.on { color: var(--amber); }
 .wst-star:disabled { visibility: hidden; }
@@ -4729,7 +4729,7 @@ function showSetTab(id) {
 }
 setDlg.addEventListener('close', () => {
   setData = null; setSeq++; setMoving = null; setRows.clear(); setAskedFor = null; setRestart = null; setScrollTo = null; clearTimeout(setRestartTimer);
-  closeSignIn(); setCxKey = null; setRenaming = null; // a sign-in or rename still open in Providers ends with the dialog
+  closeSignIn(); setCxKey = null; setRenaming = null; setReposSeen.clear(); // what was open in Providers or Repositories ends with the dialog
   const panel = $('set-panel');
   panel.replaceChildren(); panel._tab = null;
   if (setBack?.isConnected) setBack.focus({ preventScroll: true });
@@ -5555,30 +5555,22 @@ async function setReveal(what, b) {
   b.disabled = false;
   if (!r.ok) toast(r.error || (IS_MAC ? 'Finder did not open.' : 'The folder did not open.'), true);
 }
-/** Every repository, with a pill for each workspace it is in (× takes it out of that one), Move, and Forget. */
+/** Every repository and the workspaces it is in, always open: a column per workspace, a box to tick. None ticked is
+ *  unsorted, and Glue asks again the next time an agent starts in it. */
+const setReposSeen = new Map(); // key → label: a repository unticked from its last workspace stays listed, unsorted, until Settings closes
 function setReposList(box) {
-  const list = setData.workspaces, repos = setData.repos ?? [], byId = new Map(list.map((w) => [w.id, w]));
-  setPatch(box, JSON.stringify([list.map((w) => [w.id, w.name, w.color]), repos, setMoving]), () => {
+  const list = setData.workspaces, repos = [...(setData.repos ?? [])];
+  for (const r of repos) setReposSeen.set(r.key, r.label);
+  for (const [key, label] of setReposSeen) if (!repos.some((r) => r.key === key)) repos.push({ key, label, ws: [], stored: false });
+  setPatch(box, JSON.stringify([list.map((w) => [w.id, w.name, w.color]), repos]), () => {
     if (!repos.length) return el('p', { class: 'set-quiet set-sub', text: 'Glue doesn’t know of a repository yet.' });
-    return [el('div', { class: 'set-repos set-all' }, ...repos.map((r) => {
-      const ws = r.ws.filter((id) => byId.has(id));
-      return el('div', { class: 'su-ws-r' },
-        el('div', {}, el('b', { text: r.label, title: r.label }),
-          el('span', { class: 'set-pills' }, ...(ws.length ? ws.map((id) => {
-            const w = byId.get(id);
-            return el('span', { class: 'set-pill', style: `--sw:${WS_COLORS[w.color]}` }, el('span', { class: 'set-dot', 'aria-hidden': 'true' }), el('span', { text: w.name }),
-              el('button', { class: 'set-pill-x', type: 'button', 'data-f': `x:${r.key}:${id}`, 'data-fb': 'mv:' + r.key, 'aria-label': `Take ${r.label} out of ${w.name}`, title: `Take it out of ${w.name}`, text: '×',
-                onclick: () => setAssign(r.key, r.ws.filter((x) => x !== id)) }));
-          }) : [el('span', { class: 'set-pill none', text: 'unsorted' })])),
-          el('button', { class: 'btn quiet small', type: 'button', text: 'Move', 'data-f': 'mv:' + r.key, 'aria-expanded': String(setMoving === r.key),
-            onclick: () => { setMoving = setMoving === r.key ? null : r.key; renderSettings(); } }),
-          r.stored ? el('button', { class: 'btn quiet small', type: 'button', text: 'Forget', 'data-f': 'fg:' + r.key, 'data-fb': 'mv:' + r.key, title: `${r.label} leaves every workspace. Glue asks again the next time you start an agent in it.`,
-            onclick: () => setAssign(r.key, []) }) : null),
-        setMoving === r.key ? el('div', { class: 'seg', role: 'radiogroup', 'aria-label': `Which workspace ${r.label} belongs to` },
-          ...list.map((w) => el('label', {}, commitRadio({ name: 'set-all-' + r.key, 'data-f': `mvr:${r.key}:${w.id}`, 'data-fb': 'mv:' + r.key, value: w.id, checked: ws.length === 1 && ws[0] === w.id }, () => setAssign(r.key, [w.id])), el('span', { text: w.name, title: w.name }))),
-          el('label', { class: 'both' }, commitRadio({ name: 'set-all-' + r.key, 'data-f': `mvr:${r.key}:both`, 'data-fb': 'mv:' + r.key, value: 'both', checked: list.every((w) => ws.includes(w.id)) }, () => setAssign(r.key, list.map((w) => w.id))),
-            el('span', { text: list.length === 2 ? 'Both' : 'All' }))) : null);
-    }))];
+    return el('table', { class: 'wst' },
+      el('thead', {}, el('tr', {}, el('th'),
+        ...list.map((w) => el('th', {}, el('span', { class: 'set-dot', style: `--sw:${WS_COLORS[w.color]}`, 'aria-hidden': 'true' }), ' ', w.name)))),
+      el('tbody', {}, ...repos.map((r) => el('tr', {},
+        el('td', {}, el('span', { text: r.label, title: r.key.replace(/^(gh|git|dir):/, '') }), r.ws.some((id) => list.some((w) => w.id === id)) ? null : el('span', { class: 'wst-out', text: 'unsorted' })),
+        ...list.map((w) => el('td', {}, el('input', { type: 'checkbox', checked: r.ws.includes(w.id), 'aria-label': `${r.label} is in ${w.name}`, 'data-f': `r:${r.key}:${w.id}`,
+          onchange: (e) => setAssign(r.key, e.target.checked ? [...r.ws, w.id] : r.ws.filter((x) => x !== w.id)) })))))));
   });
 }
 
