@@ -3,7 +3,7 @@
 // objects; where they are kept is the caller's business. Node standard library only.
 //
 // Not here, on purpose: "Answering here" (`armed`). It resets to on at every start, so it is never remembered.
-import { MODELS as OVERSEER_MODELS } from './overseer.mjs';
+import { isOverseerModel } from './overseer.mjs';
 import { MODEL_REF } from './opencode.mjs';
 
 // Copied from server.mjs (importing it would start the server): `MODELS`, `EFFORTS` and `RESUME_MODES` there.
@@ -48,7 +48,7 @@ const SHAPE = {
   titleCount: isBool,
   agentDefaults: { model: oneOf(AGENT_MODELS), effort: oneOf(AGENT_EFFORTS), mode: oneOf(AGENT_MODES), worktree: isBool,
                    agent: oneOf(AGENT_KINDS), opencodeModel: ocModel },
-  overseerModel: oneOf(OVERSEER_MODELS),
+  overseerModel: isOverseerModel,
   fallbackModel: ocModel,
   seeded: isBool,
 };

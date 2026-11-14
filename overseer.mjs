@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { MODEL_REF } from './opencode.mjs';
 
 const MIN = 60_000;
 const ROUND_MS = 90_000;       // one call to Claude
@@ -28,6 +29,11 @@ const EVENT = /^[a-z][a-z-]{0,23}$/;
 
 export const MODELS = ['haiku', 'sonnet', 'opus', 'fable'];
 export const DEFAULT_MODEL = 'sonnet';
+/** An OpenCode model the overseer answers with, written opencode:provider/model (opencode.mjs). */
+export const OC_PREFIX = 'opencode:';
+/** Whether the overseer can answer with `m`: one of Claude's models, or any OpenCode model by its shape (the service
+ *  may be down when this is asked, so it is not looked up). */
+export const isOverseerModel = (m) => MODELS.includes(m) || (typeof m === 'string' && m.startsWith(OC_PREFIX) && MODEL_REF.test(m.slice(OC_PREFIX.length)));
 
 /** What the overseer must answer with (`claude -p --json-schema`). */
 export const TURN_SCHEMA = {
@@ -110,6 +116,23 @@ export function readTurn({ err, stdout = '', stderr = '' } = {}) {
   if (v && typeof v === 'object') return fail("The overseer's answer had no reply in it.");
   const why = firstLine(`${stderr}\n${stdout}`) || firstLine(err?.message);
   return fail(why ? `The overseer couldn't answer: ${why}` : "The overseer couldn't answer.");
+}
+
+/** OpenCode has no --json-schema: the overseer on an OpenCode model is told the schema and answers with JSON alone. */
+export const OC_SYSTEM = `${SYSTEM}
+
+Answer with one JSON object and nothing else (no Markdown fence, no words before or after it), matching this JSON Schema:
+${JSON.stringify(TURN_SCHEMA)}`;
+
+/** One round's answer from the text an OpenCode model gave back, or why there is none. */
+export function readJsonTurn(text) {
+  const t = String(text ?? '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  const a = t.indexOf('{'), b = t.lastIndexOf('}');
+  if (a < 0 || b < a) return fail(t ? `The overseer didn't answer in the form asked for: ${firstLine(t)}` : 'The overseer gave no answer.');
+  let v;
+  try { v = JSON.parse(t.slice(a, b + 1)); } catch { return fail("The overseer's answer wasn't valid JSON."); }
+  if (!v || typeof v !== 'object' || typeof v.reply !== 'string') return fail("The overseer's answer had no reply in it.");
+  return { ok: true, value: { reply: v.reply, actions: objects(v.actions), look: objects(v.look) } };
 }
 
 // ---------------------------------------------------------------- text
@@ -318,7 +341,7 @@ function textProblem(t) {
 /** A kept file's conversations, cleaned. An action caught running by a restart is marked failed: whether it happened
  *  is not known, and it must not be offered again. */
 function normalize(raw) {
-  const out = { v: 1, model: MODELS.includes(raw?.model) ? raw.model : DEFAULT_MODEL, profiles: {} };
+  const out = { v: 1, model: isOverseerModel(raw?.model) ? raw.model : DEFAULT_MODEL, profiles: {} };
   if (!raw || typeof raw !== 'object') return out;
   for (const [id, p] of Object.entries(raw.profiles && typeof raw.profiles === 'object' ? raw.profiles : {})) {
     if (!PROFILE.test(id) || !p || typeof p !== 'object') continue;
@@ -361,9 +384,13 @@ export function migrateFrom(oldFile, id) {
  * @param {object} deps.actions { reply(body), launch(body), interrupt(body), live(sessionId), tellEffect(sessionId),
  *   folders(), trusted(cwd) }: what a confirmed proposal calls, and what a proposal is checked against
  * @param {Function} [deps.onChange] called after every change, to broadcast status()
+ * @param {Function} [deps.askOpenCode] `({ model, system, prompt, timeout, signal })` → the text an OpenCode model
+ *   answered with ({ text } or { error }), for a model written opencode:provider/model
+ * @param {Function} [deps.models] the models it offers now: Claude's, and OpenCode's while its service answers
  */
 export function createOverseer({
   file, profile = 'default', seed = null, ask, board, github = () => null, history, actions,
+  askOpenCode = null, models = () => MODELS,
   onChange = () => {}, now = Date.now, timers = { setTimeout, clearTimeout }, log = console.error, uuid = randomUUID,
 }) {
   // One workspace's overseer: its conversation and feed are kept under its profile's id.
@@ -527,12 +554,25 @@ export function createOverseer({
       const prompt = promptOf({ digest: digest(b, readGithub(), { now: now() }), feed: p.feed.slice(-FEED_IN_PROMPT), turns: earlier, text,
         excerpts: [...excerpts.values()], looksLeft, now: now() });
       const id = uuid();
-      let r;
-      try { r = await ask(overseerArgs({ id, model, system: SYSTEM, prompt }), { id, timeout: Math.min(ROUND_MS, left), signal: run.controller.signal }); } catch (e) {
-        r = { err: e, stdout: '', stderr: String(e?.message ?? e) };
+      let res;
+      if (model.startsWith(OC_PREFIX)) {
+        // An OpenCode model: asked through OpenCode's service, told the schema in its system prompt.
+        let r;
+        if (!askOpenCode) r = { error: 'OpenCode is not set up here.' };
+        else {
+          try { r = await askOpenCode({ model: model.slice(OC_PREFIX.length), system: OC_SYSTEM, prompt, timeout: Math.min(ROUND_MS, left), signal: run.controller.signal }); }
+          catch (e) { r = { error: String(e?.message ?? e) }; }
+        }
+        if (busy !== run) return;
+        res = r?.error ? fail(`The overseer couldn't ask OpenCode: ${firstLine(r.error)}`) : readJsonTurn(r?.text);
+      } else {
+        let r;
+        try { r = await ask(overseerArgs({ id, model, system: SYSTEM, prompt }), { id, timeout: Math.min(ROUND_MS, left), signal: run.controller.signal }); } catch (e) {
+          r = { err: e, stdout: '', stderr: String(e?.message ?? e) };
+        }
+        if (busy !== run) return; // stopped or cleared while it thought
+        res = readTurn(r ?? {});
       }
-      if (busy !== run) return; // stopped or cleared while it thought
-      const res = readTurn(r ?? {});
       if (!res.ok) return finish({ error: res.error });
       const { reply, actions: proposed, look } = res.value;
       if (look.length && looksLeft > 0) {
@@ -650,7 +690,7 @@ export function createOverseer({
     },
     /** @returns {{ busy: null|{since, phase: 'thinking'|'looking'}, rev, feedSeq, proposed, model, models }} */
     status() {
-      return { busy: busy ? { since: busy.since, phase: busy.phase } : null, rev, feedSeq: prof().fseq, proposed: proposedCount(), model: data.model, models: MODELS };
+      return { busy: busy ? { since: busy.since, phase: busy.phase } : null, rev, feedSeq: prof().fseq, proposed: proposedCount(), model: data.model, models: models() };
     },
 
     /** Your message. It returns at once; the answer arrives as a turn of its own. */
@@ -737,7 +777,7 @@ export function createOverseer({
 
     /** Pick the model the next message is asked with. */
     setModel(model) {
-      if (!MODELS.includes(model)) return fail('Pick a model from the list.');
+      if (!isOverseerModel(model)) return fail('Pick a model from the list.');
       data.model = model;
       changed();
       return { ok: true, model };

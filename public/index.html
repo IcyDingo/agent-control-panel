@@ -634,6 +634,10 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .wt-name { flex: 1; min-width: 0; height: 32px; padding: 0 12px; border: 1px solid transparent; border-radius: var(--r-1); background: var(--fill); font: 12.5px var(--mono); }
 .l-note { margin: -6px 0 0; color: var(--fg-dim); font-size: 12px; overflow-wrap: anywhere; }
 .launcher.oc .l-claude { display: none; }
+.ocp-m { display: grid; gap: 8px; padding: 10px 0; border-top: 1px solid var(--line); }
+.ocp-m:first-of-type { border-top: 0; }
+.ocp-acct { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; padding: 2px 0; }
+#ocp select[size] { height: auto; }
 .l-oc .l-note { margin: 6px 0 0; }
 .l-oc select { width: 100%; }
 .l-note code { font: 11.5px var(--mono); color: var(--fg); }
@@ -681,6 +685,7 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 .set-panel { grid-column: 2; grid-row: 2; min-width: 0; overflow: auto; padding: 22px 28px 28px; outline: none; }
 .set-panel h3 { margin: 0 40px 4px 0; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
 .set-lead { max-width: 60ch; margin: 0 0 18px; color: var(--fg-dim); font-size: 12.5px; line-height: 1.55; }
+.set-lead.set-in { margin: 4px 16px 12px; }
 .set-h4 { margin: 24px 0 8px; font-size: 13px; font-weight: 600; }
 .set-quiet { margin: 0; color: var(--fg-dim); font-size: 12.5px; line-height: 1.55; }
 .set-here { flex: none; padding: 2px 8px; border-radius: var(--r-pill); background: var(--fill-strong); color: var(--fg-dim); font-size: 11px; font-weight: 550; white-space: nowrap; }
@@ -1202,6 +1207,17 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
     <div class="row"><button class="btn" type="button" id="cont-cancel">Cancel</button><button class="btn primary" type="submit" id="cont-go">Continue in OpenCode</button></div>
   </form>
 </dialog>
+<!-- Connecting OpenCode to a provider, from here: a key, or a sign-in in the browser. OpenCode keeps it; Glue keeps
+     nothing. One OpenCode for the computer, so what is connected here is there in every workspace. -->
+<dialog class="launcher" id="ocp" aria-labelledby="ocp-title">
+  <form id="ocp-form">
+    <h2 id="ocp-title">OpenCode providers</h2>
+    <p class="lead">Connect OpenCode to the model providers it runs on. OpenCode keeps each key or sign-in, for every workspace; Glue only passes it on. A Claude subscription can’t be used here.</p>
+    <div id="ocp-body"></div>
+    <p class="err" id="ocp-err" hidden></p>
+    <div class="row"><button class="btn" type="button" id="ocp-close">Done</button></div>
+  </form>
+</dialog>
 <!-- Settings: every workspace's name, colour, order, sign-in and hooks, and Glue's own. What it shows of a workspace
      this page isn't on comes from GET /api/settings while it is open, and stays in its own variables. -->
 <dialog class="settings" id="settings" aria-labelledby="set-title">
@@ -1231,6 +1247,8 @@ const LABEL = { waiting: 'Needs you', busy: 'Working', idle: 'Idle', finished: '
 const KIND = { background: 'Background session', interactive: 'Terminal session', opencode: 'OpenCode session' };
 /** An OpenCode session (opencode.mjs): OpenCode's own service runs it, so none of Claude Code's commands reach it. */
 const isOcS = (s) => s?.kind === 'opencode';
+/** An OpenCode session whose last turn ended in an error (a provider refusing it): it waits on you, saying the error. */
+const ocFailedS = (s) => isOcS(s) && s.waitingFor === 'provider error' && Boolean(s.ocError?.message);
 /** When a usage limit resets, as the clock reads it: "15:00", or a weekday and time further off. */
 const resetText = (ms) => { if (!ms) return ''; const d = new Date(ms), soon = ms - Date.now() < 20 * 3600_000;
   return d.toLocaleString([], soon ? { hour: '2-digit', minute: '2-digit' } : { weekday: 'short', hour: '2-digit', minute: '2-digit' }); };
@@ -1502,6 +1520,7 @@ function lineOf(s) {
   const st = stateOf(s), rs = reqsOf(s.sessionId);
   if (st === 'stopping') return ['Stopping at its next tool call'];
   if (rs.length) return [(rs[0].agentId ? 'Its subagent: ' : '') + askText(rs[0]) + (rs.length > 1 ? ` (+${rs.length - 1})` : '')];
+  if (st === 'waiting' && ocFailedS(s)) return [el('span', { class: 't', text: 'Error' }), s.ocError.message];
   if (st === 'waiting') return [s.kind === 'background' ? 'Waiting on something the panel can\'t read' : isOcS(s) ? 'Waiting on something to answer in OpenCode' : WAITING_FOR[s.waitingFor] || 'Waiting in its terminal'];
   if (st === 'busy') return s.lastTool ? [el('span', { class: 't', text: s.lastTool.tool }), s.lastTool.text] : ['Working'];
   if (atLimit(s)) return [el('span', { class: 't', text: 'Limit' }), limitLine(s)];
@@ -1764,7 +1783,7 @@ function detailOf(s, st) {
     const p = rs[0], name = p.toolName === 'ExitPlanMode' ? 'Plan' : p.toolName === 'AskUserQuestion' ? 'Asks' : p.toolName;
     return { text: (p.agentId ? 'sub:' : '') + name + (rs.length > 1 ? ` +${rs.length - 1}` : ''), full: (p.agentId ? 'Its subagent: ' : '') + askText(p) };
   }
-  if (st === 'waiting') return { text: isOcS(s) ? 'opencode' : 'terminal', full: textOf(lineOf(s)) };
+  if (st === 'waiting') return { text: ocFailedS(s) ? 'error' : isOcS(s) ? 'opencode' : 'terminal', full: textOf(lineOf(s)) };
   if (st === 'busy') return { text: s.lastTool?.tool ?? '', full: s.lastTool ? `${s.lastTool.tool} ${s.lastTool.text}` : '' };
   if (atLimit(s)) return { text: 'limit', full: limitLine(s) };
   return { text: '', full: '' };
@@ -2104,7 +2123,7 @@ function renderDrawer(vis) {
     || (st === 'idle' && Boolean(s.hostsPanel || s.bgTasks));     // "reply in its terminal", "N background tasks"
 
   $('d-line').hidden = !showNow;
-  if (showNow) patch($('d-line'), JSON.stringify([st, stateWord, s.lastTool?.tool, s.lastTool?.text, s.waitingFor, s.leftRosterAt, s.state, rs.length, s.bgTasks, s.hostsPanel]),
+  if (showNow) patch($('d-line'), JSON.stringify([st, stateWord, s.lastTool?.tool, s.lastTool?.text, s.waitingFor, s.ocError?.message, s.leftRosterAt, s.state, rs.length, s.bgTasks, s.hostsPanel]),
     () => [el('span', { class: 'tag', 'data-s': st }, glyph(st), stateWord), nowLine(s, st, rs)]);
   renderCompose(s, st);
 
@@ -2158,6 +2177,9 @@ function placeBar(s, here) {
 }
 function nowLine(s, st, rs) {
   if (st === 'stopping') return quiet('Stopping at its next tool call.');
+  if (st === 'waiting' && !rs.length && ocFailedS(s)) return el('div', { class: 'wait' },
+    el('b', { text: 'OpenCode stopped with an error. ' }), s.ocError.message,
+    el('div', { class: 'quiet', text: 'Fix it with the provider (top up, check the key), or connect another one in Settings › Providers, then send a message to carry on.' }));
   if (st === 'waiting' && !rs.length && isOcS(s)) return el('div', { class: 'wait', text: 'It waits on something the panel can\'t show. Answer it in OpenCode.' });
   if (st === 'waiting' && !rs.length) return el('div', { class: 'wait', text: s.kind === 'background'
     ? `It is waiting on something the panel can't read, maybe one of its subagents. Open it with claude attach ${s.id ?? ''}.`
@@ -3023,7 +3045,7 @@ function turnEl(t) {
   if (t.who === 'you') return el('div', { class: 'msg you', title: new Date(t.at).toLocaleString() }, el('div', { class: 'm-body', text: t.text }));
   const looked = t.looked?.length ? ` · read ${t.looked.map((l) => l.name).join(', ')}` : '';
   return el('div', { class: 'msg claude ov' + (t.error ? ' error' : ''), title: new Date(t.at).toLocaleString() },
-    el('div', { class: 'm-who' }, el('b', { text: 'Overseer' }), `${t.model ?? ''}${t.ms ? ` · ${(t.ms / 1000).toFixed(1)} s` : ''}${looked}`),
+    el('div', { class: 'm-who' }, el('b', { text: 'Overseer' }), `${t.model ? ovModelName(t.model) : ''}${t.ms ? ` · ${(t.ms / 1000).toFixed(1)} s` : ''}${looked}`),
     el('div', { class: 'm-body' }, t.error ? t.error : md(t.text)),
     t.actions?.length ? el('div', { class: 'ov-acts' }, ...t.actions.map((a) => actCard(t, a))) : null);
 }
@@ -3048,6 +3070,18 @@ $('h-send').onclick = () => sayOverseer($('h-say').value);
 $('h-model').onchange = async () => { const r = await api('/api/overseer/model', { model: $('h-model').value }); if (!r.ok) toast(r.error || 'The model did not change.', true); };
 $('h-close').onclick = () => { homeOpen = false; render(); };
 const MODEL_NAMES = { haiku: 'Haiku', sonnet: 'Sonnet', opus: 'Opus', fable: 'Fable' };
+/** The overseer's model in words: Claude's by name, an OpenCode one (opencode:provider/model) as OpenCode's. */
+const ovModelName = (m) => MODEL_NAMES[m] ?? (String(m).startsWith('opencode:') ? `${m.slice(9)} (OpenCode)` : m);
+/** The overseer's models by provider: Claude, then each OpenCode provider; the one it uses is kept even when OpenCode
+ *  isn't answering now. */
+function ovModelOptions(models, now) {
+  const list = [...(models ?? [])];
+  if (now && !list.includes(now)) list.push(now);
+  const claude = list.filter((m) => !m.startsWith('opencode:')), oc = new Map();
+  for (const m of list.filter((x) => x.startsWith('opencode:'))) { const p = m.slice(9).split('/')[0]; oc.set(p, [...(oc.get(p) ?? []), m]); }
+  return [el('optgroup', { label: 'Claude' }, ...claude.map((m) => el('option', { value: m, text: MODEL_NAMES[m] ?? m }))),
+    ...[...oc].map(([p, ms]) => el('optgroup', { label: `OpenCode · ${p}` }, ...ms.map((m) => el('option', { value: m, text: m.slice(9 + p.length + 1) }))))];
+}
 
 // ---------- sign-ins, and the first run ----------
 // The panel has no login of its own: it borrows each profile's Claude Code login and your gh. Settings › Logins &
@@ -3212,7 +3246,7 @@ function renderHome(g) {
     el('span', { text: `${n === 1 ? 'One session needs' : n + ' sessions need'} you.` }),
     el('button', { class: 'btn small', type: 'button', onclick: () => { cancelAdvance(); open = next.sessionId; render(); } }, 'Open ' + label(next))] : null);
   const busy = st?.busy;
-  setText($('h-meta'), st ? `${MODEL_NAMES[st.model] ?? st.model} · proposes, you confirm` : '');
+  setText($('h-meta'), st ? `${ovModelName(st.model)} · proposes, you confirm` : '');
   patch($('h-tools'), JSON.stringify([ov.turns.length > 0, armed?.key === 'ovclear:']), () => [
     ov.turns.length ? armBtn('ovclear:', 'Clear', 'Confirm clear', async () => {
       const r = await api('/api/overseer/clear', {}); if (!r.ok) toast(r.error || 'It was not cleared.', true); ovNodes.clear(); }, 'soft small') : null]);
@@ -3230,7 +3264,7 @@ function renderHome(g) {
     el('span', { class: 'quiet', text: ago(snap.now - busy.since) }), el('span', { class: 'grow' }),
     el('button', { class: 'btn quiet small', type: 'button', text: 'Stop', onclick: () => api('/api/overseer/stop', {}) })]);
   if (st) {
-    patch($('h-model'), JSON.stringify(st.models), () => (st.models ?? []).map((m) => el('option', { value: m, text: MODEL_NAMES[m] ?? m })));
+    patch($('h-model'), JSON.stringify([st.models, st.model]), () => ovModelOptions(st.models, st.model));
     if ($('h-model').value !== st.model) $('h-model').value = st.model;
   }
   syncSay();
@@ -3541,9 +3575,9 @@ function syncKind() {
     : !i.running ? ['OpenCode is not running. Glue starts it when you launch. ',
         el('button', { class: 'linkish', type: 'button', text: 'Start it now', onclick: () => ocAct('/api/opencode/start', '· starting…') })]
     : !models.length ? ['No models yet: sign OpenCode in to a provider (an API key, GitHub Copilot, …). It can\'t use a Claude subscription. ',
-        el('button', { class: 'linkish', type: 'button', text: 'Sign in…', onclick: () => ocAct('/api/opencode/login', '· opening a terminal…') })]
+        el('button', { class: 'linkish', type: 'button', text: 'Connect a provider…', onclick: () => openProviders() })]
     : [`OpenCode ${i.version ?? ''}. It runs on the providers you signed it in to, not on your Claude subscription. `,
-        el('button', { class: 'linkish', type: 'button', text: 'Add a provider…', onclick: () => ocAct('/api/opencode/login', '· opening a terminal…') })];
+        el('button', { class: 'linkish', type: 'button', text: 'Add a provider…', onclick: () => openProviders() })];
   $('l-oc-note').replaceChildren(...note);
   $('l-oc-note').hidden = false;
 }
@@ -3725,7 +3759,7 @@ async function openContinue(s) {
   $('cont-note').hidden = true;
   $('cont-go').disabled = true;
   $('cont-model').replaceChildren(el('option', { value: '', text: 'Looking for OpenCode…' }));
-  $('cont').showModal();
+  if (!$('cont').open) $('cont').showModal();
   const r = await api('/api/opencode', { cwd: s.workCwd ?? s.cwd ?? undefined });
   if (contFor !== s.sessionId) return;
   const want = glue?.fallbackModel || glue?.agentDefaults?.opencodeModel || '';
@@ -3735,7 +3769,7 @@ async function openContinue(s) {
   const note = !r.ok ? [r.error || 'Glue could not ask OpenCode.']
     : !r.installed && !r.running ? ['OpenCode is not installed. ', c('brew install anomalyco/tap/opencode-v2'), ', then try again.']
     : r.running && !r.models.length ? ['OpenCode has no models yet: sign it in to a provider. It can\'t use your Claude subscription. ',
-        el('button', { class: 'linkish', type: 'button', text: 'Sign in…', onclick: () => api('/api/opencode/login', {}) })]
+        el('button', { class: 'linkish', type: 'button', text: 'Connect a provider…', onclick: () => openProviders() })]
     : !r.running ? ['OpenCode is not running. Glue starts it when you continue.'] : null;
   if (note) { $('cont-note').replaceChildren(...note); $('cont-note').hidden = false; }
   $('cont-go').disabled = !r.ok || (!r.installed && !r.running) || (r.running && !r.models.length);
@@ -3755,6 +3789,131 @@ $('cont-form').addEventListener('submit', async (e) => {
   launchedId = r.sessionId;
   toast(`${s ? label(s) : 'It'} carries on in OpenCode. It opens here in a moment.`);
 });
+
+// ---------- OpenCode providers: connect one with a key or a browser sign-in, or take an account off ----------
+const ocp = { list: null, pick: '', q: '', busy: false, attempt: null, timer: null };
+async function openProviders() {
+  Object.assign(ocp, { list: null, pick: '', q: '', busy: false, attempt: null });
+  $('ocp-err').hidden = true;
+  if (!$('ocp').open) $('ocp').showModal(); // over Settings, the launcher or Continue, whichever asked
+  renderProviders();
+  await loadProviders();
+}
+async function loadProviders() {
+  const r = await api('/api/opencode/providers', {});
+  if (!r.ok) { ocp.list = []; ocpErr(r.error || 'Glue could not ask OpenCode.'); }
+  else ocp.list = r.providers;
+  renderProviders();
+}
+const ocpErr = (t) => { $('ocp-err').textContent = t; $('ocp-err').hidden = !t; };
+/** After a provider connects or goes: every place that shows OpenCode's models asks again. */
+function providersChanged(msg) {
+  if (msg) toast(msg);
+  ocInfo = null; setOcAsked = false;
+  if (setDlg.open) renderSettings();
+  if (dlg.open && picked('l-kind') === 'opencode') loadOc();
+  if ($('cont').open && sessionOf(contFor)) openContinue(sessionOf(contFor));
+  loadProviders();
+}
+function stopAttempt() { clearTimeout(ocp.timer); ocp.timer = null; ocp.attempt = null; }
+$('ocp-close').onclick = () => { stopAttempt(); $('ocp').close(); };
+$('ocp').addEventListener('close', stopAttempt);
+$('ocp-form').addEventListener('submit', (e) => e.preventDefault());
+/** The fields a way of connecting asks for besides the key, read back as { key: value }. */
+function ocpFields(fields) {
+  const inputs = fields.map((f) => {
+    const input = f.options ? el('select', { class: 'field', 'aria-label': f.title }, el('option', { value: '', text: f.required ? 'Pick one' : '(none)' }), ...f.options.map((o) => el('option', { value: o.value, text: o.label })))
+      : el('input', { class: 'field', type: 'text', spellcheck: 'false', autocomplete: 'off', placeholder: f.placeholder || '', 'aria-label': f.title });
+    return { f, input, row: el('label', { class: 'lf' }, el('span', { text: f.title + (f.required ? '' : ' (optional)') }), input) };
+  });
+  return { rows: inputs.map((x) => x.row), read: () => {
+    const out = {};
+    for (const { f, input } of inputs) { const v = input.value.trim(); if (!v && f.required) return { error: `Fill in ${f.title}.` }; if (v) out[f.key] = v; }
+    return { answer: out };
+  } };
+}
+async function ocpSend(body, then) {
+  ocp.busy = true; ocpErr('');
+  const r = await api('/api/opencode/connect', body);
+  ocp.busy = false;
+  if (!r.ok) { ocpErr(r.error || 'It did not connect.'); renderProviders(); return; }
+  then(r);
+}
+/** One way of connecting the picked provider. */
+function ocpMethod(p, m) {
+  if (m.type === 'command') return el('div', { class: 'ocp-m' }, el('b', { text: m.label }),
+    el('p', { class: 'l-note', text: 'This one signs in from OpenCode’s own terminal sign-in.' }),
+    el('button', { class: 'btn small', type: 'button', text: 'Sign in in Terminal…', onclick: async () => { const r = await api('/api/opencode/login', {}); if (!r.ok) ocpErr(r.error || 'Terminal did not open.'); } }));
+  const extra = ocpFields(m.fields ?? []);
+  if (m.type === 'key') {
+    const key = el('input', { class: 'field', type: 'password', autocomplete: 'off', spellcheck: 'false', placeholder: 'Paste the key', 'aria-label': `${p.name} ${m.label}` });
+    const go = el('button', { class: 'btn primary small', type: 'button', text: 'Connect', onclick: () => {
+      const a = extra.read();
+      if (a.error) return ocpErr(a.error);
+      if (!key.value.trim()) return ocpErr('Paste the key first.');
+      ocpSend({ how: 'key', integrationID: p.id, key: key.value, answer: a.answer }, () => { key.value = ''; providersChanged(`${p.name} is connected to OpenCode.`); });
+    } });
+    key.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go.click(); } });
+    return el('div', { class: 'ocp-m' }, el('b', { text: m.label }), ...extra.rows, el('div', { class: 'lf-row' }, key, go));
+  }
+  // A browser sign-in: started here, finished on the provider's page; a code it shows comes back here.
+  const a = ocp.attempt?.provider === p.id && ocp.attempt.method === m.id ? ocp.attempt : null;
+  if (!a) return el('div', { class: 'ocp-m' }, el('b', { text: m.label }), ...extra.rows,
+    el('button', { class: 'btn primary small', type: 'button', text: 'Sign in in the browser…', onclick: () => {
+      const x = extra.read();
+      if (x.error) return ocpErr(x.error);
+      ocpSend({ how: 'oauth', integrationID: p.id, methodID: m.id, answer: x.answer }, (r) => {
+        ocp.attempt = { provider: p.id, method: m.id, id: r.attemptID, url: r.url, instructions: r.instructions, code: r.code, status: 'pending' };
+        try { window.open(r.url, '_blank', 'noopener'); } catch {}
+        if (!r.code) pollAttempt(p);
+        renderProviders();
+      });
+    } }));
+  const code = el('input', { class: 'field', type: 'text', autocomplete: 'off', spellcheck: 'false', placeholder: 'Paste the code from the sign-in page', 'aria-label': 'Sign-in code' });
+  return el('div', { class: 'ocp-m' }, el('b', { text: m.label }),
+    el('p', { class: 'l-note' }, a.instructions || 'Finish signing in on the page that opened.', ' ',
+      el('a', { href: a.url, target: '_blank', rel: 'noopener', text: 'Open the sign-in page again' })),
+    a.code ? el('div', { class: 'lf-row' }, code, el('button', { class: 'btn primary small', type: 'button', text: 'Finish', onclick: () => {
+      if (!code.value.trim()) return ocpErr('Paste the code first.');
+      ocpSend({ how: 'code', integrationID: p.id, attemptID: a.id, code: code.value }, () => { stopAttempt(); providersChanged(`${p.name} is connected to OpenCode.`); });
+    } })) : el('p', { class: 'l-note', text: a.status === 'pending' ? 'Waiting for the sign-in to finish…' : a.status }),
+    el('button', { class: 'linkish', type: 'button', text: 'Cancel this sign-in', onclick: () => { stopAttempt(); renderProviders(); } }));
+}
+function pollAttempt(p) {
+  clearTimeout(ocp.timer);
+  ocp.timer = setTimeout(async () => {
+    const a = ocp.attempt;
+    if (!a || !$('ocp').open) return;
+    const r = await api('/api/opencode/connect', { how: 'status', integrationID: a.provider, attemptID: a.id });
+    if (ocp.attempt !== a) return;
+    if (!r.ok) { ocpErr(r.error || 'The sign-in could not be checked.'); return pollAttempt(p); }
+    if (r.status === 'complete') { stopAttempt(); return providersChanged(`${p.name} is connected to OpenCode.`); }
+    if (r.status === 'failed' || r.status === 'expired') { stopAttempt(); ocpErr(r.status === 'expired' ? 'The sign-in ran out of time. Start it again.' : `The sign-in failed${r.message ? ': ' + r.message : '.'}`); return renderProviders(); }
+    pollAttempt(p);
+  }, 2000);
+}
+function renderProviders() {
+  const box = $('ocp-body'), list = ocp.list;
+  if (!list) return box.replaceChildren(el('p', { class: 'l-note', text: 'Asking OpenCode…' }));
+  const connected = list.filter((p) => p.accounts.length);
+  const q = ocp.q.toLowerCase(), shown = list.filter((p) => !q || p.name.toLowerCase().includes(q) || p.id.includes(q));
+  const pick = list.find((p) => p.id === ocp.pick) ?? null;
+  const search = el('input', { class: 'field', type: 'search', placeholder: `Find one of ${list.length} providers`, 'aria-label': 'Find a provider', value: ocp.q,
+    oninput: (e) => { ocp.q = e.target.value; const at = e.target.selectionStart; renderProviders(); const s = $('ocp-body').querySelector('input[type=search]'); s.focus(); s.setSelectionRange(at, at); } });
+  const sel = el('select', { class: 'field', size: '7', 'aria-label': 'Providers', onchange: (e) => { ocp.pick = e.target.value; stopAttempt(); ocpErr(''); renderProviders(); } },
+    ...shown.slice(0, 200).map((p) => el('option', { value: p.id, text: p.accounts.length ? `${p.name} · connected` : p.name, selected: p.id === ocp.pick })));
+  box.replaceChildren(
+    connected.length ? el('div', { class: 'lf' }, el('span', { text: 'Connected' }),
+      ...connected.flatMap((p) => p.accounts.map((c) => el('div', { class: 'ocp-acct' }, el('span', { text: `${p.name} · ${c.label}${c.active ? '' : ' (not in use)'}` }),
+        el('button', { class: 'btn quiet small', type: 'button', text: 'Remove', onclick: async () => {
+          const r = await api('/api/opencode/disconnect', { credentialID: c.id });
+          if (!r.ok) return ocpErr(r.error || 'It was not removed.');
+          providersChanged(`${p.name} (${c.label}) is no longer connected.`);
+        } }))))) : el('p', { class: 'l-note', text: 'No provider is connected yet. Pick one below.' }),
+    el('div', { class: 'lf' }, el('span', { text: 'Add a provider' }), search, sel),
+    pick ? el('div', { class: 'lf' }, el('span', { text: pick.name }),
+      ...(pick.methods.length ? pick.methods.map((m) => ocpMethod(pick, m)) : [el('p', { class: 'l-note', text: 'OpenCode reads this one from your environment; there is nothing to connect here.' })])) : null);
+}
 
 // ---------- a permission request card ----------
 const DEST = { session: 'for this session', localSettings: 'in local settings', projectSettings: 'in project settings', userSettings: 'in your user settings' };
@@ -4480,13 +4639,15 @@ async function setAssign(key, ws) {
 function setLoginsTab(panel) {
   if (!panel.firstChild) panel.append(
     el('h3', { text: 'Logins & connection' }),
-    el('p', { class: 'set-lead', text: 'Glue has no account of its own. Each workspace runs on its profile’s own Claude Code login, and reaches its sessions through hooks in that profile’s settings.' }),
+    el('p', { class: 'set-lead', text: 'Glue has no account of its own. Each workspace runs on its profile’s own Claude Code login, and reaches its sessions through hooks in that profile’s settings. OpenCode has one set of sign-ins for the whole computer, kept by OpenCode itself.' }),
     el('div', { class: 'set-blocks' }));
   const box = panel.children[2];
   if (!setReady(box)) return;
   const list = setData.workspaces;
   const first = setupPending();
-  patch(box, JSON.stringify([first, list.map((w) => [w.id, w.name, w.color, w.here, w.signedIn, w.connected, w.loginCommand, w.account])]), () => list.map((w) => setLoginBlock(w, list.length > 1, first && w.here)));
+  askSetOc();
+  patch(box, JSON.stringify([first, list.map((w) => [w.id, w.name, w.color, w.here, w.signedIn, w.connected, w.loginCommand, w.account]), setOc]),
+    () => [...list.map((w) => setLoginBlock(w, list.length > 1, first && w.here)), setOcBlock(list.length > 1)]);
 }
 /** One line of a block: a mark (✓ ✗ ·), what it is, a sentence on it, and what you can do. */
 const setLine = (s, mark, t, d, acts, cls) => el('div', { class: 'set-line' + (cls ? ' ' + cls : ''), 'data-s': s },
@@ -4612,7 +4773,10 @@ function setOverseerTab(panel) {
   const box = panel.children[2];
   if (!setReady(box)) return;
   const list = setData.workspaces, focus = setPicked(), several = list.length > 1, models = setData.overseer?.models ?? [];
-  const options = models.map((m) => [m, MODEL_NAMES[m] ?? m]);
+  // Claude's models and, while OpenCode answers, OpenCode's (opencode:provider/model); one in use that OpenCode no
+  // longer lists (its service is down) stays in the list, so the picker still shows it.
+  const inUse = [focus?.overseerModel ?? setData.overseer?.model, setData.glue?.overseerModel].filter((m) => m && !models.includes(m));
+  const options = [...models, ...new Set(inUse)].map((m) => [m, ovModelName(m)]);
   setPatch(box, JSON.stringify([models, focus, several, setData.glue?.overseerModel]), () => [
     el('section', { class: 'set-block', 'aria-label': several && focus ? focus.name : 'This workspace' },
       setBlockHead(several ? focus : null, 'This workspace', several && focus?.here ? 'you’re here' : null),
@@ -4653,13 +4817,8 @@ function setProvidersTab(panel) {
   const box = panel.children[2];
   if (!setReady(box)) return;
   const list = setData.workspaces;
-  // OpenCode's state comes from its own service, asked each time the tab shows (it may start or stop outside Glue).
-  if (!setOcAsked) {
-    setOcAsked = true;
-    api('/api/opencode', {}).then((r) => { setOc = r.ok ? r : { error: r.error }; renderSettings(); }, () => { setOc = { error: 'Glue could not ask OpenCode.' }; renderSettings(); });
-  }
-  const o = setOc, ocAct = (path) => async () => { const r = await api(path, {}); if (!r.ok) toast(r.error || 'That did not work.', true); setOcAsked = false; renderSettings(); };
-  setPatch(box, JSON.stringify([list.map((w) => [w.id, w.name, w.color, w.signedIn]), o]), () => {
+  askSetOc();
+  setPatch(box, JSON.stringify([list.map((w) => [w.id, w.name, w.color, w.signedIn]), setOc]), () => {
     const soon = (name, text) => el('section', { class: 'set-block off', 'aria-label': name, 'aria-disabled': 'true' },
       setBlockHead(null, name), setLine('off', '·', text, null));
     return [
@@ -4671,18 +4830,38 @@ function setProvidersTab(panel) {
               [el('button', { class: 'btn small', type: 'button', text: 'Logins & connection', 'data-f': 'to-logins-' + w.id, onclick: () => showSetTab('logins') })])
             : setLine('wait', '·', name, 'Checking…');
         })),
-      el('section', { class: 'set-block', 'aria-label': 'OpenCode' }, setBlockHead(null, 'OpenCode', o?.running ? 'Running' : o?.installed ? 'Installed' : null),
-        !o ? setLine('wait', '·', 'OpenCode', 'Checking…')
-          : o.error && !o.installed && !o.running ? setLine('todo', '✗', 'OpenCode', o.error)
-          : !o.installed && !o.running ? setLine('off', '·', 'Not installed', IS_MAC ? "brew install anomalyco/tap/opencode-v2" : "Install it from opencode.ai")
-          : !o.running ? setLine('todo', '·', `OpenCode${o.version ? ' ' + o.version : ''}`, 'Not running. Glue starts it when an agent needs it.',
-              [el('button', { class: 'btn small', type: 'button', text: 'Start it', onclick: ocAct('/api/opencode/start') })])
-          : setLine(o.models.length ? 'ok' : 'todo', o.models.length ? '✓' : '✗', `OpenCode ${o.version ?? ''}`.trim(),
-              o.models.length ? `${o.models.length} models from ${new Set(o.models.map((m) => m.provider)).size} providers${o.defaultModel ? `, default ${o.defaultModel}` : ''}` : 'No models yet: sign it in to a provider',
-              [el('button', { class: 'btn small', type: 'button', text: o.models.length ? 'Add a provider' : 'Sign in', onclick: ocAct('/api/opencode/login') })])),
+      setOcBlock(list.length > 1),
       soon('Codex', "Coming next: run agents with OpenAI's Codex"),
     ];
   });
+}
+// OpenCode's state comes from its own service, asked each time Settings opens (it may start or stop outside Glue).
+function askSetOc() {
+  if (setOcAsked) return;
+  setOcAsked = true;
+  api('/api/opencode', {}).then((r) => { setOc = r.ok ? r : { error: r.error }; renderSettings(); }, () => { setOc = { error: 'Glue could not ask OpenCode.' }; renderSettings(); });
+}
+/** OpenCode's block, in Providers and in Logins & connection: one for every workspace, since OpenCode is one service per
+ *  computer with one set of sign-ins. */
+function setOcBlock(several) {
+  const o = setOc, ocAct = (path) => async () => { const r = await api(path, {}); if (!r.ok) toast(r.error || 'That did not work.', true); setOcAsked = false; renderSettings(); };
+  return el('section', { class: 'set-block', 'aria-label': 'OpenCode' }, setBlockHead(null, 'OpenCode', several ? 'every workspace' : o?.running ? 'Running' : o?.installed ? 'Installed' : null),
+    !o ? setLine('wait', '·', 'OpenCode', 'Checking…')
+      : o.error && !o.installed && !o.running ? setLine('todo', '✗', 'OpenCode', o.error)
+      : !o.installed && !o.running ? setLine('off', '·', 'Not installed', IS_MAC ? 'brew install anomalyco/tap/opencode-v2' : 'Install it from opencode.ai')
+      : !o.running ? setLine('todo', '·', `OpenCode${o.version ? ' ' + o.version : ''}`, 'Not running. Glue starts it when an agent or the overseer needs it.',
+          [el('button', { class: 'btn small', type: 'button', text: 'Start it', onclick: ocAct('/api/opencode/start') })])
+      // Connected = the accounts OpenCode holds. A provider it reads from the environment (an API key variable) has none,
+      // so models with no account still say they can be used.
+      : (() => {
+          const conn = o.connected ?? [], ok = conn.length > 0 || o.models.length > 0;
+          const text = conn.length ? `Connected to ${conn.join(', ')}. ${o.models.length} models${o.defaultModel ? `, default ${o.defaultModel}` : ''}.`
+            : o.models.length ? `No account connected here, but ${o.models.length} models are available (from your environment)${o.defaultModel ? `. Default ${o.defaultModel}` : ''}.`
+            : 'Not connected to any provider yet';
+          return setLine(ok ? 'ok' : 'todo', ok ? '✓' : '✗', `OpenCode ${o.version ?? ''}`.trim(), text,
+            [el('button', { class: 'btn small' + (ok ? '' : ' primary'), type: 'button', text: conn.length ? 'Providers…' : 'Connect a provider…', onclick: () => openProviders() })]);
+        })(),
+    several ? el('p', { class: 'set-lead set-in', text: 'One OpenCode for this computer: its sign-ins are shared by every workspace. Each OpenCode session shows only in the workspace that started it.' }) : null);
 }
 
 // The Glue tab: what applies to every workspace and every page, kept on the server (prefs.json › glue), and every

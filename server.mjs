@@ -23,7 +23,7 @@ import { createThread } from './thread.mjs';
 import { UNTRUSTED, trustKey, isTrusted, trustScript } from './trust.mjs';
 import { prefsPath } from './cli.mjs';
 import { createGithub, slugOf } from './github.mjs';
-import { createOverseer, migrateFrom, MODELS as OVERSEER_MODELS } from './overseer.mjs';
+import { createOverseer, migrateFrom, MODELS as OVERSEER_MODELS, OC_PREFIX as OVERSEER_OC } from './overseer.mjs';
 import { createWatcher } from './watcher.mjs';
 import { parseClaudeAuth, parseGhAuth, claudeLoginCommand, loginScript, LOGIN_ERROR } from './setup.mjs';
 import { migrateFolders } from './migrate.mjs';
@@ -32,7 +32,7 @@ import { sanitizeGlue, mergeGlue } from './glue-prefs.mjs';
 import * as daemon from './daemon.mjs';
 import { terminalCommand } from './terminal.mjs';
 import { createClient as createOcClient, findService, findBinary as findOcBinary, OC_ID, OC_MODES, permissionRules, agentFor, modelRef, refText,
-         pickable, itemsOf, lastSaidOf, modelOfMessages, requestOf, questionOf, formAnswer, statusOf, briefOf } from './opencode.mjs';
+         pickable, itemsOf, lastSaidOf, modelOfMessages, requestOf, questionOf, formAnswer, statusOf, briefOf, providersOf, turnErrorOf } from './opencode.mjs';
 import { logDir as linuxLogDir } from './paths.mjs';
 
 // `node server.mjs <command>` runs the CLI (cli.mjs) and never starts the server.
@@ -1831,7 +1831,7 @@ function settingsFor(focus, about = {}) {
     glue: g,
     github: { state: setup.github.state, login: setup.github.login ?? null },
     watcher: { enabled: watcher.status(focus).enabled },
-    overseer: { model: overseerOf(focus)?.status().model ?? g.overseerModel, models: [...OVERSEER_MODELS] },
+    overseer: { model: overseerOf(focus)?.status().model ?? g.overseerModel, models: overseerModels() },
     about,
   };
 }
@@ -2409,6 +2409,7 @@ function overseerOf(id) {
   o = createOverseer({
     file, profile: key, seed,
     ask: (args, opts) => askModel(args, { ...opts, env: envOf(ws()) }), board: () => overseerBoard(id), github: () => githubFor(id),
+    askOpenCode: askOverseerOc, models: overseerModels,
     history: (sessionId, limit) => (ownedBy(id, sessionId) ? history({ sessionId, limit }, { ws: ws() }) : { ok: false, error: REFUSE }),
     actions: {
       reply: (body) => (ownedBy(id, body?.sessionId) ? reply(body) : { ok: false, error: REFUSE }),
@@ -2612,10 +2613,13 @@ function ocApply(s) {
   const asks = ocAsks.get(s.sessionId), was = s.status;
   if (isEnded(s)) { s.status = null; s.waitingFor = null; return; }
   const perms = asks?.perms.length ?? 0, forms = asks?.forms.length ?? 0;
-  s.status = perms || forms ? 'waiting' : s.ocStatus ?? null;
-  s.waitingFor = perms ? 'permission prompt' : forms ? 'input needed' : null;
+  // A turn that ended in an error (a provider out of credit, a key refused) needs you: a top-up, another provider,
+  // a new message. It waits under Needs you, saying the error, until a new turn starts.
+  const failed = Boolean(s.ocError) && s.ocStatus !== 'busy';
+  s.status = perms || forms || failed ? 'waiting' : s.ocStatus ?? null;
+  s.waitingFor = perms ? 'permission prompt' : forms ? 'input needed' : failed ? 'provider error' : null;
   if (was === s.status) return;
-  if (s.status === 'waiting') feed('needs-you', s, `${labelOf(s)} waits for you (${s.waitingFor}).`);
+  if (s.status === 'waiting') feed('needs-you', s, failed && !perms && !forms ? `${labelOf(s)} stopped with an error: ${s.ocError.message}` : `${labelOf(s)} waits for you (${s.waitingFor}).`);
   else if (was === 'busy' && s.status === 'idle') ocRefresh(s); // an event missed while the stream was down
   if (was === 'busy' && s.status === 'idle') feed('finished', s, `${labelOf(s)} finished its turn${s.lastMessage ? `: ${String(s.lastMessage).replace(/\s+/g, ' ').slice(0, 140)}` : '.'}`);
 }
@@ -2685,6 +2689,8 @@ function onOcEvent(e) {
   }
   if (u.status && !isEnded(s)) s.ocStatus = u.status;
   if ('note' in u) s.note = u.note ? { type: 'opencode', text: u.note, at: Date.now() } : null;
+  if (u.clearError) s.ocError = null;
+  if (u.error) ocFailed(s, u.error);
   if (u.tool) s.lastTool = summarize('Tool', u.tool.input);
   if (u.asks) ocReadAsks(u.sessionID);
   if (u.refresh) ocRefresh(s);
@@ -2692,6 +2698,13 @@ function onOcEvent(e) {
   broadcast();
 }
 
+/** Its latest turn ended in `err` ({ message, type, status }): what it said is the error, word for word, and it needs
+ *  you (ocApply). */
+function ocFailed(s, err) {
+  s.ocError = { message: err.message, type: err.type ?? null, status: err.status ?? null, at: s.ocError?.message === err.message ? s.ocError.at : Date.now() };
+  s.lastMessage = `OpenCode stopped with an error: ${err.message}`;
+  s.lastMessageAt = Date.now();
+}
 /** Read its messages again, a moment after the last event that asked: what it said last, its model, and the Chat of
  *  any page that has it open. */
 const ocRefreshing = new Map();
@@ -2701,9 +2714,13 @@ function ocRefresh(s, ms = 250) {
     ocRefreshing.delete(s.sessionId);
     let msgs;
     try { msgs = await oc.messages(s.sessionId); } catch { return; }
-    const said = lastSaidOf(msgs);
+    const said = lastSaidOf(msgs), err = turnErrorOf(msgs);
     if (said) { s.lastMessage = trimMid(said, 3000); s.lastMessageAt = Date.now(); }
+    // Its messages say how its latest turn ended, also for one that failed before Glue was watching (or started).
+    if (err && s.ocStatus !== 'busy') ocFailed(s, err);
+    else if (!err && s.ocError && s.ocStatus !== 'busy') s.ocError = null;
     s.model = modelOfMessages(msgs) ?? s.model;
+    ocApply(s);
     if (follows.has(s.sessionId)) { try { threadOf(s.sessionId).addItems(itemsOf(msgs)); } catch (err) { console.error('thread:', err?.message ?? err); } }
     broadcast();
   }, ms));
@@ -2768,6 +2785,7 @@ async function ocReply(s, body) {
   if (!up.ok) return up;
   if (body?.mode && body.mode !== s.mode) { const r = await ocMode(s, body.mode); if (!r.ok) return r; }
   try { await oc.prompt(s.sessionId, text, { delivery: 'queue' }); } catch (e) { return fail(e.message); }
+  s.ocError = null; // a new turn: what the last one failed with is behind it
   if (isEnded(s)) {
     Object.assign(s, { ended: false, state: null });
     if (ocRecords[s.sessionId]) { ocRecords[s.sessionId].ended = false; saveOc(); }
@@ -2855,17 +2873,127 @@ async function ocHistory(s, limit = 60) {
   return { ok: true, items: items.slice(cut), more: cut > 0 };
 }
 
+// ---------------------------------------------------------------- the overseer on an OpenCode model
+// Every workspace's overseer may answer with an OpenCode model (opencode:provider/model) as well as one of Claude's.
+// OpenCode is one service for the whole computer, so its models are the same in every workspace. Each call is one
+// answer from the model outside any conversation (`generate`), on a session of Glue's own in the overseer's empty
+// folder, made once per model, with every permission denied and kept off the board.
+let ocModelCache = [];
+/** The models every overseer offers now: Claude's, then OpenCode's while its service answers. */
+const overseerModels = () => [...OVERSEER_MODELS, ...ocModelCache.map((m) => OVERSEER_OC + m.ref)];
+async function refreshOcModels() {
+  try { const next = pickable(await oc.models()); if (JSON.stringify(next) !== JSON.stringify(ocModelCache)) { ocModelCache = next; broadcast(); settingsChanged(); } }
+  catch { if (ocModelCache.length) { ocModelCache = []; broadcast(); } }
+}
+const ocOverseerSessions = new Map(); // model → the session its answers are asked on
+async function askOverseerOc({ model, system, prompt, timeout }) {
+  if (!modelRef(model)) return { error: 'That is not an OpenCode model.' };
+  const up = await ocEnsure();
+  if (!up.ok) return { error: up.error };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let id = ocOverseerSessions.get(model);
+    try {
+      if (!id) {
+        try { fs.mkdirSync(overseerCwd, { recursive: true, mode: 0o700 }); } catch {}
+        const s = await oc.createSession({ directory: overseerCwd, agent: 'plan', model: modelRef(model), title: 'Glue overseer',
+                                           permissions: ['*', 'read', 'edit', 'shell', 'webfetch', 'websearch', 'subagent', 'external_directory'].map((action) => ({ action, resource: '*', effect: 'deny' })) });
+        if (!OC_ID.test(String(s?.id ?? ''))) return { error: 'OpenCode did not say which session it made.' };
+        ocOverseerSessions.set(model, id = s.id);
+      }
+      const r = await oc.generate(id, `${system}\n\n${prompt}`, { ms: timeout });
+      return { text: typeof r?.text === 'string' ? r.text : '' };
+    } catch (e) {
+      if (attempt === 0 && id && e.status === 404) { ocOverseerSessions.delete(model); continue; } // its session went: make another
+      return { error: e.message };
+    }
+  }
+  return { error: 'OpenCode did not answer.' };
+}
+
+// ---------------------------------------------------------------- connecting OpenCode to providers, from Glue
+// OpenCode's own connect flow, driven from Settings: a key goes straight through to OpenCode (Glue never keeps, logs
+// or shows one), a browser sign-in is started here and finished in the browser, with a code pasted back when the
+// provider shows one. What OpenCode holds is listed by account, never by secret.
+const INTEGRATION = /^[\w.@-]{1,80}$/, ATTEMPT = /^[\w.:-]{1,200}$/;
+async function ocProviders() {
+  const up = await ocEnsure();
+  if (!up.ok) return up;
+  try {
+    const [ints, creds] = await Promise.all([oc.integrations(), oc.credentials().catch(() => [])]);
+    return { ok: true, providers: providersOf(ints, creds) };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+/** The extra answers a way of connecting asks for: a few short strings, by field key. */
+function answersOf(v) {
+  if (v == null) return {};
+  if (typeof v !== 'object' || Array.isArray(v)) return null;
+  const out = {};
+  for (const [k, x] of Object.entries(v).slice(0, 20)) {
+    if (!/^[\w.-]{1,60}$/.test(k) || typeof x !== 'string' || x.length > 2000) return null;
+    if (x.trim()) out[k] = x.trim();
+  }
+  return out;
+}
+async function ocConnect(body) {
+  const fail = (error) => ({ ok: false, error });
+  const id = String(body?.integrationID ?? ''), answer = answersOf(body?.answer);
+  if (!INTEGRATION.test(id)) return fail('Pick a provider.');
+  if (answer == null) return fail('Those answers can’t be sent.');
+  const done = () => { setTimeout(refreshOcModels, 500); settingsChanged(); return { ok: true, done: true }; };
+  try {
+    if (body.how === 'key') {
+      const key = typeof body.key === 'string' ? body.key.trim() : '';
+      if (!key || key.length > 4000 || /\s/.test(key)) return fail('Paste the key, on its own.');
+      await oc.connectKey(id, key, answer);
+      return done();
+    }
+    if (body.how === 'oauth') {
+      const methodID = String(body.methodID ?? '');
+      if (!ATTEMPT.test(methodID)) return fail('Pick how to sign in.');
+      const a = await oc.connectOAuth(id, methodID, answer);
+      let url = null;
+      try { const u = new URL(a?.url); if (u.protocol === 'https:' || (u.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(u.hostname))) url = u.href; } catch {}
+      if (!url || !ATTEMPT.test(String(a?.attemptID ?? ''))) return fail('OpenCode did not give a sign-in page to open.');
+      return { ok: true, attemptID: a.attemptID, url, instructions: trim(a.instructions, 600), code: a.mode === 'code' };
+    }
+    const attemptID = String(body.attemptID ?? '');
+    if (!ATTEMPT.test(attemptID)) return fail('That sign-in is gone. Start it again.');
+    if (body.how === 'status') {
+      const s = await oc.oauthStatus(id, attemptID);
+      if (s?.status === 'complete') done();
+      return { ok: true, status: ['pending', 'complete', 'failed', 'expired'].includes(s?.status) ? s.status : 'pending', message: trim(s?.message, 300) };
+    }
+    if (body.how === 'code') {
+      const code = typeof body.code === 'string' ? body.code.trim() : '';
+      if (!code || code.length > 4000) return fail('Paste the code the sign-in page showed.');
+      await oc.oauthComplete(id, attemptID, code);
+      return done();
+    }
+  } catch (e) { return fail(e.message); }
+  return fail('Connect with a key or by signing in.');
+}
+async function ocDisconnect(body) {
+  const id = String(body?.credentialID ?? '');
+  if (!ATTEMPT.test(id)) return { ok: false, error: 'There is no such account.' };
+  try { await oc.removeCredential(id); } catch (e) { return { ok: false, error: e.message }; }
+  setTimeout(refreshOcModels, 500);
+  settingsChanged();
+  return { ok: true };
+}
+
 /** What Settings and the launcher show of OpenCode: installed, running, its models and default. */
 async function ocStatus(body) {
   const bin = findOcBinary(ocWhere);
-  let info = null, error = null, models = [], defaultModel = null;
+  let info = null, error = null, models = [], defaultModel = null, connected = [];
   try { info = await oc.info(); } catch (e) { error = e.message; }
   if (info && body?.models !== false) {
     const dir = typeof body?.cwd === 'string' && path.isAbsolute(body.cwd) ? body.cwd : undefined;
-    try { models = pickable(await oc.models(dir)); } catch (e) { error = e.message; }
+    try { models = pickable(await oc.models(dir)); if (!dir) ocModelCache = models; } catch (e) { error = e.message; }
     try { const d = await oc.defaultModel(dir); defaultModel = d?.providerID ? `${d.providerID}/${d.id ?? d.modelID}` : null; } catch {}
+    // What it is signed in to: its accounts, by provider (never their secrets).
+    try { connected = [...new Set((await oc.credentials()).map((c) => c?.integrationID).filter((x) => typeof x === 'string'))].slice(0, 30); } catch {}
   }
-  return { ok: true, installed: Boolean(bin), running: Boolean(info), version: info?.version ?? null, models, defaultModel, error,
+  return { ok: true, installed: Boolean(bin), running: Boolean(info), version: info?.version ?? null, models, defaultModel, connected, error,
            sessions: Object.keys(ocRecords).length };
 }
 const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
@@ -3184,6 +3312,7 @@ async function handle(req, res) {
                       '/api/settings/restart': restartService, '/api/settings/reveal': revealIn,
                       '/api/opencode': ocStatus, '/api/opencode/start': ocEnsure, '/api/opencode/login': ocLogin,
                       '/api/opencode/continue': continueInOpenCode,
+                      '/api/opencode/providers': ocProviders, '/api/opencode/connect': ocConnect, '/api/opencode/disconnect': ocDisconnect,
                       '/api/term/open': termOpen, '/api/term/input': termInput, '/api/term/resize': termResize, '/api/term/close': termClose };
     if (Object.hasOwn(ACTIONS, url.pathname)) {
       let r;
@@ -3232,6 +3361,8 @@ server.listen(PORT, '127.0.0.1', () => {
   pollAll().then(() => { if (looking()) checkVersions(); });
   setRosterPace(looking());
   setInterval(() => { if (looking()) checkVersions(); }, VERSIONS_MS);
+  refreshOcModels(); // the overseer's OpenCode models, read again each minute someone may be looking
+  setInterval(() => { if (looking()) refreshOcModels(); }, 60_000);
   setInterval(() => { prune(); broadcast(); }, 10_000);
   // GitHub: one beat every 15 s, each repository on its own pace; the first a little after start, once the roster is in.
   setTimeout(() => { github.tick({ watched: clients.size > 0 }); setInterval(() => github.tick({ watched: clients.size > 0 }), 15_000); }, 20_000);

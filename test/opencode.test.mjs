@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import { parseService, findService, serviceFile, permissionRules, agentFor, modelRef, refText, pickable, itemsOf, lastSaidOf,
-         modelOfMessages, requestOf, questionOf, formAnswer, statusOf, isLimit, briefOf, sseParser, createClient, OC_ID } from '../opencode.mjs';
+         modelOfMessages, requestOf, questionOf, formAnswer, statusOf, isLimit, briefOf, sseParser, createClient, OC_ID, providersOf, turnErrorOf } from '../opencode.mjs';
 
 test('the service file: a url or a host and port, a password, local addresses only', () => {
   assert.deepEqual(parseService('{"url":"http://127.0.0.1:4096","password":"pw"}'), { url: 'http://127.0.0.1:4096', password: 'pw', username: 'opencode' });
@@ -126,7 +126,7 @@ test('events say how a session is doing', () => {
   assert.match(statusOf({ type: 'session.status', data: { sessionID: 'ses_a1b2c3', status: { type: 'retry', attempt: 2, message: 'overloaded', next: 1 } } }).note, /Trying again \(2\): overloaded/);
   const f = statusOf({ type: 'session.execution.failed', data: { sessionID: 'ses_a1b2c3', error: { type: 'x', message: 'boom', status: 429 } } });
   assert.equal(f.status, 'idle');
-  assert.match(f.note, /boom/);
+  assert.deepEqual(f.error, { message: 'boom', type: 'x', status: 429 });
   assert.equal(isLimit(f.error), true);
   assert.equal(isLimit({ message: 'bad request', status: 400 }), false);
   assert.equal(statusOf({ type: 'permission.asked', data: { id: 'per_1', sessionID: 'ses_a1b2c3', action: 'edit', resources: [] } }).asks, true);
@@ -149,6 +149,50 @@ test('the brief: the task, the talk (newest kept), the files, and CLAUDE.md when
   assert.match(long, /earlier conversation left out/);
   assert.match(long, /message 499/);
   assert.doesNotMatch(long, /message 0 /);
+});
+
+// The bug: a turn a provider refused (OpenCode Go/Zen out of credit) ended with no text, and Glue showed it idle with
+// nothing said. Its error is on the failed reply and on the turn's closing idle, and in the events that end the turn.
+const BROKE = 'Account.InsufficientFunds - Insufficient balance. Top up at https://opencode.ai/console/billing';
+const FAILED_TURN = [
+  { id: 'msg_1', type: 'user', text: 'None of the shortcuts really seem to work?????', time: { created: 1000 } },
+  { id: 'msg_2', type: 'assistant', time: { created: 1100 }, content: [], finish: 'error', error: { type: 'ProviderRequestError', message: BROKE, status: 402 } },
+  { id: 'msg_3', type: 'idle', outcome: 'failed', error: { type: 'ProviderRequestError', message: BROKE, status: 402 }, time: { created: 1200 } },
+];
+
+test('a turn a provider refused: its error is found, said once in the chat, and kept apart from passing notes', () => {
+  assert.deepEqual(turnErrorOf(FAILED_TURN), { message: BROKE, type: 'ProviderRequestError', status: 402 });
+  // Either half alone is enough: the failed reply, or the closing idle.
+  assert.equal(turnErrorOf(FAILED_TURN.slice(0, 2)).message, BROKE);
+  assert.equal(turnErrorOf([FAILED_TURN[0], FAILED_TURN[2]]).message, BROKE);
+  // A new message starts a new turn; a turn that ended well has no error.
+  assert.equal(turnErrorOf([...FAILED_TURN, { id: 'msg_4', type: 'user', text: 'again', time: { created: 1300 } }]), null);
+  assert.equal(turnErrorOf([...FAILED_TURN, { id: 'msg_5', type: 'idle', outcome: 'succeeded', time: { created: 1300 } }]), null);
+  assert.equal(lastSaidOf(FAILED_TURN), null, 'it said nothing itself');
+  const notes = itemsOf(FAILED_TURN).filter((m) => m.who === 'note');
+  assert.deepEqual(notes.map((m) => m.text), [`It stopped: ${BROKE}`], 'the error shows in the chat, once');
+  // The events: the failure carries the error; the idle right after it no longer wipes anything but passing notes.
+  const failed = statusOf({ type: 'session.execution.failed', data: { sessionID: 'ses_e28a01', error: { type: 'ProviderRequestError', message: BROKE } } });
+  assert.equal(failed.error.message, BROKE);
+  const idle = statusOf({ type: 'session.status', data: { sessionID: 'ses_e28a01', status: { type: 'idle' } } });
+  assert.ok(!('error' in idle) && !idle.clearError);
+  assert.equal(statusOf({ type: 'session.step.failed', data: { sessionID: 'ses_e28a01', assistantMessageID: 'msg_2', error: { type: 'x', message: BROKE } } }).error.message, BROKE);
+  assert.equal(statusOf({ type: 'session.execution.started', data: { sessionID: 'ses_e28a01' } }).clearError, true);
+  assert.equal(statusOf({ type: 'session.execution.succeeded', data: { sessionID: 'ses_e28a01' } }).clearError, true);
+});
+
+test('providers to connect: how each connects, what it asks, its accounts first, never a secret', () => {
+  const list = providersOf([
+    { id: 'openai', name: 'OpenAI', methods: [{ type: 'key', label: 'API key' }, { type: 'oauth', id: 'chatgpt', label: 'ChatGPT Plus', form: [{ key: 'org', type: 'string', title: 'Organization' }, { key: 'x', type: 'string', hidden: true }] }] },
+    { id: 'copilot', name: 'GitHub Copilot', methods: [{ type: 'command', id: 'gh', label: 'Device login', command: ['x'] }, { type: 'env', label: 'env' }] },
+    { id: 'zai', name: 'Z.ai', methods: [] },
+  ], [{ id: 'cred_1', integrationID: 'copilot', label: 'work', active: true, value: { type: 'oauth', access: 'SECRET', refresh: 'SECRET', methodID: 'gh', expires: 1 } }]);
+  assert.deepEqual(list.map((p) => p.id), ['copilot', 'openai', 'zai']);
+  assert.deepEqual(list[0].accounts, [{ id: 'cred_1', label: 'work', active: true, kind: 'oauth' }]);
+  assert.deepEqual(list[0].methods.map((m) => m.type), ['command']);
+  assert.deepEqual(list[1].methods.map((m) => [m.type, m.id]), [['key', null], ['oauth', 'chatgpt']]);
+  assert.deepEqual(list[1].methods[1].fields.map((f) => f.key), ['org']);
+  assert.doesNotMatch(JSON.stringify(list), /SECRET/);
 });
 
 test('the event stream parser joins data lines and splits events', () => {

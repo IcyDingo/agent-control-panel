@@ -118,6 +118,8 @@ export function createClient({ service, fetch: doFetch = globalThis.fetch, timeo
       location: { directory }, ...(agent ? { agent } : {}), ...(model ? { model } : {}), ...(permissions ? { permissions } : {}), ...(title ? { metadata: { title } } : {}) } }),
     session: async (id) => req('GET', `/session/${sid(id)}`),
     prompt: async (id, text, { delivery = 'queue' } = {}) => req('POST', `/session/${sid(id)}/prompt`, { body: { text, delivery } }),
+    /** One answer from the session's model to `prompt`, outside its conversation: `{ text, tokens, cost }`. */
+    generate: async (id, prompt, { ms = 90_000 } = {}) => req('POST', `/session/${sid(id)}/generate`, { body: { prompt }, ms }),
     synthetic: async (id, text) => req('POST', `/session/${sid(id)}/synthetic`, { body: { text, resume: false } }),
     messages: async (id, { limit = 400 } = {}) => req('GET', `/session/${sid(id)}/message`, { query: { limit, order: 'asc' } }),
     interrupt: async (id) => req('POST', `/session/${sid(id)}/interrupt`),
@@ -133,6 +135,18 @@ export function createClient({ service, fetch: doFetch = globalThis.fetch, timeo
     models: async (dir) => req('GET', '/model', { query: at(dir) }),
     defaultModel: async (dir) => req('GET', '/model/default', { query: at(dir) }),
     providers: async (dir) => req('GET', '/provider', { query: at(dir) }),
+    // Connecting providers ("integrations"): with a key, or by signing in in a browser. Their credentials stay in
+    // OpenCode; Glue passes a key through and keeps nothing.
+    integrations: async () => req('GET', '/integration'),
+    credentials: async () => req('GET', '/credential'),
+    connectKey: async (integrationID, key, answer) => req('POST', `/integration/${encodeURIComponent(integrationID)}/connect/key`,
+      { body: { key, ...(answer && Object.keys(answer).length ? { answer } : {}) } }),
+    connectOAuth: async (integrationID, methodID, answer) => req('POST', `/integration/${encodeURIComponent(integrationID)}/connect/oauth`,
+      { body: { methodID, ...(answer && Object.keys(answer).length ? { answer } : {}) } }),
+    oauthStatus: async (integrationID, attemptID) => req('GET', `/integration/${encodeURIComponent(integrationID)}/connect/oauth/${encodeURIComponent(attemptID)}`),
+    oauthComplete: async (integrationID, attemptID, code) => req('POST', `/integration/${encodeURIComponent(integrationID)}/connect/oauth/${encodeURIComponent(attemptID)}/complete`,
+      { body: code ? { code } : {} }),
+    removeCredential: async (credentialID) => req('DELETE', `/credential/${encodeURIComponent(credentialID)}`),
 
     /** Follow the service's events: `onEvent(event)` for each, `onState(up)` when the stream opens or drops. It comes
      *  back by itself, waiting longer each time it can't (1 s up to 30 s). The stream replays nothing, so a reconnect is
@@ -211,6 +225,26 @@ export function pickable(models) {
     .sort((a, b) => a.provider.localeCompare(b.provider) || a.name.localeCompare(b.name));
 }
 
+/** OpenCode's providers and the credentials it holds → what the Connect dialog shows: each provider's name, how it can
+ *  connect (a key, a browser sign-in, or a command only its terminal can run), the extra fields each way asks for, and
+ *  which accounts it already has. A credential's secret never leaves here. */
+export function providersOf(integrations, credentials) {
+  const creds = Array.isArray(credentials) ? credentials : [];
+  const field = (f) => (f && typeof f.key === 'string' && !f.hidden && (f.type === 'string' || f.type == null)
+    ? { key: f.key, title: String(f.title || f.description || f.key).slice(0, 120), required: f.required === true, placeholder: f.placeholder ? String(f.placeholder).slice(0, 120) : '',
+        options: Array.isArray(f.options) ? f.options.slice(0, 50).map((o) => ({ value: String(o.value), label: String(o.label ?? o.value) })) : null } : null);
+  const fieldsOf = (m) => (Array.isArray(m?.form) ? m.form.map(field).filter(Boolean) : []);
+  return (Array.isArray(integrations) ? integrations : []).filter((i) => i && typeof i.id === 'string').map((i) => ({
+    id: i.id, name: String(i.name || i.id).slice(0, 80),
+    methods: (Array.isArray(i.methods) ? i.methods : []).map((m) => (
+      m?.type === 'key' ? { type: 'key', id: null, label: String(m.label || 'API key'), fields: fieldsOf(m) }
+      : m?.type === 'oauth' ? { type: 'oauth', id: String(m.id), label: String(m.label || 'Sign in'), fields: fieldsOf(m) }
+      : m?.type === 'command' ? { type: 'command', id: String(m.id), label: String(m.label || 'Sign in in a terminal') }
+      : null)).filter(Boolean),
+    accounts: creds.filter((c) => c?.integrationID === i.id).map((c) => ({ id: String(c.id), label: String(c.label || 'Account'), active: c.active === true, kind: c.value?.type ?? null })),
+  })).sort((a, b) => (b.accounts.length > 0) - (a.accounts.length > 0) || a.name.localeCompare(b.name));
+}
+
 // ---------------------------------------------------------------- what OpenCode says, in Glue's terms
 
 const SUMMARY = 'Earlier conversation was summarized here to save room.';
@@ -234,7 +268,8 @@ export function itemsOf(messages) {
     } else if (m?.type === 'shell' && typeof m.command === 'string') {
       out.push({ who: 'you', key: `you:${id}`, text: `! ${m.command}`, at, pos: base });
     } else if (m?.type === 'idle' && m.outcome === 'failed' && m.error?.message) {
-      out.push({ who: 'note', key: `note:${id}`, text: `It stopped: ${String(m.error.message).slice(0, 300)}`, at, pos: base });
+      const text = `It stopped: ${errorText(m.error)}`;
+      if (out.at(-1)?.text !== text) out.push({ who: 'note', key: `note:${id}`, text, error: true, at, pos: base });
     } else if (m?.type === 'assistant' && Array.isArray(m.content)) {
       m.content.forEach((b, bi) => {
         const pos = base + bi + 1;
@@ -250,9 +285,29 @@ export function itemsOf(messages) {
           }
         }
       });
+      // A reply that ended in an error (a provider refusing the call, say) carries it on the message itself.
+      if (m.error?.message) out.push({ who: 'note', key: `note:${id}:error`, text: `It stopped: ${errorText(m.error)}`, error: true, at, pos: base + 999 });
     }
   });
   return out;
+}
+
+/** A turn's error in one line: OpenCode's message, with the provider's own error name when it gives one. */
+export const errorText = (err) => String(err?.message ?? 'an error').replace(/\s+/g, ' ').trim().slice(0, 500);
+
+/** The error its latest turn ended with, or null: on the reply that failed (`error`, finish "error"), or on the turn's
+ *  closing idle (outcome "failed"). A turn is everything after your latest message; a later reply or a turn that went
+ *  on to succeed clears it. */
+export function turnErrorOf(messages) {
+  const list = (Array.isArray(messages) ? messages : []).slice().sort((a, b) => timeOf(a) - timeOf(b));
+  let err = null;
+  for (let i = list.length - 1; i >= 0; i--) {
+    const m = list[i];
+    if (m?.type === 'user' || m?.type === 'synthetic') break;
+    if (m?.type === 'idle') { if (m.outcome === 'failed' && m.error) err ??= m.error; else if (!err) return null; }
+    if (m?.type === 'assistant' && m.error) err ??= m.error;
+  }
+  return err ? { message: errorText(err), type: typeof err.type === 'string' ? err.type.slice(0, 80) : null, status: Number.isInteger(err.status) ? err.status : null } : null;
 }
 
 /** What it said last, for the board's tile. */
@@ -323,9 +378,13 @@ export function formAnswer(form, answers) {
 }
 
 /** What an event changes about a session's status, or null when it changes nothing. `status` is idle, busy or
- *  retrying; `note` says why; `refresh` asks the caller to read its messages again (the chat, what it said last). */
+ *  retrying; `note` is a passing word on it (a retry), cleared when the status moves on; `error` is what a failed turn
+ *  ended with, which stays until a new turn starts (`clearError`), so the idle that follows a failure can't wipe it;
+ *  `refresh` asks the caller to read its messages again (the chat, what it said last). */
 export function statusOf(e) {
   const d = e?.data ?? {};
+  const failed = () => ({ sessionID: d.sessionID, status: 'idle', note: null, error: { message: errorText(d.error), type: typeof d.error?.type === 'string' ? d.error.type.slice(0, 80) : null,
+                                                                                     status: Number.isInteger(d.error?.status) ? d.error.status : null }, refresh: true });
   switch (e?.type) {
     case 'session.status': {
       const t = d.status?.type;
@@ -335,10 +394,11 @@ export function statusOf(e) {
       return null;
     }
     case 'session.idle': return { sessionID: d.sessionID, status: 'idle', refresh: true };
-    case 'session.execution.started': return { sessionID: d.sessionID, status: 'busy', note: null };
-    case 'session.execution.failed': return { sessionID: d.sessionID, status: 'idle', note: `Its last turn failed: ${String(d.error?.message ?? 'an error').slice(0, 300)}`, error: d.error ?? null, refresh: true };
+    case 'session.execution.started': return { sessionID: d.sessionID, status: 'busy', note: null, clearError: true };
+    case 'session.execution.failed': return failed();
+    case 'session.step.failed': return d.error ? { ...failed(), status: undefined } : null; // the turn may still go on (a retry); its end says
     case 'session.execution.succeeded':
-    case 'session.execution.interrupted': return { sessionID: d.sessionID, status: 'idle', refresh: true };
+    case 'session.execution.interrupted': return { sessionID: d.sessionID, status: 'idle', clearError: true, refresh: true };
     case 'session.tool.called': return { sessionID: d.sessionID, tool: { input: d.input ?? {} }, refresh: true };
     case 'session.tool.success':
     case 'session.tool.failed':
