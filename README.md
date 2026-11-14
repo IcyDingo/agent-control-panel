@@ -279,7 +279,7 @@ and keeps a dated copy of the old file beside it.
 
 One dialog holds every setting, for every workspace and for Glue itself. Open it with the gear (⚙) in the top bar, **⌘,**
 in the app (**Glue › Settings…**; Ctrl+, in the Linux app), or `,` in a browser when focus isn't in a text field. Esc or ✕ closes it; it remembers
-the last tab while the page is open. It has five tabs:
+the last tab while the page is open. It has six tabs:
 
 - **Workspaces.** A row for each workspace: its name (1–24 characters, unique), one of five colours, and up and down
   buttons that set its place in the switch (⌃1, ⌃2…). Every row can be edited from either workspace; the one you are in is
@@ -290,9 +290,11 @@ the last tab while the page is open. It has five tabs:
   not (**Sign in in Terminal…** and **Copy command**, for that workspace's own `CLAUDE_CONFIG_DIR`), and **Connected** or
   not (**Connect**, which keeps a dated copy of `settings.json`). The account's email and plan show for the workspace in
   view only. A "Codex: coming next" line is a placeholder.
-- **GitHub, alerts & Auto-fix.** The GitHub CLI sign-in (shared: one `gh` login), then, for the workspace in view,
-  **Auto-fix** and the **overseer's model**. They are the same switch and select as the GitHub panel's and the overseer's
-  box, and show the same state.
+- **GitHub, alerts & Auto-fix.** The GitHub CLI sign-in (shared: one `gh` login), then **Auto-fix** for the workspace in
+  view. It is the same switch as the GitHub panel's, and shows the same state.
+- **Overseer.** What the overseer does, then the **model** of the workspace in view's overseer (the same select as the
+  one under the overseer's box, showing the same state) and the **model a new workspace's overseer starts with** (kept
+  with Glue's own settings in `prefs.json`).
 - **Providers.** Claude Code, active, with each workspace's sign-in status; **Codex** and **OpenRouter** are listed as
   coming next and do nothing yet.
 - **Glue.** Settings that apply to every workspace and every page, kept on the server in `prefs.json` so the app and any
@@ -307,7 +309,7 @@ the last tab while the page is open. It has five tabs:
     window title and the Dock badge. **Answering here is never remembered**: it is on again whenever the server starts,
     and the top bar's "Paused" notice shows whenever it is off.
   - **Agent defaults:** the model, effort, permissions and "its own worktree" the New agent launcher starts with (you can
-    still change them per launch), and the overseer model a new workspace starts with.
+    still change them per launch).
   - **About & maintenance:** the version and commit, whether the background service runs (**Restart** runs
     `launchctl kickstart -k`, and the page reconnects by itself), where Glue keeps its files and logs with **Show in
     Finder**, and the commands to update (`git pull && ./install.sh`) and uninstall (`./install.sh --uninstall`). On
@@ -399,7 +401,7 @@ Ask what needs you, what everyone is doing, or what is failing, or say what you 
   click it. It can't answer permission requests or approve plans, pick a model or a permission mode,
   or send a message that starts with `/` or `!`. A card says when sending would restart a session
   (for a terminal session, that closes Claude in its terminal). Proposals expire after an hour.
-- Its model is Sonnet unless you pick another under its box (or in Settings › GitHub, alerts & Auto-fix; Settings › Glue sets the one a new workspace starts with). There is one overseer per workspace, each on its own login, and it
+- Its model is Sonnet unless you pick another under its box (or in Settings › Overseer, which also sets the one a new workspace starts with). There is one overseer per workspace, each on its own login, and it
   reads only that workspace's sessions. Its conversation and feed are kept per workspace, in `overseer-<workspace>.json`
   beside `prefs.json` (an `overseer.json` from before workspaces seeds each one once, and is left as it was).
 - **What leaves the Mac:** the digest and the excerpts it reads go to the profile's own Claude
