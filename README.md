@@ -297,10 +297,15 @@ the last tab while the page is open. It has six tabs:
   one under the overseer's box, showing the same state) and the **model a new workspace's overseer starts with** (kept
   with Glue's own settings in `prefs.json`).
 - **Providers.** What runs your agents, one tab each, with a dot for how it stands (green: set up; amber: it needs you).
-  - **Claude**: each workspace's own Claude account (**Sign in in Terminal…** and **Copy command**, for that workspace's
-    `CLAUDE_CONFIG_DIR`). The account's email and plan show for the workspace in view only.
-  - **OpenAI**: OpenAI's models run through OpenCode today, so this connects OpenAI there (**Connect OpenAI…**, by API key
-    or ChatGPT sign-in). **Codex** is listed as coming next.
+  - **Claude**: each workspace's own Claude account. **Sign in here** runs `claude auth login` for that workspace's
+    `CLAUDE_CONFIG_DIR` in a terminal inside Settings; **In Terminal…** and **Copy command** do it in a terminal window.
+    **Add a Claude account** makes a new profile (`~/.claude-<name>`, with Glue's hooks already in its `settings.json`)
+    and so a new workspace, then opens its sign-in. The account's email and plan show for the workspace in view only.
+  - **OpenAI**: OpenAI's own sign-in, through OpenAI's Codex CLI, one per workspace in its own Codex home (`~/.codex` for
+    the plain workspace, `~/.codex-<id>` for the others). **Install in Terminal…** (Homebrew, else npm), then per
+    workspace **Sign in with ChatGPT** (`codex login`, in a terminal inside Settings), **Use an API key…** (handed to
+    `codex login --with-api-key` on its stdin; Glue keeps no copy), or **Sign out**. Running agents on Codex is listed
+    as coming next. OpenAI's models can also run in OpenCode, by connecting an OpenAI key there.
   - **OpenCode**: set up in four steps on a rail that fills as each is done: **Install** (in a Terminal window, with
     Homebrew or OpenCode's own script), **Start it**, **Connect a provider** (a key or a browser sign-in, kept by OpenCode
     itself), and **Pick a model** new OpenCode agents start on. Once it is ready, the steps fold into one row, and the

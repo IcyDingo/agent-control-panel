@@ -31,6 +31,7 @@ import { createStore, countOnly, repoKey } from './workspaces.mjs';
 import { sanitizeGlue, mergeGlue } from './glue-prefs.mjs';
 import * as daemon from './daemon.mjs';
 import { terminalCommand } from './terminal.mjs';
+import { codexHome, codexEnv, codexLoginCommand, findCodex, parseCodexVersion, parseCodexStatus, codexInstallCommand, cleanKey } from './codex.mjs';
 import { createClient as createOcClient, findService, findBinary as findOcBinary, OC_ID, OC_MODES, permissionRules, agentFor, modelRef, refText,
          pickable, itemsOf, lastSaidOf, modelOfMessages, requestOf, questionOf, formAnswer, statusOf, briefOf, providersOf, turnErrorOf, lastToolOf } from './opencode.mjs';
 import { logDir as linuxLogDir } from './paths.mjs';
@@ -1763,6 +1764,34 @@ function connectProfile(body) {
   settingsChanged();
   return { ok: true, added, backup: backup && tilde(backup) };
 }
+/**
+ * `{ name }`: a new Claude Code profile, ~/.claude-<name>, and with it a new workspace called `name`. Its settings.json
+ * starts with this panel's hooks, so its sessions report here from the first one. It is not signed in: Settings opens
+ * its sign-in next. An existing folder is never touched.
+ */
+function createProfile(body) {
+  const name = typeof body?.name === 'string' ? body.name.trim().replace(/\s+/g, ' ') : '';
+  if (!name) return { ok: false, error: 'Give it a name, like Work or Private.' };
+  if (name.length > 24) return { ok: false, error: 'A name is at most 24 characters.' };
+  if (store.list().some((w) => w.name.toLowerCase() === name.toLowerCase())) return { ok: false, error: 'Another workspace has that name.' };
+  const id = name.toLowerCase().replace(/[^a-z0-9_.-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 40);
+  if (!id) return { ok: false, error: 'Give it a name with a letter or a number in it.' };
+  // `default` is the plain profile's id (~/.claude), so ~/.claude-default would be a second workspace with its id.
+  if (id === 'default' || W.has(id) || store.get(id)) return { ok: false, error: `There is already a workspace called ${id}. Pick another name.` };
+  const dir = path.join(HOME, `.claude-${id}`);
+  if (fs.existsSync(dir)) return { ok: false, error: `${tilde(dir)} already exists. Glue lists it once Claude Code has used it; pick another name to make a new one.` };
+  try {
+    fs.mkdirSync(dir, { mode: 0o700 });
+    fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ hooks: wantedHooks() }, null, 2) + '\n', { mode: 0o600 });
+  } catch (e) { return { ok: false, error: String(e?.message ?? e) }; }
+  syncWorkspaces();
+  if (!W.has(id)) return { ok: false, error: `${tilde(dir)} was made, but Glue did not pick it up.` };
+  store.update(id, { name });
+  broadcast();
+  checkSetup(true);
+  settingsChanged();
+  return { ok: true, ws: id };
+}
 
 // ---------------------------------------------------------------- first-run setup
 
@@ -2541,6 +2570,38 @@ function termable(s) {
   if (s.pid != null && hostPids.has(s.pid)) return 'The panel server runs inside this session, so it does not open here.';
   return null;
 }
+/**
+ * A command in a pseudo-terminal, kept in `terms` under `id`: what it prints is kept for a page that opens it later and
+ * sent every 16 ms to the pages `to(t)` names; `onExit` runs once when it ends. The caller adds the page to t.clients.
+ */
+function spawnTerm(id, cmd, args, { cwd, env, cols, rows, to, onExit = () => {} }) {
+  const proc = spawn('python3', [BRIDGE, String(cols), String(rows), '--', cmd, ...args],
+    { cwd, env: { ...env, TERM: 'xterm-256color', COLORTERM: 'truecolor' }, stdio: ['pipe', 'pipe', 'pipe'] });
+  const t = { proc, clients: new Set(), buf: [], size: 0, out: [], flush: null, release: null };
+  terms.set(id, t);
+  const send = () => { const data = Buffer.concat(t.out).toString('base64'); t.out = []; sendTo(to(t), 'term', { sessionId: id, data }); };
+  const take = (d) => {
+    t.buf.push(d); t.size += d.length;
+    while (t.size > TERM_KEEP && t.buf.length > 1) t.size -= t.buf.shift().length;
+    // Output comes in many small writes: a page gets it in one message every 16 ms.
+    t.out.push(d);
+    t.flush ??= setTimeout(() => { t.flush = null; send(); }, 16);
+  };
+  proc.stdout.on('data', take);
+  proc.stderr.on('data', take);
+  proc.stdin.on('error', () => {}); // it may be gone before a last keystroke lands
+  const gone = () => {
+    if (terms.get(id) !== t) return;
+    terms.delete(id);
+    clearTimeout(t.flush); clearTimeout(t.release);
+    if (t.out.length) send(); // its last words come before the word that it ended
+    sendTo(to(t), 'term-exit', { sessionId: id });
+    onExit();
+  };
+  proc.on('exit', gone);
+  proc.on('error', (e) => { console.error('terminal:', e?.message ?? e); gone(); });
+  return t;
+}
 function termOpen(body) {
   const client = CLIENT.test(String(body?.client ?? '')) ? body.client : null;
   if (!client || !clientRes.has(client)) return { ok: false, error: 'The page is not connected. Reload it and try again.' };
@@ -2552,28 +2613,7 @@ function termOpen(body) {
     const cwd = s.cwd && fs.existsSync(s.cwd) ? s.cwd : os.homedir();
     const ws = wsOfSession(s);
     if (!ws) return { ok: false, error: NO_WS };
-    const proc = spawn('python3', [BRIDGE, String(cols), String(rows), '--', claudePath() ?? 'claude', 'attach', s.id],
-      { cwd, env: { ...envOf(ws), TERM: 'xterm-256color', COLORTERM: 'truecolor' }, stdio: ['pipe', 'pipe', 'pipe'] });
-    t = { proc, clients: new Set(), buf: [], size: 0, out: [], flush: null, release: null };
-    terms.set(s.sessionId, t);
-    const take = (d) => {
-      t.buf.push(d); t.size += d.length;
-      while (t.size > TERM_KEEP && t.buf.length > 1) t.size -= t.buf.shift().length;
-      // Output comes in many small writes: a page gets it in one message every 16 ms.
-      t.out.push(d);
-      t.flush ??= setTimeout(() => { t.flush = null; const data = Buffer.concat(t.out).toString('base64'); t.out = []; sendTo(sealedTo(t.clients, s.ws), 'term', { sessionId: s.sessionId, data }); }, 16);
-    };
-    proc.stdout.on('data', take);
-    proc.stderr.on('data', take);
-    proc.stdin.on('error', () => {}); // it may be gone before a last keystroke lands
-    const gone = () => {
-      if (terms.get(s.sessionId) !== t) return;
-      terms.delete(s.sessionId);
-      clearTimeout(t.flush); clearTimeout(t.release);
-      sendTo(sealedTo(t.clients, s.ws), 'term-exit', { sessionId: s.sessionId });
-    };
-    proc.on('exit', gone);
-    proc.on('error', (e) => { console.error('terminal:', e?.message ?? e); gone(); });
+    t = spawnTerm(s.sessionId, claudePath() ?? 'claude', ['attach', s.id], { cwd, env: envOf(ws), cols, rows, to: (x) => sealedTo(x.clients, s.ws) });
   } else if (!t.proc.stdin.destroyed) t.proc.stdin.write(frame('r', `${cols} ${rows}`)); // a page joining redraws it at its size
   clearTimeout(t.release); t.release = null;
   t.clients.add(client);
@@ -2608,6 +2648,39 @@ function termEnd(sessionId) {
   if (t) try { t.proc.stdin.end(); } catch {}
 }
 const termClose = (body) => { termLeave(body?.client, body?.sessionId); return { ok: true }; };
+
+// The same terminal, running a sign-in instead of `claude attach`: Claude Code's `auth login` on a workspace's profile,
+// or Codex's `login` in that workspace's Codex home. Settings opens it for any workspace, so it goes only to the page
+// that opened it, under an id of its own (login:<what>:<ws>); typing, resizing and closing are the routes above. When
+// it ends, the sign-in is read again. The panel only relays keystrokes: Claude Code and Codex keep the login.
+function loginTermOpen(body) {
+  const client = CLIENT.test(String(body?.client ?? '')) ? body.client : null;
+  if (!client || !clientRes.has(client)) return { ok: false, error: 'The page is not connected. Reload it and try again.' };
+  const what = body?.what === 'codex' ? 'codex' : body?.what === 'claude' ? 'claude' : null;
+  if (!what) return { ok: false, error: 'Sign in to Claude or to Codex.' };
+  const ws = typeof body?.ws === 'string' ? wsById(body.ws) : null;
+  if (!ws) return { ok: false, error: 'No such workspace.' };
+  const id = `login:${what}:${ws.id}`, cols = termSize(body.cols, 100), rows = termSize(body.rows, 24);
+  let t = terms.get(id);
+  if (!t) {
+    let bin, args, env;
+    if (what === 'claude') {
+      bin = claudePath();
+      if (!bin) return { ok: false, error: "Claude Code wasn't found on the panel's PATH." };
+      args = ['auth', 'login']; env = envOf(ws);
+    } else {
+      bin = findCodex(codexWhere);
+      if (!bin) return { ok: false, error: 'Codex is not installed yet. Install it first, then sign in.' };
+      try { fs.mkdirSync(codexHome(ws.profile, HOME), { recursive: true, mode: 0o700 }); } catch (e) { return { ok: false, error: String(e?.message ?? e) }; }
+      args = ['login']; env = codexEnv(baseEnv, ws.profile, HOME);
+    }
+    t = spawnTerm(id, bin, args, { cwd: HOME, env, cols, rows, to: (x) => x.clients,
+      onExit: () => { if (what === 'claude') { ws.info = describeProfile(ws.profile); checkSetup(true); } settingsChanged(); } });
+  } else if (!t.proc.stdin.destroyed) t.proc.stdin.write(frame('r', `${cols} ${rows}`));
+  clearTimeout(t.release); t.release = null;
+  t.clients.add(client);
+  return { ok: true, id, scrollback: Buffer.concat(t.buf).toString('base64') };
+}
 
 // ---------------------------------------------------------------- OpenCode sessions
 // The second kind of agent (opencode.mjs). OpenCode's own service holds its sessions, for every folder and every app
@@ -3066,9 +3139,11 @@ async function ocLogin() {
   const r = await openInTerminal(file);
   return r.none ? { ok: false, error: `No terminal app was found. Run ${bin} auth login in a terminal.` } : r;
 }
+/** Homebrew on a Mac that has it, else null. */
+const brewPath = () => (MAC ? ['/opt/homebrew/bin/brew', '/usr/local/bin/brew'].find((f) => { try { fs.accessSync(f, fs.constants.X_OK); return true; } catch { return false; } }) ?? null : null);
 /** How OpenCode installs here: Homebrew's tap on a Mac that has Homebrew, else OpenCode's own install script. */
 function ocInstallCommand() {
-  const brew = MAC ? ['/opt/homebrew/bin/brew', '/usr/local/bin/brew'].find((f) => { try { fs.accessSync(f, fs.constants.X_OK); return true; } catch { return false; } }) : null;
+  const brew = brewPath();
   return brew ? { cmd: `${shq(brew)} install anomalyco/tap/opencode-v2`, show: 'brew install anomalyco/tap/opencode-v2' }
     : { cmd: 'curl -fsSL https://opencode.ai/v2/install | bash', show: 'curl -fsSL https://opencode.ai/v2/install | bash' };
 }
@@ -3082,6 +3157,74 @@ async function ocInstall() {
   fs.writeFileSync(file, `#!/bin/${SCRIPT_SHELL}\necho 'Installing OpenCode for Glue:'\necho ${shq(show)}\necho\n${cmd}\necho\necho 'Done. Go back to Glue: Settings › Providers › OpenCode picks it up.'\n`, { mode: 0o700 });
   const r = await openInTerminal(file);
   return r.none ? { ok: false, error: `No terminal app was found. Run ${show} in a terminal.` } : r;
+}
+
+// ---------------------------------------------------------------- OpenAI: Codex's own sign-in
+
+// OpenAI has a sign-in of its own in Settings, through OpenAI's Codex CLI (codex.mjs), one per workspace in its own
+// Codex home. Agents don't run on Codex yet: this is installing it and signing each workspace in. Codex keeps the login;
+// an API key typed in Settings goes straight to `codex login --with-api-key` on its stdin and is never kept or logged.
+const codexWhere = { home: HOME, env: process.env };
+/** Each live workspace, in switch order. */
+const liveWs = () => wsOrder().map((id) => W.get(id)).filter(Boolean);
+/** What Settings shows of Codex: installed, its version, and each workspace's sign-in (how, never the key). */
+async function codexStatus() {
+  const bin = findCodex(codexWhere), installCommand = codexInstallCommand({ brew: brewPath() }).show, list = liveWs();
+  const row = (ws, st) => ({ id: ws.id, state: st.state, method: st.method, command: codexLoginCommand(ws.profile) });
+  if (!bin) return { ok: true, installed: false, version: null, installCommand, workspaces: list.map((ws) => row(ws, { state: 'signed-out', method: null })) };
+  const [ver, ...states] = await Promise.all([
+    run(bin, ['--version'], { env: baseEnv, timeout: 8000 }),
+    // A home that was never made has never been signed in: no process for it.
+    ...list.map((ws) => (fs.existsSync(codexHome(ws.profile, HOME))
+      ? run(bin, ['login', 'status'], { env: codexEnv(baseEnv, ws.profile, HOME), cwd: HOME, timeout: 8000 }).then(parseCodexStatus)
+      : { state: 'signed-out', method: null })),
+  ]);
+  return { ok: true, installed: true, version: parseCodexVersion(ver.stdout || ver.stderr), installCommand, workspaces: list.map((ws, i) => row(ws, states[i])) };
+}
+/** Terminal, installing Codex where you can watch it. Settings asks again when you come back. */
+async function codexInstall() {
+  if (findCodex(codexWhere)) return { ok: true, already: true };
+  const { cmd, show } = codexInstallCommand({ brew: brewPath() });
+  const where = path.join(path.dirname(PREFS), 'trust');
+  fs.mkdirSync(where, { recursive: true, mode: 0o700 });
+  const file = path.join(where, `install-codex-${crypto.randomBytes(4).toString('hex')}${SCRIPT_EXT}`);
+  fs.writeFileSync(file, `#!/bin/${SCRIPT_SHELL}\necho 'Installing OpenAI Codex for Glue:'\necho ${shq(show)}\necho\n${cmd}\necho\necho 'Done. Go back to Glue: Settings › Providers › OpenAI picks it up.'\n`, { mode: 0o700 });
+  const r = await openInTerminal(file);
+  return r.none ? { ok: false, error: `No terminal app was found. Run ${show} in a terminal.` } : r;
+}
+/** The workspace and codex binary a Codex route acts on, or why not. */
+function codexFor(body) {
+  const ws = typeof body?.ws === 'string' ? wsById(body.ws) : null;
+  if (!ws) return { error: 'No such workspace.' };
+  const bin = findCodex(codexWhere);
+  if (!bin) return { error: 'Codex is not installed yet. Install it first.' };
+  return { ws, bin, env: codexEnv(baseEnv, ws.profile, HOME) };
+}
+/** `{ ws, key }`: sign a workspace in to Codex with an OpenAI API key, handed to Codex on its stdin. */
+async function codexKey(body) {
+  const key = cleanKey(body?.key);
+  if (!key) return { ok: false, error: 'Paste the API key on its own: one line, no spaces.' };
+  const c = codexFor(body);
+  if (c.error) return { ok: false, error: c.error };
+  try { fs.mkdirSync(codexHome(c.ws.profile, HOME), { recursive: true, mode: 0o700 }); } catch (e) { return { ok: false, error: String(e?.message ?? e) }; }
+  const r = await new Promise((resolve) => {
+    const p = execFile(c.bin, ['login', '--with-api-key'], { env: c.env, cwd: HOME, timeout: 15_000 },
+      (err, stdout, stderr) => resolve({ err, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') }));
+    p.stdin.on('error', () => {});
+    p.stdin.end(key + '\n');
+  });
+  if (r.err) return { ok: false, error: firstLine(r).replaceAll(key, '…') };
+  settingsChanged();
+  return { ok: true };
+}
+/** `{ ws }`: sign a workspace out of Codex. */
+async function codexLogout(body) {
+  const c = codexFor(body);
+  if (c.error) return { ok: false, error: c.error };
+  const r = await run(c.bin, ['logout'], { env: c.env, cwd: HOME, timeout: 15_000 });
+  if (r.err && !/not logged in/i.test(`${r.stdout}${r.stderr}`)) return { ok: false, error: firstLine(r) };
+  settingsChanged();
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------- a Claude session at its usage limit
@@ -3396,7 +3539,10 @@ async function handle(req, res) {
                       '/api/opencode': ocStatus, '/api/opencode/start': ocEnsure, '/api/opencode/login': ocLogin, '/api/opencode/install': ocInstall,
                       '/api/opencode/continue': continueInOpenCode,
                       '/api/opencode/providers': ocProviders, '/api/opencode/connect': ocConnect, '/api/opencode/disconnect': ocDisconnect,
-                      '/api/term/open': termOpen, '/api/term/input': termInput, '/api/term/resize': termResize, '/api/term/close': termClose };
+                      '/api/term/open': termOpen, '/api/term/input': termInput, '/api/term/resize': termResize, '/api/term/close': termClose,
+                      // Settings › Providers: a sign-in in the panel's own terminal, a new Claude profile, and Codex.
+                      '/api/login/term': loginTermOpen, '/api/profile/create': createProfile,
+                      '/api/codex': codexStatus, '/api/codex/install': codexInstall, '/api/codex/key': codexKey, '/api/codex/logout': codexLogout };
     if (Object.hasOwn(ACTIONS, url.pathname)) {
       let r;
       try { r = await ACTIONS[url.pathname](body, ctx); } catch (err) { r = { ok: false, error: String(err?.message ?? err).slice(0, 300) }; }
