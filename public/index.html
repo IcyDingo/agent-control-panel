@@ -408,7 +408,9 @@ body.resizing .drawer { transition: none; }
 /* How long, where (repository · main branch · its worktree), copy its folder, model and mode: one quiet line. */
 .d-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 8px; min-width: 0; color: var(--fg-dim); font-size: 12.5px; }
 .d-line .sep { color: var(--fg-faint); }
-.d-line .age:empty, .d-line .age:empty + .sep { display: none; }
+.d-age { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.d-age:has(.age:empty) { display: none; }
+.d-age svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .d-line .faint { color: var(--fg-faint); }
 .d-line .bypass { color: var(--stop); }
 .d-line .d-meta-tail { white-space: nowrap; }
@@ -2254,7 +2256,7 @@ function renderDrawer(vis) {
     s.oldVersion && !ended ? el('div', { class: 'note old', role: 'status' }, el('span', { class: 'lead', text: 'Restart this session.' }),
       el('span', { text: oldWhy(s.oldVersion) }), ...restartHow({ ...s, shown: true, profile: sessLogin(s) })) : null,
   ]);
-  setText($('d-head').querySelector('.age'), s.startedAt ? (ended ? 'ran ' : 'up ') + ago(snap.now - s.startedAt) : '');
+  setText($('d-head').querySelector('.age'), s.startedAt ? ago(snap.now - s.startedAt) : '');
 
   // Request cards are built once and kept, so an edit in progress survives every update.
   const rs = reqsOf(s.sessionId), box = $('d-cards');
@@ -2337,11 +2339,13 @@ function whereLine(s, here) {
   const model = isOcS(s) ? s.model : modelName(s.model);
   const meta = [model ? el('span', { title: isOcS(s) ? 'Its model, as OpenCode names it' : 'Its model', text: model }) : null,
     s.mode ? el('span', { class: s.mode === 'bypassPermissions' ? 'bypass' : '', title: 'Its permission mode', text: modeOf(s.mode) }) : null].filter(Boolean);
-  return el('div', { class: 'd-line' }, el('span', { class: 'age' }), where.length ? sep() : null, ...where,
+  return el('div', { class: 'd-line' }, ...where,
     here && !s.mismatch ? el('button', { class: 'd-copy', type: 'button', 'aria-label': 'Copy its folder', title: `Copy its folder: ${tilde(here)}`, onclick: copy },
       svgIcon('M9 9h10v10H9zM5 15V5h10')) : null,
     // Greyer than the rest, so it needs no dot before it: a wrapped line neither ends nor starts with one.
-    meta.length ? el('span', { class: 'faint d-meta-tail' }, ...meta.flatMap((m, i) => (i ? [' · ', m] : [m]))) : null);
+    meta.length ? el('span', { class: 'faint d-meta-tail' }, ...meta.flatMap((m, i) => (i ? [' · ', m] : [m]))) : null,
+    // How long it has run, last, after a clock (the time is filled in on every render).
+    el('span', { class: 'd-age faint', title: 'How long it has run' }, svgIcon('M12 7.5V12l3 2M20.5 12a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0z'), el('span', { class: 'age' })));
 }
 function nowLine(s, st, rs) {
   if (st === 'stopping') return quiet('Stopping at its next tool call.');
