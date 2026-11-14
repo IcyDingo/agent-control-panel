@@ -209,10 +209,16 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .col-h .n { font: 500 11.5px var(--mono); color: var(--fg-dim); }
 .col-h .btn.small { height: 24px; padding: 0 9px; font-size: 11.5px; }
 .col[data-col="waiting"] .col-h { color: var(--amber); }
-.col[data-col="repo"] .col-h { color: var(--fg); font-size: 13px; }
+.col[data-col="repo"] .col-h, .col[data-col="space"] .col-h { color: var(--fg); font-size: 13px; }
+.col-rename { flex: 1; min-width: 0; height: 28px; margin-left: 10px; }
+.d-space-row { display: grid; gap: 6px; }
+.d-space-row .field, .l-space .field { height: 30px; }
+.l-space .lf-row .field { flex: 1; min-width: 0; }
+/* A space's Rename and Delete show on hover and focus, so its name keeps the room the rest of the time. */
+@media (hover: hover) { .col[data-col="space"]:not(:hover, :focus-within) .sp-tool:not(.armed) { display: none; } }
 .col-name { flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: 8px; padding: 0 0 0 16px; border: 0; background: none; font-weight: inherit; text-align: left; }
 .col-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.col:not([data-col="repo"]) .col-title { flex: none; }
+.col:not([data-col="repo"], [data-col="space"]) .col-title { flex: none; }
 .col-asks { flex: none; font-size: 11.5px; font-weight: 500; color: var(--amber); }
 .col-fold { cursor: pointer; }
 .col-fold:hover { color: var(--fg); }
@@ -1010,7 +1016,7 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
   body.rail-slim .board { width: 44px; overflow-x: hidden; scrollbar-width: none; }
   body.rail-slim .board::-webkit-scrollbar { display: none; }
   body.rail-slim :is(.r-grip, #rail-find, #rail-keys, .col-path, .ck, .col-hint, .col-empty, .board-empty, .sub, .rask, .qstop),
-  body.rail-slim .col[data-col="waiting"]:not(:has(.tile-wrap)), body.rail-slim .col.folded:not(:has(.tile-wrap.rail-live)),
+  body.rail-slim .col:is([data-col="waiting"], [data-col="space"]):not(:has(.tile-wrap)), body.rail-slim .col.folded:not(:has(.tile-wrap.rail-live)),
   body.rail-slim .col.folded .tile-wrap:not(.rail-live) { display: none; }
   body.rail-slim .col.folded .col-body { display: grid; }
   body.rail-slim .rail-head { justify-content: center; padding: 4px 0 2px; }
@@ -1199,6 +1205,7 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
     </div>
     <p class="l-note" id="l-wt-note" hidden></p>
     <div class="lf l-ws" role="radiogroup" aria-labelledby="l-ws-t" id="l-ws" hidden><span id="l-ws-t"></span><div class="seg" id="l-ws-seg"></div></div>
+    <div class="lf l-space"><span id="l-space-t">Space</span><span class="lf-row"><select class="field" id="l-space" aria-labelledby="l-space-t"></select><input class="field" id="l-space-new" maxlength="40" placeholder="Name the space" spellcheck="false" autocomplete="off" aria-label="New space name" hidden></span></div>
     <div class="pair">
       <label class="lf"><span>Name <small>(optional)</small></span><input id="l-name" maxlength="60" placeholder="fix-timesheet-tests" spellcheck="false"></label>
       <label class="lf l-claude"><span>Agent type <small>(optional)</small></span><input id="l-agent" list="l-agents" placeholder="e.g. code-reviewer" spellcheck="false"><datalist id="l-agents"></datalist></label>
@@ -1318,6 +1325,7 @@ const HINT = {
   clear: 'Removes every finished session from the list. Transcripts are kept, and a worktree with unsaved work keeps its session.',
   sub: 'It stops at its next tool call. Its session carries on without it.',
   ovclear: 'Clears this conversation with the overseer. The feed of what happened stays.',
+  spacedel: 'Deletes the space. Its agents go back to their repositories.',
 };
 const SETTLED = {
   allow: 'Allowed from the panel', deny: 'Denied from the panel', answer: 'Answered from the panel',
@@ -1631,13 +1639,15 @@ function repoFolded() {
   const at = repoFoldKey();
   if (at !== repoFoldsAt) {
     repoFoldsAt = at;
-    repoFolds = new Set((() => { try { const v = JSON.parse(localStorage.getItem(at)); if (Array.isArray(v)) return v.filter((k) => typeof k === 'string' && k.startsWith('repo:')); } catch {} return []; })());
+    repoFolds = new Set((() => { try { const v = JSON.parse(localStorage.getItem(at)); if (Array.isArray(v)) return v.filter((k) => typeof k === 'string' && PAGE_FOLD.test(k)); } catch {} return []; })());
   }
   return repoFolds;
 }
-const isFolded = (k) => (k.startsWith('repo:') ? repoFolded().has(k) : folded.has(k));
+// A space's fold is this page's own too, like a repository's: its name must not reach another workspace either.
+const PAGE_FOLD = /^(repo|space):/;
+const isFolded = (k) => (PAGE_FOLD.test(k) ? repoFolded().has(k) : folded.has(k));
 function toggleFold(k) {
-  if (k.startsWith('repo:')) {
+  if (PAGE_FOLD.test(k)) {
     const set = repoFolded();
     set.has(k) ? set.delete(k) : set.add(k);
     try { localStorage.setItem(repoFoldKey(), JSON.stringify([...set].slice(-200))); } catch {}
@@ -1667,9 +1677,24 @@ function sectionEl(key, kind) {
     c.head = el('button', { class: 'col-name col-fold', type: 'button', 'aria-controls': body.id, onclick: () => toggleFold(key) },
       c.title, c.n, c.asks, c.peek, el('span', { class: 'chev', 'aria-hidden': 'true', text: '›' }));
   }
-  c.sec = el('section', { class: 'col', 'data-col': kind }, el('div', { class: 'col-h' }, c.head, c.tools), c.path, body);
+  if (kind === 'space') c.rename = el('input', { class: 'field col-rename', maxlength: 40, spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Space name', hidden: true,
+    onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); saveRename(c); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); endRename(); } },
+    onblur: () => { if (renaming === c.key.slice(6)) saveRename(c); } });
+  c.sec = el('section', { class: 'col', 'data-col': kind }, el('div', { class: 'col-h' }, ...(c.rename ? [c.rename] : []), c.head, c.tools), c.path, body);
   secs.set(key, c);
   return c;
+}
+/** The space a session is in, if that space is still listed for this workspace; else null. */
+const spaceIn = (s) => (s?.space && snap?.spaces?.some((x) => x.id === s.space) ? s.space : null);
+let renaming = null; // the space whose name is being edited in its header
+function endRename() { renaming = null; render(); }
+async function saveRename(c) {
+  const id = c.key.slice(6), name = c.rename.value.trim(), was = snap.spaces?.find((x) => x.id === id)?.name;
+  if (!name || name === was) return endRename();
+  renaming = null;
+  const r = await api('/api/space/rename', { id, name });
+  if (!r.ok) { toast(r.error || 'The space was not renamed.', true); renaming = id; }
+  render();
 }
 const boardEmpty = el('p', { class: 'board-empty', text: 'No sessions yet. Press New agent, or run claude in a terminal, and it shows up here.' });
 /** Which checkout of its repository a session works in: '' for the main one, else its worktree's name. */
@@ -1678,15 +1703,25 @@ const ckOf = (s) => s.git?.worktree ?? '';
 function sections(g) {
   const out = [{ key: 'waiting', kind: 'waiting', title: 'Needs you', list: g.waiting }];
   const repos = new Map(), loose = [], asks = new Map();
+  // Spaces first, in the order they were made: a session in one is listed there instead of under its repository.
+  const spaces = snap.spaces ?? [], inSpace = new Map(spaces.map((x) => [x.id, []])), spaceAsks = new Map();
   for (const s of [...g.busy, ...g.idle]) {
+    const sp = spaceIn(s);
+    if (sp) { inSpace.get(sp).push(s); continue; }
     const r = s.git?.repo;
     if (!r) { loose.push(s); continue; }
     if (!repos.has(r)) repos.set(r, []);
     repos.get(r).push(s);
   }
-  for (const s of g.waiting) if (s.git?.repo) asks.set(s.git.repo, (asks.get(s.git.repo) ?? 0) + 1);
+  for (const s of g.waiting) {
+    const sp = spaceIn(s);
+    if (sp) spaceAsks.set(sp, (spaceAsks.get(sp) ?? 0) + 1);
+    else if (s.git?.repo) asks.set(s.git.repo, (asks.get(s.git.repo) ?? 0) + 1);
+  }
   for (const r of asks.keys()) if (!repos.has(r)) repos.set(r, []);
   const working = (s) => (['busy', 'stopping'].includes(stateOf(s)) ? 0 : 1);
+  for (const x of spaces) out.push({ key: 'space:' + x.id, kind: 'space', space: x.id, title: x.name, asks: spaceAsks.get(x.id) ?? 0,
+    list: inSpace.get(x.id).sort((a, b) => working(a) - working(b) || (b.startedAt ?? 0) - (a.startedAt ?? 0) || a.sessionId.localeCompare(b.sessionId)) });
   for (const r of [...repos.keys()].sort((a, b) => base(a).localeCompare(base(b)) || a.localeCompare(b))) {
     // The main checkout first, then worktrees by name; in each, working before idle, newest first.
     const list = repos.get(r).sort((a, b) => (ckOf(a) ? 1 : 0) - (ckOf(b) ? 1 : 0) || ckOf(a).localeCompare(ckOf(b))
@@ -1928,7 +1963,7 @@ function tile(s) {
   setText(t.name, label(s));
   t.oc.hidden = !isOcS(s);
   // Under Needs you a row is away from its repository's section, so it names the repository.
-  const away = st === 'waiting' && repoOf(s.git), tag = s.mismatch ? `from ${s.mismatch.name}` : away;
+  const away = (st === 'waiting' || spaceIn(s)) && repoOf(s.git), tag = s.mismatch ? `from ${s.mismatch.name}` : away;
   setText(t.repo, tag || '');
   t.repo.classList.toggle('mismatch', Boolean(s.mismatch));
   const ci = ciOf(s);
@@ -1982,7 +2017,7 @@ let shownSecs = []; // the sections on the rail now, in order
 function bulksOf(sec) {
   if (sec.kind === 'finished') return [{ key: 'clear:', text: 'Clear', armed: `Clear ${sec.list.length}`,
     run: () => bulk(sec.list, doRemove, (n) => `Cleared ${sessions(n)}. Transcripts are kept.`) }];
-  if (sec.kind !== 'repo' && sec.kind !== 'loose') return [];
+  if (sec.kind !== 'repo' && sec.kind !== 'loose' && sec.kind !== 'space') return [];
   const working = sec.list.filter((s) => stateOf(s) === 'busy');
   // Bulk ending stays with background sessions: you may be typing in one of the terminal ones.
   const idleBg = sec.list.filter((s) => stateOf(s) === 'idle' && s.kind === 'background' && canEnd(s));
@@ -1991,6 +2026,9 @@ function bulksOf(sec) {
       run: () => bulk(working, (s) => api('/api/interrupt', { sessionId: s.sessionId }), (n) => `Interrupting ${sessions(n)} at the next tool call.`) },
     idleBg.length > 0 && { key: `idle:${sec.key}`, text: 'End idle', armed: `End ${idleBg.length} background`,
       run: () => bulk(idleBg, doEnd, (n) => `Ended ${sessions(n)}. Conversations are kept.`) },
+    sec.kind === 'space' && { key: `spacedel:${sec.space}`, text: 'Delete', armed: 'Delete?', run: async () => {
+      const r = await api('/api/space/delete', { id: sec.space });
+      if (!r.ok) toast(r.error || 'The space was not deleted.', true); } },
   ].filter(Boolean);
 }
 const hintOf = (key) => HINT[key.split(':')[0]];
@@ -2009,7 +2047,13 @@ function renderBoard(g, vis) {
       setAttr(c.head, 'aria-expanded', String(!shut));
       setText(c.peek, rows[0] ? label(rows[0]) : '');
     }
-    setAttr(c.sec, 'aria-label', sec.kind === 'repo' ? `Repository ${sec.title}` : sec.title);
+    setAttr(c.sec, 'aria-label', sec.kind === 'repo' ? `Repository ${sec.title}` : sec.kind === 'space' ? `Space ${sec.title}` : sec.title);
+    if (c.rename) {
+      const on = renaming === sec.space;
+      c.head.hidden = on;
+      if (on && c.rename.hidden) { c.rename.hidden = false; c.rename.value = sec.title; c.rename.focus(); c.rename.select(); }
+      else if (!on) c.rename.hidden = true;
+    }
     // Under a repository's name, the checkout and branch when only one checkout of it is in use. Its folder is in the
     // name's tooltip and in the open session's place bar, so the rail stays clean.
     const tops = sec.kind === 'repo' ? [...new Set(sec.list.map((s) => s.git.top))] : [];
@@ -2019,13 +2063,16 @@ function renderBoard(g, vis) {
       el('span', { class: 'br' + (one.worktree ? ' wt' : '') }, el('span', { text: (one.worktree ? `${one.worktree} · ` : '') + (one.branch ?? `detached ${one.commit ?? ''}`) })));
     setAttr(c.head, 'title', sec.kind === 'repo' ? tilde(sec.repo) : '');
     const bs = bulksOf(sec), armedB = bs.find((b) => armed?.key === b.key);
-    patch(c.tools, JSON.stringify(bs.map((b) => [b.key, b.text, b.armed, armed?.key === b.key])), () => bs.map((b) => el('button', {
-      class: 'btn danger soft small' + (armed?.key === b.key ? ' armed' : ''), type: 'button', 'data-key': b.key, title: hintOf(b.key),
-      text: armed?.key === b.key ? b.armed : b.text, onclick: () => confirmOr(b.key, b.run) })));
+    const renameBtn = sec.kind === 'space' && renaming !== sec.space;
+    patch(c.tools, JSON.stringify([renameBtn, bs.map((b) => [b.key, b.text, b.armed, armed?.key === b.key])]), () => [
+      renameBtn ? el('button', { class: 'btn quiet small sp-tool', type: 'button', text: 'Rename', title: 'Rename this space', onclick: () => { renaming = sec.space; render(); } }) : null,
+      ...bs.map((b) => el('button', {
+        class: 'btn danger soft small' + (b.key.startsWith('spacedel:') ? ' sp-tool' : '') + (armed?.key === b.key ? ' armed' : ''), type: 'button', 'data-key': b.key, title: hintOf(b.key),
+        text: armed?.key === b.key ? b.armed : b.text, onclick: () => confirmOr(b.key, b.run) }))]);
     c.hint.hidden = !armedB;
     if (armedB) setText(c.hint, hintOf(armedB.key));
-    c.empty.hidden = sec.kind !== 'waiting' || rows.length > 0 || Boolean(railQuery);
-    setText(c.empty, 'Nothing needs you.');
+    c.empty.hidden = (sec.kind !== 'waiting' && sec.kind !== 'space') || rows.length > 0 || Boolean(railQuery);
+    setText(c.empty, sec.kind === 'space' ? 'No agents right now.' : 'Nothing needs you.');
     // Two or more checkouts of one repository: a label before each checkout's sessions.
     const labelled = tops.length > 1;
     const want = [c.hint];
@@ -2162,7 +2209,8 @@ function renderDrawer(vis) {
   renderCompose(s, st);
 
   // The column: where it works, how to reopen it, its subagents, and the buttons that stop it.
-  patch($('d-info'), JSON.stringify([s.sessionId, s.cwd, here, s.git, s.mismatch, s.kind, s.id, Boolean(s.leftRosterAt), snap.profile?.command, sharers, elsewhere]), () => el('dl', { class: 'kv' },
+  patch($('d-info'), JSON.stringify([s.sessionId, s.cwd, here, s.git, s.mismatch, s.kind, s.id, Boolean(s.leftRosterAt), snap.profile?.command, sharers, elsewhere, spaceIn(s), snap.spaces]), () => el('dl', { class: 'kv' },
+    s.mismatch ? null : [el('dt', { text: 'Space' }), el('dd', {}, spacePicker(s))],
     s.mismatch ? [el('dt', { text: 'Folder' }), el('dd', { class: 'mismatch', text: mismatchText(s), title: MISMATCH_WHY })]
       : [el('dt', { text: 'Folder' }), el('dd', { class: 'mono', text: here || 'unknown', title: here !== s.cwd && s.cwd ? `Started in ${s.cwd}` : null })],
     where ? [el('dt', { text: 'Branch' }), el('dd', { class: 'mono' + (s.git.worktree ? ' where-b wt' : ' where-b'), text: where.on, title: where.long }), el('dt', { text: 'Checkout' }), el('dd', { text: where.at[0].toUpperCase() + where.at.slice(1) })] : null,
@@ -3626,6 +3674,8 @@ function openLauncher() {
   for (const s of snap?.sessions ?? []) for (const a of s.subagents) types.add(a.agentType);
   $('l-agents').replaceChildren(...[...types].map((t) => el('option', { value: t })));
   if (!$('l-cwd').value) $('l-cwd').value = ranked[0] || '~';
+  spaceOptions($('l-space'), $('l-space').value);
+  $('l-space-new').hidden = $('l-space').value !== '+new';
   lErr.hidden = true;
   setWsAsk(null); // asked again for this page's workspace, once the folder is looked at
   checkFolder();
@@ -3733,6 +3783,40 @@ function showWorktree() {
 $('l-wt').addEventListener('change', showWorktree);
 $('l-wt-name').addEventListener('input', showWorktree);
 $('l-name').addEventListener('input', showWorktree);
+/** The Space picker in a session's details: moving takes effect at once; New space… asks for a name inline. */
+function spacePicker(s) {
+  const sel = el('select', { class: 'field d-space', 'aria-label': 'Space' }), name = el('input', { class: 'field d-space-new', maxlength: 40, placeholder: 'Name the space', spellcheck: 'false', autocomplete: 'off', 'aria-label': 'New space name', hidden: true });
+  spaceOptions(sel, spaceIn(s) ?? '');
+  const move = async (space) => {
+    const r = await api('/api/space/move', { sessionId: s.sessionId, space });
+    if (!r.ok) { toast(r.error || 'It did not move.', true); spaceOptions(sel, spaceIn(s) ?? ''); }
+  };
+  sel.onchange = () => {
+    if (sel.value !== '+new') { name.hidden = true; return move(sel.value || null); }
+    name.hidden = false;
+    name.focus();
+  };
+  name.onkeydown = async (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); name.value = ''; name.hidden = true; spaceOptions(sel, spaceIn(s) ?? ''); return; }
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const c = await api('/api/space/create', { name: name.value });
+    if (!c.ok) return toast(c.error || 'The space was not made.', true);
+    move(c.id);
+  };
+  return el('span', { class: 'd-space-row' }, sel, name);
+}
+/** A Space picker's options: None, this workspace's spaces, and New space…; keeps `current` if it is still there. */
+function spaceOptions(sel, current) {
+  const list = snap?.spaces ?? [];
+  sel.replaceChildren(el('option', { value: '', text: 'None' }), ...list.map((x) => el('option', { value: x.id, text: x.name })), el('option', { value: '+new', text: 'New space…' }));
+  sel.value = current === '+new' || list.some((x) => x.id === current) ? current : '';
+}
+$('l-space').addEventListener('change', () => {
+  const fresh = $('l-space').value === '+new';
+  $('l-space-new').hidden = !fresh;
+  if (fresh) $('l-space-new').focus();
+});
 $('launch-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const go = $('l-go');
@@ -3742,10 +3826,20 @@ $('launch-form').addEventListener('submit', async (e) => {
   const worktree = $('l-wt').checked && !$('l-wt').disabled, worktreeName = worktree ? wtName() : '';
   const name = $('l-name').value.trim() || worktreeName, assign = wsAnswer();
   const ocKind = picked('l-kind') === 'opencode';
+  let space = $('l-space').value || null;
+  if (space === '+new') {
+    const c = await api('/api/space/create', { name: $('l-space-new').value });
+    if (!c.ok) { go.disabled = false; go.textContent = 'Launch agent'; lErr.textContent = c.error || 'The space was not made.'; lErr.hidden = false; $('l-space-new').focus(); return; }
+    space = c.id; // picked from here on, so a second Launch (after a question) doesn't make it twice
+    $('l-space').append(el('option', { value: c.id, text: $('l-space-new').value.trim() }));
+    $('l-space').value = c.id;
+    $('l-space-new').value = '';
+    $('l-space-new').hidden = true;
+  }
   const r = await api('/api/launch', {
     prompt: $('l-prompt').value, cwd: $('l-cwd').value, name, agentKind: ocKind ? 'opencode' : 'claude',
     ...(ocKind ? { model: $('l-oc-model').value } : { agent: $('l-agent').value.trim(), model: picked('l-model'), effort: EFFORT_STOPS[$('l-effort').value][0] }),
-    mode: picked('l-mode'), worktree, worktreeName, assign,
+    mode: picked('l-mode'), worktree, worktreeName, assign, space,
   });
   go.disabled = false;
   go.textContent = 'Launch agent';

@@ -15,6 +15,8 @@ export const COLORS = { blue: '#7ea6e6', violet: '#a98af0', green: '#55b985', te
 // What a non-plain workspace takes, in turn; the plain profile is always violet.
 const PICK = ['blue', 'green', 'teal', 'rose'];
 const NAME_MAX = 24;
+// A space's name, and how long a session gone from the board stays in its space.
+const SPACE_MAX = 40, HOUR = 3_600_000, KEEP_MS = 14 * 86_400_000;
 const isColor = (c) => typeof c === 'string' && Object.hasOwn(COLORS, c);
 
 /** What a repository is called in the store: its GitHub slug, else its git common dir, else its folder. */
@@ -40,7 +42,7 @@ const labelOf = (p) => (p.dir ? path.basename(p.dir) : p.plain ? 'claude' : `cla
  */
 export function createStore({ file, profiles = [] } = {}) {
   // No prototype, so an id or key like `constructor` or `__proto__` is just an unknown name, never a stray lookup.
-  let st = { v: 1, workspaces: Object.create(null), order: [], repos: Object.create(null), focus: '' };
+  let st = { v: 1, workspaces: Object.create(null), order: [], repos: Object.create(null), focus: '', spaces: Object.create(null) };
   const plainOf = new Map();
   try {
     const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -54,6 +56,17 @@ export function createStore({ file, profiles = [] } = {}) {
         if (ws.length) st.repos[key] = ws;
       }
       if (st.workspaces[saved.focus]) st.focus = saved.focus;
+      // Spaces, entry by entry: anything malformed is dropped, the rest of the file still loads.
+      const sp = saved.spaces && typeof saved.spaces === 'object' ? saved.spaces : {};
+      for (const [ws, v] of Object.entries(sp)) {
+        if (!st.workspaces[ws] || !v || typeof v !== 'object') continue;
+        const list = (Array.isArray(v.list) ? v.list : []).filter((x, i, a) => x && typeof x.id === 'string' && x.id
+          && typeof x.name === 'string' && x.name && a.findIndex((y) => y?.id === x.id) === i).map((x) => ({ id: x.id, name: x.name }));
+        const members = Object.create(null);
+        for (const [sid, m] of Object.entries(v.members && typeof v.members === 'object' ? v.members : {}))
+          if (m && list.some((x) => x.id === m.space) && Number.isFinite(m.at)) members[sid] = { space: m.space, at: m.at };
+        if (list.length) st.spaces[ws] = { list, members };
+      }
     }
   } catch { /* no file yet, or unreadable: start from the profiles */ }
 
@@ -90,6 +103,17 @@ export function createStore({ file, profiles = [] } = {}) {
   sync([...profiles].sort((a, b) => (a.plain - b.plain) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)));
 
   const view = (id) => ({ id, name: st.workspaces[id].name, color: st.workspaces[id].color });
+
+  // Spaces: named groups of a workspace's sessions, by what they work on. Not workspaces: one lives inside one.
+  const NOWS = { ok: false, error: 'No such workspace.' }, NOSPACE = { ok: false, error: 'No such space.' };
+  const spacesAt = (ws) => (st.spaces[ws] ??= { list: [], members: Object.create(null) });
+  const spaceName = (ws, name, self = null) => {
+    if (typeof name !== 'string' || !name.trim()) return { error: 'A space needs a name.' };
+    const n = name.trim();
+    if (n.length > SPACE_MAX) return { error: `A name is at most ${SPACE_MAX} characters.` };
+    if ((st.spaces[ws]?.list ?? []).some((x) => x.id !== self && x.name.toLowerCase() === n.toLowerCase())) return { error: 'Another space has that name.' };
+    return { name: n };
+  };
 
   return {
     /** Every workspace, in order. */
@@ -145,5 +169,65 @@ export function createStore({ file, profiles = [] } = {}) {
     },
     /** Add a workspace for a profile seen for the first time; the others are kept as they are. */
     sync,
+    /** A workspace's spaces, in the order they were made. */
+    spacesOf: (ws) => (st.spaces[ws]?.list ?? []).map((x) => ({ ...x })),
+    createSpace(ws, name) {
+      if (!st.workspaces[ws]) return NOWS;
+      const n = spaceName(ws, name);
+      if (n.error) return { ok: false, error: n.error };
+      const at = spacesAt(ws);
+      let id;
+      do id = randomUUID().slice(0, 8); while (at.list.some((x) => x.id === id));
+      at.list.push({ id, name: n.name });
+      save();
+      return { ok: true, id };
+    },
+    renameSpace(ws, id, name) {
+      if (!st.workspaces[ws]) return NOWS;
+      const x = st.spaces[ws]?.list.find((y) => y.id === id);
+      if (!x) return NOSPACE;
+      const n = spaceName(ws, name, id);
+      if (n.error) return { ok: false, error: n.error };
+      x.name = n.name;
+      save();
+      return { ok: true };
+    },
+    /** Delete a space; its sessions are in no space after. */
+    deleteSpace(ws, id) {
+      if (!st.workspaces[ws]) return NOWS;
+      const at = st.spaces[ws], i = at?.list.findIndex((y) => y.id === id) ?? -1;
+      if (i < 0) return NOSPACE;
+      at.list.splice(i, 1);
+      for (const [sid, m] of Object.entries(at.members)) if (m.space === id) delete at.members[sid];
+      save();
+      return { ok: true };
+    },
+    /** The space a session is in, or null. */
+    spaceOf: (ws, sessionId) => st.spaces[ws]?.members[sessionId]?.space ?? null,
+    /** Put a session in a space; null takes it out. */
+    setSpace(ws, sessionId, id, now = Date.now()) {
+      if (!st.workspaces[ws]) return NOWS;
+      if (typeof sessionId !== 'string' || !sessionId) return { ok: false, error: 'No such session.' };
+      if (id === null) {
+        if (st.spaces[ws]?.members[sessionId]) { delete st.spaces[ws].members[sessionId]; save(); }
+        return { ok: true };
+      }
+      if (!st.spaces[ws]?.list.some((y) => y.id === id)) return NOSPACE;
+      st.spaces[ws].members[sessionId] = { space: id, at: now };
+      save();
+      return { ok: true };
+    },
+    /** Stamp the members still around (at most hourly) and drop those not seen for 14 days. */
+    touchSpaces(ws, liveIds = [], now = Date.now()) {
+      const at = st.spaces[ws];
+      if (!at) return;
+      const live = new Set(liveIds);
+      let changed = false;
+      for (const [sid, m] of Object.entries(at.members)) {
+        if (live.has(sid)) { if (now - m.at > HOUR) { m.at = now; changed = true; } }
+        else if (now - m.at > KEEP_MS) { delete at.members[sid]; changed = true; }
+      }
+      if (changed) save();
+    },
   };
 }
