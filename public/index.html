@@ -4204,6 +4204,7 @@ const SET_TABS = [
   { id: 'workspaces', name: 'Workspaces', build: setWorkspacesTab, perWs: true },
   { id: 'logins', name: 'Logins & connection', build: setLoginsTab },
   { id: 'github', name: 'GitHub, alerts & Auto-fix', build: setGithubTab, perWs: true },
+  { id: 'overseer', name: 'Overseer', build: setOverseerTab, perWs: true },
   { id: 'providers', name: 'Providers', build: setProvidersTab },
   { id: 'glue', name: 'Glue', build: setGlueTab },
 ];
@@ -4307,7 +4308,7 @@ function setPicked() {
   const list = setData?.workspaces ?? [];
   return list.find((w) => w.id === setWs) ?? list.find((w) => w.here) ?? null;
 }
-/** Shows workspace `id` in the tab's own parts (Auto-fix, the overseer, its repositories). The window stays where it is. */
+/** Shows workspace `id` in the tab's own parts (Auto-fix, its overseer, its repositories). The window stays where it is. */
 function pickSetWs(id, focus) {
   if (!setData?.workspaces?.some((w) => w.id === id)) return;
   if (id !== setPicked()?.id) { setWs = id; setMoving = null; renderSettings(); }
@@ -4571,17 +4572,17 @@ async function setGlue(change) {
   renderSettings();
 }
 
-// The GitHub, alerts & Auto-fix tab: gh's sign-in (one for every workspace), then Auto-fix and the overseer's model of
-// the workspace this page is on, the same switches as the GitHub panel's and the composer's.
+// The GitHub, alerts & Auto-fix tab: gh's sign-in (one for every workspace), then Auto-fix of the workspace the picker
+// shows, the same switch as the GitHub panel's.
 function setGithubTab(panel) {
   if (!panel.firstChild) panel.append(
     el('h3', { text: 'GitHub, alerts & Auto-fix' }),
-    el('p', { class: 'set-lead', text: 'Glue reads pull requests and CI through the GitHub CLI, on gh’s own login: it stores no token. One sign-in serves every workspace. Auto-fix and the overseer are each workspace’s own: the picker at the top chooses which.' }),
+    el('p', { class: 'set-lead', text: 'Glue reads pull requests and CI through the GitHub CLI, on gh’s own login: it stores no token. One sign-in serves every workspace. Auto-fix is each workspace’s own: the picker at the top chooses which.' }),
     el('div', { class: 'set-blocks' }));
   const box = panel.children[2];
   if (!setReady(box)) return;
   const gh = setData.github ?? { state: 'unknown' }, list = setData.workspaces, focus = setPicked(), several = list.length > 1;
-  setPatch(box, JSON.stringify([gh, setData.overseer?.models, focus, several]), () => {
+  setPatch(box, JSON.stringify([gh, focus, several]), () => {
     const login = gh.state === 'ok' ? setLine('ok', '✓', gh.login ? `Signed in as ${gh.login}` : 'Signed in', 'Pull requests and CI show for the repositories your agents work in.')
       : gh.state === 'signed-out' ? setLine('todo', '✗', 'Not signed in', 'Sign the GitHub CLI in to see pull requests and CI here, and to let Auto-fix tell an agent when its checks fail.',
         [el('button', { class: 'btn primary small', type: 'button', text: 'Sign in in Terminal…', 'data-f': 'gh-login', onclick: (e) => openLogin('gh', e.currentTarget) }), cmdChip('gh auth login')])
@@ -4589,21 +4590,41 @@ function setGithubTab(panel) {
         [IS_MAC ? cmdChip('brew install gh') : el('span', { class: 'set-quiet', text: 'It is in most package managers as gh; cli.github.com has the rest.' })])
       : gh.state === 'off' ? setLine('off', '·', 'Turned off', 'GitHub is turned off for this panel (ACP_GITHUB=off).')
       : setLine('wait', '·', 'Checking…', 'Looking at whether the GitHub CLI is signed in.');
-    const models = setData.overseer?.models ?? [];
     return [
       el('section', { class: 'set-block', 'aria-label': 'GitHub CLI' }, setBlockHead(null, 'GitHub CLI'), login),
       el('section', { class: 'set-block', 'aria-label': several && focus ? focus.name : 'This workspace' },
-        setBlockHead(several ? focus : null, 'Auto-fix and the overseer', several && focus?.here ? 'you’re here' : null),
+        setBlockHead(several ? focus : null, 'Auto-fix', several && focus?.here ? 'you’re here' : null),
         el('div', { class: 'set-opts' },
           setOpt('Auto-fix', 'When a pull request on an agent’s branch fails, conflicts, gets changes requested or has checks stuck, the PR watcher asks that agent to fix it and push again, at most 3 times. The GitHub panel has the same switch.',
-            setSwitch('autofix', several && focus ? `Auto-fix in ${focus.name}` : 'Auto-fix', Boolean(focus?.autofix ?? setData.watcher?.enabled), (on) => setAutofix(focus?.id, on), gh.state === 'off')),
-          setOpt('Overseer model', 'The model the overseer answers with. The same choice sits under its composer.',
-            setSelect('ov-model', several && focus ? `The overseer’s model in ${focus.name}` : 'The overseer’s model', models.map((m) => [m, MODEL_NAMES[m] ?? m]),
-              focus?.overseerModel ?? setData.overseer?.model, (m) => setOverseerModel(focus?.id, m))))),
+            setSwitch('autofix', several && focus ? `Auto-fix in ${focus.name}` : 'Auto-fix', Boolean(focus?.autofix ?? setData.watcher?.enabled), (on) => setAutofix(focus?.id, on), gh.state === 'off')))),
       el('p', { class: 'set-note' }, 'Which of these alert you, CI failures and the PR watcher among them, is under ',
         el('button', { class: 'linkish', type: 'button', text: 'Glue › Answering & alerts', 'data-f': 'to-alerts', onclick: () => { showSetTab('glue'); $('set-g-alerts')?.scrollIntoView({ block: 'start' }); } }), '.'),
     ];
   });
+}
+// The Overseer tab: each workspace's overseer answers with a model of its own (the picker chooses whose, as under its
+// composer), and a workspace added from now on starts on Glue's default (prefs.json › glue.overseerModel).
+function setOverseerTab(panel) {
+  if (!panel.firstChild) panel.append(
+    el('h3', { text: 'Overseer' }),
+    el('p', { class: 'set-lead', text: 'The overseer is one chat that reads every session on this board: its repository and branch, what it asks you, and what GitHub shows for its pull request. It can propose a message to an agent, a new session or an interrupt, and nothing runs until you click. Each workspace has its own overseer: the picker at the top chooses which.' }),
+    el('div', { class: 'set-blocks' }));
+  const box = panel.children[2];
+  if (!setReady(box)) return;
+  const list = setData.workspaces, focus = setPicked(), several = list.length > 1, models = setData.overseer?.models ?? [];
+  const options = models.map((m) => [m, MODEL_NAMES[m] ?? m]);
+  setPatch(box, JSON.stringify([models, focus, several, setData.glue?.overseerModel]), () => [
+    el('section', { class: 'set-block', 'aria-label': several && focus ? focus.name : 'This workspace' },
+      setBlockHead(several ? focus : null, 'This workspace', several && focus?.here ? 'you’re here' : null),
+      el('div', { class: 'set-opts' },
+        setOpt('Model', 'The model the overseer answers with. The same choice sits under its composer.',
+          setSelect('ov-model', several && focus ? `The overseer’s model in ${focus.name}` : 'The overseer’s model', options,
+            focus?.overseerModel ?? setData.overseer?.model, (m) => setOverseerModel(focus?.id, m))))),
+    el('section', { class: 'set-block', 'aria-label': 'A new workspace' }, setBlockHead(null, 'A new workspace'),
+      el('div', { class: 'set-opts' },
+        setOpt('Model for a new workspace', 'What the overseer of a workspace added from now on answers with. A workspace you have already keeps its own.',
+          setSelect('ad-ov', 'Overseer model for a new workspace', options, setData.glue?.overseerModel, (v) => setGlue({ overseerModel: v }))))),
+  ]);
 }
 /** Auto-fix and the overseer's model of workspace `ws`, whichever the picker shows: Settings' own routes take any. */
 async function setAutofix(ws, on) {
@@ -4738,15 +4759,13 @@ async function setArm(on) {
   if (!r.ok) { toast(r.error || 'It did not change.', true); setRedraw(); }
 }
 function setGlueAgents(box, g) {
-  const a = g.agentDefaults, models = setData.overseer?.models ?? [];
-  setPatch(box, JSON.stringify([a, g.overseerModel, models]), () => [
+  const a = g.agentDefaults;
+  setPatch(box, JSON.stringify(a), () => [
     el('p', { class: 'set-quiet set-sub', text: 'What New agent starts with. You can still change each one when you start an agent.' }),
     setOpt('Model', null, setSelect('ad-model', 'Model a new agent starts with', AGENT_MODELS, a.model, (v) => setGlue({ agentDefaults: { model: v } }))),
     setOpt('Effort', null, setSelect('ad-effort', 'Effort a new agent starts with', EFFORT_STOPS, a.effort, (v) => setGlue({ agentDefaults: { effort: v } }))),
     setOpt('Permissions', null, setSelect('ad-mode', 'Permissions a new agent starts with', AGENT_MODES, a.mode, (v) => setGlue({ agentDefaults: { mode: v } }))),
     setOpt('Its own worktree', 'A new branch in a folder of its own, off the one you are on.', setSwitch('ad-wt', 'Its own worktree', a.worktree, (on) => setGlue({ agentDefaults: { worktree: on } }))),
-    setOpt('Overseer model for a new workspace', 'What the overseer of a workspace added from now on answers with.',
-      setSelect('ad-ov', 'Overseer model for a new workspace', models.map((m) => [m, MODEL_NAMES[m] ?? m]), g.overseerModel, (v) => setGlue({ overseerModel: v }))),
   ]);
 }
 function setGlueAbout(box, ab) {

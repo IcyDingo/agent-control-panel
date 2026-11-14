@@ -108,6 +108,15 @@ see and change all of it, for every workspace and for Glue as a whole, and it is
 - **Auto-fix**, the PR watcher, for the workspace you're in. Today it is a switch in the GitHub panel. That switch
   stays, and both show the same state.
 - **Overseer model** for the workspace you're in. It mirrors the select under the overseer's composer, which stays.
+- *(2026-11-14.)* The overseer model moved to its own **Overseer** tab, below.
+
+### Tab: Overseer
+
+*(Added 2026-11-14.)* A short description of what the overseer does, then, with the workspace picker:
+- **Model** of the picked workspace's overseer, moved here from the GitHub tab. It mirrors the select under the
+  overseer's composer, which stays.
+- **Model for a new workspace**, moved here from Glue › Agent defaults. It is still Glue's own pref
+  (`glue.overseerModel`).
 
 ### Tab: Providers
 
@@ -155,7 +164,7 @@ These settings apply to every workspace and every page. They are stored on the s
 - **Agent defaults**
   - The New agent launcher's starting values: model, effort, permission mode, and "its own worktree" on or off. Today
     they start from fixed values. The launcher still lets you change them per launch.
-  - The overseer model a newly created workspace starts with.
+  - The overseer model a newly created workspace starts with. *(2026-11-14: moved to the Overseer tab.)*
 - **About & maintenance**
   - The version: `package.json` version plus the git short commit of the running server.
   - The background service: running or not (`daemon.mjs status()`), with **Restart**, which runs `launchctl
