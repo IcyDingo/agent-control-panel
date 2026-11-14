@@ -38,7 +38,12 @@ const EMAIL_C = 'contract-person@example.test';
 fs.writeFileSync(path.join(home, '.claude-contract', '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: EMAIL_C, organizationName: 'Contract Org' } }));
 // One background job per profile, up and idle with no process of its own: a reply resumes it with --bg.
 const job = (sid, name, cwd) => ({ pid: null, id: sid.slice(0, 8), cwd, kind: 'background', startedAt: Date.now(), sessionId: sid, name, status: 'idle', state: 'running' });
-fs.writeFileSync(path.join(home, 'roster-default.json'), JSON.stringify([job(SID_D, 'default job', work)]));
+// A stopped background job too: removing it runs `claude rm`, which the stand-in refuses, as Claude Code does for a
+// worktree with unsaved work.
+const SID_S = 'aaaaaaaa-5555-4555-8555-555555555555';
+fs.mkdirSync(path.join(home, '.claude', 'projects', 'p'), { recursive: true });
+fs.writeFileSync(path.join(home, '.claude', 'projects', 'p', `${SID_S}.jsonl`), transcript('stopped work', work));
+fs.writeFileSync(path.join(home, 'roster-default.json'), JSON.stringify([job(SID_D, 'default job', work), { ...job(SID_S, 'stopped job', work), status: null, state: 'stopped' }]));
 fs.writeFileSync(path.join(home, 'roster-.claude-contract.json'), JSON.stringify([job(SID_C, 'contract job', workC)]));
 
 const calls = path.join(home, 'claude-calls.log');
@@ -66,6 +71,11 @@ if (a[0] === '-p') {
 const prefs = path.join(home, 'panel', 'prefs.json');
 fs.mkdirSync(path.dirname(prefs));
 fs.writeFileSync(prefs, JSON.stringify({ profile: 'default' }));
+// A space kept from an earlier run, whose member was last seen more than 14 days ago (the panel was off): the job is
+// still on the roster, so the first roster read must keep it in its space.
+fs.writeFileSync(path.join(home, 'panel', 'workspaces.json'), JSON.stringify({ v: 1,
+  workspaces: { default: { name: 'claude', color: 'violet' }, contract: { name: 'claude-contract', color: 'blue' } }, order: ['contract', 'default'], repos: {}, focus: 'default',
+  spaces: { default: { list: [{ id: 'kept0001', name: 'Kept' }], members: { [SID_D]: { space: 'kept0001', at: Date.now() - 15 * 86_400_000 } } } } }), { mode: 0o600 });
 // The shared overseer file from before workspaces: each workspace's own is seeded from it once.
 const oldOverseer = path.join(home, 'panel', 'overseer.json');
 fs.writeFileSync(oldOverseer, JSON.stringify({ v: 1, model: 'haiku', profiles: { contract: { seq: 1, fseq: 0, feed: [],
@@ -130,6 +140,21 @@ const sessionIn = (pg, sid) => pg.latest()?.sessions.find((s) => s.sessionId ===
 // Page B moves to contract; both pages wait until their own workspace's job is listed.
 assert.equal((await api('/api/workspace/focus', { ws: 'contract' }, B.client)).ok, true);
 await until(() => sessionIn(A, SID_D) && sessionIn(B, SID_C) && B.latest().workspace?.id === 'contract');
+
+test('a member the roster still lists keeps its space after the panel was off for weeks', async () => {
+  assert.ok(await until(() => sessionIn(A, SID_D)?.space === 'kept0001', 3000), JSON.stringify(sessionIn(A, SID_D)?.space ?? null));
+  assert.deepEqual(A.latest().spaces.find((x) => x.id === 'kept0001'), { id: 'kept0001', name: 'Kept' });
+});
+
+test('a removal that is refused keeps the session in its space', async () => {
+  const c = await api('/api/space/create', { name: 'Stopped ones' }, A.client);
+  assert.equal(c.ok, true, JSON.stringify(c));
+  assert.ok(await until(() => sessionIn(A, SID_S)), 'the stopped job is listed');
+  assert.equal((await api('/api/space/move', { sessionId: SID_S, space: c.id }, A.client)).ok, true);
+  const r = await api('/api/remove', { sessionId: SID_S }, A.client);
+  assert.equal(r.ok, false, JSON.stringify(r));
+  assert.ok(await until(() => sessionIn(A, SID_S)?.space === c.id, 2000), JSON.stringify(sessionIn(A, SID_S)?.space ?? null));
+});
 
 test('a space made on one page shows only in its own workspace', async () => {
   const r = await api('/api/space/create', { name: 'Billing bug' }, A.client);

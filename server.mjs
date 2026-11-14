@@ -470,7 +470,6 @@ async function pollRoster(ws) {
   if (++ws.polls % 20 === 0) ws.info = describeProfile(ws.profile); // its hooks or account may have changed outside the panel
   if (error) { ws.rosterError = error; broadcast(); return; }
   ws.rosterError = null;
-  store.touchSpaces(ws.id, [...sessions.values()].filter((s) => s.ws === ws.id).map((s) => s.sessionId));
   const seen = new Set();
   for (const r of list) {
     if (!r.sessionId || isOverseerCall(r.cwd)) continue;
@@ -512,6 +511,8 @@ async function pollRoster(ws) {
   // Claude Code reads a session as busy while a background task (a dev server, a watch) runs, even when its
   // turn is over and it waits at its prompt. The transcript tells the two apart.
   const mine = () => [...sessions.values()].filter((s) => s.ws === ws.id);
+  // After the roster is read, so a member it lists again counts as seen before the old ones are let go.
+  store.touchSpaces(ws.id, mine().map((s) => s.sessionId));
   for (const s of mine()) s.atPrompt = atPrompt(s);
   const tasks = mine().some((s) => s.atPrompt) ? await backgroundTasks() : new Map();
   for (const s of mine()) s.bgTasks = s.atPrompt ? tasks.get(s.pid) ?? 0 : 0;
@@ -804,8 +805,11 @@ async function remove(body) {
   const s = liveSession(body);
   if (!s) return { ok: true };
   if (!isEnded(s)) return { ok: false, error: 'It is still running. End it first.' };
-  store.setSpace(s.ws, s.sessionId, null); // gone from the board: out of its space too
-  if (isOc(s)) return ocForget(s);
+  if (isOc(s)) {
+    const r = await ocForget(s);
+    if (r.ok) store.setSpace(s.ws, s.sessionId, null); // gone from the board: out of its space too
+    return r;
+  }
   const rm = s.kind === 'background' && s.inRoster;
   if (rm) {
     if (!BG_ID.test(s.id ?? '')) return { ok: false, error: 'It has no background id to remove.' };
@@ -814,6 +818,7 @@ async function remove(body) {
     const r = await run('claude', ['rm', s.id], { env: envOf(ws) });
     if (r.err) return { ok: false, error: firstLine(r) };
   }
+  store.setSpace(s.ws, s.sessionId, null); // removed for good: out of its space too (a refused removal keeps it)
   dismissed.add(s.sessionId);
   sessions.delete(s.sessionId);
   clearStops(s.sessionId);
