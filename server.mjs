@@ -32,7 +32,7 @@ import { sanitizeGlue, mergeGlue } from './glue-prefs.mjs';
 import * as daemon from './daemon.mjs';
 import { terminalCommand } from './terminal.mjs';
 import { createClient as createOcClient, findService, findBinary as findOcBinary, OC_ID, OC_MODES, permissionRules, agentFor, modelRef, refText,
-         pickable, itemsOf, lastSaidOf, modelOfMessages, requestOf, questionOf, formAnswer, statusOf, briefOf } from './opencode.mjs';
+         pickable, itemsOf, lastSaidOf, modelOfMessages, requestOf, questionOf, formAnswer, statusOf, briefOf, providersOf } from './opencode.mjs';
 import { logDir as linuxLogDir } from './paths.mjs';
 
 // `node server.mjs <command>` runs the CLI (cli.mjs) and never starts the server.
@@ -2893,17 +2893,90 @@ async function askOverseerOc({ model, system, prompt, timeout }) {
   return { error: 'OpenCode did not answer.' };
 }
 
+// ---------------------------------------------------------------- connecting OpenCode to providers, from Glue
+// OpenCode's own connect flow, driven from Settings: a key goes straight through to OpenCode (Glue never keeps, logs
+// or shows one), a browser sign-in is started here and finished in the browser, with a code pasted back when the
+// provider shows one. What OpenCode holds is listed by account, never by secret.
+const INTEGRATION = /^[\w.@-]{1,80}$/, ATTEMPT = /^[\w.:-]{1,200}$/;
+async function ocProviders() {
+  const up = await ocEnsure();
+  if (!up.ok) return up;
+  try {
+    const [ints, creds] = await Promise.all([oc.integrations(), oc.credentials().catch(() => [])]);
+    return { ok: true, providers: providersOf(ints, creds) };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+/** The extra answers a way of connecting asks for: a few short strings, by field key. */
+function answersOf(v) {
+  if (v == null) return {};
+  if (typeof v !== 'object' || Array.isArray(v)) return null;
+  const out = {};
+  for (const [k, x] of Object.entries(v).slice(0, 20)) {
+    if (!/^[\w.-]{1,60}$/.test(k) || typeof x !== 'string' || x.length > 2000) return null;
+    if (x.trim()) out[k] = x.trim();
+  }
+  return out;
+}
+async function ocConnect(body) {
+  const fail = (error) => ({ ok: false, error });
+  const id = String(body?.integrationID ?? ''), answer = answersOf(body?.answer);
+  if (!INTEGRATION.test(id)) return fail('Pick a provider.');
+  if (answer == null) return fail('Those answers can’t be sent.');
+  const done = () => { setTimeout(refreshOcModels, 500); settingsChanged(); return { ok: true, done: true }; };
+  try {
+    if (body.how === 'key') {
+      const key = typeof body.key === 'string' ? body.key.trim() : '';
+      if (!key || key.length > 4000 || /\s/.test(key)) return fail('Paste the key, on its own.');
+      await oc.connectKey(id, key, answer);
+      return done();
+    }
+    if (body.how === 'oauth') {
+      const methodID = String(body.methodID ?? '');
+      if (!ATTEMPT.test(methodID)) return fail('Pick how to sign in.');
+      const a = await oc.connectOAuth(id, methodID, answer);
+      let url = null;
+      try { const u = new URL(a?.url); if (u.protocol === 'https:' || (u.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(u.hostname))) url = u.href; } catch {}
+      if (!url || !ATTEMPT.test(String(a?.attemptID ?? ''))) return fail('OpenCode did not give a sign-in page to open.');
+      return { ok: true, attemptID: a.attemptID, url, instructions: trim(a.instructions, 600), code: a.mode === 'code' };
+    }
+    const attemptID = String(body.attemptID ?? '');
+    if (!ATTEMPT.test(attemptID)) return fail('That sign-in is gone. Start it again.');
+    if (body.how === 'status') {
+      const s = await oc.oauthStatus(id, attemptID);
+      if (s?.status === 'complete') done();
+      return { ok: true, status: ['pending', 'complete', 'failed', 'expired'].includes(s?.status) ? s.status : 'pending', message: trim(s?.message, 300) };
+    }
+    if (body.how === 'code') {
+      const code = typeof body.code === 'string' ? body.code.trim() : '';
+      if (!code || code.length > 4000) return fail('Paste the code the sign-in page showed.');
+      await oc.oauthComplete(id, attemptID, code);
+      return done();
+    }
+  } catch (e) { return fail(e.message); }
+  return fail('Connect with a key or by signing in.');
+}
+async function ocDisconnect(body) {
+  const id = String(body?.credentialID ?? '');
+  if (!ATTEMPT.test(id)) return { ok: false, error: 'There is no such account.' };
+  try { await oc.removeCredential(id); } catch (e) { return { ok: false, error: e.message }; }
+  setTimeout(refreshOcModels, 500);
+  settingsChanged();
+  return { ok: true };
+}
+
 /** What Settings and the launcher show of OpenCode: installed, running, its models and default. */
 async function ocStatus(body) {
   const bin = findOcBinary(ocWhere);
-  let info = null, error = null, models = [], defaultModel = null;
+  let info = null, error = null, models = [], defaultModel = null, connected = [];
   try { info = await oc.info(); } catch (e) { error = e.message; }
   if (info && body?.models !== false) {
     const dir = typeof body?.cwd === 'string' && path.isAbsolute(body.cwd) ? body.cwd : undefined;
     try { models = pickable(await oc.models(dir)); if (!dir) ocModelCache = models; } catch (e) { error = e.message; }
     try { const d = await oc.defaultModel(dir); defaultModel = d?.providerID ? `${d.providerID}/${d.id ?? d.modelID}` : null; } catch {}
+    // What it is signed in to: its accounts, by provider (never their secrets).
+    try { connected = [...new Set((await oc.credentials()).map((c) => c?.integrationID).filter((x) => typeof x === 'string'))].slice(0, 30); } catch {}
   }
-  return { ok: true, installed: Boolean(bin), running: Boolean(info), version: info?.version ?? null, models, defaultModel, error,
+  return { ok: true, installed: Boolean(bin), running: Boolean(info), version: info?.version ?? null, models, defaultModel, connected, error,
            sessions: Object.keys(ocRecords).length };
 }
 const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
@@ -3222,6 +3295,7 @@ async function handle(req, res) {
                       '/api/settings/restart': restartService, '/api/settings/reveal': revealIn,
                       '/api/opencode': ocStatus, '/api/opencode/start': ocEnsure, '/api/opencode/login': ocLogin,
                       '/api/opencode/continue': continueInOpenCode,
+                      '/api/opencode/providers': ocProviders, '/api/opencode/connect': ocConnect, '/api/opencode/disconnect': ocDisconnect,
                       '/api/term/open': termOpen, '/api/term/input': termInput, '/api/term/resize': termResize, '/api/term/close': termClose };
     if (Object.hasOwn(ACTIONS, url.pathname)) {
       let r;

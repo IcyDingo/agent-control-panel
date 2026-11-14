@@ -47,7 +47,7 @@ esac
 `, { mode: 0o755 });
 
 // ---- the stand-in OpenCode service
-const oc = { sessions: new Map(), messages: new Map(), active: new Set(), perms: [], calls: [], streams: new Set(), n: 0 };
+const oc = { sessions: new Map(), messages: new Map(), active: new Set(), perms: [], creds: [], code: null, calls: [], streams: new Set(), n: 0 };
 const json = (res, code, body) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(body === undefined ? '' : JSON.stringify(body)); };
 const emit = (type, data) => { for (const r of oc.streams) r.write(`data: ${JSON.stringify({ id: 'evt_' + (++oc.n), created: Date.now(), type, data })}\n\n`); };
 const svc = http.createServer((req, res) => {
@@ -82,6 +82,13 @@ const svc = http.createServer((req, res) => {
       return json(res, 200, { data: { id: 'msg_x', sessionID: m[1], type: 'user' } });
     }
     if ((m = p.match(/^\/api\/session\/(ses_\w+)\/message$/))) return json(res, 200, { data: oc.messages.get(m[1]) ?? [] });
+    if (p === '/api/integration') return json(res, 200, { location: { directory: '/' }, data: [
+      { id: 'openai', name: 'OpenAI', methods: [{ type: 'key', label: 'API key' }, { type: 'oauth', id: 'chatgpt', label: 'ChatGPT' }] }] });
+    if (p === '/api/credential') return json(res, 200, { data: oc.creds });
+    if (p === '/api/integration/openai/connect/key') { oc.creds.push({ id: 'cred_k', integrationID: 'openai', label: 'key', active: true, value: { type: 'key', key: body.key } }); return json(res, 204); }
+    if (p === '/api/integration/openai/connect/oauth') return json(res, 200, { location: { directory: '/' }, data: { attemptID: 'att_1', url: 'https://auth.example/start', instructions: 'Sign in, then paste the code.', mode: 'code', time: { created: 1, expires: 2 } } });
+    if (p === '/api/integration/openai/connect/oauth/att_1/complete') { oc.creds.push({ id: 'cred_o', integrationID: 'openai', label: 'chatgpt', active: false, value: { type: 'oauth', access: 'A', refresh: 'R', methodID: 'chatgpt', expires: 1 } }); oc.code = body.code; return json(res, 204); }
+    if ((m = p.match(/^\/api\/credential\/(cred_\w+)$/)) && req.method === 'DELETE') { oc.creds = oc.creds.filter((c) => c.id !== m[1]); return json(res, 204); }
     if ((m = p.match(/^\/api\/session\/(ses_\w+)\/generate$/))) {
       return json(res, 200, { data: { text: JSON.stringify({ reply: 'Two sessions: export is at its limit.', actions: [], look: [] }), tokens: {}, cost: 0 } });
     }
@@ -253,4 +260,28 @@ test('the overseer offers OpenCode\'s models and answers through OpenCode on one
   assert.match(oc.calls.findLast((c) => c.path.endsWith('/generate')).body.prompt, /JSON Schema[\s\S]*<you>What is going on\?<\/you>/);
   const own = [...oc.sessions.keys()].at(-1);
   assert.ok(!(await snapshot()).sessions.some((s) => s.sessionId === own), 'its session is not on the board');
+});
+
+test('providers connect from Glue: a key goes through, a browser sign-in finishes with its code, an account comes off', async () => {
+  let r = await api('/api/opencode/providers', {});
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.deepEqual(r.providers.map((p) => [p.id, p.methods.map((m) => m.type), p.accounts.length]), [['openai', ['key', 'oauth'], 0]]);
+
+  assert.equal((await api('/api/opencode/connect', { how: 'key', integrationID: 'openai', key: 'two words' })).ok, false, 'a key is one token');
+  r = await api('/api/opencode/connect', { how: 'key', integrationID: 'openai', key: 'sk-test-123' });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.deepEqual(oc.calls.findLast((c) => c.path.endsWith('/connect/key')).body, { key: 'sk-test-123' });
+
+  r = await api('/api/opencode/connect', { how: 'oauth', integrationID: 'openai', methodID: 'chatgpt' });
+  assert.deepEqual([r.ok, r.attemptID, r.url, r.code], [true, 'att_1', 'https://auth.example/start', true]);
+  assert.equal((await api('/api/opencode/connect', { how: 'code', integrationID: 'openai', attemptID: 'att_1', code: 'abc-123' })).ok, true);
+  assert.equal(oc.code, 'abc-123');
+
+  r = await api('/api/opencode/providers', {});
+  const accts = r.providers[0].accounts;
+  assert.deepEqual(accts.map((a) => a.id), ['cred_k', 'cred_o']);
+  assert.doesNotMatch(JSON.stringify(r), /sk-test-123/, 'a key never comes back');
+  assert.equal((await api('/api/opencode/disconnect', { credentialID: 'cred_k' })).ok, true);
+  assert.deepEqual((await api('/api/opencode/providers', {})).providers[0].accounts.map((a) => a.id), ['cred_o']);
+  assert.equal((await api('/api/opencode/connect', { how: 'key', integrationID: '../x', key: 'k' })).ok, false);
 });

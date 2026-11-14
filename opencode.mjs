@@ -135,6 +135,18 @@ export function createClient({ service, fetch: doFetch = globalThis.fetch, timeo
     models: async (dir) => req('GET', '/model', { query: at(dir) }),
     defaultModel: async (dir) => req('GET', '/model/default', { query: at(dir) }),
     providers: async (dir) => req('GET', '/provider', { query: at(dir) }),
+    // Connecting providers ("integrations"): with a key, or by signing in in a browser. Their credentials stay in
+    // OpenCode; Glue passes a key through and keeps nothing.
+    integrations: async () => req('GET', '/integration'),
+    credentials: async () => req('GET', '/credential'),
+    connectKey: async (integrationID, key, answer) => req('POST', `/integration/${encodeURIComponent(integrationID)}/connect/key`,
+      { body: { key, ...(answer && Object.keys(answer).length ? { answer } : {}) } }),
+    connectOAuth: async (integrationID, methodID, answer) => req('POST', `/integration/${encodeURIComponent(integrationID)}/connect/oauth`,
+      { body: { methodID, ...(answer && Object.keys(answer).length ? { answer } : {}) } }),
+    oauthStatus: async (integrationID, attemptID) => req('GET', `/integration/${encodeURIComponent(integrationID)}/connect/oauth/${encodeURIComponent(attemptID)}`),
+    oauthComplete: async (integrationID, attemptID, code) => req('POST', `/integration/${encodeURIComponent(integrationID)}/connect/oauth/${encodeURIComponent(attemptID)}/complete`,
+      { body: code ? { code } : {} }),
+    removeCredential: async (credentialID) => req('DELETE', `/credential/${encodeURIComponent(credentialID)}`),
 
     /** Follow the service's events: `onEvent(event)` for each, `onState(up)` when the stream opens or drops. It comes
      *  back by itself, waiting longer each time it can't (1 s up to 30 s). The stream replays nothing, so a reconnect is
@@ -211,6 +223,26 @@ export function pickable(models) {
       && (m.type == null || m.type === 'chat') && m.capabilities?.tools !== false)
     .map((m) => ({ ref: `${m.providerID}/${m.id ?? m.modelID}`, name: m.name || m.id || m.modelID, provider: m.providerID }))
     .sort((a, b) => a.provider.localeCompare(b.provider) || a.name.localeCompare(b.name));
+}
+
+/** OpenCode's providers and the credentials it holds → what the Connect dialog shows: each provider's name, how it can
+ *  connect (a key, a browser sign-in, or a command only its terminal can run), the extra fields each way asks for, and
+ *  which accounts it already has. A credential's secret never leaves here. */
+export function providersOf(integrations, credentials) {
+  const creds = Array.isArray(credentials) ? credentials : [];
+  const field = (f) => (f && typeof f.key === 'string' && !f.hidden && (f.type === 'string' || f.type == null)
+    ? { key: f.key, title: String(f.title || f.description || f.key).slice(0, 120), required: f.required === true, placeholder: f.placeholder ? String(f.placeholder).slice(0, 120) : '',
+        options: Array.isArray(f.options) ? f.options.slice(0, 50).map((o) => ({ value: String(o.value), label: String(o.label ?? o.value) })) : null } : null);
+  const fieldsOf = (m) => (Array.isArray(m?.form) ? m.form.map(field).filter(Boolean) : []);
+  return (Array.isArray(integrations) ? integrations : []).filter((i) => i && typeof i.id === 'string').map((i) => ({
+    id: i.id, name: String(i.name || i.id).slice(0, 80),
+    methods: (Array.isArray(i.methods) ? i.methods : []).map((m) => (
+      m?.type === 'key' ? { type: 'key', id: null, label: String(m.label || 'API key'), fields: fieldsOf(m) }
+      : m?.type === 'oauth' ? { type: 'oauth', id: String(m.id), label: String(m.label || 'Sign in'), fields: fieldsOf(m) }
+      : m?.type === 'command' ? { type: 'command', id: String(m.id), label: String(m.label || 'Sign in in a terminal') }
+      : null)).filter(Boolean),
+    accounts: creds.filter((c) => c?.integrationID === i.id).map((c) => ({ id: String(c.id), label: String(c.label || 'Account'), active: c.active === true, kind: c.value?.type ?? null })),
+  })).sort((a, b) => (b.accounts.length > 0) - (a.accounts.length > 0) || a.name.localeCompare(b.name));
 }
 
 // ---------------------------------------------------------------- what OpenCode says, in Glue's terms

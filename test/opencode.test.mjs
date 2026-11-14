@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import { parseService, findService, serviceFile, permissionRules, agentFor, modelRef, refText, pickable, itemsOf, lastSaidOf,
-         modelOfMessages, requestOf, questionOf, formAnswer, statusOf, isLimit, briefOf, sseParser, createClient, OC_ID } from '../opencode.mjs';
+         modelOfMessages, requestOf, questionOf, formAnswer, statusOf, isLimit, briefOf, sseParser, createClient, OC_ID, providersOf } from '../opencode.mjs';
 
 test('the service file: a url or a host and port, a password, local addresses only', () => {
   assert.deepEqual(parseService('{"url":"http://127.0.0.1:4096","password":"pw"}'), { url: 'http://127.0.0.1:4096', password: 'pw', username: 'opencode' });
@@ -149,6 +149,20 @@ test('the brief: the task, the talk (newest kept), the files, and CLAUDE.md when
   assert.match(long, /earlier conversation left out/);
   assert.match(long, /message 499/);
   assert.doesNotMatch(long, /message 0 /);
+});
+
+test('providers to connect: how each connects, what it asks, its accounts first, never a secret', () => {
+  const list = providersOf([
+    { id: 'openai', name: 'OpenAI', methods: [{ type: 'key', label: 'API key' }, { type: 'oauth', id: 'chatgpt', label: 'ChatGPT Plus', form: [{ key: 'org', type: 'string', title: 'Organization' }, { key: 'x', type: 'string', hidden: true }] }] },
+    { id: 'copilot', name: 'GitHub Copilot', methods: [{ type: 'command', id: 'gh', label: 'Device login', command: ['x'] }, { type: 'env', label: 'env' }] },
+    { id: 'zai', name: 'Z.ai', methods: [] },
+  ], [{ id: 'cred_1', integrationID: 'copilot', label: 'work', active: true, value: { type: 'oauth', access: 'SECRET', refresh: 'SECRET', methodID: 'gh', expires: 1 } }]);
+  assert.deepEqual(list.map((p) => p.id), ['copilot', 'openai', 'zai']);
+  assert.deepEqual(list[0].accounts, [{ id: 'cred_1', label: 'work', active: true, kind: 'oauth' }]);
+  assert.deepEqual(list[0].methods.map((m) => m.type), ['command']);
+  assert.deepEqual(list[1].methods.map((m) => [m.type, m.id]), [['key', null], ['oauth', 'chatgpt']]);
+  assert.deepEqual(list[1].methods[1].fields.map((f) => f.key), ['org']);
+  assert.doesNotMatch(JSON.stringify(list), /SECRET/);
 });
 
 test('the event stream parser joins data lines and splits events', () => {
