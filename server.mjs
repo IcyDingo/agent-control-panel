@@ -1550,7 +1550,10 @@ function readPlace(dir) {
       const head = small(path.join(gitDir, 'HEAD'));
       const branch = head.match(/^ref:\s*refs\/heads\/(.+)$/)?.[1] ?? null;
       const linked = common !== gitDir;
-      return { branch, commit: !branch && /^[0-9a-f]{40,64}$/.test(head) ? head.slice(0, 10) : null, worktree: linked ? path.basename(top) : null,
+      // The branch the main checkout is on (main, usually): what a linked worktree is named against.
+      let main = branch;
+      if (linked) try { main = small(path.join(common, 'HEAD')).match(/^ref:\s*refs\/heads\/(.+)$/)?.[1] ?? null; } catch { main = null; }
+      return { branch, main, commit: !branch && /^[0-9a-f]{40,64}$/.test(head) ? head.slice(0, 10) : null, worktree: linked ? path.basename(top) : null,
                top, repo: linked && path.basename(common) === '.git' ? path.dirname(common) : top, common };
     }
     const up = path.dirname(top);
@@ -1559,7 +1562,7 @@ function readPlace(dir) {
   }
   return null;
 }
-const placeOut = (p) => p && { branch: p.branch, commit: p.commit, worktree: p.worktree, top: p.top, repo: p.repo };
+const placeOut = (p) => p && { branch: p.branch, main: p.main, commit: p.commit, worktree: p.worktree, top: p.top, repo: p.repo };
 /** A `worktree` setting as Claude Code would see it from here, on a Claude login's profile: local, then project, then
  *  user settings (none without a login). */
 const worktreeSetting = (place, key, login) => [path.join(place.top, '.claude', 'settings.local.json'), path.join(place.top, '.claude', 'settings.json'),

@@ -397,29 +397,37 @@ body.resizing .drawer { transition: none; }
 .d-side.folded .d-side-body, .d-side.folded .s-grip { display: none; }
 .d-side.folded .d-side-tab { writing-mode: vertical-rl; padding: 16px 12px; }
 .d-side.folded .d-side-tab::after { content: "\2039"; margin: 6px 0 0; }
-/* Two rows: the name with its state light, then one line of facts. */
-.d-top { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.d-top .glyph { width: 8px; height: 8px; }
-.d-meta .age { font: inherit; color: inherit; }
+/* Two rows: the name (its state the dot's colour, its pull request beside it), then one line of facts. */
+.d-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.d-dot { flex: none; display: inline-flex; padding: 4px; margin: -4px; }
+.d-top .glyph { width: 9px; height: 9px; }
 .d-name { flex: 0 1 auto; min-width: 0; margin: 0; font-size: 20px; line-height: 1.2; font-weight: 600; letter-spacing: -0.015em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.d-end { flex: none; display: flex; align-items: center; gap: 6px; margin-left: auto; }
 .d-meta { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-dim); font-size: 12.5px; }
-.d-meta .st { font-weight: 550; }
-.d-meta .st[data-s="waiting"] { color: var(--amber); } .d-meta .st[data-s="busy"] { color: var(--run); } .d-meta .st[data-s="stopping"], .d-meta .st[data-s="failed"] { color: var(--stop); } .d-meta .st[data-s="finished"] { color: var(--ok); }
-.d-meta .bypass { color: var(--stop); }
 .where-b { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font: 12px var(--mono); color: var(--fg-dim); overflow-wrap: anywhere; }
-/* Where it works, under its name: repository, checkout and branch as chips; the full folder copies on a click. */
-.place { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 12px; min-width: 0; }
+/* How long, where (repository · main branch · its worktree), copy its folder, model and mode: one quiet line. */
+.d-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 8px; min-width: 0; color: var(--fg-dim); font-size: 12.5px; }
+.d-line .sep { color: var(--fg-faint); }
+.d-line .age:empty, .d-line .age:empty + .sep { display: none; }
+.d-line .faint { color: var(--fg-faint); }
+.d-line .bypass { color: var(--stop); }
+.d-line .d-meta-tail { white-space: nowrap; }
+.wl { display: inline-flex; align-items: center; gap: 5px; min-width: 0; font: 12px var(--mono); color: var(--fg-dim); white-space: nowrap; }
+.wl::before { content: ""; flex: none; width: 12px; height: 12px; background: currentColor; opacity: .7; -webkit-mask: var(--i-repo) center / contain no-repeat; mask: var(--i-repo) center / contain no-repeat; }
+.wl.repo { color: var(--fg); }
+.wl.br::before { -webkit-mask-image: var(--i-branch); mask-image: var(--i-branch); }
+.wl.wt::before, .wl.dir::before { -webkit-mask-image: var(--i-tree); mask-image: var(--i-tree); }
+.wl.wt b { color: var(--fg); font-weight: 500; }
+.wl.mismatch { color: var(--amber); font-family: inherit; }
+.wl.mismatch::before { display: none; }
+.d-copy { display: inline-grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--fg-faint); cursor: copy; }
+.d-copy:hover { background: var(--fill); color: var(--fg); }
+.d-copy svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; }
+/* Its pull request beside its name */
 .pl { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; height: 26px; padding: 0 10px; border: 0; border-radius: var(--r-pill); background: var(--fill); color: var(--fg); font: 12px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pl::before { content: ""; flex: none; width: 12px; height: 12px; background: currentColor; opacity: .7; -webkit-mask: var(--i-repo) center / contain no-repeat; mask: var(--i-repo) center / contain no-repeat; }
-.pl.wt::before, .pl.dir::before { -webkit-mask-image: var(--i-tree); mask-image: var(--i-tree); }
-.pl.br::before { -webkit-mask-image: var(--i-branch); mask-image: var(--i-branch); }
-.pl.main { color: var(--fg-dim); }
-.pl.main::before { -webkit-mask-image: var(--i-tree); mask-image: var(--i-tree); }
+.pl.d-pr { flex: none; height: 22px; padding: 0 8px; border-radius: 6px; font: 550 12px var(--sans); }
 a.pl { text-decoration: none; }
-a.pl::before { display: none; }
-a.pl:hover, button.pl:hover { background: var(--fill-strong); }
-.pl-path { flex: 1 1 100%; min-width: 0; padding: 0; border: 0; background: none; font: 11.5px var(--mono); color: var(--fg-dim); text-align: left; cursor: copy; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; }
-.pl-path:hover { color: var(--fg); }
+a.pl:hover { background: var(--fill-strong); }
 .where-b::before { content: ""; flex: none; width: 11px; height: 11px; background: currentColor; -webkit-mask: var(--i-branch) center / contain no-repeat; mask: var(--i-branch) center / contain no-repeat; }
 .where-b.wt::before { -webkit-mask-image: var(--i-tree); mask-image: var(--i-tree); }
 .mode-pick { flex: 0 1 auto; width: auto; }
@@ -2227,17 +2235,16 @@ function renderDrawer(vis) {
   if (termOn) openTerm(s); else if (termView) closeTerm();
   patch($('d-head'), JSON.stringify([s.sessionId, st, label(s), s.cwd, here, s.kind, s.inRoster, Boolean(s.leftRosterAt), s.state, noteText, s.hostsPanel, s.mode, s.git, s.gh, s.mismatch, sharers, elsewhere, s.oldVersion, sessLogin(s)?.command, s.termable, termOn,
     isOcS(s) ? s.model : null, atLimit(s) ? s.limit : null, s.continuedFrom ?? null]), () => [
-    el('div', { class: 'd-top' }, glyph(st), el('h2', { class: 'd-name', text: label(s), title: label(s) }),
-      el('span', { class: 'd-meta', title: where ? where.long : null },
-        el('span', { class: 'st', 'data-s': st, text: stateWord }), ' · ', KIND[s.kind]?.replace(' session', '') || 'Headless',
-        isOcS(s) && s.model ? [' · ', el('span', { class: 'mono', title: 'Its model, as OpenCode names it', text: s.model })] : null,
-        s.mode ? [' · ', el('span', { class: s.mode === 'bypassPermissions' ? 'bypass' : '', title: 'Its permission mode', text: modeOf(s.mode) })] : null,
-        el('span', { class: 'age' })),
-      s.termable ? el('div', { class: 'vtabs', role: 'tablist', 'aria-label': 'How to show it' },
-        el('button', { type: 'button', role: 'tab', 'aria-selected': String(!termOn), title: 'Its conversation, with the box to reply', onclick: () => { termWant.delete(s.sessionId); render(); } }, 'Chat'),
-        el('button', { type: 'button', role: 'tab', 'aria-selected': String(termOn), title: 'Its own Claude Code screen: type into it as in claude attach', onclick: () => { termWant.add(s.sessionId); render(); } }, 'Terminal')) : null,
-      el('button', { class: 'btn icon', type: 'button', 'aria-label': 'Close', title: 'Close (Esc)', onclick: () => { cancelAdvance(); open = null; render(); } }, svgIcon('M6 6l12 12M18 6L6 18'))),
-    placeBar(s, here),
+    // Its name (cut short with … when long: the whole on hover), its state as the dot's colour, and its pull request's
+    // checks beside it; Chat or Terminal and Close at the end.
+    el('div', { class: 'd-top' }, el('span', { class: 'd-dot', role: 'img', 'aria-label': stateWord, title: stateWord }, glyph(st)),
+      el('h2', { class: 'd-name', text: label(s), title: label(s) }), prChip(s),
+      el('span', { class: 'd-end' },
+        s.termable ? el('div', { class: 'vtabs', role: 'tablist', 'aria-label': 'How to show it' },
+          el('button', { type: 'button', role: 'tab', 'aria-selected': String(!termOn), title: 'Its conversation, with the box to reply', onclick: () => { termWant.delete(s.sessionId); render(); } }, 'Chat'),
+          el('button', { type: 'button', role: 'tab', 'aria-selected': String(termOn), title: 'Its own Claude Code screen: type into it as in claude attach', onclick: () => { termWant.add(s.sessionId); render(); } }, 'Terminal')) : null,
+        el('button', { class: 'btn icon', type: 'button', 'aria-label': 'Close', title: 'Close (Esc)', onclick: () => { cancelAdvance(); open = null; render(); } }, svgIcon('M6 6l12 12M18 6L6 18')))),
+    whereLine(s, here),
     noteText ? el('p', { class: 'note', text: noteText }) : null,
     // At its usage limit: carrying the work on in OpenCode is offered (where the workspace uses OpenCode), never done for you.
     atLimit(s) && snap.opencode !== false ? el('div', { class: 'note old', role: 'status' }, el('span', { class: 'lead', text: limitLine(s) }),
@@ -2247,7 +2254,7 @@ function renderDrawer(vis) {
     s.oldVersion && !ended ? el('div', { class: 'note old', role: 'status' }, el('span', { class: 'lead', text: 'Restart this session.' }),
       el('span', { text: oldWhy(s.oldVersion) }), ...restartHow({ ...s, shown: true, profile: sessLogin(s) })) : null,
   ]);
-  setText($('d-head').querySelector('.age'), s.startedAt ? ' · up ' + ago(snap.now - s.startedAt) : '');
+  setText($('d-head').querySelector('.age'), s.startedAt ? (ended ? 'ran ' : 'up ') + ago(snap.now - s.startedAt) : '');
 
   // Request cards are built once and kept, so an edit in progress survives every update.
   const rs = reqsOf(s.sessionId), box = $('d-cards');
@@ -2309,19 +2316,32 @@ function renderDrawer(vis) {
 }
 const MISMATCH_WHY = 'Its login is this workspace’s, its repository another’s. Its repository, branch, folder and pull request stay in that workspace.';
 /** Where it works, under its name: repository, checkout and branch, then its folder, which a click copies. */
-function placeBar(s, here) {
-  const g = s.git, w = whereOf(g);
+/** Its pull request and how its checks stand, beside its name (or the default branch failing); none without one. */
+function prChip(s) {
+  const pr = s.gh?.pr;
+  return pr ? el('a', { class: 'pl pr d-pr', 'data-c': pr.checks, href: pr.url, target: '_blank', rel: 'noopener',
+      title: `Pull request #${pr.number}${pr.draft ? ', a draft' : ''}: ${CHECKS[pr.checks]}. Opens on GitHub.`, text: `#${pr.number} · ${CHECKS[pr.checks]}` })
+    : s.gh?.main === 'failing' ? el('a', { class: 'pl pr d-pr', 'data-c': 'failing', href: s.gh.failed?.url ?? s.gh.url, target: '_blank', rel: 'noopener', title: 'The default branch’s latest run failed. Opens on GitHub.', text: 'default branch failing' }) : null;
+}
+/** Under its name, one line: how long it has run; where it works (its repository, the main branch, and its worktree when
+ *  it has one of its own); a button that copies its folder; and its model and permission mode. */
+function whereLine(s, here) {
+  const g = s.git, sep = () => el('span', { class: 'sep', 'aria-hidden': 'true', text: '·' });
   const copy = () => navigator.clipboard.writeText(here).then(() => toast('Copied ' + here), () => toast('Copy is blocked here. Select it: ' + here, true));
-  return el('div', { class: 'place' },
-    g ? [el('span', { class: 'pl', title: `Repository: ${g.repo}`, text: repoOf(g) }),
-      el('span', { class: 'pl ' + (g.worktree ? 'wt' : 'main'), title: g.worktree ? `Its own worktree: ${g.top}` : `The main checkout: ${g.top}`, text: g.worktree ?? 'main checkout' }),
-      el('span', { class: 'pl br', title: w.long, text: w.on })]
-      : here ? el('span', { class: 'pl dir', title: 'Not in a git repository', text: base(here) || here })
-      : s.mismatch ? el('span', { class: 'pl mismatch', title: MISMATCH_WHY, text: mismatchText(s) }) : null,
-    s.gh?.pr ? el('a', { class: 'pl pr', 'data-c': s.gh.pr.checks, href: s.gh.pr.url, target: '_blank', rel: 'noopener',
-      title: `Pull request #${s.gh.pr.number}${s.gh.pr.draft ? ', a draft' : ''}: ${CHECKS[s.gh.pr.checks]}. Opens on GitHub.`, text: `#${s.gh.pr.number} · ${CHECKS[s.gh.pr.checks]}` })
-      : s.gh?.main === 'failing' ? el('a', { class: 'pl pr', 'data-c': 'failing', href: s.gh.failed?.url ?? s.gh.url, target: '_blank', rel: 'noopener', title: 'The default branch’s latest run failed. Opens on GitHub.', text: 'default branch failing' }) : null,
-    here ? el('button', { class: 'pl-path', type: 'button', title: 'Copy this folder’s path', text: '\u200e' + tilde(here), onclick: copy }) : null);
+  const where = g ? [el('span', { class: 'wl repo', title: `Repository: ${g.repo}`, text: repoOf(g) }), sep(),
+      g.worktree ? el('span', { class: 'wl br', title: `The main checkout is on ${g.main ?? 'no branch'}`, text: g.main ?? 'main' })
+        : el('span', { class: 'wl br', title: whereOf(g).long, text: whereOf(g).on }),
+      ...(g.worktree ? [sep(), el('span', { class: 'wl wt', title: `Its own worktree, on ${g.branch ?? 'no branch'}: ${g.top}` }, el('b', { text: g.worktree }), el('span', { class: 'faint', text: ' worktree' }))] : [])]
+    : here ? [el('span', { class: 'wl dir', title: 'Not in a git repository', text: base(here) || here })]
+    : s.mismatch ? [el('span', { class: 'wl mismatch', title: MISMATCH_WHY, text: mismatchText(s) })] : [];
+  const model = isOcS(s) ? s.model : modelName(s.model);
+  const meta = [model ? el('span', { title: isOcS(s) ? 'Its model, as OpenCode names it' : 'Its model', text: model }) : null,
+    s.mode ? el('span', { class: s.mode === 'bypassPermissions' ? 'bypass' : '', title: 'Its permission mode', text: modeOf(s.mode) }) : null].filter(Boolean);
+  return el('div', { class: 'd-line' }, el('span', { class: 'age' }), where.length ? sep() : null, ...where,
+    here && !s.mismatch ? el('button', { class: 'd-copy', type: 'button', 'aria-label': 'Copy its folder', title: `Copy its folder: ${tilde(here)}`, onclick: copy },
+      svgIcon('M9 9h10v10H9zM5 15V5h10')) : null,
+    // Greyer than the rest, so it needs no dot before it: a wrapped line neither ends nor starts with one.
+    meta.length ? el('span', { class: 'faint d-meta-tail' }, ...meta.flatMap((m, i) => (i ? [' · ', m] : [m]))) : null);
 }
 function nowLine(s, st, rs) {
   if (st === 'stopping') return quiet('Stopping at its next tool call.');
