@@ -830,7 +830,7 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 .gh-n { min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--r-pill); background: var(--stop); color: var(--on-solid); font: 600 11px/18px var(--mono); text-align: center; }
 .gh-side { order: 1; flex: none; width: 400px; min-height: 0; overflow: auto; padding: 16px 20px 12px; border-radius: var(--r-3); background: var(--panel); outline: none; }
 .gh-side .h-repo:first-of-type { padding-top: 10px; }
-.gh-pop-h .gh-sub { flex: 1; min-width: 0; font-size: 12px; color: var(--fg-dim); }
+.gh-pop-h h3 { flex: 1; min-width: 0; }
 .st-word[data-c="passing"] { background: var(--ok-fill); color: var(--ok); }
 .tci[data-c="open"], .tci[data-c="draft"], .h-li .tci[data-c="open"], .h-li .tci[data-c="draft"] { background: var(--fg-faint); }
 .h-li .tci[data-c="passing"] { background: var(--ok); }
@@ -3413,13 +3413,11 @@ function renderGhBtn() {
   $('gh-n').hidden = !failing;
   setText($('gh-n'), String(failing));
   setAttr($('gh-btn'), 'title', out ? 'The GitHub CLI is signed out. Open this to sign in again.' : gh.hint ?? (failing ? `${failing} failing on GitHub` : stuck ? 'Checks have run for more than 30 minutes on GitHub' : state === 'running' ? 'Checks are running on GitHub' : `GitHub: ${gh.repos.length} ${gh.repos.length === 1 ? 'repository' : 'repositories'} watched`));
-  const open = prs.length;
   if ($('gh-pop').hidden) return;
   const slim = ghSlimShown();
   $('gh-pop').classList.toggle('slim', slim);
   if (slim) { patch($('gh-pop'), 'slim' + acrossSig(), ghStrip); return; }
   patch($('gh-pop'), acrossSig() + ghRefreshing + JSON.stringify([snap.watcher, ghSort, snap.workspaces, snap.workspace?.id]), () => acrossNodes(el('div', { class: 'gh-pop-h' }, ghFoldBtn(), el('h3', { text: 'GitHub' }),
-    el('span', { class: 'gh-sub', text: open ? `${open} open pull request${open === 1 ? '' : 's'}` : '' }),
     snap.watcher ? el('label', { class: 'switch gh-auto', title: 'The PR watcher: when a pull request on an agent\u2019s branch fails, conflicts, gets changes requested or has checks stuck, it asks that agent to fix it and push again, at most 3 times' },
       el('input', { type: 'checkbox', checked: snap.watcher.enabled, onchange: (e) => api('/api/watcher/enabled', { on: e.target.checked }) }), el('i'), 'Auto-fix') : null,
     el('button', { class: 'btn quiet small', type: 'button', disabled: ghRefreshing, text: ghRefreshing ? 'Refreshing…' : 'Refresh', title: 'Ask GitHub again now',
