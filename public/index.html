@@ -3334,11 +3334,11 @@ function sortLine() {
 /** What the GitHub list shows for one repository, worst first. */
 function ghActive(r) {
   const items = [
-    ...r.prs.map((p) => ({ p, s: ghPrState(p) })).map(({ p, s }) => ({ kind: 'pr', ...s, n: '#' + p.number, title: p.title, url: p.url, fix: snap.watcher?.prs?.[`${r.slug}#${p.number}`] ?? null,
+    ...r.prs.map((p) => ({ p, s: ghPrState(p) })).map(({ p, s }) => ({ kind: 'pr', ...s, at: p.updatedAt ?? 0, n: '#' + p.number, title: p.title, url: p.url, fix: snap.watcher?.prs?.[`${r.slug}#${p.number}`] ?? null,
       tip: `${p.title}\n${p.branch}${p.mine ? ', yours' : ''}\n${s.st === 'failing' && p.failing?.length ? 'Failing: ' + p.failing.map((f) => f.name).join(', ') : s.st === 'stuck' ? 'Its checks have run for more than 30 minutes.' : CHECKS[p.checks]}${p.mergeState ? ` · ${MERGE[p.mergeState] ?? p.mergeState}` : ''}`, sessions: p.sessions })),
-    ...mainRuns(r).map((x) => ({ x, s: ghItemState(x.state, x.started) })).filter((y) => y.s).map(({ x, s }) => ({ kind: 'run', ...s, n: r.defaultBranch ?? 'main', title: x.workflow, url: x.url,
+    ...mainRuns(r).map((x) => ({ x, s: ghItemState(x.state, x.started) })).filter((y) => y.s).map(({ x, s }) => ({ kind: 'run', ...s, at: x.at ?? x.started ?? 0, n: r.defaultBranch ?? 'main', title: x.workflow, url: x.url,
       tip: `${x.workflow} on ${r.defaultBranch ?? 'the default branch'}${x.pr ? `, after #${x.pr}` : ''}: ${x.title}`, sessions: x.sessions })),
-    ...r.merged.filter((m) => m.mergedAt && snap.now - m.mergedAt < MERGED_MS && (!r.mineOnly || m.mine)).map((m) => ({ kind: 'pr', st: 'merged', word: `merged ${ago(snap.now - m.mergedAt)} ago`,
+    ...r.merged.filter((m) => m.mergedAt && snap.now - m.mergedAt < MERGED_MS && (!r.mineOnly || m.mine)).map((m) => ({ kind: 'pr', st: 'merged', at: m.mergedAt, word: `merged ${ago(snap.now - m.mergedAt)} ago`,
       n: '#' + m.number, title: m.title, url: m.url, tip: `${m.title}\nMerged into ${r.defaultBranch ?? 'the default branch'}`, sessions: [] })),
   ];
   return items.sort((a, b) => GH_RANK[a.st] - GH_RANK[b.st]);
@@ -3378,8 +3378,8 @@ function acrossBody(head) {
 /** The repositories with something to show, worst first, each with its items. */
 const ghActiveRepos = (gh) => gh.repos.map((r) => ({ r, items: ghActive(r) })).filter((x) => x.items.length || x.r.error)
   .sort((a, b) => (GH_RANK[a.items[0]?.st] ?? 4) - (GH_RANK[b.items[0]?.st] ?? 4));
-/** Collapsed, the GitHub panel is a slim strip like the rail's: a state light per item, each opening on GitHub, a
- *  hairline between repositories. Signed out or with nothing to show, one quiet light that opens the panel again. */
+/** Collapsed, the GitHub panel is a slim strip like the rail's: a state light per repository for its latest item (the
+ *  pull request, run or merge that moved last), opening on GitHub, a hairline between repositories. Signed out or with nothing to show, one quiet light that opens the panel again. */
 function ghStrip() {
   const gh = snap.github, fold = ghFoldBtn();
   const active = gh && gh.gh !== 'off' && !ghSignedOut() ? ghActiveRepos(gh) : [];
@@ -3389,8 +3389,11 @@ function ghStrip() {
   return el('div', { class: 'gh-strip' }, fold, ...active.flatMap(({ r, items }, i) => [
     i ? el('hr') : null,
     r.error && !items.length ? el('button', { class: 'gh-dot', type: 'button', title: `${r.slug}\n${r.error.text}`, onclick: () => setGhSlim(false) }, el('span', { class: 'tci', 'data-c': 'failing' })) : null,
-    ...items.map((it) => el('a', { class: 'gh-dot', href: it.url, target: '_blank', rel: 'noopener', title: `${r.slug} ${it.n} · ${it.word}\n${it.tip}` },
-      el('span', { class: 'tci', 'data-c': it.st }), el('span', { class: 'gh-dot-t', text: `${r.slug} ${it.n}: ${it.title}, ${it.word}` }))),
+    ...items.slice().sort((a, b) => b.at - a.at).slice(0, 1).map((it) => {
+      const more = items.length - 1, also = more ? `\n${more} more in ${r.slug}: show the panel to see ${more === 1 ? 'it' : 'them'}.` : '';
+      return el('a', { class: 'gh-dot', href: it.url, target: '_blank', rel: 'noopener', title: `${r.slug} ${it.n} · ${it.word}\n${it.tip}${also}` },
+        el('span', { class: 'tci', 'data-c': it.st }), el('span', { class: 'gh-dot-t', text: `${r.slug} ${it.n}: ${it.title}, ${it.word}${more ? `, and ${more} more` : ''}` }));
+    }),
   ]));
 }
 /** Collapse the GitHub panel to its strip, or show it whole: the same button as the rail's, mirrored to the right. */
