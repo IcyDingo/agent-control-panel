@@ -7,17 +7,120 @@ import path from 'node:path';
 import { COLORS, repoKey, createStore, countOnly } from '../workspaces.mjs';
 
 const PROFILES = [{ id: 'default', dir: '/h/.claude', plain: true }, { id: 'contract', dir: '/h/.claude-contract', plain: false }];
+const SID = 'aaaaaaaa-1111-4111-8111-111111111111', DAY = 86_400_000;
 const tmp = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'glue-ws-')), 'workspaces.json');
 
-test('defaults come from the profiles', () => {
-  const s = createStore({ file: tmp(), profiles: [{ id: 'default', plain: true }, { id: 'contract', plain: false }] });
+test('a first start makes a workspace for each profile found, with that profile as its Claude login', () => {
+  const s = createStore({ file: tmp(), home: '/h', profiles: PROFILES });
   assert.deepEqual(s.list().map((w) => [w.id, w.name, w.color]), [['contract', 'claude-contract', 'blue'], ['default', 'claude', 'violet']]);
   assert.deepEqual(s.list().map((w) => w.order), [0, 1]);
-  const named = createStore({ file: tmp(), profiles: PROFILES });
-  assert.deepEqual(named.list().map((w) => w.name), ['claude-contract', 'claude']);
+  assert.deepEqual(s.logins(), [{ id: 'contract', provider: 'claude', label: 'claude-contract', dir: '/h/.claude-contract' },
+    { id: 'default', provider: 'claude', label: 'claude', dir: '/h/.claude' }]);
+  assert.deepEqual(s.loginsOf('contract'), ['contract']);
+  assert.equal(s.defaultOf('default', 'claude'), 'default');
+  assert.equal(s.defaultOf('default', 'codex'), null);
   assert.equal(COLORS.violet, '#a98af0');
-  assert.equal(COLORS.blue, '#7ea6e6');
   assert.equal(COLORS.amber, undefined);
+});
+
+test('with no profile yet, one workspace on plain claude; ~/.codex is an OpenAI login on it', () => {
+  const s = createStore({ file: tmp(), home: '/h', profiles: [], codex: '/h/.codex' });
+  assert.deepEqual(s.list().map((w) => w.id), ['default']);
+  assert.deepEqual(s.login('default'), { id: 'default', provider: 'claude', label: 'claude', dir: '/h/.claude' });
+  assert.deepEqual(s.login('codex'), { id: 'codex', provider: 'codex', label: 'OpenAI', dir: '/h/.codex' });
+  assert.deepEqual(s.loginsOf('default'), ['default', 'codex']);
+  assert.equal(s.defaultOf('default', 'codex'), 'codex');
+});
+
+test('a v1 file (a workspace per profile) upgrades keeping every id, name, colour, repository, space and the focus', () => {
+  const file = tmp();
+  const v1 = { v: 1, workspaces: { contract: { name: 'Work', color: 'teal' }, default: { name: 'Private', color: 'rose' } }, order: ['default', 'contract'],
+    repos: { 'gh:o/n': ['contract'] }, focus: 'contract', spaces: { contract: { list: [{ id: 'sp1', name: 'Billing' }], members: { [SID]: { space: 'sp1', at: 5 } } } } };
+  fs.writeFileSync(file, JSON.stringify(v1));
+  const s = createStore({ file, home: '/h', profiles: [...PROFILES, { id: 'new', dir: '/h/.claude-new', plain: false }], codex: '/h/.codex' });
+  assert.deepEqual(s.list().map((w) => [w.id, w.name, w.color]), [['default', 'Private', 'rose'], ['contract', 'Work', 'teal'], ['new', 'claude-new', 'blue']]);
+  assert.deepEqual(s.reposOf('gh:o/n'), ['contract']);
+  assert.equal(s.focus(), 'contract');
+  assert.equal(s.spaceOf('contract', SID), 'sp1');
+  assert.deepEqual(s.login('contract'), { id: 'contract', provider: 'claude', label: 'Work', dir: '/h/.claude-contract' });
+  assert.deepEqual(s.loginsOf('default'), ['default', 'codex'], '~/.codex goes on the workspace on plain claude');
+  assert.deepEqual(s.loginsOf('new'), ['new'], 'a profile v1 had not listed yet still gets its workspace');
+  const again = createStore({ file, home: '/h', profiles: [] });
+  assert.deepEqual(again.list().map((w) => w.id), ['default', 'contract', 'new'], 'kept as v2: profiles no longer make workspaces');
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).v, 2);
+});
+
+test('workspaces are made and removed by you; a profile folder never makes one', () => {
+  const s = createStore({ file: tmp(), home: '/h', profiles: PROFILES });
+  const r = s.createWorkspace({ name: 'Side Projects', logins: ['default'] });
+  assert.deepEqual(r, { ok: true, id: 'side-projects' });
+  assert.deepEqual(s.get('side-projects'), { id: 'side-projects', name: 'Side Projects', color: 'green' });
+  assert.deepEqual(s.loginsOf('side-projects'), ['default']);
+  assert.deepEqual(s.usersOf('default'), ['default', 'side-projects']);
+  assert.equal(s.createWorkspace({ name: 'side projects' }).ok, false);
+  assert.deepEqual(s.addFound([{ provider: 'claude', dir: '/h/.claude-x', id: 'x' }]), ['x']);
+  assert.equal(s.get('x'), null, 'a found folder is a login, not a workspace');
+  assert.deepEqual(s.usersOf('x'), []);
+  s.assign('gh:o/n', ['side-projects', 'contract']);
+  s.setPlaced(SID, 'side-projects');
+  assert.deepEqual(s.removeWorkspace('side-projects'), { ok: true });
+  assert.equal(s.get('side-projects'), null);
+  assert.deepEqual(s.reposOf('gh:o/n'), ['contract']);
+  assert.equal(s.placedWs(SID), null);
+  assert.ok(s.login('default'), 'its logins stay');
+  s.removeWorkspace('contract');
+  assert.equal(s.removeWorkspace('default').ok, false, 'not the last one');
+});
+
+test('a workspace uses several logins per provider, one the default; one login serves several workspaces', () => {
+  const s = createStore({ file: tmp(), home: '/h', profiles: PROFILES });
+  const max = s.addLogin({ provider: 'claude', label: 'Second Max', dir: '/h/.claude-second-max' });
+  assert.deepEqual(max, { ok: true, id: 'second-max' });
+  const key = s.addLogin({ provider: 'codex', label: 'API key', dir: '/h/.codex-api-key' }).id;
+  assert.equal(s.addLogin({ provider: 'claude', label: 'second max', dir: '/h/.claude-y' }).ok, false, 'labels are unique');
+  assert.equal(s.addLogin({ provider: 'claude', label: 'Z', dir: '/h/.claude-second-max' }).ok, false, 'one login per folder');
+  assert.equal(s.addLogin({ provider: 'gemini', label: 'G', dir: '/h/.g' }).ok, false);
+  s.attach('contract', 'second-max');
+  s.attach('contract', key);
+  s.attach('default', 'second-max');
+  assert.deepEqual(s.loginsOf('contract'), ['contract', 'second-max', key]);
+  assert.equal(s.defaultOf('contract', 'claude'), 'contract', 'the first stays the default');
+  assert.equal(s.defaultOf('contract', 'codex'), key);
+  assert.deepEqual(s.setDefault('contract', 'second-max'), { ok: true });
+  assert.equal(s.setDefault('contract', 'nope').ok, false);
+  assert.deepEqual(s.usersOf('second-max'), ['contract', 'default']);
+  assert.equal(s.homeOf('second-max'), 'contract');
+  s.detach('contract', 'second-max');
+  assert.equal(s.defaultOf('contract', 'claude'), 'contract', 'the next of its provider becomes the default');
+  assert.equal(s.homeOf('second-max'), 'default', 'its home moves to the next workspace using it');
+  assert.deepEqual(s.renameLogin('second-max', 'Max 2'), { ok: true });
+  assert.equal(s.login('second-max').label, 'Max 2');
+});
+
+test('a removed login leaves every workspace and is not picked up again until shown', () => {
+  const s = createStore({ file: tmp(), home: '/h', profiles: PROFILES });
+  s.attach('default', 'contract');
+  assert.deepEqual(s.removeLogin('contract'), { ok: true });
+  assert.deepEqual(s.loginsOf('contract'), []);
+  assert.deepEqual(s.loginsOf('default'), ['default']);
+  assert.equal(s.defaultOf('contract', 'claude'), null);
+  assert.deepEqual(s.addFound([{ provider: 'claude', dir: '/h/.claude-contract', id: 'contract' }]), [], 'kept out');
+  assert.equal(s.hiddenCount(), 1);
+  s.unhide();
+  assert.deepEqual(s.addFound([{ provider: 'claude', dir: '/h/.claude-contract', id: 'contract' }]), ['contract']);
+});
+
+test('a session’s workspace is kept, and forgotten 14 days after it was last seen', () => {
+  const file = tmp();
+  const s = createStore({ file, home: '/h', profiles: PROFILES });
+  s.setPlaced(SID, 'contract', Date.now());
+  assert.equal(createStore({ file, home: '/h', profiles: PROFILES }).placedWs(SID), 'contract');
+  const t0 = Date.now() + DAY;
+  s.touchPlaced([SID], t0);
+  s.touchPlaced([], t0 + 13 * DAY);
+  assert.equal(s.placedWs(SID), 'contract');
+  s.touchPlaced([], t0 + 15 * DAY);
+  assert.equal(s.placedWs(SID), null);
 });
 
 test('a missing, empty or corrupt file gives the defaults', () => {
@@ -78,15 +181,6 @@ test('it persists privately', () => {
   assert.equal(again.focus(), 'contract');
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
   assert.deepEqual(fs.readdirSync(path.dirname(file)), ['workspaces.json']);
-});
-
-test('sync adds a new profile without touching the rest', () => {
-  const s = createStore({ file: tmp(), profiles: PROFILES });
-  s.update('contract', { name: 'Work' });
-  s.sync([...PROFILES, { id: 'x', dir: '/h/.claude-x', plain: false }]);
-  assert.equal(s.get('contract').name, 'Work');
-  assert.deepEqual(s.get('x'), { id: 'x', name: 'claude-x', color: 'green' });
-  assert.deepEqual(s.list().map((w) => w.id), ['contract', 'x', 'default']);
 });
 
 test('names that live on every object are unknown, not found: ids, repository keys and colours', () => {
@@ -152,8 +246,8 @@ test('reorder takes a permutation of the workspace ids and keeps it', () => {
 });
 
 // Spaces: named groups of sessions inside one workspace, for what they work on.
-const SID = 'aaaaaaaa-1111-4111-8111-111111111111';
-const DAY = 86_400_000;
+
+
 
 test('spaces are made, renamed and deleted per workspace', () => {
   const s = createStore({ file: tmp(), profiles: PROFILES });

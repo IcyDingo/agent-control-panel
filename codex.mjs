@@ -1,22 +1,28 @@
-// OpenAI's Codex CLI, as far as Glue uses it today: is it installed, and is each workspace signed in to it. Agents don't
-// run on Codex yet; this is the sign-in that OpenAI has of its own in Settings › Providers › OpenAI. Every Codex call
-// and every guess about its output is kept here, as opencode.mjs keeps OpenCode's.
+// OpenAI's Codex CLI, as far as Glue uses it today: is it installed, and is each OpenAI login signed in. Agents don't
+// run on Codex yet; this is the sign-in OpenAI has of its own in Settings › Providers › OpenAI. Every Codex call and
+// every guess about its output is kept here, as opencode.mjs keeps OpenCode's.
 //
-// Each workspace has its own Codex home (CODEX_HOME), as it has its own Claude profile: the plain workspace (~/.claude)
-// uses Codex's own ~/.codex, any other `~/.codex-<id>`. Codex keeps its login there; Glue keeps nothing.
+// An OpenAI login is a Codex home folder (CODEX_HOME): Codex's own `~/.codex`, or `~/.codex-<name>`. Codex keeps the
+// login there; Glue keeps nothing.
 
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-/** The Codex home a workspace signs in under. `ws` is a profile ({ id, plain }). */
-export const codexHome = (ws, home = os.homedir()) => path.join(home, ws.plain ? '.codex' : `.codex-${ws.id}`);
+/** The Codex home folders on disk: `~/.codex` and `~/.codex-<name>`, as { provider, dir, id }. */
+export function findCodexHomes(home = os.homedir()) {
+  let names = [];
+  try { names = fs.readdirSync(home).filter((n) => n === '.codex' || /^\.codex-[\w.-]{1,40}$/.test(n)).sort(); } catch {}
+  return names.filter((n) => { try { return fs.statSync(path.join(home, n)).isDirectory(); } catch { return false; } })
+    .map((n) => ({ provider: 'codex', dir: path.join(home, n), id: n === '.codex' ? 'codex' : n.slice(1) }));
+}
 
-/** The environment Codex runs under for a workspace: its own home, nothing of Claude Code's. */
-export const codexEnv = (base, ws, home = os.homedir()) => ({ ...base, CODEX_HOME: codexHome(ws, home) });
+/** The environment Codex runs under for a login: its own home, nothing of Claude Code's. */
+export const codexEnv = (base, dir) => ({ ...base, CODEX_HOME: dir });
 
-/** The command that signs a workspace in to Codex, as you'd type it in a terminal. */
-export const codexLoginCommand = (ws) => (ws.plain ? 'codex login' : `CODEX_HOME=~/.codex-${ws.id} codex login`);
+/** The command that signs a login in to Codex, as you'd type it in a terminal. */
+export const codexLoginCommand = (dir, home = os.homedir()) => (dir === path.join(home, '.codex') ? 'codex login'
+  : `CODEX_HOME=${dir.startsWith(home + path.sep) ? '~' + dir.slice(home.length) : dir} codex login`);
 
 /** The codex binary: on PATH, else where Homebrew and npm put it. null when it isn't installed. */
 export function findCodex({ home = os.homedir(), env = process.env } = {}) {

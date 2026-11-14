@@ -4,14 +4,19 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { codexHome, codexEnv, codexLoginCommand, findCodex, parseCodexVersion, parseCodexStatus, codexInstallCommand, cleanKey } from '../codex.mjs';
+import { findCodexHomes, codexEnv, codexLoginCommand, findCodex, parseCodexVersion, parseCodexStatus, codexInstallCommand, cleanKey } from '../codex.mjs';
 
-test('each workspace has its own Codex home: the plain one Codex’s own, any other its own folder', () => {
-  assert.equal(codexHome({ id: 'default', plain: true }, '/h'), path.join('/h', '.codex'));
-  assert.equal(codexHome({ id: 'work', plain: false }, '/h'), path.join('/h', '.codex-work'));
-  assert.deepEqual(codexEnv({ PATH: '/bin' }, { id: 'work', plain: false }, '/h'), { PATH: '/bin', CODEX_HOME: path.join('/h', '.codex-work') });
-  assert.equal(codexLoginCommand({ id: 'default', plain: true }), 'codex login');
-  assert.equal(codexLoginCommand({ id: 'work', plain: false }), 'CODEX_HOME=~/.codex-work codex login');
+test('an OpenAI login is a Codex home: found on disk, run with CODEX_HOME, signed in with its own command', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-cxh-'));
+  try {
+    for (const d of ['.codex', '.codex-work', '.codexy', '.claude']) fs.mkdirSync(path.join(home, d));
+    fs.writeFileSync(path.join(home, '.codex-file'), '');
+    assert.deepEqual(findCodexHomes(home), [{ provider: 'codex', dir: path.join(home, '.codex'), id: 'codex' },
+      { provider: 'codex', dir: path.join(home, '.codex-work'), id: 'codex-work' }]);
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+  assert.deepEqual(codexEnv({ PATH: '/bin' }, '/h/.codex-work'), { PATH: '/bin', CODEX_HOME: '/h/.codex-work' });
+  assert.equal(codexLoginCommand('/h/.codex', '/h'), 'codex login');
+  assert.equal(codexLoginCommand('/h/.codex-work', '/h'), 'CODEX_HOME=~/.codex-work codex login');
 });
 
 test('codex login status: ChatGPT, an API key, signed out, or no answer', () => {
