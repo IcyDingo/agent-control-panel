@@ -289,14 +289,18 @@ the last tab while the page is open. It has six tabs:
 - **Logins & connection.** A block per workspace, each acting on its own profile without switching: **Claude** signed in or
   not (**Sign in in Terminal…** and **Copy command**, for that workspace's own `CLAUDE_CONFIG_DIR`), and **Connected** or
   not (**Connect**, which keeps a dated copy of `settings.json`). The account's email and plan show for the workspace in
-  view only. A "Codex: coming next" line is a placeholder.
+  view only. A "Codex: coming next" line is a placeholder. OpenCode is not here: it is one for the whole computer, and a
+  line points at **Providers**.
 - **GitHub, alerts & Auto-fix.** The GitHub CLI sign-in (shared: one `gh` login), then **Auto-fix** for the workspace in
   view. It is the same switch as the GitHub panel's, and shows the same state.
 - **Overseer.** What the overseer does, then the **model** of the workspace in view's overseer (the same select as the
   one under the overseer's box, showing the same state) and the **model a new workspace's overseer starts with** (kept
   with Glue's own settings in `prefs.json`).
-- **Providers.** Claude Code, active, with each workspace's sign-in status; **Codex** and **OpenRouter** are listed as
-  coming next and do nothing yet.
+- **Providers.** What runs your agents. **Claude Code**, active, with each workspace's sign-in status. **OpenCode**: whether
+  it is installed and running (**Start it**), the accounts it is signed in to by name (**Providers…** opens the connect
+  dialog, where a key or a browser sign-in goes through to OpenCode itself, which keeps it), and the models it can run on,
+  with its own default. One OpenCode for the computer: its sign-ins are shared by every workspace, and each OpenCode session
+  shows only in the workspace that started it. **Codex** is listed as coming next.
 - **Glue.** Settings that apply to every workspace and every page, kept on the server in `prefs.json` so the app and any
   browser tab agree:
   - **Look & keys:** the theme (Dark, Light, or the Mac's own appearance; on Linux, the desktop's), which queues start folded (Other folders,
@@ -308,8 +312,10 @@ the last tab while the page is open. It has six tabs:
     PR watcher; both the page's alerts and the Mac's notifications follow them), and whether the count appears in the
     window title and the Dock badge. **Answering here is never remembered**: it is on again whenever the server starts,
     and the top bar's "Paused" notice shows whenever it is off.
-  - **Agent defaults:** the model, effort, permissions and "its own worktree" the New agent launcher starts with (you can
-    still change them per launch).
+  - **Agent defaults:** which agent a new session runs on (**Claude Code** or **OpenCode**), its model (Claude's, or one of
+    OpenCode's own, grouped by provider), its effort and permissions (Claude only), "its own worktree", and the OpenCode
+    model a Claude Code session carries on with when it runs out of its subscription. You can still change each one when you
+    start an agent.
   - **About & maintenance:** the version and commit, whether the background service runs (**Restart** runs
     `launchctl kickstart -k`, and the page reconnects by itself), where Glue keeps its files and logs with **Show in
     Finder**, and the commands to update (`git pull && ./install.sh`) and uninstall (`./install.sh --uninstall`). On
@@ -354,8 +360,9 @@ token: when `gh` is missing or signed out, it says so once and shows nothing els
   branch, and the last few merges.
 - **GitHub** in the top bar opens a panel on the right listing them, each with its state in its colour:
   failing, stuck (checks running over 30 minutes), running, ready or passing, open, draft, and merged
-  in the last day. Its count and colour say the worst of them; it stays open until you close it. A repository section gets a CI pill, a session row a dot
-  for its PR's checks, and Details a Pull request block with the checks, the failing ones by name,
+  in the last day. Its count and colour say the worst of them; it stays open until you close it, and a
+  button in its head folds it to a strip of one light per repository. A session row gets a dot for its
+  PR's checks, and Details a Pull request block with the checks, the failing ones by name,
   whether it can merge, and its review state.
 - It polls each repository every minute while a page is open, every 20 seconds while something
   runs, and every 5 minutes with no page (1 minute while something runs). Errors back off to 15
