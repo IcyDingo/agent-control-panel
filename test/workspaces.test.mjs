@@ -150,3 +150,80 @@ test('reorder takes a permutation of the workspace ids and keeps it', () => {
   assert.deepEqual(createStore({ file, profiles: PROFILES }).list().map((w) => w.id), ['default', 'contract']);
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
 });
+
+// Spaces: named groups of sessions inside one workspace, for what they work on.
+const SID = 'aaaaaaaa-1111-4111-8111-111111111111';
+const DAY = 86_400_000;
+
+test('spaces are made, renamed and deleted per workspace', () => {
+  const s = createStore({ file: tmp(), profiles: PROFILES });
+  const r = s.createSpace('default', 'Checkout redesign');
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.deepEqual(s.spacesOf('default'), [{ id: r.id, name: 'Checkout redesign' }]);
+  assert.deepEqual(s.spacesOf('contract'), []);
+  assert.equal(s.renameSpace('default', r.id, 'Checkout').ok, true);
+  assert.deepEqual(s.spacesOf('default').map((x) => x.name), ['Checkout']);
+  assert.equal(s.deleteSpace('default', r.id).ok, true);
+  assert.deepEqual(s.spacesOf('default'), []);
+});
+
+test('a space name is checked', () => {
+  const s = createStore({ file: tmp(), profiles: PROFILES });
+  assert.equal(s.createSpace('default', '   ').error, 'A space needs a name.');
+  assert.equal(s.createSpace('default', 'a'.repeat(41)).error, 'A name is at most 40 characters.');
+  const b = s.createSpace('default', 'Billing');
+  assert.equal(b.ok, true);
+  assert.equal(s.createSpace('default', 'billing').error, 'Another space has that name.');
+  assert.equal(s.renameSpace('default', b.id, 'BILLING').ok, true);
+  assert.equal(s.createSpace('contract', 'Billing').ok, true);
+  assert.equal(s.createSpace('nope', 'x').error, 'No such workspace.');
+  assert.equal(s.renameSpace('default', 'nope', 'x').error, 'No such space.');
+  assert.equal(s.deleteSpace('default', 'nope').error, 'No such space.');
+});
+
+test('sessions are put in a space and taken out', () => {
+  const s = createStore({ file: tmp(), profiles: PROFILES });
+  const { id } = s.createSpace('default', 'Billing');
+  assert.equal(s.setSpace('default', SID, id).ok, true);
+  assert.equal(s.spaceOf('default', SID), id);
+  assert.equal(s.spaceOf('contract', SID), null);
+  assert.equal(s.setSpace('default', SID, null).ok, true);
+  assert.equal(s.spaceOf('default', SID), null);
+  assert.equal(s.setSpace('default', SID, 'nope').error, 'No such space.');
+  assert.equal(s.setSpace('contract', SID, id).error, 'No such space.', 'another workspace\'s space');
+  s.setSpace('default', SID, id);
+  s.deleteSpace('default', id);
+  assert.equal(s.spaceOf('default', SID), null);
+});
+
+test('spaces survive a restart, and a malformed spaces part is ignored', () => {
+  const file = tmp();
+  const s = createStore({ file, profiles: PROFILES });
+  const { id } = s.createSpace('default', 'Billing');
+  s.setSpace('default', SID, id);
+  const again = createStore({ file, profiles: PROFILES });
+  assert.deepEqual(again.spacesOf('default'), [{ id, name: 'Billing' }]);
+  assert.equal(again.spaceOf('default', SID), id);
+  for (const spaces of ['nope', { default: { list: [{ id: 1 }] } }, { default: { list: 'x', members: { [SID]: { space: 'zz', at: 1 } } } }]) {
+    const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const bad = tmp();
+    fs.writeFileSync(bad, JSON.stringify({ ...saved, spaces }));
+    const t = createStore({ file: bad, profiles: PROFILES });
+    assert.deepEqual(t.list().map((w) => w.id).sort(), ['contract', 'default']);
+    assert.deepEqual(t.spacesOf('default'), []);
+    assert.equal(t.spaceOf('default', SID), null);
+  }
+});
+
+test('members not seen for 14 days are dropped', () => {
+  const s = createStore({ file: tmp(), profiles: PROFILES });
+  const { id } = s.createSpace('default', 'Billing');
+  s.setSpace('default', SID, id);
+  const t0 = Date.now() + DAY;
+  s.touchSpaces('default', [SID], t0);
+  s.touchSpaces('default', [], t0 + 13 * DAY);
+  assert.equal(s.spaceOf('default', SID), id);
+  s.touchSpaces('default', [], t0 + 15 * DAY);
+  assert.equal(s.spaceOf('default', SID), null);
+  assert.deepEqual(s.spacesOf('default').map((x) => x.id), [id], 'the space itself stays');
+});
