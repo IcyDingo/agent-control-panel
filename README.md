@@ -354,8 +354,9 @@ token: when `gh` is missing or signed out, it says so once and shows nothing els
   branch, and the last few merges.
 - **GitHub** in the top bar opens a panel on the right listing them, each with its state in its colour:
   failing, stuck (checks running over 30 minutes), running, ready or passing, open, draft, and merged
-  in the last day. Its count and colour say the worst of them; it stays open until you close it. A repository section gets a CI pill, a session row a dot
-  for its PR's checks, and Details a Pull request block with the checks, the failing ones by name,
+  in the last day. Its count and colour say the worst of them; it stays open until you close it, and a
+  button in its head folds it to a strip of one light per repository. A session row gets a dot for its
+  PR's checks, and Details a Pull request block with the checks, the failing ones by name,
   whether it can merge, and its review state.
 - It polls each repository every minute while a page is open, every 20 seconds while something
   runs, and every 5 minutes with no page (1 minute while something runs). Errors back off to 15

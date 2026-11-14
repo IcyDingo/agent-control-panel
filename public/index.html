@@ -794,13 +794,9 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 .toast { max-width: min(560px, calc(100vw - 32px)); padding: 10px 16px; border: 0; border-radius: var(--r-2); background: var(--fill-strong); color: var(--fg); font-size: 12.5px; box-shadow: 0 12px 28px -16px var(--shade); }
 .toast.bad { background: var(--raise); color: var(--stop); box-shadow: inset 0 0 0 1px var(--stop-line), 0 12px 28px -16px var(--shade); }
 
-/* ---------- GitHub marks: a repository's checks on its section, a session's PR on its row and in its place bar ---------- */
-.ci { flex: none; display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px 0 7px; border-radius: var(--r-pill); background: var(--fill); font: 500 11px var(--sans); color: var(--fg-dim); }
-.ci::before, .tci { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.ci[data-c="failing"] { background: var(--stop-fill); color: var(--stop); }
-.ci[data-c="running"] { background: var(--run-fill); color: var(--run); }
-.ci[data-c="passing"] { background: var(--ok-fill); color: var(--ok); }
-.ci[data-c="running"]::before, .tci[data-c="running"] { animation: blink 1.6s ease-in-out infinite; }
+/* ---------- GitHub marks: a session's PR on its row and in its place bar ---------- */
+.tci { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.tci[data-c="running"] { animation: blink 1.6s ease-in-out infinite; }
 .tci { display: inline-block; background: var(--fg-faint); }
 .tci[data-c="failing"] { background: var(--stop); }
 .tci[data-c="running"] { background: var(--run); }
@@ -946,7 +942,6 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 .h-repo + .h-repo { border-top: 1px solid var(--line); }
 .h-repo-h { display: flex; align-items: center; gap: 8px; min-width: 0; margin-bottom: 8px; font-weight: 600; font-size: 13px; }
 .h-repo-h a { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.h-repo-h .ci { margin-left: auto; }
 .h-sub { margin: 10px 0 4px; font-size: 11.5px; font-weight: 600; color: var(--fg-dim); }
 .h-li { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 26px; font-size: 12.5px; }
 .h-li .tci { background: var(--fg-faint); }
@@ -1622,13 +1617,13 @@ function sectionEl(key, kind) {
   if (c) return c;
   const body = el('div', { class: 'col-body', id: 'q-' + ++secSeq });
   c = { key, kind, body, n: el('span', { class: 'n' }), title: el('span', { class: 'col-title' }), asks: el('span', { class: 'col-asks', hidden: true }),
-        ci: el('span', { class: 'ci', hidden: true }), path: el('div', { class: 'col-path', hidden: true }), tools: el('span', { class: 'col-tools' }),
+        path: el('div', { class: 'col-path', hidden: true }), tools: el('span', { class: 'col-tools' }),
         hint: el('p', { class: 'hint col-hint', hidden: true }), empty: el('p', { class: 'col-empty' }) };
   if (kind === 'waiting') c.head = el('span', { class: 'col-name' }, c.title, c.n);
   else {
     c.peek = el('span', { class: 'peek' });
     c.head = el('button', { class: 'col-name col-fold', type: 'button', 'aria-controls': body.id, onclick: () => toggleFold(key) },
-      c.title, c.n, c.asks, c.ci, c.peek, el('span', { class: 'chev', 'aria-hidden': 'true', text: '›' }));
+      c.title, c.n, c.asks, c.peek, el('span', { class: 'chev', 'aria-hidden': 'true', text: '›' }));
   }
   c.sec = el('section', { class: 'col', 'data-col': kind }, el('div', { class: 'col-h' }, c.head, c.tools), c.path, body);
   secs.set(key, c);
@@ -1973,9 +1968,6 @@ function renderBoard(g, vis) {
       setText(c.peek, rows[0] ? label(rows[0]) : '');
     }
     setAttr(c.sec, 'aria-label', sec.kind === 'repo' ? `Repository ${sec.title}` : sec.title);
-    const ci = sec.kind === 'repo' ? ciSum(vis.filter((s) => s.git?.repo === sec.repo)) : { state: null };
-    c.ci.hidden = !ci.state;
-    if (ci.state) { setAttr(c.ci, 'data-c', ci.state); setText(c.ci, `CI ${ci.state}`); setAttr(c.ci, 'title', ci.title); }
     // Under a repository's name, the checkout and branch when only one checkout of it is in use. Its folder is in the
     // name's tooltip and in the open session's place bar, so the rail stays clean.
     const tops = sec.kind === 'repo' ? [...new Set(sec.list.map((s) => s.git.top))] : [];
@@ -2860,17 +2852,6 @@ const MERGE = { CLEAN: 'Ready to merge', HAS_HOOKS: 'Ready to merge', UNSTABLE: 
 const REVIEW = { APPROVED: 'Approved', CHANGES_REQUESTED: 'Changes requested', REVIEW_REQUIRED: 'Needs a review' };
 /** A session's PR checks, for the dot on its row: failing, running or passing. */
 const ciOf = (s) => (s.gh?.pr && s.gh.pr.checks !== 'none' ? s.gh.pr.checks : null);
-/** What the dot on a repository's section sums up, in words for its tooltip. */
-function ciSum(list) {
-  const parts = [], states = [];
-  for (const s of list) {
-    if (!s.gh) continue;
-    if (s.gh.pr && s.gh.pr.checks !== 'none') { states.push(s.gh.pr.checks); parts.push(`#${s.gh.pr.number} (${label(s)}): ${CHECKS[s.gh.pr.checks]}`); }
-  }
-  const main = list.map((s) => s.gh?.main).filter(Boolean);
-  if (main.length) { states.push(main[0]); parts.push(`Default branch: ${main[0]}`); }
-  return { state: worst(states), title: [...new Set(parts)].join('\n') };
-}
 /** The hand-over in progress: { sessionId, slug, runId, jobId, loading, log, text, error, sending }. */
 let handing = null;
 async function startHand(s) {
