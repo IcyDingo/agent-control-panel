@@ -27,10 +27,11 @@ import { createOverseer, migrateFrom, MODELS as OVERSEER_MODELS, OC_PREFIX as OV
 import { createWatcher } from './watcher.mjs';
 import { parseClaudeAuth, parseGhAuth, claudeLoginCommand, loginScript, LOGIN_ERROR } from './setup.mjs';
 import { migrateFolders } from './migrate.mjs';
-import { createStore, countOnly, repoKey } from './workspaces.mjs';
+import { createStore, countOnly, repoKey, slugId, PROVIDERS } from './workspaces.mjs';
 import { sanitizeGlue, mergeGlue } from './glue-prefs.mjs';
 import * as daemon from './daemon.mjs';
 import { terminalCommand } from './terminal.mjs';
+import { findCodexHomes, codexEnv, codexLoginCommand, findCodex, parseCodexVersion, parseCodexStatus, codexInstallCommand, cleanKey } from './codex.mjs';
 import { createClient as createOcClient, findService, findBinary as findOcBinary, OC_ID, OC_MODES, permissionRules, agentFor, modelRef, refText,
          pickable, itemsOf, lastSaidOf, modelOfMessages, requestOf, questionOf, formAnswer, statusOf, briefOf, providersOf, turnErrorOf, lastToolOf } from './opencode.mjs';
 import { logDir as linuxLogDir } from './paths.mjs';
@@ -103,8 +104,7 @@ const baseEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => !
 
 // ---------------------------------------------------------------- profiles
 // A profile is a Claude Code config folder: ~/.claude for plain `claude`, ~/.claude-<name> for one run with
-// CLAUDE_CONFIG_DIR=~/.claude-<name>. Each profile is a workspace (workspaces.mjs): all of them run at once, each page is
-// shown one, and the one last in view is remembered across starts.
+// CLAUDE_CONFIG_DIR=~/.claude-<name>. A profile is a Claude login (workspaces.mjs): a workspace uses one or more.
 const HOME = os.homedir();
 // ACP_PREFS gives a second panel (another ACP_PORT) prefs of its own, and workspaces.json in the same folder.
 const PREFS = prefsPath();
@@ -132,7 +132,9 @@ const hookPresent = (hooks, event) => (Array.isArray(hooks?.[event]) ? hooks[eve
 /** Whether a settings object is connected to this panel: every event hooks.example.json asks for has such an entry
  *  (what connectProfile adds until nothing is left to add). Mentioning the URL anywhere else in the file doesn't count. */
 const hooksConnected = (settings) => Object.keys(wantedHooks()).every((event) => hookPresent(settings?.hooks, event));
-/** What the picker shows: whose account it is, and whether its sessions report to this panel. */
+/** A Claude login's profile, from its folder: plain `claude` keeps its config file in the home folder. */
+const profileAt = (id, dir) => { const plain = dir === path.join(HOME, '.claude'); return { id, dir, plain, config: plain ? path.join(HOME, '.claude.json') : path.join(dir, '.claude.json') }; };
+/** What Settings and the banners show of a Claude login: whose account it is, and whether its sessions report here. */
 function describeProfile(p) {
   let account = null;
   try { const a = JSON.parse(small(p.config, 8 << 20)).oauthAccount; if (a) account = { email: a.emailAddress ?? null, org: a.organizationName ?? null }; } catch {}
@@ -147,77 +149,112 @@ function describeProfile(p) {
            effort: EFFORTS.has(effort) ? effort : null,
            command: cliOf(p) };
 }
-// ---------------------------------------------------------------- workspaces
-// Every profile is a workspace, and every workspace is live at once: its roster is read, its hook events land, its held
-// requests wait, and every process started for one of its sessions runs under its own CLAUDE_CONFIG_DIR. W holds one
-// record per workspace whose profile folder exists; the store (workspaces.mjs) keeps names, colours and repositories,
-// also for a profile that has gone and may come back.
+// ---------------------------------------------------------------- workspaces and logins
+// A workspace is how you work (Work, Private); a login is what it runs on (workspaces.mjs). Every workspace is live at
+// once: the roster of every Claude login is read, hook events land, held requests wait, and every process started for a
+// session runs under that session's own login, never its workspace's. W holds a record per workspace, L one per Claude
+// login; the store keeps names, colours, repositories and which workspace uses which login.
 /** The environment a profile's processes run under: plain `claude` has no CLAUDE_CONFIG_DIR. */
 const envFor = (p) => (p.plain ? baseEnv : { ...baseEnv, CLAUDE_CONFIG_DIR: p.dir });
-/** What stands in when there is no profile yet (a fresh machine): plain `claude`'s, so signing in works from here. */
-const FALLBACK = { id: 'default', dir: path.join(HOME, '.claude'), plain: true, config: path.join(HOME, '.claude.json') };
 const dataDir = path.dirname(PREFS);
 try { fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 }); } catch {}
-const store = createStore({ file: path.join(dataDir, 'workspaces.json'), profiles: listProfiles() });
-/** wsId → { id, profile, env, info, rosterSeeded, rosterError, polls, setup } */
+const store = createStore({ file: path.join(dataDir, 'workspaces.json'), home: HOME, profiles: listProfiles(),
+  codex: fs.existsSync(path.join(HOME, '.codex')) ? path.join(HOME, '.codex') : null });
+/** wsId → { id } */
 const W = new Map();
-const makeWs = (p) => ({ id: p.id, profile: p, env: envFor(p), info: describeProfile(p), rosterSeeded: false, rosterError: null, polls: 0,
-                         setup: { claude: { state: 'unknown' }, checkedAt: 0 } });
+/** Claude login id → { id, label, profile, env, info, setup, rosterSeeded, rosterError, polls } */
+const L = new Map();
+const makeLogin = (l) => { const p = profileAt(l.id, l.dir); return { id: l.id, label: l.label, profile: p, env: envFor(p), info: { ...describeProfile(p), label: l.label },
+  setup: { claude: { state: 'unknown' }, checkedAt: 0 }, rosterSeeded: false, rosterError: null, polls: 0 }; };
+/** Reads a login's account, hooks and effort again (they change outside the panel). */
+const refreshInfo = (login) => { login.info = { ...describeProfile(login.profile), label: login.label }; };
 const wsById = (id) => W.get(id) ?? null;
-/** The environment every process for this workspace runs under; null (and so refused by run) without one. */
-const envOf = (ws) => ws?.env ?? null;
-/** The workspace a session belongs to: set when the event or roster that introduced it arrived. */
-const wsOfSession = (s) => (s ? wsById(s.ws) : null);
+/** The environment a login's processes run under; null (and so refused by run) without one. */
+const envOf = (login) => login?.env ?? null;
+/** A workspace's default Claude login, or null when it has none. */
+const defaultLogin = (wsId) => L.get(store.defaultOf(wsId, 'claude')) ?? null;
+/** The login a session runs on: the profile whose roster or transcript has it; one not known yet, its workspace's default. */
+const loginOfS = (s) => (s ? L.get(s.login) ?? defaultLogin(s.ws) : null);
 /** wsId → that workspace's overseer, made the first time it is asked for (overseerOf). */
 const overseers = new Map();
 // The workspace focused last, by any page: where an event that names no transcript goes, and the focus of a page that
 // has not picked one. Each page's own focus is focusOf(client).
 let shownId = null;
 let serverUp = false;
-/** Brings W in line with the profile folders: a new one becomes a workspace, one whose folder is gone leaves (with its
- *  sessions; its held requests go back to the terminal). A folder that is still there stays, so a moment when the home
- *  folder can't be read never empties the panel. */
-function syncWorkspaces() {
-  const list = listProfiles(), want = list.length ? list : [FALLBACK];
-  store.sync(list); // the real profiles only: the stand-in is never kept as a workspace of its own
+/** Brings W and L in line with the store, after adding as logins (in no workspace) the profile folders and Codex homes
+ *  found on disk that Glue doesn't know. A login whose folder has gone stays: signing in makes it again. */
+function syncAll() {
+  store.addFound([...listProfiles().map((p) => ({ provider: 'claude', dir: p.dir, id: p.id })), ...findCodexHomes(HOME)]);
   let changed = false;
-  for (const p of want) if (W.get(p.id)?.profile.dir !== p.dir) { W.set(p.id, makeWs(p)); changed = true; }
-  for (const ws of [...W.values()]) {
-    if (want.some((p) => p.id === ws.id) || fs.existsSync(ws.profile.dir)) continue;
-    dropWorkspace(ws);
-    changed = true;
+  const wsIds = store.list().map((w) => w.id), logins = store.logins().filter((l) => l.provider === 'claude');
+  for (const id of wsIds) if (!W.has(id)) { W.set(id, { id }); changed = true; }
+  for (const id of [...W.keys()]) if (!wsIds.includes(id)) { dropWorkspace(id); changed = true; }
+  for (const l of logins) {
+    const was = L.get(l.id);
+    if (was?.profile.dir !== l.dir) { L.set(l.id, makeLogin(l)); changed = true; }
+    else if (was.label !== l.label) { was.label = l.label; refreshInfo(was); changed = true; }
   }
-  if (!W.has(shownId)) shownId = W.keys().next().value ?? null;
+  for (const id of [...L.keys()]) if (!logins.some((l) => l.id === id)) { dropLogin(id); changed = true; }
+  if (!W.has(shownId)) shownId = W.has(store.focus()) ? store.focus() : wsIds[0] ?? null;
   if (changed && serverUp) { broadcast(); checkSetup(true); settingsChanged(); }
 }
-function dropWorkspace(ws) {
-  W.delete(ws.id);
-  // Its overseer stops answering and its file is written now; a folder that comes back finds its conversation there.
-  const o = overseers.get(ws.id);
-  overseers.delete(ws.id);
+/** A workspace removed: its overseer stops, its held requests go back to the terminal, and its sessions are placed
+ *  again (in another workspace that uses their login, or in none). */
+function dropWorkspace(id) {
+  W.delete(id);
+  const o = overseers.get(id);
+  overseers.delete(id);
   if (o) { try { o.stop(); o.flush(); } catch {} }
-  for (const p of [...pending.values()]) if (p.ws === ws.id) settle(p.id, null, 'its profile is gone');
-  for (const [id, s] of [...sessions]) {
-    if (s.ws !== ws.id) continue;
-    sessions.delete(id);
-    inbox.delete(id);
-    clearStops(id);
-    termEnd(id);
+  for (const p of [...pending.values()]) if (p.ws === id) settle(p.id, null, 'its workspace is gone');
+  for (const s of sessions.values()) if (s.ws === id && !isOc(s)) { s.ws = null; place(s); }
+}
+/** A login removed: its sessions leave the board (Claude Code keeps them), and their held requests go to the terminal. */
+function dropLogin(id) {
+  L.delete(id);
+  for (const p of [...pending.values()]) if (sessions.get(p.sessionId)?.login === id) settle(p.id, null, 'its login is gone');
+  for (const [sid, s] of [...sessions]) {
+    if (s.login !== id) continue;
+    sessions.delete(sid);
+    inbox.delete(sid);
+    clearStops(sid);
+    termEnd(sid);
   }
 }
-{
-  syncWorkspaces();
-  const all = [...W.values()].map((ws) => ws.profile);
-  let saved = null;
-  try { saved = JSON.parse(small(PREFS, 65536)).profile; } catch {}
-  const env = process.env.CLAUDE_CONFIG_DIR ? path.resolve(process.env.CLAUDE_CONFIG_DIR.replace(/^~(?=\/|$)/, HOME)) : null;
-  // Picked before, else the one it was started under, else one that already reports here (an app opened from the Dock
-  // has no CLAUDE_CONFIG_DIR), else plain `claude`'s.
-  shownId = (all.find((p) => p.id === saved) ?? all.find((p) => p.dir === env) ?? all.find((p) => describeProfile(p).connected)
-    ?? all.find((p) => p.plain) ?? all[0]).id;
-  store.setFocus(shownId);
-}
+syncAll();
+// The workspace in view at start: the one focused last. On the start that makes the store, the one an older Glue
+// kept in prefs.json.
+{ let was = null; try { was = JSON.parse(small(PREFS, 65536)).profile; } catch {} if (store.upgraded && W.has(was)) store.setFocus(was); }
+shownId = W.has(store.focus()) ? store.focus() : W.keys().next().value ?? null;
 const shownWs = () => wsById(shownId);
+
+/**
+ * Which workspace shows a session (null: none). Kept once decided, so it never jumps. Otherwise: the workspace its
+ * repository is in that uses its login (its login's home first), else its login's home (which withholds repository data
+ * from another workspace, and asks to sort an unsorted one). Only a session whose login no workspace uses is in none.
+ */
+function wsFor(s) {
+  const kept = store.placedWs(s.sessionId);
+  if (kept && W.has(kept)) return kept;
+  const cwd = s.rosterCwd ?? s.cwd, inWs = cwd ? store.reposOf(repoOf(cwd).key).filter((id) => W.has(id)) : [];
+  if (!s.login) return inWs[0] ?? shownId; // an event that named no transcript: no login to go by
+  const users = store.usersOf(s.login), home = store.homeOf(s.login);
+  const both = users.filter((id) => inWs.includes(id)); // in switch order
+  return both.includes(home) ? home : both[0] ?? home;
+}
+/** Gives a session its workspace when it has none (yet, or any more), and keeps it once its login is known. */
+function place(s) {
+  if (W.has(s.ws)) return;
+  setWs(s, wsFor(s));
+  if (s.ws && s.login) store.setPlaced(s.sessionId, s.ws);
+}
+/** A session's login, from its roster or transcript. Learned late (its first event named no transcript), the guess at
+ *  its workspace is made again. */
+function noteLogin(s, id) {
+  if (s.login === id) return;
+  const guessed = !s.login && !store.placedWs(s.sessionId);
+  s.login = id;
+  if (guessed) { s.ws = null; place(s); }
+}
 
 // ---------------------------------------------------------------- the seal
 // Each page (a client id: c= on its stream, x-acp-client on its calls) is shown one workspace. Its snapshot holds that
@@ -234,9 +271,9 @@ function focusOf(client) {
 }
 /** The pages in `ids` that are shown workspace `wsId`. */
 const sealedTo = (ids, wsId) => [...ids].filter((c) => focusOf(c) === wsId);
-/** A session's transcript in workspace `ws`'s profile, or null. */
-function findTranscript(ws, sessionId) {
-  const root = path.join(ws.profile.dir, 'projects');
+/** A session's transcript in a Claude login's profile, or null. */
+function findTranscript(login, sessionId) {
+  const root = path.join(login.profile.dir, 'projects');
   try {
     for (const d of fs.readdirSync(root)) {
       const f = path.join(root, d, sessionId + '.jsonl');
@@ -245,13 +282,14 @@ function findTranscript(ws, sessionId) {
   } catch {}
   return null;
 }
-/** Whose a session is: its record's workspace, else the one whose profile holds its transcript; null when none knows it. */
+/** Whose a session is: its record's workspace, else the one kept for it, else the home of the login whose profile holds
+ *  its transcript ('' when that login is in no workspace: nobody's to touch); null when no login knows it. */
 function wsIdOfSession(sessionId) {
   const s = sessions.get(sessionId);
-  if (s) return s.ws;
+  if (s) return s.ws ?? '';
   if (typeof sessionId === 'string' && Object.hasOwn(ocRecords, sessionId)) return ocRecords[sessionId].ws;
   if (typeof sessionId !== 'string' || !UUID.test(sessionId)) return null;
-  for (const ws of W.values()) if (findTranscript(ws, sessionId)) return ws.id;
+  for (const login of L.values()) if (findTranscript(login, sessionId)) return store.placedWs(sessionId) ?? store.homeOf(login.id) ?? '';
   return null;
 }
 /** Whether an action from a page shown `wsId` may touch the session. One no workspace knows has nothing to give away. */
@@ -259,10 +297,10 @@ function ownedBy(wsId, sessionId) {
   const w = wsIdOfSession(sessionId);
   return w == null || w === wsId;
 }
-/** What a page calls a workspace: its name and colour from the store (the stand-in for no profile has none there). */
+/** What a page calls a workspace: its name and colour, from the store. */
 function wsView(id) {
   const w = store.get(id);
-  return { id, name: w?.name ?? path.basename(W.get(id)?.profile.dir ?? id).replace(/^\./, ''), color: w?.color ?? 'violet' };
+  return { id, name: w?.name ?? id, color: w?.color ?? 'violet' };
 }
 /** The live workspaces, in the store's order. */
 const wsOrder = () => { const known = store.list().map((w) => w.id).filter((id) => W.has(id)); return [...known, ...[...W.keys()].filter((id) => !known.includes(id))]; };
@@ -274,8 +312,6 @@ function waitingOf(wsId) {
   n += overseerOf(wsId)?.status().proposed ?? 0;
   return n;
 }
-/** An event whose transcript lies in a profile's projects/ says whose its session is. */
-const namesProfile = (e, ws) => typeof e?.transcript_path === 'string' && e.transcript_path.startsWith(path.join(ws.profile.dir, 'projects') + path.sep);
 /** Moves a session (and what it holds open here) to workspace `id`. */
 function setWs(s, id) {
   if (s.ws === id) return;
@@ -283,20 +319,32 @@ function setWs(s, id) {
   for (const p of pending.values()) if (p.sessionId === s.sessionId) p.ws = id;
 }
 
-/** The workspace a hook event's session runs under: its transcript lives in that profile's projects/. A profile seen
- *  for the first time is looked for at once, so its first event is not lost. An event that names no transcript is the
- *  shown workspace's, as it always was; one under no profile at all is nobody's (null). */
-function wsOfEvent(e) {
+/** The Claude login a hook event's session runs on: its transcript lives in that profile's projects/. A profile seen
+ *  for the first time is looked for at once, so its first event is not lost. undefined: the event names no transcript;
+ *  null: it is under no profile Glue knows. */
+function loginOfEvent(e) {
   const tp = typeof e?.transcript_path === 'string' ? e.transcript_path : null;
-  if (tp == null) return shownWs();
-  const find = () => [...W.values()].find((ws) => tp.startsWith(path.join(ws.profile.dir, 'projects') + path.sep)) ?? null;
+  if (tp == null) return undefined;
+  const find = () => [...L.values()].find((l) => tp.startsWith(path.join(l.profile.dir, 'projects') + path.sep)) ?? null;
   const hit = find();
   if (hit) return hit;
   // Only a folder that could be a profile (~/.claude or ~/.claude-<name>) is worth looking at the home folder again for.
   const i = tp.indexOf(path.sep + 'projects' + path.sep), dir = i > 0 ? tp.slice(0, i) : '';
   if (path.dirname(dir) !== HOME || !/^\.claude(-[\w.-]{1,40})?$/.test(path.basename(dir))) return null;
-  syncWorkspaces();
+  syncAll();
   return find();
+}
+/** Where a hook event goes: its session (placed in its workspace) and that workspace, or null when it is nobody's (no
+ *  login Glue knows, or a login no workspace uses): then nothing is recorded, and a request is left to the terminal. */
+function routeEvent(e) {
+  const login = loginOfEvent(e);
+  if (login === null) return null;
+  if (!e?.session_id) return { s: null, ws: shownId };
+  const s = session(e.session_id);
+  if (typeof e.cwd === 'string' && !s.cwd) s.cwd = e.cwd;
+  if (login) noteLogin(s, login.id);
+  place(s);
+  return W.has(s.ws) ? { s, ws: s.ws } : null;
 }
 // Every caller says which environment a process runs under: a session's or workspace's (envOf) or none of them
 // (baseEnv). One that forgets is refused, never run with the panel's own.
@@ -318,8 +366,8 @@ const hostPids = new Set();
 
 // ---------------------------------------------------------------- state
 
-/** A session's record, made on first sight in workspace `ws` (an id): the one whose event or roster introduced it. */
-function session(id, ws) {
+/** A session's record, made on first sight; `ws` is its workspace when the caller knows it (else place() decides). */
+function session(id, ws = null) {
   let s = sessions.get(id);
   if (!s) {
     s = { sessionId: id, ws, name: null, cwd: null, hereCwd: null, rosterCwd: null, kind: null, status: null, state: null, waitingFor: null,
@@ -340,19 +388,17 @@ function clearStops(sessionId) {
   for (const k of stops.keys()) if (k.startsWith(sessionId + ':')) stops.delete(k);
 }
 
-/** Record a hook event from a session of workspace `ws`. Returns the hook's reply: only an interrupted agent's
- *  PreToolUse gets one. */
-function onHookEvent(e, ws) {
+/** Record a hook event, in the workspace of its session (routeEvent). Returns the hook's reply: only an interrupted
+ *  agent's PreToolUse gets one. */
+function onHookEvent(e) {
   if (!e?.session_id || isOverseerCall(e.cwd)) return null;
   if (dismissed.has(e.session_id)) {
     if (e.hook_event_name === 'SessionEnd' || e.hook_event_name === 'Stop') return null;
     dismissed.delete(e.session_id); // it is running again
   }
-  const s = session(e.session_id, ws.id);
-  // First seen through an event that named no transcript, it was put in the focused workspace: this one says whose it is.
-  if (namesProfile(e, ws)) setWs(s, ws.id);
+  const s = routeEvent(e)?.s;
+  if (!s) return null;
   s.lastEventAt = Date.now();
-  if (e.cwd && !s.cwd) s.cwd = e.cwd;
   // Where it is now, for showing its branch only: a session can move (into a worktree, say) after it starts.
   if (!e.agent_id && typeof e.cwd === 'string' && path.isAbsolute(e.cwd) && e.cwd.length < 4096) s.hereCwd = e.cwd;
   if (!e.agent_id && typeof e.permission_mode === 'string') s.mode = e.permission_mode;
@@ -423,7 +469,7 @@ function onHookEvent(e, ws) {
       s.lastMessageAt = Date.now();
       s.note = null;
       stops.delete(stopKey(e.session_id, null));
-      setTimeout(() => pollRoster(wsOfSession(s)), 1500); // a message waiting for this turn to end can go now
+      setTimeout(() => pollRoster(L.get(s.login)), 1500); // a message waiting for this turn to end can go now
       if (!e.agent_id) feed('finished', s, `${labelOf(s)} finished its turn${s.lastMessage ? `: ${String(s.lastMessage).replace(/\s+/g, ' ').slice(0, 140)}` : '.'}`);
       break;
     }
@@ -449,42 +495,51 @@ function settleSubagents(s) {
   for (const a of s.subagents.values()) a.stoppedAt ??= Date.now();
 }
 
-/** A workspace's `claude agents --json --all`, or { error }. */
-async function readRoster(ws) {
-  const r = await run('claude', ['agents', '--json', '--all'], { timeout: 5000, env: envOf(ws) });
+/** A Claude login's `claude agents --json --all`, or { error }. */
+async function readRoster(login) {
+  const r = await run('claude', ['agents', '--json', '--all'], { timeout: 5000, env: envOf(login) });
   if (r.err) return { error: String(r.err.message).slice(0, 200) };
   try { return { list: JSON.parse(r.stdout) }; } catch { return { error: 'claude agents --json returned non-JSON' }; }
 }
 
-/** Every workspace's roster, after looking for profile folders that came or went. */
-function pollAll() {
-  syncWorkspaces();
+/** Every Claude login's roster, after looking for folders that came; then what is kept per workspace is stamped. */
+async function pollAll() {
+  syncAll();
   ocPoll().catch((e) => console.error('opencode:', e?.message ?? e));
-  return Promise.all([...W.values()].map((ws) => pollRoster(ws)));
+  await Promise.all([...L.values()].map((login) => pollRoster(login)));
+  const live = [...sessions.values()].filter((s) => s.inRoster && !isEnded(s));
+  store.touchPlaced(live.map((s) => s.sessionId));
+  for (const id of W.keys()) store.touchSpaces(id, live.filter((s) => s.ws === id).map((s) => s.sessionId));
 }
-// The first roster of a workspace (at start, or when its profile appears) is what was already there: no "started" lines.
-async function pollRoster(ws) {
-  if (!ws) return;
-  const { list, error } = await readRoster(ws);
-  if (W.get(ws.id) !== ws) return; // its profile went while it read
-  if (++ws.polls % 20 === 0) ws.info = describeProfile(ws.profile); // its hooks or account may have changed outside the panel
-  if (error) { ws.rosterError = error; broadcast(); return; }
-  ws.rosterError = null;
+/** The first roster error of the logins a workspace uses, or null. */
+const rosterErrorOf = (wsId) => store.loginsOf(wsId).map((id) => L.get(id)?.rosterError).find(Boolean) ?? null;
+// The first roster of a login (at start, or when it is added) is what was already there: no "started" lines.
+async function pollRoster(login) {
+  if (!login) return;
+  const { list, error } = await readRoster(login);
+  if (L.get(login.id) !== login) return; // it was removed while it read
+  if (++login.polls % 20 === 0) refreshInfo(login); // its hooks or account may have changed outside the panel
+  if (error) { login.rosterError = error; broadcast(); return; }
+  login.rosterError = null;
   const seen = new Set();
   for (const r of list) {
     if (!r.sessionId || isOverseerCall(r.cwd)) continue;
     const over = r.state === 'done' || r.state === 'failed' || r.state === 'stopped';
     if (dismissed.has(r.sessionId)) { if (over) continue; dismissed.delete(r.sessionId); }
     seen.add(r.sessionId);
-    const s = session(r.sessionId, ws.id), was = { inRoster: s.inRoster, state: s.state, status: s.status };
-    setWs(s, ws.id); // its profile's own list says whose it is, over an event that named no transcript
+    const s = session(r.sessionId), was = { inRoster: s.inRoster, state: s.state, status: s.status };
     // The roster moving it (into its worktree, say) is newer than the folder its last hook event named.
     if (r.cwd && r.cwd !== s.rosterCwd) { s.rosterCwd = r.cwd; s.hereCwd = null; }
+    noteLogin(s, login.id); // its profile's own list says which login it runs on
+    // Started from Glue: it is in the workspace it was started in, whatever an early hook event guessed.
+    const started = r.id && launchedIn.get(r.id);
+    if (started) { launchedIn.delete(r.id); if (W.has(started)) { setWs(s, started); store.setPlaced(s.sessionId, started); } }
+    place(s);
     Object.assign(s, { id: r.id ?? null, name: r.name ?? null, cwd: r.cwd ?? s.cwd, kind: r.kind ?? null,
                        status: r.status ?? null, state: r.state ?? null, waitingFor: r.waitingFor ?? null,
                        pid: r.pid ?? null, startedAt: r.startedAt ?? null, inRoster: true, leftRosterAt: null });
     if (!over) Object.assign(s, { ended: false, closedByPanel: false }); // running again, e.g. resumed with a reply
-    if (ws.rosterSeeded) {
+    if (login.rosterSeeded && s.ws) {
       if (!was.inRoster && !over) feed('started', s, `${labelOf(s)} started.`);
       else if (over && was.state !== r.state && was.inRoster) feed(r.state === 'done' ? 'done' : r.state, s, `${labelOf(s)} is ${r.state === 'done' ? 'done' : r.state}.`);
       if (r.status === 'waiting' && was.status !== 'waiting' && was.inRoster) feed('needs-you', s, `${labelOf(s)} waits for you${r.waitingFor ? ` (${r.waitingFor})` : ''}.`);
@@ -510,14 +565,12 @@ async function pollRoster(ws) {
   }
   // Claude Code reads a session as busy while a background task (a dev server, a watch) runs, even when its
   // turn is over and it waits at its prompt. The transcript tells the two apart.
-  const mine = () => [...sessions.values()].filter((s) => s.ws === ws.id);
-  // After the roster is read, so a member it lists again counts as seen before the old ones are let go.
-  store.touchSpaces(ws.id, mine().map((s) => s.sessionId));
+  const mine = () => [...sessions.values()].filter((s) => s.login === login.id && !isOc(s));
   for (const s of mine()) s.atPrompt = atPrompt(s);
   const tasks = mine().some((s) => s.atPrompt) ? await backgroundTasks() : new Map();
   for (const s of mine()) s.bgTasks = s.atPrompt ? tasks.get(s.pid) ?? 0 : 0;
-  if (W.get(ws.id) !== ws) return; // its profile went while it looked at background tasks
-  ws.rosterSeeded = true;
+  if (L.get(login.id) !== login) return; // it was removed while it looked at background tasks
+  login.rosterSeeded = true;
   if (inbox.size) deliverQueued();
   // Gone from the roster = closed or removed: drop its last status so it can't still read "needs you".
   for (const s of mine()) {
@@ -533,7 +586,7 @@ async function pollRoster(ws) {
   // background subagent can wait on us while its parent session reads as idle.
   for (const p of [...pending.values()]) {
     const s = sessions.get(p.sessionId);
-    if (p.agentId || !s?.inRoster || s.ws !== ws.id || Date.now() - p.createdAt < 4000) continue;
+    if (p.agentId || !s?.inRoster || s.login !== login.id || Date.now() - p.createdAt < 4000) continue;
     p.notWaiting = s.status === 'waiting' ? 0 : (p.notWaiting ?? 0) + 1;
     if (p.notWaiting >= 2) settle(p.id, null, 'answered in the terminal');
   }
@@ -557,17 +610,14 @@ function prune() {
 
 // ---------------------------------------------------------------- held permission requests
 
-// A request is held for the workspace its session runs under (`ws`, an id), whichever workspace is on screen: handing it
+// A request is held for the workspace its session is in (routeEvent), whichever workspace is on screen: handing it
 // back would leave a background session's prompt open with no screen to answer it on.
-function holdPermission(e, ws, res) {
+function holdPermission(e, { s, ws }, res) {
   const id = crypto.randomUUID();
-  // An event that names no transcript was guessed into the focused workspace: a session already known says better.
-  const s = e.session_id ? session(e.session_id, ws.id) : null;
-  if (s && namesProfile(e, ws)) setWs(s, ws.id);
   const p = { id, sessionId: e.session_id, agentId: e.agent_id ?? null, agentType: e.agent_type ?? null,
               toolName: e.tool_name, toolInput: e.tool_input ?? {}, toolUseId: e.tool_use_id ?? null, suggestions: e.permission_suggestions ?? [],
               cwd: e.cwd ?? null, permissionMode: e.permission_mode ?? null, createdAt: Date.now(),
-              deadline: Date.now() + HOLD_MS, ws: s?.ws ?? ws.id, res, timer: null };
+              deadline: Date.now() + HOLD_MS, ws, res, timer: null };
   p.timer = setTimeout(() => settle(id, null, 'expired'), HOLD_MS);
   // The hook timed out or its session went away. (A terminal answer does NOT close it: see pollRoster.)
   res.on('close', () => { if (pending.has(id)) settle(id, null, 'closed by Claude Code'); });
@@ -652,6 +702,13 @@ function decide(body, wsId) {
 
 /** Start a background session in workspace `ws` (the page's focus; the overseer's for its proposals): `claude --bg` with
  *  argv only (no shell), every value checked. */
+/** The Claude login a launch in workspace `wsId` runs on: `want` when the workspace uses it, else its default. */
+function launchLogin(wsId, want) {
+  return typeof want === 'string' && store.loginsOf(wsId).includes(want) && L.has(want) ? L.get(want) : defaultLogin(wsId);
+}
+const NO_LOGIN = 'This workspace has no Claude login yet. Add one in Settings › Providers › Claude.';
+/** Background ids just launched → the workspace they were started in: the roster says their session id. */
+const launchedIn = new Map();
 function launch(body, ws = shownWs()) {
   return new Promise((resolve) => {
     const fail = (error) => resolve({ ok: false, error });
@@ -693,13 +750,13 @@ function launch(body, ws = shownWs()) {
     if (agent) args.push('--agent', agent);
     if (worktree) args.push('--worktree', ...(wtName ? [wtName] : []));
     args.push('--', prompt);
-    // Under its workspace's profile, and only in a repository of that workspace's. One nobody has sorted yet is asked
+    // In its workspace, and only in a repository of that workspace's. One nobody has sorted yet is asked
     // about first; the answer (`assign`) is kept before it starts. With one workspace there is nothing to ask.
     if (!ws) return fail(NO_WS);
     const repo = repoOf(cwd);
     let inWs = sortedIn(repo.key);
     if (!inWs.length) {
-      if (W.size === 1) { store.assign(repo.key, [ws.id]); settingsChanged(); } // the stand-in for no profile is not in the store: nothing kept
+      if (W.size === 1) { store.assign(repo.key, [ws.id]); settingsChanged(); }
       else if (body.assign === undefined) return resolve({ ok: false, ask: { ...repo, suggest: suggestFor(repo.key) } });
       else {
         const ids = body.assign;
@@ -723,12 +780,15 @@ function launch(body, ws = shownWs()) {
       })().then(resolve, (e) => fail(String(e?.message ?? e)));
       return;
     }
-    run('claude', args, { cwd, timeout: 30_000, env: envOf(ws) }).then((r) => {
+    // On the login picked in New agent, if this workspace uses it, else on its default.
+    const login = launchLogin(ws.id, body.login);
+    if (!login) return fail(NO_LOGIN);
+    run('claude', args, { cwd, timeout: 30_000, env: envOf(login) }).then((r) => {
       const id = `${r.stdout}\n${r.stderr}`.match(/backgrounded · (\w+)/)?.[1];
-      if (id) { setTimeout(() => pollRoster(ws), 400); return resolve({ ok: true, id, cwd }); }
+      if (id) { launchedIn.set(id, ws.id); setTimeout(() => pollRoster(login), 400); return resolve({ ok: true, id, cwd }); }
       const why = firstLine(r);
       if (UNTRUSTED.test(why)) return resolve({ ok: false, untrusted: true,
-        error: `The ${profileLabel(ws)} profile hasn't trusted ${tilde(trustKey(cwd, gitPlace(cwd)?.top))} yet. Claude Code asks once per folder.` });
+        error: `${login.label} hasn't trusted ${tilde(trustKey(cwd, gitPlace(cwd)?.top))} yet. Claude Code asks once per folder.` });
       fail(why);
     });
   });
@@ -737,8 +797,8 @@ function launch(body, ws = shownWs()) {
 // ---------------------------------------------------------------- interrupt, end, remove
 
 const BG_ID = /^[0-9a-f]{8}$/;
-// A session whose profile folder has gone between its being picked and the action: nothing runs without its profile.
-const NO_WS = 'Its profile is gone, so nothing can be run for it.';
+// A session whose login has gone between its being picked and the action: nothing runs without its login.
+const NO_WS = 'Its login is gone, so nothing can be run for it.';
 const liveSession = (body) => {
   const s = sessions.get(String(body?.sessionId ?? ''));
   return s && !dismissed.has(s.sessionId) ? s : null;
@@ -776,17 +836,17 @@ async function end(body) {
 }
 async function endSession(s) {
   if (isOc(s)) return ocEnd(s);
-  const ws = wsOfSession(s);
-  if (!ws) return { ok: false, error: NO_WS };
+  const login = loginOfS(s);
+  if (!login) return { ok: false, error: NO_WS };
   if (s.kind === 'background') {
     if (!BG_ID.test(s.id ?? '')) return { ok: false, error: 'It has no background id to stop.' };
-    const r = await run('claude', ['stop', s.id], { env: envOf(ws) });
-    setTimeout(() => pollRoster(ws), 400);
+    const r = await run('claude', ['stop', s.id], { env: envOf(login) });
+    setTimeout(() => pollRoster(login), 400);
     return r.err ? { ok: false, error: firstLine(r) } : { ok: true };
   }
   if (s.kind !== 'interactive') return { ok: false, error: 'Only background and terminal sessions can be ended from here.' };
   // The pid comes from a fresh roster read, never from the browser, and must still be a claude process.
-  const { list } = await readRoster(ws);
+  const { list } = await readRoster(login);
   const pid = list?.find((r) => r.sessionId === s.sessionId && r.kind === 'interactive')?.pid;
   if (!Number.isInteger(pid) || pid <= 1) return { ok: false, error: 'Could not find its process. It may have closed already.' };
   if (hostPids.has(pid)) return { ok: false, error: 'The panel server runs inside this session. Ending it would stop the panel too.' };
@@ -794,7 +854,7 @@ async function endSession(s) {
   if (!/(^|\/)claude(\s|$)/.test(cmd)) return { ok: false, error: 'Its process is no longer Claude Code, so it was left alone.' };
   try { process.kill(pid, 'SIGTERM'); } catch (e) { return { ok: false, error: `Could not signal its process (${e.code}).` }; }
   s.closedByPanel = true;
-  setTimeout(() => pollRoster(ws), 600);
+  setTimeout(() => pollRoster(login), 600);
   return { ok: true };
 }
 
@@ -813,9 +873,9 @@ async function remove(body) {
   const rm = s.kind === 'background' && s.inRoster;
   if (rm) {
     if (!BG_ID.test(s.id ?? '')) return { ok: false, error: 'It has no background id to remove.' };
-    const ws = wsOfSession(s);
-    if (!ws) return { ok: false, error: NO_WS };
-    const r = await run('claude', ['rm', s.id], { env: envOf(ws) });
+    const login = loginOfS(s);
+    if (!login) return { ok: false, error: NO_WS };
+    const r = await run('claude', ['rm', s.id], { env: envOf(login) });
     if (r.err) return { ok: false, error: firstLine(r) };
   }
   store.setSpace(s.ws, s.sessionId, null); // removed for good: out of its space too (a refused removal keeps it)
@@ -833,18 +893,19 @@ const RESUME_MODES = new Set(['default', 'acceptEdits', 'plan', 'auto']);
 
 /** The model, effort and permission mode of a session's last turn, read from the tail of its transcript. */
 const files = new Map(); // sessionId → its transcript
-/** A session's transcript, in its own workspace's profile. One the panel has no record of yet (just launched, say) is
- *  looked for in workspace `where` (the asking page's focus), else in the one focused last. */
+/** A session's transcript, in its own login's profile. One the panel has no record of yet (just launched, say) is
+ *  looked for in the logins of workspace `where` (the asking page's focus), else of the one focused last. */
 function transcriptFile(sessionId, where = null) {
-  if (!UUID.test(sessionId)) return null;
-  const s = sessions.get(sessionId), ws = s ? wsOfSession(s) : where ?? shownWs();
-  if (!ws) return null;
-  const root = path.join(ws.profile.dir, 'projects');
+  if (typeof sessionId !== 'string' || !UUID.test(sessionId)) return null;
+  const s = sessions.get(sessionId);
+  const logins = (s ? [loginOfS(s)] : store.loginsOf(where?.id ?? shownId).map((id) => L.get(id))).filter(Boolean);
   const hit = files.get(sessionId);
-  if (hit && hit.startsWith(root + path.sep) && fs.existsSync(hit)) return hit;
-  const f = findTranscript(ws, sessionId);
-  if (f) files.set(sessionId, f);
-  return f;
+  if (hit && logins.some((l) => hit.startsWith(path.join(l.profile.dir, 'projects') + path.sep)) && fs.existsSync(hit)) return hit;
+  for (const l of logins) {
+    const f = findTranscript(l, sessionId);
+    if (f) { files.set(sessionId, f); return f; }
+  }
+  return null;
 }
 function tailOf(file, bytes) {
   const fd = fs.openSync(file, 'r');
@@ -1019,9 +1080,9 @@ function ranOn(sessionId) {
 /** `opus` or `opus[1m]` names the model it runs on now (claude-opus-5-5[1m]). */
 const sameModel = (alias, full) => typeof full === 'string' && full.includes(`-${alias.replace('[1m]', '')}-`) && alias.endsWith('[1m]') === full.endsWith('[1m]');
 
-async function rosterSettles(ws, sessionId, done, ms = 12_000) {
+async function rosterSettles(login, sessionId, done, ms = 12_000) {
   for (const end = Date.now() + ms; Date.now() < end; await new Promise((r) => setTimeout(r, 700))) {
-    const { list } = await readRoster(ws);
+    const { list } = await readRoster(login);
     if (list && done(list.find((r) => r.sessionId === sessionId))) return true;
   }
   return false;
@@ -1041,16 +1102,16 @@ const sendingTo = new Set();
 async function sendToBackground(s, text) {
   if (sendingTo.has(s.sessionId)) return { ok: false, error: 'Your last message or mode switch is still on its way.' };
   if (/^[/!]/.test(text)) return { ok: false, error: 'A message that starts with / or ! is not sent this way. Start it with a word.' };
-  const file = transcriptFile(s.sessionId), ws = wsOfSession(s);
+  const file = transcriptFile(s.sessionId), login = loginOfS(s);
   if (!file) return { ok: false, error: 'It has no saved conversation yet.' };
-  if (!ws) return { ok: false, error: NO_WS };
+  if (!login) return { ok: false, error: NO_WS };
   sendingTo.add(s.sessionId);
   const resume = ['--resume', s.sessionId, '--', text];
   const p = MAC
     ? spawn('script', ['-q', '/dev/null', 'claude', ...resume],
-      { cwd: s.cwd, env: { ...envOf(ws), TERM: 'xterm-256color' }, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
+      { cwd: s.cwd, env: { ...envOf(login), TERM: 'xterm-256color' }, stdio: ['ignore', 'pipe', 'pipe'], detached: true })
     : spawn('python3', [BRIDGE, '120', '40', '--', claudePath() ?? 'claude', ...resume],
-      { cwd: s.cwd, env: { ...envOf(ws), TERM: 'xterm-256color' }, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
+      { cwd: s.cwd, env: { ...envOf(login), TERM: 'xterm-256color' }, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
   p.stdin?.on('error', () => {});
   let out = '';
   p.stdout.on('data', (d) => { out = (out + d).slice(-4000); });
@@ -1071,7 +1132,7 @@ async function sendToBackground(s, text) {
   sendingTo.delete(s.sessionId);
   if (!seen) return { ok: false, error: 'It did not take your message. ' + (out.replace(/\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07/g, '').replace(/\s+/g, ' ').trim().slice(-160) || 'Try claude attach.') };
   logSent(s, text, 'now');
-  setTimeout(() => pollRoster(ws), 600);
+  setTimeout(() => pollRoster(login), 600);
   return { ok: true, sent: true };
 }
 
@@ -1093,17 +1154,17 @@ const SLASH = fileURLToPath(new URL('./slash-command.py', import.meta.url));
 async function runCommand(s, text) {
   if (s.status === 'waiting' || [...pending.values()].some((p) => p.sessionId === s.sessionId)) return { ok: false, error: 'Answer what it is asking first.' };
   if (sendingTo.has(s.sessionId)) return { ok: false, error: 'Your last message or mode switch is still on its way.' };
-  const file = transcriptFile(s.sessionId), ws = wsOfSession(s);
+  const file = transcriptFile(s.sessionId), login = loginOfS(s);
   if (!file) return { ok: false, error: 'It has no saved conversation yet.' };
-  if (!ws) return { ok: false, error: NO_WS };
+  if (!login) return { ok: false, error: NO_WS };
   sendingTo.add(s.sessionId);
-  const r = await run('python3', [SLASH, s.id, text, file], { cwd: os.homedir(), timeout: 60_000, env: envOf(ws) });
+  const r = await run('python3', [SLASH, s.id, text, file], { cwd: os.homedir(), timeout: 60_000, env: envOf(login) });
   sendingTo.delete(s.sessionId);
   let out;
   try { out = JSON.parse(r.stdout.trim().split('\n').pop()); } catch { out = { ok: false, error: firstLine(r) || 'The command did not report back.' }; }
   if (!out.ok) return { ok: false, error: out.error };
   logSent(s, text, 'command', Date.now(), { ran: out.ran ?? null, output: trimMid(out.output || null, 3000), status: out.status ?? null });
-  setTimeout(() => pollRoster(ws), 600);
+  setTimeout(() => pollRoster(login), 600);
   broadcast();
   return { ok: true, command: true, ran: out.ran ?? null, status: out.status ?? null };
 }
@@ -1174,8 +1235,8 @@ async function reply(body) {
   const text = typeof body?.text === 'string' ? body.text.trim() : '';
   if (!s) return fail('That session is gone.');
   if (isOc(s)) return ocReply(s, body);
-  const ws = wsOfSession(s); // everything below runs under its own profile
-  if (!ws) return fail(NO_WS);
+  const login = loginOfS(s); // everything below runs under its own profile
+  if (!login) return fail(NO_WS);
   if (!text || text.length > 20_000) return fail('Write a reply (up to 20,000 characters).');
   if (text.startsWith('!')) return fail('A message that starts with ! (a shell command) is not sent from here.');
   const command = text.startsWith('/') ? commandOf(text) : null;
@@ -1229,13 +1290,13 @@ async function reply(body) {
   if (bgUp || (running && s.pid != null)) {
     const r = await endSession(s);
     if (!r.ok) return r;
-    const gone = await rosterSettles(ws, s.sessionId, (r) => !r || ['stopped', 'failed'].includes(r.state) || (bgUp ? r.pid == null : r.state === 'done'));
+    const gone = await rosterSettles(login, s.sessionId, (r) => !r || ['stopped', 'failed'].includes(r.state) || (bgUp ? r.pid == null : r.state === 'done'));
     if (!gone) return fail('It did not stop in time, so your reply was not sent. Try again.');
   }
   const args = ['--bg', '--resume', s.sessionId];
   if (!keeps || repick) {
     if (keeps && !tree) {
-      const r = await run('claude', ['rm', s.id], { env: envOf(ws) });
+      const r = await run('claude', ['rm', s.id], { env: envOf(login) });
       if (r.err && !/No job matching/i.test(firstLine(r))) return fail(`It can't be restarted with your reply: ${firstLine(r)}`);
     }
     if (s.name && !s.name.startsWith('-')) args.push('--name', s.name.slice(0, 120));
@@ -1250,7 +1311,7 @@ async function reply(body) {
     if (mode) args.push('--permission-mode', mode);
   }
   args.push('--', text);
-  const r = await run('claude', args, { cwd, timeout: 30_000, env: envOf(ws) });
+  const r = await run('claude', args, { cwd, timeout: 30_000, env: envOf(login) });
   const id = `${r.stdout}\n${r.stderr}`.match(/backgrounded · (\w+)/)?.[1];
   if (!id) return fail(firstLine(r));
   const copy = Boolean(tree);
@@ -1260,7 +1321,7 @@ async function reply(body) {
     if (sp) pendingSpace.set(String(id), { ws: s.ws, space: sp, at: Date.now() });
   }
   else { dismissed.delete(s.sessionId); Object.assign(s, { ended: false, closedByPanel: false, note: null }); }
-  setTimeout(() => pollRoster(ws), 400);
+  setTimeout(() => pollRoster(login), 400);
   broadcast();
   if (!body?.fromQueue) logSent(s, text, 'restarted');
   return { ok: true, id, same: s.sessionId.startsWith(id), ...(copy ? { copy } : {}), ...(change ? { restartedOn: want } : {}) };
@@ -1285,10 +1346,10 @@ async function switchMode(body) {
   if (s.status === 'waiting' || [...pending.values()].some((p) => p.sessionId === s.sessionId))
     return { ok: false, error: 'Answer what it is asking first. Allowing it can switch the mode too.' };
   if (sendingTo.has(s.sessionId)) return { ok: false, error: 'Your last message or mode switch is still on its way.' };
-  const ws = wsOfSession(s);
-  if (!ws) return { ok: false, error: NO_WS };
+  const login = loginOfS(s);
+  if (!login) return { ok: false, error: NO_WS };
   sendingTo.add(s.sessionId);
-  const r = await run('python3', [MODE_SWITCH, s.id, mode], { cwd: os.homedir(), timeout: 40_000, env: envOf(ws) });
+  const r = await run('python3', [MODE_SWITCH, s.id, mode], { cwd: os.homedir(), timeout: 40_000, env: envOf(login) });
   sendingTo.delete(s.sessionId);
   let out;
   try { out = JSON.parse(r.stdout.trim().split('\n').pop()); } catch { out = { ok: false, error: firstLine(r) || 'The switch did not report back.' }; }
@@ -1380,12 +1441,12 @@ async function answerOpen(body) {
     picks.push(j >= 0 ? { option: j + 1 } : { other: opts.length + 1, text: a });
   }
   if (sendingTo.has(s.sessionId)) return { ok: false, error: 'Your last message or mode switch is still on its way.' };
-  const ws = wsOfSession(s);
-  if (!ws) return { ok: false, error: NO_WS };
+  const login = loginOfS(s);
+  if (!login) return { ok: false, error: NO_WS };
   sendingTo.add(s.sessionId);
   const r = await run('python3', [ANSWER_QUESTION, s.id, JSON.stringify({ questions: qs.map((q) => q.question), picks,
     toolUseId: ask.toolUseId, transcript: transcriptFile(s.sessionId) })],
-    { cwd: os.homedir(), timeout: 60_000, env: envOf(ws) });
+    { cwd: os.homedir(), timeout: 60_000, env: envOf(login) });
   let out;
   try { out = JSON.parse(r.stdout.trim().split('\n').pop()); } catch { out = { ok: false, error: firstLine(r) || 'It did not report back.' }; }
   // Its conversation shows the answers once Claude Code takes them: check they are the ones picked.
@@ -1393,7 +1454,7 @@ async function answerOpen(body) {
   for (const end = Date.now() + 15_000; out.ok && got == null && Date.now() < end; await new Promise((r) => setTimeout(r, 500))) got = resultOf(s, ask.toolUseId);
   sendingTo.delete(s.sessionId);
   asks.delete(s.sessionId);
-  setTimeout(() => pollRoster(ws), 500);
+  setTimeout(() => pollRoster(login), 500);
   broadcast();
   if (!out.ok) return { ok: false, error: out.error };
   if (got == null) return { ok: false, error: 'Its screen took the answers, but its conversation does not show them yet. Look again in a moment.' };
@@ -1414,11 +1475,11 @@ async function answerOpenPlan(s, ask, body) {
     spec = { choice: 'feedback', text };
   } else return { ok: false, error: 'Approve the plan or send it back.' };
   if (sendingTo.has(s.sessionId)) return { ok: false, error: 'Your last message or mode switch is still on its way.' };
-  const ws = wsOfSession(s);
-  if (!ws) return { ok: false, error: NO_WS };
+  const login = loginOfS(s);
+  if (!login) return { ok: false, error: NO_WS };
   sendingTo.add(s.sessionId);
   const r = await run('python3', [ANSWER_PLAN, s.id, JSON.stringify({ ...spec, toolUseId: ask.toolUseId, transcript: transcriptFile(s.sessionId) })],
-    { cwd: os.homedir(), timeout: 60_000, env: envOf(ws) });
+    { cwd: os.homedir(), timeout: 60_000, env: envOf(login) });
   let out;
   try { out = JSON.parse(r.stdout.trim().split('\n').pop()); } catch { out = { ok: false, error: firstLine(r) || 'It did not report back.' }; }
   // Its conversation shows the answer once Claude Code takes it: check it is the one picked.
@@ -1426,7 +1487,7 @@ async function answerOpenPlan(s, ask, body) {
   for (const end = Date.now() + 15_000; out.ok && got == null && Date.now() < end; await new Promise((r) => setTimeout(r, 500))) got = resultOf(s, ask.toolUseId);
   sendingTo.delete(s.sessionId);
   asks.delete(s.sessionId);
-  setTimeout(() => pollRoster(ws), 500);
+  setTimeout(() => pollRoster(login), 500);
   broadcast();
   if (!out.ok) return { ok: false, error: out.error };
   if (got == null) return { ok: false, error: 'Its screen took it, but its conversation does not show it yet. Look again in a moment.' };
@@ -1495,14 +1556,15 @@ function readPlace(dir) {
   return null;
 }
 const placeOut = (p) => p && { branch: p.branch, commit: p.commit, worktree: p.worktree, top: p.top, repo: p.repo };
-/** A `worktree` setting as Claude Code would see it from here, under workspace `ws`'s profile: local, then project, then
- *  user settings. */
-const worktreeSetting = (place, key, ws) => [path.join(place.top, '.claude', 'settings.local.json'), path.join(place.top, '.claude', 'settings.json'), path.join(ws.profile.dir, 'settings.json')]
+/** A `worktree` setting as Claude Code would see it from here, on a Claude login's profile: local, then project, then
+ *  user settings (none without a login). */
+const worktreeSetting = (place, key, login) => [path.join(place.top, '.claude', 'settings.local.json'), path.join(place.top, '.claude', 'settings.json'),
+  ...(login ? [path.join(login.profile.dir, 'settings.json')] : [])]
   .map((f) => { try { return JSON.parse(small(f, 512 * 1024))?.worktree?.[key]; } catch { return undefined; } })
   .find((v) => typeof v === 'string');
 /** What a worktree Claude Code makes from here starts at: the remote's default branch, unless settings say HEAD. */
-function worktreeBase(place, ws) {
-  if (worktreeSetting(place, 'baseRef', ws) !== 'head') {
+function worktreeBase(place, login) {
+  if (worktreeSetting(place, 'baseRef', login) !== 'head') {
     try { const ref = small(path.join(place.common, 'refs', 'remotes', 'origin', 'HEAD')).match(/^ref:\s*refs\/remotes\/(.+)$/)?.[1]; if (ref) return ref; } catch {}
   }
   return place.branch ?? 'its current commit';
@@ -1632,16 +1694,16 @@ function folderInfo(body, ctx) {
   const dir = path.resolve(expand(String(body?.path ?? '').trim()) || os.homedir());
   try { if (!fs.statSync(dir).isDirectory()) return { ok: true, folder: false }; } catch { return { ok: true, folder: false }; }
   const p = gitPlace(dir), home = dir === os.homedir(), ws = ctx?.ws ?? shownWs(), repo = repoOf(dir); // the workspace the launcher starts agents in: the page's
+  const login = launchLogin(ws.id, body?.login); // and the login it starts them on
   // A background session moves itself into a worktree before it edits, unless the repo turned that off.
-  return { ok: true, folder: true, git: p && { branch: p.branch, worktree: p.worktree, repo: tilde(p.repo), base: worktreeBase(p, ws),
-                                               isolates: worktreeSetting(p, 'bgIsolation', ws) !== 'none' },
-           // Whether this profile has trusted it; a background session starts only where it has (never the home folder).
-           trusted: home ? null : isTrusted(ws.profile.config, trustKey(dir, p?.top)), home, profile: profileLabel(ws),
+  return { ok: true, folder: true, git: p && { branch: p.branch, worktree: p.worktree, repo: tilde(p.repo), base: worktreeBase(p, login),
+                                               isolates: worktreeSetting(p, 'bgIsolation', login) !== 'none' },
+           // Whether that login has trusted it; a background session starts only where it has (never the home folder).
+           trusted: home || !login ? null : isTrusted(login.profile.config, trustKey(dir, p?.top)), home, profile: login?.label ?? null,
            // Which workspaces its repository is in. With one workspace it is always that one, and nothing is asked.
            workspaces: { ...repo, in: W.size === 1 ? [ws.id] : sortedIn(repo.key), suggest: W.size === 1 ? null : suggestFor(repo.key) } };
 }
 
-const profileLabel = (ws) => path.basename(ws.profile.dir).slice(1);
 /** Claude Code's own path, as the panel's commands find it (every workspace has the same PATH). */
 const claudePath = () => String(baseEnv.PATH ?? '').split(':').filter(Boolean).map((d) => path.join(d, 'claude'))
   .find((f) => { try { fs.accessSync(f, fs.constants.X_OK); return fs.statSync(f).isFile(); } catch { return false; } });
@@ -1662,8 +1724,8 @@ async function openInTerminal(file) {
     p.once('spawn', () => { p.unref(); resolve({ ok: true }); });
   });
 }
-/** Terminal in the folder, on the page's workspace's profile, running Claude Code: its trust prompt waits there for
- *  you to accept. */
+/** Terminal in the folder, on the login the launcher starts agents on, running Claude Code: its trust prompt waits there
+ *  for you to accept. */
 async function openTrustTerminal(body, ctx) {
   const dir = path.resolve(expand(String(body?.path ?? '').trim()) || os.homedir());
   try { if (!fs.statSync(dir).isDirectory()) throw new Error(); } catch { return { ok: false, error: `There is no folder at ${tilde(dir)}.` }; }
@@ -1674,8 +1736,9 @@ async function openTrustTerminal(body, ctx) {
   fs.mkdirSync(where, { recursive: true, mode: 0o700 });
   for (const n of fs.readdirSync(where)) try { const f = path.join(where, n); if (Date.now() - fs.statSync(f).mtimeMs > 3_600_000) fs.unlinkSync(f); } catch {}
   const file = path.join(where, `trust-${crypto.randomBytes(4).toString('hex')}${SCRIPT_EXT}`);
-  const ws = ctx?.ws ?? shownWs(); // trust is for the launcher, which starts agents in the page's workspace
-  fs.writeFileSync(file, trustScript({ dir, configDir: ws.profile.plain ? null : ws.profile.dir, claude, label: profileLabel(ws), shell: SCRIPT_SHELL }), { mode: 0o700 });
+  const login = launchLogin((ctx?.ws ?? shownWs()).id, body?.login); // trust is for the launcher: the page's workspace, the login picked
+  if (!login) return { ok: false, error: NO_LOGIN };
+  fs.writeFileSync(file, trustScript({ dir, configDir: login.profile.plain ? null : login.profile.dir, claude, label: login.label, shell: SCRIPT_SHELL }), { mode: 0o700 });
   const r = await openInTerminal(file);
   return r.none ? { ok: false, error: 'No terminal app was found. Run claude in the folder once and accept its prompt.' } : r;
 }
@@ -1705,7 +1768,7 @@ function forgetFocusLater(client) {
  *  focus a new page starts on. */
 function focusWorkspace(body, ctx = {}) {
   const id = typeof body?.ws === 'string' ? body.ws : '';
-  if (id && !W.has(id)) syncWorkspaces(); // a profile folder made since the last roster read
+  if (id && !W.has(id)) syncAll(); // a workspace made since
   const ws = id ? wsById(id) : null;
   if (!ws) return { ok: false, error: 'There is no such workspace.' };
   const client = ctx.client ?? null;
@@ -1719,7 +1782,6 @@ function focusWorkspace(body, ctx = {}) {
   store.setFocus(ws.id);
   if (ws.id !== shownId) {
     shownId = ws.id;
-    savePrefs({ profile: ws.id });
     checkSetup(true);
   }
   broadcast();
@@ -1730,8 +1792,9 @@ function focusWorkspace(body, ctx = {}) {
  * copying the file aside. Nothing else in it changes. Its sessions pick the hooks up as Claude Code reloads settings.
  */
 function connectProfile(body) {
-  const p = listProfiles().find((x) => x.id === body?.id);
-  if (!p) return { ok: false, error: 'There is no such profile.' };
+  const login = L.get(String(body?.id ?? '')), p = login?.profile;
+  if (!p) return { ok: false, error: 'There is no such login.' };
+  fs.mkdirSync(p.dir, { recursive: true, mode: 0o700 }); // a login not signed in yet may have no folder
   const file = path.join(p.dir, 'settings.json');
   let settings = {};
   if (fs.existsSync(file)) {
@@ -1748,7 +1811,7 @@ function connectProfile(body) {
     list.push(...entries);
     added++;
   }
-  const fresh = () => { const ws = wsById(p.id); if (ws) ws.info = describeProfile(ws.profile); };
+  const fresh = () => refreshInfo(login);
   if (!added) { fresh(); broadcast(); settingsChanged(); return { ok: true, added: 0 }; }
   let backup = null;
   if (fs.existsSync(file)) {
@@ -1763,6 +1826,75 @@ function connectProfile(body) {
   settingsChanged();
   return { ok: true, added, backup: backup && tilde(backup) };
 }
+// ---------------------------------------------------------------- managing workspaces and logins (Settings)
+
+/** After a change to which workspace uses which login: W and L follow the store, sessions in no workspace are placed
+ *  again (a login just attached shows its sessions), and every page and Settings hear of it. */
+function loginsChanged(r) {
+  if (!r?.ok) return r;
+  syncAll();
+  for (const s of sessions.values()) if (!isOc(s) && !W.has(s.ws)) place(s);
+  broadcast();
+  settingsChanged();
+  return r;
+}
+const isLive = (s) => s.inRoster && !isEnded(s);
+/**
+ * `{ provider, label, ws? }`: a new login, used by workspace `ws` (else the page's) from the start. Claude: a new profile
+ * folder, ~/.claude-<name>, its settings.json already holding this panel's hooks. OpenAI: a new Codex home (Codex's own
+ * ~/.codex for the first one). Neither is signed in yet: Settings opens the sign-in next. A folder already there is
+ * never used or touched.
+ */
+function createLogin(body, ctx) {
+  const provider = PROVIDERS.includes(body?.provider) ? body.provider : null;
+  if (!provider) return { ok: false, error: 'Pick Claude or OpenAI.' };
+  const label = typeof body?.label === 'string' ? body.label.trim().replace(/\s+/g, ' ') : '';
+  if (!label) return { ok: false, error: 'Give it a name, like Personal Max or Client.' };
+  const ws = typeof body?.ws === 'string' ? body.ws : ctx?.focus;
+  if (!W.has(ws)) return { ok: false, error: 'No such workspace.' };
+  const base = path.join(HOME, `.${provider}-${slugId(label, new Set())}`);
+  let dir = provider === 'codex' && !fs.existsSync(path.join(HOME, '.codex')) ? path.join(HOME, '.codex') : base;
+  for (let n = 2; fs.existsSync(dir); n++) dir = `${base}-${n}`;
+  try {
+    fs.mkdirSync(dir, { mode: 0o700 });
+    if (provider === 'claude') fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ hooks: wantedHooks() }, null, 2) + '\n', { mode: 0o600 });
+  } catch (e) { return { ok: false, error: String(e?.message ?? e) }; }
+  const r = store.addLogin({ provider, label, dir });
+  if (!r.ok) { fs.rmSync(dir, { recursive: true, force: true }); return r; } // the folder made just now, nothing else in it
+  store.attach(ws, r.id);
+  if (provider === 'claude') checkSetup(true);
+  return loginsChanged({ ok: true, id: r.id });
+}
+/** `{ id }`: forget a login. Refused while sessions run on it. Its folder (and the login Claude Code or Codex keeps
+ *  there) stays, and Glue doesn't pick it up again until asked to. */
+function removeLogin(body) {
+  const l = store.login(String(body?.id ?? ''));
+  if (!l) return { ok: false, error: 'No such login.' };
+  if ([...sessions.values()].some((s) => s.login === l.id && isLive(s))) return { ok: false, error: `Sessions are still running on ${l.label}. End them first.` };
+  return loginsChanged({ ...store.removeLogin(l.id), dir: tilde(l.dir) });
+}
+/** `{ name, color? }`: a new workspace, using the page's workspace's default Claude login to start with. */
+function createWorkspace(body, ctx) {
+  const start = store.defaultOf(ctx?.focus, 'claude');
+  return loginsChanged(store.createWorkspace({ name: body?.name, color: body?.color ?? undefined, logins: start ? [start] : [] }));
+}
+/** `{ id }`: forget a workspace. Refused while sessions run in it. Its logins stay, its repositories are unsorted again. */
+function removeWorkspace(body) {
+  const id = String(body?.id ?? '');
+  if (!W.has(id)) return { ok: false, error: 'No such workspace.' };
+  if ([...sessions.values()].some((s) => s.ws === id && isLive(s))) return { ok: false, error: `Sessions are still running in ${wsView(id).name}. End them first.` };
+  return loginsChanged(store.removeWorkspace(id));
+}
+/** The routes Settings changes workspaces' logins with: `{ ws, id }` each. */
+const WS_LOGIN = {
+  '/api/login/attach': (b) => loginsChanged(store.attach(String(b?.ws ?? ''), String(b?.id ?? ''))),
+  '/api/login/detach': (b) => loginsChanged(store.detach(String(b?.ws ?? ''), String(b?.id ?? ''))),
+  '/api/login/default': (b) => loginsChanged(store.setDefault(String(b?.ws ?? ''), String(b?.id ?? ''))),
+  '/api/login/rename': (b) => loginsChanged(store.renameLogin(String(b?.id ?? ''), b?.label)),
+  '/api/login/unhide': () => loginsChanged(store.unhide()),
+  '/api/login/create': createLogin, '/api/login/remove': removeLogin,
+  '/api/workspace/create': createWorkspace, '/api/workspace/remove': removeWorkspace,
+};
 
 // ---------------------------------------------------------------- first-run setup
 
@@ -1853,20 +1985,28 @@ function settingsRepos() {
     .sort((a, b) => a.label.localeCompare(b.label) || (a.key < b.key ? -1 : 1));
 }
 /** GET /api/settings for a page shown `focus`: the one place a page learns more of another workspace than
- *  { id, name, color, waiting }, and only this: its order, sign-in state, hooks and the command that signs it in. The
- *  account is the focus's only. Never put any of it in a snapshot or an SSE frame. */
+ *  { id, name, color, waiting }, and only this: its order, its settings and which logins it uses; and of every login,
+ *  its name, sign-in state, hooks, who uses it and how many sessions run on it (a number only). A login's account
+ *  (email, plan) only when the focus uses it or nobody does. Never put any of it in a snapshot or an SSE frame. */
 function settingsFor(focus, about = {}) {
   const g = glue();
   return {
     ok: true,
-    workspaces: wsOrder().map((id, order) => {
-      const ws = W.get(id), here = id === focus;
-      const out = { ...wsView(id), order, here, signedIn: signedInOf(ws), connected: hooksHere(ws.profile), loginCommand: claudeLoginCommand(ws.profile),
-        // Its settings, not its content: Settings' workspace picker shows and changes them from any workspace.
-        autofix: Boolean(watcher.status(id).enabled), overseerModel: overseerOf(id)?.status().model ?? g.overseerModel };
-      if (here) out.account = { email: describeProfile(ws.profile).account?.email ?? ws.setup.claude.email ?? null, plan: ws.setup.claude.plan ?? null };
+    workspaces: wsOrder().map((id, order) => ({ ...wsView(id), order, here: id === focus,
+      logins: store.loginsOf(id), defaults: { claude: store.defaultOf(id, 'claude'), codex: store.defaultOf(id, 'codex') },
+      // Its settings, not its content: Settings' workspace picker shows and changes them from any workspace.
+      autofix: Boolean(watcher.status(id).enabled), overseerModel: overseerOf(id)?.status().model ?? g.overseerModel })),
+    logins: store.logins().map((l) => {
+      const users = store.usersOf(l.id), x = L.get(l.id);
+      const out = { id: l.id, provider: l.provider, label: l.label, users, home: store.homeOf(l.id), where: tilde(l.dir),
+        running: [...sessions.values()].filter((s) => s.login === l.id && isLive(s)).length };
+      if (x) {
+        Object.assign(out, { signedIn: signedInOf(x), connected: hooksHere(x.profile), loginCommand: claudeLoginCommand(x.profile) });
+        if (!users.length || users.includes(focus)) out.account = { email: describeProfile(x.profile).account?.email ?? x.setup.claude.email ?? null, plan: x.setup.claude.plan ?? null };
+      }
       return out;
     }),
+    hidden: store.hiddenCount(),
     repos: settingsRepos(),
     glue: g,
     github: { state: setup.github.state, login: setup.github.login ?? null },
@@ -1963,18 +2103,18 @@ let setupCheck = null;
 function checkSetup(force) {
   if (setupCheck) return setupCheck;
   if (!force && Date.now() - setup.checkedAt < 3000) return Promise.resolve();
-  const list = [...W.values()], gh = ghPath();
+  const list = [...L.values()], gh = ghPath();
   setupCheck = Promise.all([
-    Promise.all(list.map((ws) => run('claude', ['auth', 'status', '--json'], { env: envOf(ws), timeout: 8000 }).then((r) => parseClaudeAuth(r.stdout)))),
+    Promise.all(list.map((l) => run('claude', ['auth', 'status', '--json'], { env: envOf(l), timeout: 8000 }).then((r) => parseClaudeAuth(r.stdout)))),
     setup.github.state === 'off' ? setup.github
       : gh ? run(gh, ['auth', 'status', '--hostname', 'github.com'], { env: baseEnv, cwd: path.dirname(PREFS), timeout: 8000 }).then(parseGhAuth) : { state: 'missing' },
   ]).then(([claudes, gh]) => {
-    const seen = () => JSON.stringify([list.map((ws) => ws.setup.claude), setup.github]), was = seen();
+    const seen = () => JSON.stringify([list.map((l) => l.setup.claude), setup.github]), was = seen();
     const signedWas = list.map(signedInOf).join(), ghWas = JSON.stringify([setup.github.state, setup.github.login ?? null]);
-    list.forEach((ws, i) => {
+    list.forEach((l, i) => {
       // A read that timed out says nothing new: a sign-in already seen stays.
-      if (claudes[i].state !== 'unknown' || ws.setup.claude.state === 'unknown') ws.setup.claude = claudes[i];
-      ws.setup.checkedAt = Date.now();
+      if (claudes[i].state !== 'unknown' || l.setup.claude.state === 'unknown') l.setup.claude = claudes[i];
+      l.setup.checkedAt = Date.now();
     });
     setup.github = gh;
     setup.checkedAt = Date.now();
@@ -1987,7 +2127,17 @@ function checkSetup(force) {
 }
 /** A failure from Claude Code that reads as a login problem: look again, so the banner says so. */
 function loginFailed(text) { if (LOGIN_ERROR.test(String(text ?? ''))) checkSetup(true); }
-const setupOut = (ws) => ({ claude: ws.setup.claude, github: setup.github, done: setup.done, loginCommand: claudeLoginCommand(ws.profile) });
+/** The Claude login the sign-in banner and the first run go by: the first one the workspace uses that is signed out,
+ *  else its default. null when it uses none. */
+function bannerLogin(wsId) {
+  const ls = store.loginsOf(wsId).map((id) => L.get(id)).filter(Boolean);
+  return ls.find((l) => l.setup.claude.state === 'signed-out') ?? defaultLogin(wsId) ?? ls[0] ?? null;
+}
+const setupOut = (ws) => {
+  const l = bannerLogin(ws.id);
+  return { claude: l?.setup.claude ?? { state: 'none' }, login: l && { id: l.id, label: l.label }, github: setup.github, done: setup.done,
+           loginCommand: l ? claudeLoginCommand(l.profile) : null };
+};
 async function setupCheckNow(body, ctx) { await checkSetup(false); return { ok: true, setup: setupOut(ctx?.ws ?? shownWs()) }; }
 function setupDone(body) {
   setup.done = body?.done !== false;
@@ -1995,19 +2145,20 @@ function setupDone(body) {
   broadcast();
   return { ok: true };
 }
-/** Terminal, running Claude Code's own sign-in on this profile, or gh's: the panel never sees a password or token. */
+/** Terminal, running Claude Code's own sign-in on a login's profile, or gh's: the panel never sees a password or token. */
 async function openLoginTerminal(body, ctx) {
-  // `ws`: Settings signs in any workspace; without it, the page's own (its sign-in banner).
-  if (body?.ws !== undefined && !(typeof body.ws === 'string' && W.has(body.ws))) return { ok: false, error: 'No such workspace.' };
+  // `login`: Settings signs in any Claude login; without it, the one the page's banner names.
+  if (body?.login !== undefined && !L.has(body.login)) return { ok: false, error: 'No such login.' };
   const what = body?.what === 'gh' ? 'gh' : 'claude';
+  const login = what === 'gh' ? null : L.get(body?.login) ?? bannerLogin((ctx?.ws ?? shownWs()).id);
+  if (what === 'claude' && !login) return { ok: false, error: NO_LOGIN };
   const bin = what === 'gh' ? ghPath() : claudePath();
   if (!bin) return { ok: false, error: what === 'gh' ? `The GitHub CLI (gh) isn't installed. ${MAC ? 'Run brew install gh' : 'Install it from cli.github.com'}, then try again.` : "Claude Code wasn't found on the panel's PATH." };
   const where = path.join(path.dirname(PREFS), 'trust');
   fs.mkdirSync(where, { recursive: true, mode: 0o700 });
   for (const n of fs.readdirSync(where)) try { const f = path.join(where, n); if (Date.now() - fs.statSync(f).mtimeMs > 3_600_000) fs.unlinkSync(f); } catch {}
   const file = path.join(where, `login-${what}-${crypto.randomBytes(4).toString('hex')}${SCRIPT_EXT}`);
-  const ws = body?.ws !== undefined ? wsById(body.ws) : ctx?.ws ?? shownWs();
-  fs.writeFileSync(file, loginScript({ what, bin, configDir: ws.profile.plain ? null : ws.profile.dir, label: profileLabel(ws), shell: SCRIPT_SHELL }), { mode: 0o700 });
+  fs.writeFileSync(file, loginScript({ what, bin, configDir: !login || login.profile.plain ? null : login.profile.dir, label: login?.label ?? '', shell: SCRIPT_SHELL }), { mode: 0o700 });
   const r = await openInTerminal(file);
   return r.none ? { ok: false, error: 'No terminal app was found. Run the command shown in a terminal.' } : r;
 }
@@ -2043,11 +2194,11 @@ async function checkVersions() {
   if (checkingVersions) return;
   checkingVersions = true;
   try {
-    const rows = [...sessions.values()].filter((s) => s.inRoster && !isEnded(s) && Number.isInteger(s.pid) && W.has(s.ws)).map((s) => ({ s, p: W.get(s.ws).profile }));
+    const rows = [...sessions.values()].filter((s) => s.inRoster && !isEnded(s) && Number.isInteger(s.pid) && W.has(s.ws) && loginOfS(s)).map((s) => ({ s, p: loginOfS(s).profile }));
     const found = await findRemoved(rows.map(({ s }) => s.pid), { run: runPlain });
     const next = rows.filter(({ s }) => found.has(s.pid)).map(({ s, p }) => ({
       sessionId: s.sessionId, id: s.id ?? null, name: s.name ?? null, kind: s.kind ?? null, ws: s.ws,
-      profile: { id: p.id, label: path.basename(p.dir).slice(1), command: cliOf(p) },
+      profile: { id: p.id, label: L.get(p.id)?.label ?? p.id, command: cliOf(p) },
       version: found.get(s.pid).version, self: found.get(s.pid).self }));
     for (const s of sessions.values()) {
       const o = next.find((x) => x.sessionId === s.sessionId);
@@ -2443,12 +2594,13 @@ function overseerOf(id) {
   if (!W.has(id)) return null;
   let o = overseers.get(id);
   if (o) return o;
-  const ws = () => wsById(id), key = overseerId(ws().profile), file = path.join(dataDir, `overseer-${id}.json`);
+  const ws = () => wsById(id), key = overseerId({ id, dir: id }), file = path.join(dataDir, `overseer-${id}.json`);
   let seed = null;
   try { if (!fs.existsSync(file)) seed = migrateFrom(OLD_OVERSEER, key) ?? { model: glue().overseerModel }; } catch {} // else: Glue's default model
   o = createOverseer({
     file, profile: key, seed,
-    ask: (args, opts) => askModel(args, { ...opts, env: envOf(ws()) }), board: () => overseerBoard(id), github: () => githubFor(id),
+    // It runs on its workspace's default Claude login.
+    ask: (args, opts) => askModel(args, { ...opts, env: envOf(defaultLogin(id)) }), board: () => overseerBoard(id), github: () => githubFor(id),
     askOpenCode: askOverseerOc, models: overseerModels,
     history: (sessionId, limit) => (ownedBy(id, sessionId) ? history({ sessionId, limit }, { ws: ws() }) : { ok: false, error: REFUSE }),
     actions: {
@@ -2462,7 +2614,7 @@ function overseerOf(id) {
       interrupt: (body) => (ownedBy(id, body?.sessionId) ? interrupt(body) : { ok: false, error: REFUSE }),
       live: (sid) => { const s = sessions.get(sid); return s && s.ws === id && s.inRoster && !isEnded(s) ? s : null; },
       tellEffect, folders: () => overseerFolders(id),
-      trusted: (cwd) => ws() != null && isTrusted(ws().profile.config, trustKey(cwd, gitPlace(cwd)?.top)) === true,
+      trusted: (cwd) => defaultLogin(id) != null && isTrusted(defaultLogin(id).profile.config, trustKey(cwd, gitPlace(cwd)?.top)) === true,
     },
     onChange: () => broadcast(),
   });
@@ -2541,6 +2693,38 @@ function termable(s) {
   if (s.pid != null && hostPids.has(s.pid)) return 'The panel server runs inside this session, so it does not open here.';
   return null;
 }
+/**
+ * A command in a pseudo-terminal, kept in `terms` under `id`: what it prints is kept for a page that opens it later and
+ * sent every 16 ms to the pages `to(t)` names; `onExit` runs once when it ends. The caller adds the page to t.clients.
+ */
+function spawnTerm(id, cmd, args, { cwd, env, cols, rows, to, onExit = () => {} }) {
+  const proc = spawn('python3', [BRIDGE, String(cols), String(rows), '--', cmd, ...args],
+    { cwd, env: { ...env, TERM: 'xterm-256color', COLORTERM: 'truecolor' }, stdio: ['pipe', 'pipe', 'pipe'] });
+  const t = { proc, clients: new Set(), buf: [], size: 0, out: [], flush: null, release: null };
+  terms.set(id, t);
+  const send = () => { const data = Buffer.concat(t.out).toString('base64'); t.out = []; sendTo(to(t), 'term', { sessionId: id, data }); };
+  const take = (d) => {
+    t.buf.push(d); t.size += d.length;
+    while (t.size > TERM_KEEP && t.buf.length > 1) t.size -= t.buf.shift().length;
+    // Output comes in many small writes: a page gets it in one message every 16 ms.
+    t.out.push(d);
+    t.flush ??= setTimeout(() => { t.flush = null; send(); }, 16);
+  };
+  proc.stdout.on('data', take);
+  proc.stderr.on('data', take);
+  proc.stdin.on('error', () => {}); // it may be gone before a last keystroke lands
+  const gone = () => {
+    if (terms.get(id) !== t) return;
+    terms.delete(id);
+    clearTimeout(t.flush); clearTimeout(t.release);
+    if (t.out.length) send(); // its last words come before the word that it ended
+    sendTo(to(t), 'term-exit', { sessionId: id });
+    onExit();
+  };
+  proc.on('exit', gone);
+  proc.on('error', (e) => { console.error('terminal:', e?.message ?? e); gone(); });
+  return t;
+}
 function termOpen(body) {
   const client = CLIENT.test(String(body?.client ?? '')) ? body.client : null;
   if (!client || !clientRes.has(client)) return { ok: false, error: 'The page is not connected. Reload it and try again.' };
@@ -2550,30 +2734,9 @@ function termOpen(body) {
   const cols = termSize(body.cols, 100), rows = termSize(body.rows, 30);
   if (!t) {
     const cwd = s.cwd && fs.existsSync(s.cwd) ? s.cwd : os.homedir();
-    const ws = wsOfSession(s);
-    if (!ws) return { ok: false, error: NO_WS };
-    const proc = spawn('python3', [BRIDGE, String(cols), String(rows), '--', claudePath() ?? 'claude', 'attach', s.id],
-      { cwd, env: { ...envOf(ws), TERM: 'xterm-256color', COLORTERM: 'truecolor' }, stdio: ['pipe', 'pipe', 'pipe'] });
-    t = { proc, clients: new Set(), buf: [], size: 0, out: [], flush: null, release: null };
-    terms.set(s.sessionId, t);
-    const take = (d) => {
-      t.buf.push(d); t.size += d.length;
-      while (t.size > TERM_KEEP && t.buf.length > 1) t.size -= t.buf.shift().length;
-      // Output comes in many small writes: a page gets it in one message every 16 ms.
-      t.out.push(d);
-      t.flush ??= setTimeout(() => { t.flush = null; const data = Buffer.concat(t.out).toString('base64'); t.out = []; sendTo(sealedTo(t.clients, s.ws), 'term', { sessionId: s.sessionId, data }); }, 16);
-    };
-    proc.stdout.on('data', take);
-    proc.stderr.on('data', take);
-    proc.stdin.on('error', () => {}); // it may be gone before a last keystroke lands
-    const gone = () => {
-      if (terms.get(s.sessionId) !== t) return;
-      terms.delete(s.sessionId);
-      clearTimeout(t.flush); clearTimeout(t.release);
-      sendTo(sealedTo(t.clients, s.ws), 'term-exit', { sessionId: s.sessionId });
-    };
-    proc.on('exit', gone);
-    proc.on('error', (e) => { console.error('terminal:', e?.message ?? e); gone(); });
+    const login = loginOfS(s);
+    if (!login) return { ok: false, error: NO_WS };
+    t = spawnTerm(s.sessionId, claudePath() ?? 'claude', ['attach', s.id], { cwd, env: envOf(login), cols, rows, to: (x) => sealedTo(x.clients, s.ws) });
   } else if (!t.proc.stdin.destroyed) t.proc.stdin.write(frame('r', `${cols} ${rows}`)); // a page joining redraws it at its size
   clearTimeout(t.release); t.release = null;
   t.clients.add(client);
@@ -2608,6 +2771,30 @@ function termEnd(sessionId) {
   if (t) try { t.proc.stdin.end(); } catch {}
 }
 const termClose = (body) => { termLeave(body?.client, body?.sessionId); return { ok: true }; };
+
+// The same terminal, running a sign-in instead of `claude attach`: Claude Code's `auth login` on a Claude login's
+// profile, or Codex's `login` in an OpenAI login's Codex home. Settings opens it for any login, so it goes only to the
+// page that opened it, under an id of its own (login:<id>); typing, resizing and closing are the routes above. When it
+// ends, the sign-in is read again. The panel only relays keystrokes: Claude Code and Codex keep the login.
+function loginTermOpen(body) {
+  const client = CLIENT.test(String(body?.client ?? '')) ? body.client : null;
+  if (!client || !clientRes.has(client)) return { ok: false, error: 'The page is not connected. Reload it and try again.' };
+  const l = store.login(String(body?.login ?? ''));
+  if (!l) return { ok: false, error: 'No such login.' };
+  const id = `login:${l.id}`, cols = termSize(body.cols, 100), rows = termSize(body.rows, 24);
+  let t = terms.get(id);
+  if (!t) {
+    const bin = l.provider === 'claude' ? claudePath() : findCodex(codexWhere);
+    if (!bin) return { ok: false, error: l.provider === 'claude' ? "Claude Code wasn't found on the panel's PATH." : 'Codex is not installed yet. Install it first, then sign in.' };
+    try { fs.mkdirSync(l.dir, { recursive: true, mode: 0o700 }); } catch (e) { return { ok: false, error: String(e?.message ?? e) }; }
+    const claude = l.provider === 'claude' ? L.get(l.id) : null;
+    t = spawnTerm(id, bin, claude ? ['auth', 'login'] : ['login'], { cwd: HOME, env: claude ? envOf(claude) : codexEnv(baseEnv, l.dir), cols, rows, to: (x) => x.clients,
+      onExit: () => { if (claude) { refreshInfo(claude); checkSetup(true); } settingsChanged(); } });
+  } else if (!t.proc.stdin.destroyed) t.proc.stdin.write(frame('r', `${cols} ${rows}`));
+  clearTimeout(t.release); t.release = null;
+  t.clients.add(client);
+  return { ok: true, id, scrollback: Buffer.concat(t.buf).toString('base64') };
+}
 
 // ---------------------------------------------------------------- OpenCode sessions
 // The second kind of agent (opencode.mjs). OpenCode's own service holds its sessions, for every folder and every app
@@ -3066,9 +3253,11 @@ async function ocLogin() {
   const r = await openInTerminal(file);
   return r.none ? { ok: false, error: `No terminal app was found. Run ${bin} auth login in a terminal.` } : r;
 }
+/** Homebrew on a Mac that has it, else null. */
+const brewPath = () => (MAC ? ['/opt/homebrew/bin/brew', '/usr/local/bin/brew'].find((f) => { try { fs.accessSync(f, fs.constants.X_OK); return true; } catch { return false; } }) ?? null : null);
 /** How OpenCode installs here: Homebrew's tap on a Mac that has Homebrew, else OpenCode's own install script. */
 function ocInstallCommand() {
-  const brew = MAC ? ['/opt/homebrew/bin/brew', '/usr/local/bin/brew'].find((f) => { try { fs.accessSync(f, fs.constants.X_OK); return true; } catch { return false; } }) : null;
+  const brew = brewPath();
   return brew ? { cmd: `${shq(brew)} install anomalyco/tap/opencode-v2`, show: 'brew install anomalyco/tap/opencode-v2' }
     : { cmd: 'curl -fsSL https://opencode.ai/v2/install | bash', show: 'curl -fsSL https://opencode.ai/v2/install | bash' };
 }
@@ -3082,6 +3271,73 @@ async function ocInstall() {
   fs.writeFileSync(file, `#!/bin/${SCRIPT_SHELL}\necho 'Installing OpenCode for Glue:'\necho ${shq(show)}\necho\n${cmd}\necho\necho 'Done. Go back to Glue: Settings › Providers › OpenCode picks it up.'\n`, { mode: 0o700 });
   const r = await openInTerminal(file);
   return r.none ? { ok: false, error: `No terminal app was found. Run ${show} in a terminal.` } : r;
+}
+
+// ---------------------------------------------------------------- OpenAI: Codex's own sign-in
+
+// OpenAI has a sign-in of its own in Settings, through OpenAI's Codex CLI (codex.mjs): each OpenAI login is a Codex
+// home. Agents don't run on Codex yet: this is installing it and signing each login in. Codex keeps the login; an API
+// key typed in Settings goes straight to `codex login --with-api-key` on its stdin and is never kept or logged.
+const codexWhere = { home: HOME, env: process.env };
+/** What Settings shows of Codex: installed, its version, and each OpenAI login's sign-in (how, never the key). */
+async function codexStatus() {
+  const bin = findCodex(codexWhere), installCommand = codexInstallCommand({ brew: brewPath() }).show;
+  const list = store.logins().filter((l) => l.provider === 'codex');
+  const row = (l, st) => ({ id: l.id, state: st.state, method: st.method, command: codexLoginCommand(l.dir, HOME) });
+  if (!bin) return { ok: true, installed: false, version: null, installCommand, logins: list.map((l) => row(l, { state: 'signed-out', method: null })) };
+  const [ver, ...states] = await Promise.all([
+    run(bin, ['--version'], { env: baseEnv, timeout: 8000 }),
+    // A home that was never made has never been signed in: no process for it.
+    ...list.map((l) => (fs.existsSync(l.dir)
+      ? run(bin, ['login', 'status'], { env: codexEnv(baseEnv, l.dir), cwd: HOME, timeout: 8000 }).then(parseCodexStatus)
+      : { state: 'signed-out', method: null })),
+  ]);
+  return { ok: true, installed: true, version: parseCodexVersion(ver.stdout || ver.stderr), installCommand, logins: list.map((l, i) => row(l, states[i])) };
+}
+/** Terminal, installing Codex where you can watch it. Settings asks again when you come back. */
+async function codexInstall() {
+  if (findCodex(codexWhere)) return { ok: true, already: true };
+  const { cmd, show } = codexInstallCommand({ brew: brewPath() });
+  const where = path.join(path.dirname(PREFS), 'trust');
+  fs.mkdirSync(where, { recursive: true, mode: 0o700 });
+  const file = path.join(where, `install-codex-${crypto.randomBytes(4).toString('hex')}${SCRIPT_EXT}`);
+  fs.writeFileSync(file, `#!/bin/${SCRIPT_SHELL}\necho 'Installing OpenAI Codex for Glue:'\necho ${shq(show)}\necho\n${cmd}\necho\necho 'Done. Go back to Glue: Settings › Providers › OpenAI picks it up.'\n`, { mode: 0o700 });
+  const r = await openInTerminal(file);
+  return r.none ? { ok: false, error: `No terminal app was found. Run ${show} in a terminal.` } : r;
+}
+/** The OpenAI login and codex binary a Codex route acts on, or why not. */
+function codexFor(body) {
+  const l = store.login(String(body?.login ?? ''));
+  if (l?.provider !== 'codex') return { error: 'No such OpenAI login.' };
+  const bin = findCodex(codexWhere);
+  if (!bin) return { error: 'Codex is not installed yet. Install it first.' };
+  return { l, bin, env: codexEnv(baseEnv, l.dir) };
+}
+/** `{ login, key }`: sign an OpenAI login in with an API key, handed to Codex on its stdin. */
+async function codexKey(body) {
+  const key = cleanKey(body?.key);
+  if (!key) return { ok: false, error: 'Paste the API key on its own: one line, no spaces.' };
+  const c = codexFor(body);
+  if (c.error) return { ok: false, error: c.error };
+  try { fs.mkdirSync(c.l.dir, { recursive: true, mode: 0o700 }); } catch (e) { return { ok: false, error: String(e?.message ?? e) }; }
+  const r = await new Promise((resolve) => {
+    const p = execFile(c.bin, ['login', '--with-api-key'], { env: c.env, cwd: HOME, timeout: 15_000 },
+      (err, stdout, stderr) => resolve({ err, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') }));
+    p.stdin.on('error', () => {});
+    p.stdin.end(key + '\n');
+  });
+  if (r.err) return { ok: false, error: firstLine(r).replaceAll(key, '…') };
+  settingsChanged();
+  return { ok: true };
+}
+/** `{ login }`: sign an OpenAI login out of Codex. */
+async function codexLogout(body) {
+  const c = codexFor(body);
+  if (c.error) return { ok: false, error: c.error };
+  const r = await run(c.bin, ['logout'], { env: c.env, cwd: HOME, timeout: 15_000 });
+  if (r.err && !/not logged in/i.test(`${r.stdout}${r.stderr}`)) return { ok: false, error: firstLine(r) };
+  settingsChanged();
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------- a Claude session at its usage limit
@@ -3131,7 +3387,7 @@ async function continueInOpenCode(body, ctx) {
   const s = liveSession(body);
   const fail = (error) => ({ ok: false, error });
   if (!s || isOc(s)) return fail('Only a Claude Code session carries on in OpenCode.');
-  const ws = wsOfSession(s);
+  const ws = wsById(s.ws);
   if (!ws) return fail(NO_WS);
   if (isWorking(s)) return fail('It is still working. Interrupt it first, or wait for it to stop.');
   const model = typeof body?.model === 'string' ? body.model : '';
@@ -3165,13 +3421,21 @@ function watcherOf(wsId) {
   return W.size === 1 ? st : { ...st, prs: Object.fromEntries(Object.entries(st.prs).filter(([k]) => store.reposOf('gh:' + k.slice(0, k.lastIndexOf('#'))).includes(wsId))) };
 }
 
-// What a page shown workspace `wsId` gets: that workspace's sessions, requests, profile, roster error, setup and old
+/** The Claude logins a workspace uses, as its page shows them; the default first. */
+function loginsView(wsId) {
+  const def = store.defaultOf(wsId, 'claude');
+  return store.loginsOf(wsId).map((id) => L.get(id)).filter(Boolean).sort((a, b) => (b.id === def) - (a.id === def))
+    .map((l) => ({ id: l.id, label: l.label, isDefault: l.id === def, signedIn: signedInOf(l), connected: l.info.connected, effort: l.info.effort, command: l.info.command }));
+}
+// What a page shown workspace `wsId` gets: that workspace's sessions, requests, logins, roster error, setup and old
 // versions, and of every workspace only { id, name, color, waiting }. Nothing else of another workspace leaves here.
+// `profile` is the login the live updates banner names: the first of its logins not reporting here, else its default.
 function snapshot(wsId) {
-  const now = Date.now(), ws = wsById(wsId);
+  const now = Date.now(), ws = wsById(wsId), logins = store.loginsOf(wsId).map((id) => L.get(id)).filter(Boolean);
   claimSpaces(wsId);
   return {
-    now, armed, rosterError: ws.rosterError, port: PORT, profile: ws.info, setup: setupOut(ws),
+    now, armed, rosterError: rosterErrorOf(wsId), port: PORT, setup: setupOut(ws), logins: loginsView(wsId),
+    profile: (logins.find((l) => !l.info.connected) ?? defaultLogin(wsId) ?? logins[0])?.info ?? null,
     workspace: wsView(wsId), workspaces: wsOrder().map((id) => ({ ...wsView(id), waiting: waitingOf(id) })),
     spaces: store.spacesOf(wsId), // this workspace's only: a space's name never reaches another workspace's page
     oldVersions: oldVersions.filter((o) => o.ws === wsId).map(({ ws: _, ...o }) => ({ ...o, shown: true })),
@@ -3256,14 +3520,14 @@ async function handle(req, res) {
     if (req.method !== 'POST' || req.headers.origin) return send(res, 403, { error: 'hooks only' });
     let e;
     try { e = await readBody(req); } catch { return send(res, 400, ''); }
-    // Each event goes to the workspace its session runs under, found from its transcript. One from under no profile at
-    // all is nobody's: nothing is recorded, and a request is left to the terminal.
-    if (url.pathname === '/hook/event') { const ws = wsOfEvent(e), reply = ws ? onHookEvent(e, ws) : null; return send(res, 200, reply ?? ''); }
+    // Each event goes to the workspace its session is in (routeEvent). One that is nobody's records nothing, and its
+    // request is left to the terminal.
+    if (url.pathname === '/hook/event') return send(res, 200, onHookEvent(e) ?? '');
     if (url.pathname === '/hook/permission') {
       // Nobody watching, or paused: answer nothing, the terminal decides.
       if (!armed || !watched()) return send(res, 200, '');
-      const ws = wsOfEvent(e);
-      return ws ? holdPermission(e, ws, res) : send(res, 200, '');
+      const where = routeEvent(e);
+      return where ? holdPermission(e, where, res) : send(res, 200, '');
     }
     return send(res, 404, '');
   }
@@ -3384,8 +3648,8 @@ async function handle(req, res) {
                       '/api/settings/autofix': (b) => (typeof b?.ws === 'string' && W.has(b.ws) ? nudgeIfOk(watcher.setEnabled(b?.on, b.ws)) : { ok: false, error: 'No such workspace.' }),
                       '/api/settings/overseer-model': (b) => { const o = typeof b?.ws === 'string' && W.has(b.ws) ? overseerOf(b.ws) : null; return o ? nudgeIfOk(o.setModel(b?.model)) : { ok: false, error: 'No such workspace.' }; },
                       '/api/glue/seed': seedGlue, '/api/settings/glue': patchGlue,
-                      // Any workspace's: Settings' Logins tab connects each of them.
-                      '/api/profile/connect': (b) => (typeof b?.id === 'string' && W.has(b.id) ? connectProfile(b) : { ok: false, error: 'No such workspace.' }),
+                      // Settings' Live updates turns hooks on for any Claude login, by id.
+                      '/api/profile/connect': connectProfile,
                       '/api/answer-open': answerOpen, '/api/history': history, '/api/follow': followSession,
                       '/api/trust-terminal': openTrustTerminal,
                       '/api/setup/check': setupCheckNow, '/api/setup/done': setupDone, '/api/setup/login': openLoginTerminal,
@@ -3396,7 +3660,10 @@ async function handle(req, res) {
                       '/api/opencode': ocStatus, '/api/opencode/start': ocEnsure, '/api/opencode/login': ocLogin, '/api/opencode/install': ocInstall,
                       '/api/opencode/continue': continueInOpenCode,
                       '/api/opencode/providers': ocProviders, '/api/opencode/connect': ocConnect, '/api/opencode/disconnect': ocDisconnect,
-                      '/api/term/open': termOpen, '/api/term/input': termInput, '/api/term/resize': termResize, '/api/term/close': termClose };
+                      '/api/term/open': termOpen, '/api/term/input': termInput, '/api/term/resize': termResize, '/api/term/close': termClose,
+                      // Settings: a sign-in in the panel's own terminal, workspaces and their logins, and Codex.
+                      '/api/login/term': loginTermOpen, ...WS_LOGIN,
+                      '/api/codex': codexStatus, '/api/codex/install': codexInstall, '/api/codex/key': codexKey, '/api/codex/logout': codexLogout };
     if (Object.hasOwn(ACTIONS, url.pathname)) {
       let r;
       try { r = await ACTIONS[url.pathname](body, ctx); } catch (err) { r = { ok: false, error: String(err?.message ?? err).slice(0, 300) }; }

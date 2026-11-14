@@ -712,6 +712,25 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 .pdot[data-s="ok"] { background: var(--ok); }
 .pdot[data-s="todo"] { background: var(--amber); }
 .set-lead.set-pane { margin: 0 0 var(--s-4); }
+/* A sign-in in Glue's own terminal (Claude Code's or Codex's), under the line it signs in; and the small forms beside it */
+.set-blocks > .set-block { min-width: 0; } /* a grid item: else a terminal's width in it would stretch the block */
+.sign-box { margin: 0 16px 14px; border: 1px solid var(--line); border-radius: var(--r-2); background: var(--panel); overflow: hidden; }
+.sign-bar { display: flex; align-items: center; gap: 10px; padding: 4px 6px 4px 12px; border-bottom: 1px solid var(--line); font-size: 12px; }
+.sign-bar b { font-weight: 600; white-space: nowrap; }
+.sign-say { flex: 1; min-width: 0; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sign-host { height: 240px; padding: 6px 4px 6px 10px; }
+.sign-host .xterm { height: 100%; }
+.sign-host .xterm-viewport { background: transparent !important; }
+.set-add { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 16px 14px; }
+.set-add .field { flex: 1 1 14em; min-width: 0; height: 30px; }
+.set-add.set-add-ws { padding: 12px 0 0; }
+/* The logins a workspace uses, as chips: the default marked, the others made default or taken off */
+.lchips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.lchip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 2px 0 10px; border-radius: var(--r-pill); background: var(--fill); font-size: 12.5px; }
+.lchip b { font-weight: 550; }
+.lchip-def { color: var(--fg-dim); font-size: 11.5px; }
+.lchip .linkish { font-size: 11.5px; }
+.lchip-x.btn.icon { width: 22px; height: 22px; font-size: 14px; line-height: 1; }
 /* OpenCode's setup: four steps on a rail that fills as each is done */
 .ocs { list-style: none; margin: 0; padding: var(--s-4) var(--s-4) var(--s-2); }
 .ocs li { position: relative; display: grid; grid-template-columns: 28px 1fr; column-gap: var(--s-3); padding-bottom: var(--s-5); }
@@ -1085,13 +1104,13 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 <p class="banner" id="roster-err" hidden></p>
 <div class="banner old" id="old-ver" role="status" hidden></div>
 <div class="banner auth" id="auth-banner" role="status" hidden>
-  <span class="lead">The <b id="ab-name"></b> profile is signed out of Claude. The overseer and new agents can’t run until it signs in again.</span>
+  <span class="lead">The Claude login <b id="ab-name"></b> is signed out. Agents can’t start on it until it signs in again.</span>
   <button class="btn small" type="button" id="ab-login">Sign in in Terminal…</button>
   <button class="btn small" type="button" id="ab-copy">Copy command</button>
   <button class="linkish" type="button" id="ab-settings">Open Settings</button>
 </div>
 <div class="banner connect" id="prof-banner" hidden>
-  <span>Live updates are off for the <b id="pb-name"></b> profile. Its sessions are listed, but their requests, tools and subagents don't show as they happen.</span>
+  <span>Live updates are off for the Claude login <b id="pb-name"></b>. Its sessions are listed, but their requests, tools and subagents don't show as they happen.</span>
   <button class="btn small" type="button" id="pb-connect">Turn on live updates</button>
   <button class="linkish" type="button" id="pb-settings">Open Settings</button>
   <span class="mono" id="pb-file"></span>
@@ -1209,6 +1228,7 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
         <label><input type="radio" name="l-kind" value="claude" checked><span>Claude Code</span></label>
         <label><input type="radio" name="l-kind" value="opencode"><span>OpenCode</span></label>
       </div></div>
+    <label class="lf l-claude" id="l-login-row" hidden><span>Login</span><select class="field" id="l-login"></select></label>
     <label class="lf l-keep"><span>What should it do?</span><textarea id="l-prompt" required placeholder="e.g. Run the timesheet tests and fix whatever fails"></textarea></label>
     <p class="l-quick" id="l-quick"><span id="l-quick-t"></span><button class="linkish" type="button" id="l-more">More options</button></p>
     <label class="lf"><span>Folder</span><span class="lf-row"><input id="l-cwd" list="l-folders" spellcheck="false" autocomplete="off" placeholder="~/Documents/projects/…"><button class="btn small" type="button" id="l-pick">Choose…</button></span><datalist id="l-folders"></datalist></label>
@@ -1464,11 +1484,20 @@ function connect() {
   };
   es.addEventListener('thread', (m) => { const d = JSON.parse(m.data); applyThread(d.sessionId, d.events); });
   // Its transcript was cut or replaced, or the profile switched: what the page holds is gone, so it asks again.
-  es.addEventListener('term', (m) => { const d = JSON.parse(m.data); if (termView?.sessionId === d.sessionId) termWrite(termView, b64bytes(d.data)); });
-  es.addEventListener('term-exit', (m) => { const d = JSON.parse(m.data); if (termView?.sessionId === d.sessionId) termEnded(termView); });
+  es.addEventListener('term', (m) => {
+    const d = JSON.parse(m.data);
+    if (termView?.sessionId === d.sessionId) termWrite(termView, b64bytes(d.data));
+    if (signView?.id === d.sessionId) termWrite(signView, b64bytes(d.data)); // a sign-in in Settings › Providers
+  });
+  es.addEventListener('term-exit', (m) => {
+    const d = JSON.parse(m.data);
+    if (termView?.sessionId === d.sessionId) termEnded(termView);
+    if (signView?.id === d.sessionId) signEnded(signView);
+  });
   // Something Settings shows changed: an empty nudge (the seal), and an open Settings asks for what it shows again.
   // A page without Settings open still reapplies Glue's prefs (the theme, folded queues, the title count).
-  es.addEventListener('settings', () => { loadGlue(); if (setDlg.open) loadSettings(); });
+  // On Providers, Codex's sign-ins are asked again too: a sign-in or sign-out there nudges every page.
+  es.addEventListener('settings', () => { loadGlue(); if (setDlg.open) { if (setTab === 'providers') setCxAsked = false; loadSettings(); } });
   es.addEventListener('thread-reset', (m) => { const { sessionId } = JSON.parse(m.data); if (sessionId === followed) { threads.delete(sessionId); followOpen(sessionId); } });
   es.onerror = () => {
     conn.classList.add('down');
@@ -2129,10 +2158,12 @@ function copyBtn(cmd) {
 /** Why a session on a deleted Claude Code version needs a restart. */
 const oldWhy = (o) => `${o.self ? 'It runs' : 'It was started by'} Claude Code ${o.version}, which the updater has deleted, so macOS can stop it reading ~/Documents, ~/Desktop and cloud folders at any moment.`;
 /** How to restart one on the installed version: a terminal session from its terminal, a background job from here. */
+/** The login a session runs on, as its page knows it: its label and the command that runs Claude Code on it. */
+const sessLogin = (s) => snap.logins?.find((l) => l.id === s.login) ?? snap.profile;
 function restartHow(o) {
   if (o.kind === 'interactive') return [el('span', { text: 'Quit it in its terminal, then run:' }), copyBtn(`${o.profile.command} --resume ${o.sessionId}`)];
   return [el('span', { text: o.shown ? 'End it here, then send it a message: it comes back on the installed version.'
-    : `Switch to the ${o.profile.label} profile, end it, then send it a message: it comes back on the installed version.` })];
+    : `Switch to its workspace, end it, then send it a message: it comes back on the installed version.` })];
 }
 /** Every profile's sessions on a deleted version: the one that loses access is often not on screen. */
 // One line until asked: "Show which" unfolds the list, × puts the banner away until the list changes.
@@ -2146,7 +2177,7 @@ function renderOld(list) {
     el('button', { class: 'btn small', type: 'button', text: oldOpen ? 'Hide' : 'Show which', 'aria-expanded': String(oldOpen), onclick: () => { oldOpen = !oldOpen; render(); } }),
     el('button', { class: 'btn icon', type: 'button', 'aria-label': 'Dismiss', title: 'Put this away until the list changes', text: '×', onclick: () => { for (const o of list) oldDismissed.add(o.sessionId); render(); } }),
     el('ul', {}, ...list.map((o) => el('li', {}, el('b', { text: o.name || o.id || o.sessionId.slice(0, 8) }),
-      el('span', { text: `${o.shown ? '' : `${o.profile.label} profile, `}Claude Code ${o.version}.` }), ...restartHow(o)))),
+      el('span', { text: `${o.shown ? '' : `${o.profile.label}, `}Claude Code ${o.version}.` }), ...restartHow(o)))),
   ]);
 }
 const subNows = new Map(); // agentId → its "now" line in the subagent tree
@@ -2175,7 +2206,7 @@ function renderDrawer(vis) {
   d.classList.toggle('term-on', termOn);
   $('d-term').hidden = !termOn;
   if (termOn) openTerm(s); else if (termView) closeTerm();
-  patch($('d-head'), JSON.stringify([s.sessionId, st, label(s), s.cwd, here, s.kind, s.inRoster, Boolean(s.leftRosterAt), s.state, noteText, s.hostsPanel, s.mode, s.git, s.gh, s.mismatch, sharers, elsewhere, s.oldVersion, snap.profile?.command, s.termable, termOn,
+  patch($('d-head'), JSON.stringify([s.sessionId, st, label(s), s.cwd, here, s.kind, s.inRoster, Boolean(s.leftRosterAt), s.state, noteText, s.hostsPanel, s.mode, s.git, s.gh, s.mismatch, sharers, elsewhere, s.oldVersion, sessLogin(s)?.command, s.termable, termOn,
     isOcS(s) ? s.model : null, atLimit(s) ? s.limit : null, s.continuedFrom ?? null]), () => [
     el('div', { class: 'd-top' }, glyph(st), el('h2', { class: 'd-name', text: label(s), title: label(s) }),
       el('span', { class: 'd-meta', title: where ? where.long : null },
@@ -2195,7 +2226,7 @@ function renderDrawer(vis) {
       el('button', { class: 'btn small', type: 'button', text: 'Continue in OpenCode…', onclick: () => openContinue(s) })) : null,
     s.continuedFrom ? el('p', { class: 'note', text: `It carries on the work of ${sessionOf(s.continuedFrom) ? label(sessionOf(s.continuedFrom)) : 'a Claude session'}, from a brief of that conversation.` }) : null,
     s.oldVersion && !ended ? el('div', { class: 'note old', role: 'status' }, el('span', { class: 'lead', text: 'Restart this session.' }),
-      el('span', { text: oldWhy(s.oldVersion) }), ...restartHow({ ...s, shown: true, profile: snap.profile })) : null,
+      el('span', { text: oldWhy(s.oldVersion) }), ...restartHow({ ...s, shown: true, profile: sessLogin(s) })) : null,
   ]);
   setText($('d-head').querySelector('.age'), s.startedAt ? ' · up ' + ago(snap.now - s.startedAt) : '');
 
@@ -2224,8 +2255,9 @@ function renderDrawer(vis) {
   renderCompose(s, st);
 
   // The column: where it works, how to reopen it, its subagents, and the buttons that stop it.
-  patch($('d-info'), JSON.stringify([s.sessionId, s.cwd, here, s.git, s.mismatch, s.kind, s.id, Boolean(s.leftRosterAt), snap.profile?.command, sharers, elsewhere, spaceIn(s), snap.spaces]), () => el('dl', { class: 'kv' },
+  patch($('d-info'), JSON.stringify([s.sessionId, s.cwd, here, s.git, s.mismatch, s.kind, s.id, Boolean(s.leftRosterAt), sessLogin(s)?.command, sharers, elsewhere, spaceIn(s), snap.spaces]), () => el('dl', { class: 'kv' },
     s.mismatch ? null : [el('dt', { text: 'Space' }), el('dd', {}, spacePicker(s))],
+    snap.logins?.length > 1 && s.login && !isOcS(s) ? [el('dt', { text: 'Login' }), el('dd', { text: sessLogin(s)?.label ?? s.login })] : null,
     s.mismatch ? [el('dt', { text: 'Folder' }), el('dd', { class: 'mismatch', text: mismatchText(s), title: MISMATCH_WHY })]
       : [el('dt', { text: 'Folder' }), el('dd', { class: 'mono', text: here || 'unknown', title: here !== s.cwd && s.cwd ? `Started in ${s.cwd}` : null })],
     where ? [el('dt', { text: 'Branch' }), el('dd', { class: 'mono' + (s.git.worktree ? ' where-b wt' : ' where-b'), text: where.on, title: where.long }), el('dt', { text: 'Checkout' }), el('dd', { text: where.at[0].toUpperCase() + where.at.slice(1) })] : null,
@@ -2394,6 +2426,86 @@ function reopenTerm() {
   closeTerm();
   const s = sessionOf(id);
   if (s?.termable && termWant.has(id) && open === id) openTerm(s);
+}
+
+// ---------- a sign-in in the panel's own terminal: Settings › Providers, for Claude Code or Codex ----------
+// The server runs `claude auth login` on a Claude login's profile, or `codex login` in an OpenAI login's Codex home, in a
+// pseudo-terminal as it runs `claude attach`; this box shows it under that login in its provider's tab. One at a time.
+// The box is made once and moved into each redraw of the tab, so a redraw never cuts a sign-in short.
+let signView = null; // { id, login, what, box, host, term, fit, ro, queue, sending, closed, pending }
+const SIGN_NAME = { claude: 'Claude Code sign-in', codex: 'Codex sign-in' };
+/** What a tab's redraw depends on: which sign-in is open, and whether it has ended. */
+const signSig = () => (signView ? [signView.login, signView.closed] : null);
+/** The sign-in box, when the one open is login `login`'s; else null. */
+const signBoxFor = (login) => (signView?.login === login ? signView.box : null);
+/** Sign login `login` (of provider `what`, claude or codex) in, in a box under it. */
+async function openSignIn(login, what) {
+  if (signView?.login === login && !signView.closed) { signView.term?.focus(); return; }
+  closeSignIn();
+  const host = el('div', { class: 'sign-host' }, el('p', { class: 'set-quiet', text: 'Opening…' }));
+  const say = el('span', { class: 'sign-say', text: 'Follow it here: it may open your browser, and ask you to paste a code back.' });
+  const box = el('div', { class: 'sign-box', role: 'group', 'aria-label': SIGN_NAME[what] },
+    el('div', { class: 'sign-bar' }, el('b', { text: SIGN_NAME[what] }), say,
+      el('button', { class: 'btn quiet small', type: 'button', text: 'Close', 'data-f': 'sign-close', onclick: () => { closeSignIn(); renderSettings(); } })), host);
+  const view = signView = { id: `login:${login}`, login, what, box, host, say, closed: false, queue: '', sending: false, pending: [] };
+  renderSettings(); // the tab puts the box under the line it signs in
+  try { await loadXterm(); } catch { if (signView === view) { host.replaceChildren(el('p', { class: 'err', text: 'The terminal did not load. Reload the page, or sign in in Terminal.' })); view.closed = true; } return; }
+  if (signView !== view) return;
+  host.replaceChildren();
+  const term = new Terminal({ fontFamily: cssVar('--mono'), fontSize: 12.5, lineHeight: 1.15, cursorBlink: true, scrollback: 2000, macOptionIsMeta: true, theme: termTheme() });
+  const fit = new FitAddon.FitAddon();
+  term.loadAddon(fit);
+  term.open(host);
+  fit.fit();
+  Object.assign(view, { term, fit });
+  const r = await api('/api/login/term', { client: CLIENT, login, cols: term.cols, rows: term.rows });
+  if (signView !== view) { if (r.ok) api('/api/term/close', { client: CLIENT, sessionId: view.id }); return; }
+  if (!r.ok) { view.pending = []; term.write(`\r\n  ${r.error || 'It did not start.'}\r\n`); view.closed = true; renderSettings(); return; }
+  if (r.scrollback) term.write(b64bytes(r.scrollback));
+  for (const b of view.pending) term.write(b);
+  view.pending = [];
+  term.onData((d) => { view.queue += d; pumpSign(view); });
+  view.ro = new ResizeObserver(() => {
+    clearTimeout(view.rt);
+    view.rt = setTimeout(() => {
+      if (signView !== view || view.closed || !host.isConnected || !host.clientWidth) return;
+      fit.fit();
+      api('/api/term/resize', { client: CLIENT, sessionId: view.id, cols: term.cols, rows: term.rows });
+    }, 80);
+  });
+  view.ro.observe(host);
+  term.focus();
+}
+/** Keystrokes go in order, one POST at a time, as in a session's terminal. */
+async function pumpSign(view) {
+  if (view.sending || view.closed) return;
+  view.sending = true;
+  while (view.queue && signView === view && !view.closed) {
+    const data = view.queue;
+    view.queue = '';
+    const r = await api('/api/term/input', { client: CLIENT, sessionId: view.id, data });
+    if (!r.ok) { signEnded(view, r.error); break; }
+  }
+  view.sending = false;
+}
+/** It ended (signed in, or given up): it says so, and what it signed in is read again. */
+function signEnded(view, why) {
+  if (view.closed) return;
+  view.closed = true;
+  view.term?.write(`\r\n\r\n  ${why || 'Finished. Glue reads the sign-in again; close this box when you are done.'}\r\n`);
+  setText(view.say, 'Finished.');
+  if (view.what === 'codex') setCxAsked = false;
+  checkSetupNow(true);
+  if (setDlg.open) { loadSettings(); renderSettings(); }
+}
+function closeSignIn() {
+  const v = signView;
+  if (!v) return;
+  signView = null;
+  clearTimeout(v.rt);
+  v.ro?.disconnect();
+  try { v.term?.dispose(); } catch {}
+  if (!v.closed) api('/api/term/close', { client: CLIENT, sessionId: v.id });
 }
 
 // ---------- replying: a session that stopped to ask you something in words ----------
@@ -3030,7 +3142,7 @@ const ovEdits = new Map(); // action id → what you changed in its card before 
 async function syncOverseer() {
   const st = snap?.overseer;
   if (!st) return;
-  if (ov.profile !== snap.profile?.id) { Object.assign(ov, { rev: -1, feedSeq: -1, turns: [], feed: [], profile: snap.profile?.id }); ovEdits.clear(); }
+  if (ov.profile !== snap.workspace?.id) { Object.assign(ov, { rev: -1, feedSeq: -1, turns: [], feed: [], profile: snap.workspace?.id }); ovEdits.clear(); }
   if (st.rev !== ov.rev && !ov.tBusy) {
     ov.tBusy = true;
     const r = await api('/api/overseer/turns', { limit: 60 });
@@ -3599,7 +3711,7 @@ const picked = (id) => $(id).querySelector('input:checked')?.value ?? '';
 $('l-effort-ticks').replaceChildren(...EFFORT_STOPS.map(([, name], i) => el('button', { type: 'button', tabindex: '-1', style: `--i:${i}`, text: name,
   onclick: () => { $('l-effort').value = i; syncLauncher(); } })));
 function syncLauncher() {
-  const i = Number($('l-effort').value), def = EFFORT[snap?.profile?.effort];
+  const i = Number($('l-effort').value), def = EFFORT[launchLogin()?.effort];
   for (const [n, b] of [...$('l-effort-ticks').children].entries()) setAttr(b, 'aria-current', String(n === i));
   setText($('l-effort-say'), i === 0 ? (def ? `· your default, ${def.toLowerCase()}` : '· Claude Code\'s default') : '');
   setAttr($('l-effort'), 'aria-valuetext', i === 0 ? 'Default' : EFFORT_STOPS[i][1]);
@@ -3672,6 +3784,16 @@ function syncKind() {
 }
 $('l-kind').addEventListener('change', () => { syncKind(); syncLauncher(); if (picked('l-kind') === 'opencode') loadOc(); });
 $('l-oc-model').addEventListener('change', () => { ocWant = $('l-oc-model').value; });
+/** The Claude login New agent starts on: the one picked, else the workspace's default. */
+const launchLogin = () => snap?.logins?.find((l) => l.id === $('l-login').value) ?? snap?.logins?.[0] ?? snap?.profile ?? null;
+/** The Login select: the workspace's Claude logins, its default first; shown only when there is a choice. */
+function loginOptions() {
+  const ls = snap?.logins ?? [], keep = $('l-login').value;
+  $('l-login-row').hidden = ls.length < 2;
+  patch($('l-login'), JSON.stringify(ls.map((l) => [l.id, l.label, l.isDefault])), () => ls.map((l) => el('option', { value: l.id, text: l.isDefault ? `${l.label} (default)` : l.label })));
+  $('l-login').value = ls.some((l) => l.id === keep) ? keep : ls[0]?.id ?? '';
+}
+$('l-login').addEventListener('change', () => { syncLauncher(); checkFolder(); });
 /** A space's or repository's +: New agent in it, in the short form. A space starts in the folder its newest agent
  *  works in (any agent of it: waiting, working or finished), else where New agent would. */
 function quickLaunch(key) {
@@ -3701,6 +3823,7 @@ function setQuick(on) {
 }
 $('l-more').onclick = () => { setQuick(false); $('l-prompt').focus(); };
 function openLauncher(preset = null) {
+  loginOptions();
   launcherDefaults();
   syncLauncher();
   syncKind();
@@ -3764,14 +3887,14 @@ const slug = (t) => t.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/\.{2
 const wtName = () => $('l-wt-name').value.trim() || slug($('l-name').value);
 async function checkFolder() {
   const v = $('l-cwd').value.trim();
-  const r = await api('/api/folder', { path: v });
+  const r = await api('/api/folder', { path: v, login: $('l-login').value || undefined });
   if ($('l-cwd').value.trim() !== v) return;
   folderGit = r.ok && r.folder ? r.git : undefined;
   folderTrust = r.ok && r.folder ? { trusted: r.trusted, home: r.home, profile: r.profile } : null;
   if (trustWait && folderTrust?.trusted) {
     stopTrustWait();
     if (launchAfterTrust) { launchAfterTrust = false; $('launch-form').requestSubmit(); }
-    else toast(`The ${folderTrust.profile} profile trusts it now.`);
+    else toast(`${folderTrust.profile} trusts it now.`);
   }
   setWsAsk(r.ok && r.folder && r.workspaces && !r.workspaces.in.length ? r.workspaces : null);
   showWorktree();
@@ -3816,7 +3939,7 @@ function showTrust() {
   box.hidden = false;
 }
 async function openTrust() {
-  const r = await api('/api/trust-terminal', { path: $('l-cwd').value });
+  const r = await api('/api/trust-terminal', { path: $('l-cwd').value, login: $('l-login').value || undefined });
   if (!r.ok) { lErr.textContent = r.error || 'Terminal did not open.'; lErr.hidden = false; return; }
   lErr.hidden = true;
   stopTrustWait();
@@ -3896,7 +4019,7 @@ $('launch-form').addEventListener('submit', async (e) => {
   }
   const r = await api('/api/launch', {
     prompt: $('l-prompt').value, cwd: $('l-cwd').value, name, agentKind: ocKind ? 'opencode' : 'claude',
-    ...(ocKind ? { model: $('l-oc-model').value } : { agent: $('l-agent').value.trim(), model: picked('l-model'), effort: EFFORT_STOPS[$('l-effort').value][0] }),
+    ...(ocKind ? { model: $('l-oc-model').value } : { agent: $('l-agent').value.trim(), model: picked('l-model'), effort: EFFORT_STOPS[$('l-effort').value][0], login: $('l-login').value || undefined }),
     mode: picked('l-mode'), worktree, worktreeName, assign, space,
   });
   go.disabled = false;
@@ -4344,14 +4467,14 @@ function inline(node, text) {
   return node;
 }
 
-// ---------- the profile in focus: its banners (signed out, not reporting here) ----------
+// ---------- the logins of the workspace in focus: their banners (signed out, not reporting here) ----------
 function renderProfile() {
   const p = snap.profile;
   if (!p) return;
   const name = p.label ?? p.id;
-  // Signed out of Claude: the banner says so, whenever it is, with Settings one click away.
+  // A Claude login it uses signed out: the banner says which, whenever it is, with Settings one click away.
   $('auth-banner').hidden = snap.setup?.claude?.state !== 'signed-out';
-  setText($('ab-name'), name);
+  setText($('ab-name'), snap.setup?.login?.label ?? name);
   // While it shows, look every few seconds: it goes away by itself once the Terminal sign-in is done.
   if (!$('auth-banner').hidden && document.visibilityState === 'visible') checkSetupNow(false, 10_000);
   $('prof-banner').hidden = p.connected;
@@ -4550,6 +4673,9 @@ const SET_TABS = [
 let setTab = 'workspaces'; // the tab it shows, and opens on next time (within this page)
 let setData = null;        // GET /api/settings while it is open: null loading, false could not be read
 let setOc = null, setOcAsked = false; // /api/opencode for the Providers tab: asked again each time Settings opens
+let setCx = null, setCxAsked = false; // /api/codex for Providers › OpenAI: the same, and again after a sign-in
+let setCxKey = null;       // Providers › OpenAI's API-key form: { ws, input } while it is open (the input kept across redraws)
+let setAddName = '';       // Providers' new login name, as typed, kept across redraws
 let setSeq = 0;            // the latest fetch: an answer to an older one is dropped
 let setMoving = null;      // the repository whose Move choice is open
 let setWs = null;          // the workspace the picker shows (id): null is the one this page is on
@@ -4571,7 +4697,7 @@ function openSettings(tab, group = null) {
   if (setDlg.open) { showSetTab(setTab); return; }
   setBack = document.activeElement;
   setData = null; setMoving = null; setAskedFor = null; setRestart = null; setWs = null;
-  setOc = null; setOcAsked = false;
+  setOc = null; setOcAsked = false; setCx = null; setCxAsked = false; setCxKey = null;
   closeThemes();
   renderSettings();
   setDlg.showModal();
@@ -4588,6 +4714,7 @@ function showSetTab(id) {
 }
 setDlg.addEventListener('close', () => {
   setData = null; setSeq++; setMoving = null; setWs = null; setRows.clear(); setAskedFor = null; setRestart = null; setScrollTo = null; clearTimeout(setRestartTimer);
+  closeSignIn(); setCxKey = null; // a sign-in still open in Providers ends with the dialog
   const panel = $('set-panel');
   panel.replaceChildren(); panel._tab = null;
   if (setBack?.isConnected) setBack.focus({ preventScroll: true });
@@ -4700,15 +4827,19 @@ const iconBtn = (d, attrs) => el('button', { class: 'btn icon', type: 'button', 
 // The Workspaces tab: a row each (name, colour, order), then the repositories of the one this page is on.
 function setWorkspacesTab(panel) {
   if (!panel.firstChild) panel.append(
-    el('h3', { text: 'Workspaces' }), el('p', { class: 'set-lead' }), el('div', { class: 'set-rows' }),
-    el('div', { class: 'set-more' }, el('h4', { class: 'set-h4' }), el('div', { class: 'set-repos' }), el('div', { class: 'set-sort' })),
-    el('p', { class: 'set-note' }, 'A second Claude Code profile (', el('code', { text: '~/.claude-<name>' }), ') becomes a second workspace.'));
-  const [, lead, rowsBox, more, note] = panel.children;
+    el('h3', { text: 'Workspaces' }), el('p', { class: 'set-lead' }), el('div', { class: 'set-rows' }), el('div', {}),
+    el('div', { class: 'set-more' }, el('h4', { class: 'set-h4' }), el('div', { class: 'set-box' })),
+    el('div', { class: 'set-more' }, el('h4', { class: 'set-h4' }), el('div', { class: 'set-repos' }), el('div', { class: 'set-sort' })));
+  const [, lead, rowsBox, addBox, logs, more] = panel.children;
   const list = setData?.workspaces ?? [], several = list.length > 1;
-  setText(lead, several
-    ? 'Each Claude Code profile is a workspace. Name each one and pick its colour: the one in view is drawn along the top of the window. The order is the switch’s, and ⌃1, ⌃2… follow it. The picker at the top chooses whose repositories show below.'
-    : 'Each Claude Code profile is a workspace. Name it and pick its colour.');
-  if (!setReady(rowsBox)) { more.hidden = note.hidden = true; return; }
+  setText(lead, 'A workspace is how you work: its repositories, agents and overseer, on the logins it uses. Name each one and pick its colour: the one in view is drawn along the top of the window.'
+    + (several ? ' The order is the switch’s, and ⌃1, ⌃2… follow it. The picker at the top chooses whose logins and repositories show below.' : ''));
+  if (!setReady(rowsBox)) { addBox.hidden = logs.hidden = more.hidden = true; return; }
+  addBox.hidden = logs.hidden = false;
+  patch(addBox, '', () => setNewWsForm());
+  const picked = setPicked();
+  setText(logs.firstChild, picked ? `Logins ${picked.name} uses` : 'Logins');
+  setPatch(logs.lastChild, JSON.stringify([picked, setData.logins.map((l) => [l.id, l.label, l.provider]), list.length]), () => (picked ? wsLogins(picked, list.length) : null));
   if (rowsBox._sig !== 'rows') { rowsBox._sig = 'rows'; rowsBox.replaceChildren(); setRows.clear(); }
   const had = document.activeElement;
   for (const [id, row] of setRows) if (!list.some((w) => w.id === id)) { row.el.remove(); setRows.delete(id); }
@@ -4720,7 +4851,6 @@ function setWorkspacesTab(panel) {
   });
   // A row that moved took the focus with it out of the page for a moment: it goes back where it was.
   if (had && had !== document.activeElement && had.isConnected && setDlg.contains(had) && !had.disabled) had.focus({ preventScroll: true });
-  note.hidden = several;
   more.hidden = !several;
   if (!several) return;
   const focus = setPicked(), [h4, reposBox, sortBox] = more.children;
@@ -4743,6 +4873,53 @@ function setWorkspacesTab(panel) {
   });
   // The GitHub panel's own line: what GitHub found that no workspace holds yet, and Sort.
   patch(sortBox, JSON.stringify([snap?.github?.unsorted ?? 0, ghSort, snap?.workspaces?.map((w) => [w.id, w.name]), snap?.workspace?.id]), () => (snap ? sortLine() : null));
+}
+/** New workspace: a name, then it is made, using the default Claude login of the workspace in view to start with. */
+function setNewWsForm() {
+  const name = el('input', { class: 'field', type: 'text', maxlength: '24', autocomplete: 'off', spellcheck: 'false', placeholder: 'A new workspace, like Side projects', 'aria-label': 'New workspace name', 'data-f': 'ws-new-name' });
+  const add = el('button', { class: 'btn small', type: 'submit', text: 'New workspace', 'data-f': 'ws-new' });
+  return el('form', { class: 'set-add set-add-ws', onsubmit: async (e) => {
+    e.preventDefault();
+    if (!name.value.trim()) return name.focus();
+    add.disabled = true;
+    const r = await api('/api/workspace/create', { name: name.value });
+    add.disabled = false;
+    if (!r.ok) return toast(r.error || 'It was not made.', true);
+    toast(`${name.value.trim()} is a new workspace. Pick its logins below.`);
+    name.value = '';
+    setWs = r.id; // the picker shows it, so its logins are what show below
+    loadSettings();
+  } }, name, add);
+}
+/** The logins workspace `w` uses, per provider: each a chip (the default marked, the others made default with a click,
+ *  any taken off), and the provider's other logins to add. Then Remove, when it isn't the last workspace. */
+function wsLogins(w, n) {
+  const all = setData.logins, byId = (id) => all.find((l) => l.id === id);
+  const rows = [['claude', 'Claude', 'New agent and the overseer start on the default; you can pick another in New agent.'],
+                ['codex', 'OpenAI', 'Agents on Codex come next.']].map(([p, title, say]) => {
+    const mine = w.logins.map(byId).filter((l) => l?.provider === p), others = all.filter((l) => l.provider === p && !w.logins.includes(l.id));
+    const chips = mine.map((l) => el('span', { class: 'lchip' }, el('b', { text: l.label }),
+      w.defaults[p] === l.id ? el('span', { class: 'lchip-def', text: 'default' })
+        : el('button', { class: 'linkish', type: 'button', text: 'make default', 'data-f': `def-${w.id}-${l.id}`, onclick: () => setLoginDo('/api/login/default', { ws: w.id, id: l.id }) }),
+      el('button', { class: 'btn icon lchip-x', type: 'button', text: '×', 'aria-label': `${w.name} stops using ${l.label}`, title: `${w.name} stops using ${l.label}`, 'data-f': `det-${w.id}-${l.id}`,
+        onclick: () => setLoginDo('/api/login/detach', { ws: w.id, id: l.id }) })));
+    const add = others.length ? el('select', { class: 'set-sel', 'aria-label': `Add a ${title} login to ${w.name}`, 'data-f': `att-${w.id}-${p}`,
+      onchange: (e) => e.target.value && setLoginDo('/api/login/attach', { ws: w.id, id: e.target.value }) },
+      el('option', { value: '', text: 'Add…' }), ...others.map((l) => el('option', { value: l.id, text: l.label }))) : null;
+    const none = !mine.length && el('span', { class: 'set-quiet', text: p === 'claude' ? 'None: agents can’t start here until it uses one.' : 'None.' });
+    return setOpt(title, [say, ' ', el('button', { class: 'linkish', type: 'button', text: 'Logins are under Providers.', onclick: () => openProviderTab(p === 'codex' ? 'openai' : 'claude') })],
+      el('span', { class: 'lchips' }, ...chips, none || null, add), true);
+  });
+  const remove = n > 1 ? setOpt('Remove this workspace', 'Its logins stay; its repositories are unsorted again. Not while sessions run in it.',
+    el('button', { class: 'btn small', type: 'button', text: `Remove ${w.name}…`, 'data-f': 'ws-rm-' + w.id, onclick: async () => {
+      if (!confirm(`Remove the workspace ${w.name}? Its logins stay, and its repositories are unsorted again.`)) return;
+      const r = await api('/api/workspace/remove', { id: w.id });
+      if (!r.ok) return toast(r.error || 'It was not removed.', true);
+      setWs = null;
+      toast(`${w.name} is removed.`);
+      loadSettings();
+    } })) : null;
+  return [...rows, remove];
 }
 /** One workspace's row. It is built once and then updated, so the name you are typing stays through a refetch. */
 function setWsRow() {
@@ -4815,20 +4992,20 @@ async function setAssign(key, ws) {
   loadSettings();
 }
 
-// The Live updates tab (id 'logins', which links and the first run use): whether each workspace's Claude Code sessions
-// report here as they run, through Glue's hooks in that profile's settings. Sign-ins are under Providers; on a first
-// run the Claude sign-in this workspace still needs shows here too, so the two things Glue needs sit together.
+// The Live updates tab (id 'logins', which links and the first run use): whether each Claude login's sessions report
+// here as they run, through Glue's hooks in that profile's settings. Sign-ins are under Providers; on a first run the
+// Claude sign-in the workspace in view still needs shows here too, so the two things Glue needs sit together.
 function setLoginsTab(panel) {
   if (!panel.firstChild) panel.append(
     el('h3', { text: 'Live updates' }),
-    el('p', { class: 'set-lead', text: 'With live updates on, a workspace’s Claude Code sessions report here as they run: you see their tools and subagents, and answer their permission requests from Glue. Off, they still show, but they ask in their own terminal.' }),
+    el('p', { class: 'set-lead', text: 'With live updates on, the Claude Code sessions of a login report here as they run: you see their tools and subagents, and answer their permission requests from Glue. Off, they still show, but they ask in their own terminal.' }),
     el('div', { class: 'set-blocks' }));
   const box = panel.children[2];
   if (!setReady(box)) return;
-  const list = setData.workspaces;
+  const list = provLogins('claude'), here = setHere()?.id;
   const first = setupPending();
-  patch(box, JSON.stringify([first, list.map((w) => [w.id, w.name, w.color, w.here, w.signedIn, w.connected, w.loginCommand, w.account])]),
-    () => [...list.map((w) => setLoginBlock(w, list.length > 1, first && w.here)),
+  patch(box, JSON.stringify([first, list, setData.workspaces.map((w) => [w.id, w.name])]),
+    () => [...list.map((l) => setLoginBlock(l, first && l.users.includes(here))),
       el('p', { class: 'set-note' }, 'Signing in to Claude, OpenAI and OpenCode is under ',
         el('button', { class: 'linkish', type: 'button', text: 'Providers', 'data-f': 'to-providers', onclick: () => showSetTab('providers') }), '.')]);
 }
@@ -4836,39 +5013,38 @@ function setLoginsTab(panel) {
 const setLine = (s, mark, t, d, acts, cls) => el('div', { class: 'set-line' + (cls ? ' ' + cls : ''), 'data-s': s },
   el('span', { class: 'set-mark', 'aria-hidden': 'true', text: mark }), el('span', { class: 't', text: t }),
   d ? el('span', { class: 'd', text: d }) : null, acts ? el('span', { class: 'acts' }, acts) : null);
-function setLoginBlock(w, several, needs) {
+/** A Claude login's block on the Live updates tab. `needs`: a first run, and the workspace in view uses it. */
+function setLoginBlock(l, needs) {
   const line = setLine;
   // On a first run, the two things Glue needs for the workspace in view, while they are still to do.
   const need = (n) => { if (needs) { n.classList.add('req'); n.querySelector('.t').append(el('span', { class: 'set-req', text: 'Needed' })); } return n; };
   // The Claude sign-in lives under Providers › Claude; here only while a first run still needs it.
   let claude = null;
-  if (needs && w.signedIn === false) {
-    claude = need(line('todo', '✗', 'Claude account', `Not signed in. Agents and the overseer in ${w.name} can’t start until it is. (It is also under Providers › Claude.)`));
+  if (needs && l.signedIn === false) {
+    claude = need(line('todo', '✗', 'Claude account', `Not signed in. Agents can’t start on ${l.label} until it is. (It is also under Providers › Claude.)`));
     claude.append(el('span', { class: 'acts' },
-      el('button', { class: 'btn small primary', type: 'button', text: 'Sign in in Terminal…', onclick: (e) => setSignIn(w, e.currentTarget) }),
-      el('button', { class: 'btn quiet small', type: 'button', text: 'Copy command', title: w.loginCommand, onclick: () => copyCmd(w.loginCommand) })));
+      el('button', { class: 'btn small primary', type: 'button', text: 'Sign in in Terminal…', onclick: (e) => setSignIn(l, e.currentTarget) }),
+      el('button', { class: 'btn quiet small', type: 'button', text: 'Copy command', title: l.loginCommand, onclick: () => copyCmd(l.loginCommand) })));
   }
-  const hooks = w.connected ? line('ok', '✓', 'Live updates are on', `Sessions you start in ${w.name} report here as they run.`)
-    : need(line('todo', '✗', 'Live updates are off', `Turn them on to see ${w.name}’s requests, tools and subagents here. Glue adds its hooks to the profile’s settings.json and keeps a dated copy of the old file; nothing else in it changes.`,
-      [el('button', { class: 'btn primary small', type: 'button', text: 'Turn on live updates', onclick: (e) => setConnect(w, e.currentTarget) })]));
-  return el('section', { class: 'set-block', 'aria-label': w.name },
-    el('div', { class: 'set-block-h', style: `--sw:${WS_COLORS[w.color]}` }, el('span', { class: 'set-dot', 'aria-hidden': 'true' }), el('span', { text: w.name }),
-      w.here && several ? el('span', { class: 'set-here', text: 'you’re here' }) : null),
-    claude, hooks);
+  const hooks = l.connected ? line('ok', '✓', 'Live updates are on', `Sessions you start on ${l.label} report here as they run.`)
+    : need(line('todo', '✗', 'Live updates are off', `Turn them on to see the requests, tools and subagents of ${l.label}’s sessions here. Glue adds its hooks to its profile’s settings.json and keeps a dated copy of the old file; nothing else in it changes.`,
+      [el('button', { class: 'btn primary small', type: 'button', text: 'Turn on live updates', onclick: (e) => setConnect(l, e.currentTarget) })]));
+  const used = l.users.map((id) => setData.workspaces.find((w) => w.id === id)?.name).filter(Boolean);
+  return el('section', { class: 'set-block', 'aria-label': l.label }, setBlockHead(null, l.label, used.length ? used.join(', ') : 'in no workspace'), claude, hooks);
 }
-async function setSignIn(w, b) {
+async function setSignIn(l, b) {
   b.disabled = true;
-  const r = await api('/api/setup/login', { what: 'claude', ws: w.id });
+  const r = await api('/api/setup/login', { what: 'claude', login: l.id });
   b.disabled = false;
   if (!r.ok) return toast(r.error || 'Terminal did not open.', true);
-  toast(`Sign in to ${w.name} in the Terminal window. This ticks by itself when you are done.`);
+  toast(`Sign in to ${l.label} in the Terminal window. This ticks by itself when you are done.`);
 }
-async function setConnect(w, b) {
+async function setConnect(l, b) {
   b.disabled = true;
-  const r = await api('/api/profile/connect', { id: w.id });
+  const r = await api('/api/profile/connect', { id: l.id });
   b.disabled = false;
   if (!r.ok) return toast(r.error || 'It did not connect.', true);
-  toast(r.added ? `Live updates are on for ${w.name}. Sessions you start in it from now on report here; one already running keeps asking in its terminal until it restarts.${r.backup ? ' The old file is kept at ' + r.backup + '.' : ''}` : `Live updates were already on for ${w.name}.`);
+  toast(r.added ? `Live updates are on for ${l.label}. Sessions you start on it from now on report here; one already running keeps asking in its terminal until it restarts.${r.backup ? ' The old file is kept at ' + r.backup + '.' : ''}` : `Live updates were already on for ${l.label}.`);
   loadSettings();
 }
 
@@ -5002,77 +5178,194 @@ function setWsField(ws, change) {
   renderSettings();
 }
 
-// The Providers tab: what runs the agents. Claude Code, on each workspace's own login, and OpenCode, on the providers it
-// is signed in to. One place kept for later.
-// The Providers tab: what runs your agents, one tab each. Claude (each workspace's own login), OpenAI (its models run in
-// Glue through OpenCode today; Codex comes next) and OpenCode (one for the computer, set up in four steps).
+// The Providers tab: what runs your agents, one tab each, each with its logins. Claude (profiles, signed in here or in
+// Terminal), OpenAI (Codex homes: ChatGPT or an API key) and OpenCode (one for the computer, set up in four steps). Which
+// workspaces use a login is chosen in Settings › Workspaces; one added here starts in the workspace in view.
 let setProvTab = null; // the provider shown; null until Settings first shows the tab, then where it opens next time
 /** Settings, on one provider's tab. */
 function openProviderTab(t) { setProvTab = t; openSettings('providers'); }
 const PROV_TABS = [['claude', 'Claude'], ['openai', 'OpenAI'], ['opencode', 'OpenCode']];
+const setHere = () => setData?.workspaces?.find((w) => w.here) ?? null;
+/** A provider's logins, those the workspace in view uses first. */
+function provLogins(provider) {
+  const here = setHere()?.id;
+  return (setData?.logins ?? []).filter((l) => l.provider === provider).sort((a, b) => b.users.includes(here) - a.users.includes(here));
+}
 /** How each provider stands, for the dot on its tab: ok, todo (it needs you) or off (not set up, nothing wrong). */
 function provState(t) {
-  const list = setData?.workspaces ?? [], o = setOc;
-  if (t === 'claude') return list.some((w) => w.signedIn === false) ? 'todo' : list.length && list.every((w) => w.signedIn === true) ? 'ok' : 'off';
-  if (t === 'openai') return (o?.accounts ?? []).some((a) => a.provider === 'openai') || (o?.models ?? []).some((m) => m.provider === 'openai') ? 'ok' : 'off';
+  const o = setOc;
+  if (t === 'claude') {
+    const mine = provLogins('claude').filter((l) => l.users.includes(setHere()?.id));
+    return !mine.length || mine.some((l) => l.signedIn === false) ? 'todo' : mine.every((l) => l.signedIn === true) ? 'ok' : 'off';
+  }
+  if (t === 'openai') { const c = setCx; return !c?.installed ? 'off' : (c.logins ?? []).some((x) => x.state === 'ok') ? 'ok' : 'todo'; }
   if (!o || (!o.installed && !o.running)) return 'off';
   return o.running && ((o.accounts ?? []).length || (o.models ?? []).length) ? 'ok' : 'todo';
 }
 function setProvidersTab(panel) {
   if (!panel.firstChild) panel.append(
     el('h3', { text: 'Providers' }),
-    el('p', { class: 'set-lead', text: 'What your agents run on. Each provider has its own tab: how it is set up, and what it needs from you.' }),
+    el('p', { class: 'set-lead', text: 'What your agents run on. Each provider has its own tab with its logins: how each is signed in, and which workspaces use it.' }),
     el('div', { class: 'set-blocks' }));
   const box = panel.children[2];
   if (!setReady(box)) return;
   askSetOc();
-  const list = setData.workspaces;
+  askSetCodex();
   // It opens where it was left, else on the one that needs you, else on Claude.
-  setProvTab ??= list.some((w) => w.signedIn === false) ? 'claude' : provState('opencode') === 'todo' ? 'opencode' : 'claude';
+  setProvTab ??= provState('opencode') === 'todo' && provState('claude') !== 'todo' ? 'opencode' : 'claude';
   const tab = setProvTab;
-  setPatch(box, JSON.stringify([tab, list.map((w) => [w.id, w.name, w.color, w.here, w.signedIn, w.loginCommand, w.account]), setOc, setData.glue?.agentDefaults]), () => [
+  setPatch(box, JSON.stringify([tab, setData.workspaces.map((w) => [w.id, w.name, w.here, w.defaults]), setData.logins, setData.hidden, setOc, setCx, setCxKey?.login ?? null,
+    signSig(), setData.glue?.agentDefaults]), () => [
     el('div', { class: 'vtabs ptabs', role: 'tablist', 'aria-label': 'Providers' },
       ...PROV_TABS.map(([id, name]) => el('button', { type: 'button', role: 'tab', 'aria-selected': String(id === tab), 'data-f': 'prov-' + id,
         onclick: () => { setProvTab = id; renderSettings(); } }, el('span', { class: 'pdot', 'data-s': provState(id), 'aria-hidden': 'true' }), name))),
-    ...(tab === 'claude' ? provClaude(list) : tab === 'openai' ? provOpenAI() : provOpenCode(list.length > 1)),
+    ...(tab === 'claude' ? provClaude() : tab === 'openai' ? provOpenAI() : provOpenCode(setData.workspaces.length > 1)),
   ]);
 }
-/** Claude: each workspace signs in on its own, on its profile; Glue keeps no account. */
-function provClaude(list) {
+/** A login's block heading: its name, and "default here" when it is the default of the workspace in view. */
+const provHead = (l) => setBlockHead(null, l.label, setHere()?.defaults?.[l.provider] === l.id ? 'default here' : null);
+/** Which workspaces use a login, a way to use it in the workspace in view, rename and remove. */
+function provUsedBy(l) {
+  const names = l.users.map((id) => setData.workspaces.find((w) => w.id === id)?.name).filter(Boolean), here = setHere();
+  const text = names.length ? `Used by ${names.join(', ')}.`
+    : `Not used by any workspace${l.running ? `: its ${l.running} running session${l.running === 1 ? '' : 's'} show nowhere until one uses it` : ''}.`;
+  return setLine(names.length ? 'ok' : 'todo', names.length ? '✓' : '·', 'Workspaces', text, [
+    here && !l.users.includes(here.id) ? el('button', { class: 'btn small' + (names.length ? '' : ' primary'), type: 'button', text: `Use in ${here.name}`, 'data-f': 'use-' + l.id,
+      onclick: () => setLoginDo('/api/login/attach', { ws: here.id, id: l.id }, `${here.name} uses ${l.label} now.`) }) : null,
+    el('button', { class: 'btn quiet small', type: 'button', text: 'Rename…', 'data-f': 'ren-' + l.id, onclick: () => renameLogin(l) }),
+    el('button', { class: 'btn quiet small', type: 'button', text: 'Remove…', 'data-f': 'rm-' + l.id, onclick: () => removeLogin(l) })].filter(Boolean));
+}
+/** Add a login of `provider`: its name, then it is made and put in the workspace in view. */
+function provAdd(provider, title, say, placeholder) {
+  const name = el('input', { class: 'field', type: 'text', maxlength: '40', autocomplete: 'off', spellcheck: 'false', placeholder, 'aria-label': `The new ${title.toLowerCase()}’s name`,
+    'data-f': `add-${provider}-name`, value: setAddName, oninput: (e) => { setAddName = e.target.value; } });
+  const add = el('button', { class: 'btn small primary', type: 'submit', text: 'Add', 'data-f': `add-${provider}` });
+  return el('section', { class: 'set-block', 'aria-label': title }, setBlockHead(null, title), el('p', { class: 'set-lead set-in', text: say }),
+    el('form', { class: 'set-add', onsubmit: (e) => { e.preventDefault(); createLogin(provider, name, add); } }, name, add));
+}
+/** "2 removed logins are kept out", and the way to have them picked up again. */
+const provHidden = () => (setData.hidden ? el('p', { class: 'set-note' }, `${setData.hidden} removed login${setData.hidden === 1 ? ' is' : 's are'} kept out of Glue. `,
+  el('button', { class: 'linkish', type: 'button', text: 'Show them again', onclick: () => setLoginDo('/api/login/unhide', {}) })) : null);
+/** Claude: each login is a Claude Code profile; a workspace's agents and overseer run on its logins. Sign one in here
+ *  (Glue's own terminal) or in Terminal, or add another. Glue keeps no account of its own. */
+function provClaude() {
   return [
-    el('p', { class: 'set-lead set-pane', text: 'Each workspace signs in to Claude on its own: its profile keeps the login, and its agents and overseer run on it. Glue keeps no account of its own.' }),
-    ...list.map((w) => {
-      const a = w.here ? w.account : null;
-      const line = w.signedIn === true ? setLine('ok', '✓', 'Claude account', a?.email ? a.email + setPlan(a.plan) : a?.plan ? setPlan(a.plan).slice(3) : 'Signed in')
-        : w.signedIn === false ? setLine('todo', '✗', 'Claude account', `Not signed in. Agents and the overseer in ${w.name} can’t start until it is.`)
+    el('p', { class: 'set-lead set-pane', text: 'Each Claude login is kept by a Claude Code profile of its own. A workspace can use several (two subscriptions, say): New agent starts on its default, and you can pick another there. Glue keeps no account.' }),
+    ...provLogins('claude').map((l) => {
+      const a = l.account, out = l.signedIn === false;
+      const line = l.signedIn === true ? setLine('ok', '✓', 'Claude account', a?.email ? a.email + setPlan(a.plan) : a?.plan ? setPlan(a.plan).slice(3) : 'Signed in')
+        : out ? setLine('todo', '✗', 'Claude account', 'Not signed in. Agents can’t start on it until it is.')
         : setLine('wait', '·', 'Claude account', 'Checking…');
       line.append(el('span', { class: 'acts' },
-        el('button', { class: 'btn small' + (w.signedIn === false ? ' primary' : ''), type: 'button', text: w.signedIn === true ? 'Sign in again…' : 'Sign in in Terminal…',
-          'data-f': 'claude-in-' + w.id, onclick: (e) => setSignIn(w, e.currentTarget) }),
-        el('button', { class: 'btn quiet small', type: 'button', text: 'Copy command', title: w.loginCommand, onclick: () => copyCmd(w.loginCommand) })));
-      return el('section', { class: 'set-block', 'aria-label': w.name },
-        el('div', { class: 'set-block-h', style: `--sw:${WS_COLORS[w.color]}` }, el('span', { class: 'set-dot', 'aria-hidden': 'true' }), el('span', { text: w.name }),
-          w.here && list.length > 1 ? el('span', { class: 'set-here', text: 'you’re here' }) : null), line);
+        el('button', { class: 'btn small' + (out ? ' primary' : ''), type: 'button', text: l.signedIn === true ? 'Sign in again here' : 'Sign in here',
+          'data-f': 'claude-here-' + l.id, onclick: () => openSignIn(l.id, 'claude') }),
+        el('button', { class: 'btn small', type: 'button', text: 'In Terminal…', title: 'Sign in in a Terminal window', 'data-f': 'claude-in-' + l.id, onclick: (e) => setSignIn(l, e.currentTarget) }),
+        el('button', { class: 'btn quiet small', type: 'button', text: 'Copy command', title: l.loginCommand, onclick: () => copyCmd(l.loginCommand) })));
+      return el('section', { class: 'set-block', 'aria-label': l.label }, provHead(l), line, provUsedBy(l), signBoxFor(l.id));
     }),
+    provAdd('claude', 'Add a Claude login', `A new Claude Code profile in your home folder, with live updates on, used by ${setHere()?.name ?? 'this workspace'}. You sign it in next, here or in Terminal.`, 'Its name, like Personal Max or Client'),
+    provHidden(),
   ];
 }
-/** OpenAI: its models run through OpenCode today; Glue doesn't run Codex yet. */
+/** A new login, put in the workspace in view; a Claude one's sign-in opens here at once. */
+async function createLogin(provider, input, btn) {
+  const label = input.value.trim();
+  if (!label) { input.focus(); return toast('Give it a name, like Personal Max or Client.', true); }
+  btn.disabled = true;
+  const r = await api('/api/login/create', { provider, label });
+  btn.disabled = false;
+  if (!r.ok) return toast(r.error || 'It was not made.', true);
+  setAddName = '';
+  toast(`${label} is added to ${setHere()?.name ?? 'this workspace'}. Sign it in below.`);
+  if (provider === 'codex') setCxAsked = false;
+  await loadSettings();
+  if (provider === 'claude') openSignIn(r.id, 'claude');
+}
+async function renameLogin(l) {
+  const label = prompt(`A new name for ${l.label}:`, l.label)?.trim();
+  if (label && label !== l.label) setLoginDo('/api/login/rename', { id: l.id, label });
+}
+async function removeLogin(l) {
+  if (!confirm(`Remove ${l.label} from Glue? It leaves every workspace. Its folder, ${l.where}, stays, with the login in it.`)) return;
+  setLoginDo('/api/login/remove', { id: l.id }, `${l.label} is removed. ${l.where} is still there.`);
+}
+/** A change to which workspace uses which login (or to a login): Settings asks again for what it shows. */
+async function setLoginDo(path, body, said) {
+  const r = await api(path, body);
+  if (!r.ok) return toast(r.error || 'That did not work.', true);
+  if (said) toast(said);
+  setCxAsked = false;
+  loadSettings();
+}
+/** OpenAI: its own logins, through OpenAI's Codex CLI, each a Codex home: ChatGPT in the browser, or an API key. Codex
+ *  keeps them; Glue keeps nothing. Agents don't run on Codex yet. */
 function provOpenAI() {
-  const o = setOc, ready = provState('opencode') === 'ok' || Boolean(o?.running);
-  const acct = (o?.accounts ?? []).find((a) => a.provider === 'openai'), n = (o?.models ?? []).filter((m) => m.provider === 'openai').length;
-  const line = !o ? setLine('wait', '·', 'OpenAI in OpenCode', 'Checking…')
-    : !ready ? setLine('off', '·', 'OpenAI in OpenCode', 'OpenCode isn’t set up yet. Set it up first, then connect OpenAI to it.',
-        [el('button', { class: 'btn small', type: 'button', text: 'Set up OpenCode', 'data-f': 'openai-oc', onclick: () => { setProvTab = 'opencode'; renderSettings(); } })])
-    : acct || n ? setLine('ok', '✓', 'OpenAI in OpenCode', `${acct ? `Connected${acct.label && acct.label !== acct.name ? ` as ${acct.label}` : ''}. ` : ''}${n} OpenAI model${n === 1 ? '' : 's'} to run agents and the overseer on.`,
-        [el('button', { class: 'btn small', type: 'button', text: 'Manage…', 'data-f': 'openai-manage', onclick: () => openProviders('openai') })])
-    : setLine('todo', '·', 'OpenAI in OpenCode', 'Not connected. Connect it with an API key, or with ChatGPT if your plan includes it.',
-        [el('button', { class: 'btn small primary', type: 'button', text: 'Connect OpenAI…', 'data-f': 'openai-connect', onclick: () => openProviders('openai') })]);
-  const codex = setLine('off', '·', 'Codex', 'Coming next: run agents on OpenAI’s own Codex, next to Claude Code and OpenCode.', null, 'off');
-  codex.setAttribute('aria-disabled', 'true');
+  const c = setCx;
+  const lead = el('p', { class: 'set-lead set-pane', text: 'OpenAI signs in through Codex, OpenAI’s own coding agent: with your ChatGPT account or an API key. Each OpenAI login is a Codex home of its own, and Codex keeps it; Glue keeps nothing.' });
+  if (!c) return [lead, el('p', { class: 'set-quiet', text: 'Looking for Codex…' })];
+  const check = el('button', { class: 'btn quiet small', type: 'button', text: 'Check again', 'data-f': 'cx-check', onclick: () => { setCxAsked = false; setCx = null; renderSettings(); } });
+  const install = c.error ? setLine('todo', '✗', 'Codex', c.error, [check])
+    : c.installed ? setLine('ok', '✓', 'Codex', `Installed${c.version ? `: version ${c.version}` : ''}.`)
+    : setLine('todo', '·', 'Codex', 'Not installed. It runs on this computer: install it in a Terminal window, then check again.',
+        [el('button', { class: 'btn small primary', type: 'button', text: 'Install in Terminal…', 'data-f': 'cx-install', onclick: () => cxDo('/api/codex/install', {}) }),
+         c.installCommand ? cmdChip(c.installCommand) : null, check].filter(Boolean));
+  const agents = setLine('off', '·', 'Agents on Codex', 'Coming next: run agents on Codex, next to Claude Code and OpenCode.', null, 'off');
+  agents.setAttribute('aria-disabled', 'true');
   return [
-    el('p', { class: 'set-lead set-pane', text: 'OpenAI’s models already run in Glue through OpenCode: connect OpenAI there, then pick an OpenAI model in New agent or for the overseer.' }),
-    el('section', { class: 'set-block', 'aria-label': 'OpenAI' }, setBlockHead(null, 'OpenAI'), line, codex),
+    lead,
+    el('section', { class: 'set-block', 'aria-label': 'Codex' }, setBlockHead(null, 'OpenAI Codex'), install, agents),
+    ...provLogins('codex').map((l) => {
+      const st = c.logins?.find((x) => x.id === l.id) ?? { state: 'signed-out', method: null, command: '' };
+      const line = !c.installed ? setLine('off', '·', 'OpenAI account', 'Install Codex first, then sign in.', null, 'off')
+        : st.state === 'ok' ? setLine('ok', '✓', 'OpenAI account', st.method === 'chatgpt' ? 'Signed in with ChatGPT.' : st.method === 'apikey' ? 'Signed in with an API key.' : 'Signed in.',
+            [el('button', { class: 'btn quiet small', type: 'button', text: 'Sign out', 'data-f': 'cx-out-' + l.id, onclick: () => cxDo('/api/codex/logout', { login: l.id }, `${l.label} is signed out of OpenAI.`) })])
+        : st.state === 'unknown' ? setLine('wait', '·', 'OpenAI account', 'Codex did not answer.', [check])
+        : setLine('todo', '✗', 'OpenAI account', 'Not signed in.', [
+            el('button', { class: 'btn small primary', type: 'button', text: 'Sign in with ChatGPT', 'data-f': 'cx-here-' + l.id, onclick: () => openSignIn(l.id, 'codex') }),
+            el('button', { class: 'btn small', type: 'button', text: 'Use an API key…', 'data-f': 'cx-key-' + l.id, onclick: () => openCxKey(l.id) }),
+            el('button', { class: 'btn quiet small', type: 'button', text: 'Copy command', title: st.command, onclick: () => copyCmd(st.command) })]);
+      return el('section', { class: 'set-block', 'aria-label': l.label }, provHead(l), line, provUsedBy(l),
+        setCxKey?.login === l.id && c.installed && st.state !== 'ok' ? cxKeyForm(l) : null, signBoxFor(l.id));
+    }),
+    provAdd('codex', 'Add an OpenAI login', `A Codex home of its own (Codex’s ~/.codex for the first one), used by ${setHere()?.name ?? 'this workspace'}. Sign it in next, with ChatGPT or an API key.`, 'Its name, like Personal or Work key'),
+    provHidden(),
   ];
+}
+/** The API-key form for an OpenAI login: the key goes to Codex on its stdin and is not kept, here or by Glue. */
+function openCxKey(login) {
+  setCxKey = { login, input: el('input', { class: 'field', type: 'password', autocomplete: 'off', spellcheck: 'false', placeholder: 'sk-…', 'aria-label': 'OpenAI API key', 'data-f': 'cx-key-input' }) };
+  renderSettings();
+  setCxKey.input.focus();
+}
+function cxKeyForm(l) {
+  const save = el('button', { class: 'btn small primary', type: 'submit', text: 'Sign in', 'data-f': 'cx-key-save' });
+  return el('form', { class: 'set-add', onsubmit: async (e) => {
+    e.preventDefault();
+    const input = setCxKey.input;
+    save.disabled = true;
+    const r = await api('/api/codex/key', { login: l.id, key: input.value });
+    save.disabled = false;
+    if (!r.ok) return toast(r.error || 'Codex did not take the key.', true);
+    input.value = '';
+    setCxKey = null;
+    toast(`${l.label} is signed in to OpenAI with an API key.`);
+    setCxAsked = false;
+    renderSettings();
+  } }, setCxKey.input, save, el('button', { class: 'btn quiet small', type: 'button', text: 'Cancel', onclick: () => { setCxKey = null; renderSettings(); } }));
+}
+// Codex's state comes from the server, which asks Codex itself: each time Settings opens, and after a sign-in.
+function askSetCodex() {
+  if (setCxAsked) return;
+  setCxAsked = true;
+  api('/api/codex', {}).then((r) => { setCx = r.ok ? r : { error: r.error || 'Glue could not ask Codex.' }; renderSettings(); }, () => { setCx = { error: 'Glue could not ask Codex.' }; renderSettings(); });
+}
+/** Something of Codex's, from Settings: then Codex is asked again. */
+async function cxDo(path, body, said) {
+  const r = await api(path, body);
+  if (!r.ok) toast(r.error || 'That did not work.', true);
+  else if (said) toast(said);
+  setCxAsked = false;
+  renderSettings();
 }
 /** A provider's monogram colour, the same each time: from its id, over four of the panel's own tints. */
 const PROV_TINTS = [['--run', '--run-fill'], ['--merged', '--merged-fill'], ['--ok', '--ok-fill'], ['--amber', '--amber-fill']];
@@ -5107,7 +5400,7 @@ function provOpenCode(several) {
         el('span', {}, el('b', { text: name }), el('small', { text: [a.length ? a.map((x) => x.label).join(', ') : 'from your environment', `${n} model${n === 1 ? '' : 's'}`].join(', ') })));
     }),
     el('button', { class: 'ptile add', type: 'button', 'data-f': 'oc-add', onclick: () => openProviders() }, el('span', { class: 'pmono', 'aria-hidden': 'true', text: '+' }), el('span', {}, el('b', { text: 'Connect a provider' }), el('small', { text: 'A key or a sign-in' })))) : null;
-  const lead = el('p', { class: 'set-lead set-pane', text: `OpenCode runs your agents on the providers you connect: API keys, GitHub Copilot, OpenCode Go and the like. Never on a Claude subscription.${several ? ' One OpenCode serves every workspace; each session shows in the workspace that started it.' : ''}` });
+  const lead = el('p', { class: 'set-lead set-pane', text: `OpenCode runs your agents on the providers you connect to it: API keys (OpenAI’s among them), GitHub Copilot, OpenCode Go and the like. It keeps those sign-ins itself, apart from the Claude and OpenAI tabs, and never runs on a Claude subscription.${several ? ' One OpenCode serves every workspace; each session shows in the workspace that started it.' : ''}` });
   // Set up: the four steps fold into one row of ticks, and what you come back for (its providers, its model) leads.
   if (now < 0) return [
     lead,

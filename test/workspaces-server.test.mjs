@@ -345,19 +345,27 @@ test('an event that names its transcript moves a session first seen without one 
   assert.ok(await until(() => !A.latest()?.sessions.some((s) => s.sessionId === SID_X)), 'and page A no longer does');
 });
 
-test('a profile folder created after start becomes a workspace', async () => {
+test('a profile folder made after start is a login in no workspace: its sessions show nowhere until one uses it', async () => {
   fs.mkdirSync(path.join(home, '.claude-new', 'projects', 'p'), { recursive: true });
   const e = { session_id: SID_N, transcript_path: path.join(home, '.claude-new', 'projects', 'p', `${SID_N}.jsonl`), cwd: work,
               hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: '/x' }, permission_mode: 'default' };
-  const r = await hookPost('event', e);
-  assert.equal(r.status, 200);
+  assert.equal((await hookPost('event', e)).status, 200);
+  const settings = () => fetch(BASE + '/api/settings', { headers: { 'x-acp-token': token, 'x-acp-client': A.client } }).then((x) => x.json());
+  const found = (await until(async () => (await settings()).logins.find((l) => l.id === 'new')));
+  assert.ok(found, 'the folder is a login now');
+  assert.deepEqual(found.users, [], 'used by no workspace');
+  assert.equal((await settings()).workspaces.length, 2, 'and no workspace was made for it');
+  await pause(300);
+  for (const pg of [A, B]) assert.equal(pg.frames.some((x) => JSON.stringify(x).includes(SID_N)), false, `${pg.client} saw it`);
+  // A workspace you make, using that login: its session shows there, and only there.
   const N = watch('page-n');
   await until(() => N.latest());
-  const f = await api('/api/workspace/focus', { ws: 'new' }, N.client);
-  assert.equal(f.ok, true, JSON.stringify(f));
-  // Within two roster ticks (3 s each).
+  const made = await api('/api/workspace/create', { name: 'New' }, N.client);
+  assert.deepEqual(made, { status: 200, ok: true, id: 'new' });
+  assert.equal((await api('/api/login/attach', { ws: 'new', id: 'new' }, N.client)).ok, true);
+  assert.equal((await api('/api/workspace/focus', { ws: 'new' }, N.client)).ok, true);
   const snap = await until(() => { const s = N.latest(); return s?.sessions.some((x) => x.sessionId === SID_N) ? s : null; }, 7000);
-  assert.ok(snap, 'the new profile\'s session shows up on a page focused there');
+  assert.ok(snap, 'its session shows on a page focused on the workspace that uses its login');
   assert.equal(snap.sessions.find((s) => s.sessionId === SID_N).ws, 'new');
   assert.equal(snap.workspaces.length, 3);
   for (const pg of [A, B]) assert.equal(pg.frames.some((x) => JSON.stringify(x).includes(SID_N)), false, `${pg.client} saw it`);
@@ -584,7 +592,7 @@ test('switching never asks first: a message waiting for a busy session stays wai
   assert.equal((await api('/api/unqueue', { sessionId: sid, id: s.queued[0].id }, A.client)).ok, true);
 });
 
-test('a machine with no profile yet keeps no workspace for the stand-in', async (t) => {
+test('a machine with no profile yet starts with one workspace on plain claude; a profile made later is a login, not a workspace', async (t) => {
   const h = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-ws0-')), port = await freePort();
   const b = path.join(h, 'bin');
   fs.mkdirSync(b);
@@ -599,13 +607,14 @@ test('a machine with no profile yet keeps no workspace for the stand-in', async 
   const file = path.join(h, 'panel', 'workspaces.json');
   const saved = () => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } };
   await pause(500);
-  assert.equal(Object.hasOwn(saved()?.workspaces ?? {}, 'default'), false, `the stand-in was kept: ${JSON.stringify(saved())}`);
-  // A profile made later is the first workspace kept, and the stand-in still is not.
+  assert.deepEqual(Object.keys(saved()?.workspaces ?? {}), ['default'], JSON.stringify(saved()));
+  assert.equal(saved().logins.default.dir, path.join(h, '.claude'), 'its login is plain claude, signed in from here');
+  assert.equal(fs.existsSync(path.join(h, '.claude')), false, 'nothing is made on disk until you sign in');
   fs.mkdirSync(path.join(h, '.claude-work'));
   fs.writeFileSync(path.join(h, '.claude-work', 'settings.json'), '{}');
-  const s = await until(() => (Object.hasOwn(saved()?.workspaces ?? {}, 'work') ? saved() : null), 8000);
-  assert.ok(s, `the new profile is kept: ${JSON.stringify(saved())} | ${out}`);
-  assert.deepEqual(Object.keys(s.workspaces), ['work']);
+  const s = await until(() => (saved()?.logins?.work ? saved() : null), 8000);
+  assert.ok(s, `the new profile is a login: ${JSON.stringify(saved())} | ${out}`);
+  assert.deepEqual(Object.keys(s.workspaces), ['default'], 'and not a workspace');
 });
 
 test('renaming a workspace shows in both pages\' snapshots', async () => {

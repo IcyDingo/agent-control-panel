@@ -133,7 +133,7 @@ assert.ok(await until(() => A.latest()?.sessions.some((s) => s.sessionId === SID
 
 after(async () => { for (const p of pages) p.close(); if (server.exitCode === null && server.signalCode === null) await new Promise((r) => { server.once('exit', r); server.kill(); }); fs.rmSync(home, { recursive: true, force: true }); });
 
-test('settings shows both workspaces, the email only for the focus', async () => {
+test('settings shows both workspaces and every login, an email only for a login the focus uses', async () => {
   const r = await get('/api/settings', A.client);
   assert.equal(r.ok, true, JSON.stringify(r));
   const byId = Object.fromEntries(r.workspaces.map((w) => [w.id, w]));
@@ -143,24 +143,31 @@ test('settings shows both workspaces, the email only for the focus', async () =>
     assert.ok(w.name);
     assert.equal(typeof w.color, 'string');
     assert.equal(typeof w.order, 'number');
-    assert.equal(w.connected, false, JSON.stringify(w));
-    assert.equal(typeof w.loginCommand, 'string');
+    assert.deepEqual(w.logins, [w.id], 'each uses the profile it was, upgraded');
+    assert.equal(w.defaults.claude, w.id);
   }
   assert.equal(byId.default.here, true);
   assert.equal(byId.contract.here, false);
-  assert.equal(byId.contract.loginCommand, 'CLAUDE_CONFIG_DIR=~/.claude-contract claude auth login');
-  assert.equal(Object.hasOwn(byId.contract, 'account'), false, 'no account for another workspace');
-  assert.equal(byId.default.account?.email, EMAIL_D);
-  // Nothing but the allowed fields, for every workspace and repository.
-  for (const w of r.workspaces) for (const k of Object.keys(w)) assert.ok(['id', 'name', 'color', 'order', 'here', 'signedIn', 'connected', 'loginCommand', 'account', 'autofix', 'overseerModel'].includes(k), k);
+  const login = Object.fromEntries(r.logins.map((l) => [l.id, l]));
+  for (const l of r.logins) {
+    assert.equal(l.connected, false, JSON.stringify(l));
+    assert.equal(typeof l.loginCommand, 'string');
+  }
+  assert.equal(login.contract.loginCommand, 'CLAUDE_CONFIG_DIR=~/.claude-contract claude auth login');
+  assert.deepEqual(login.contract.users, ['contract']);
+  assert.equal(Object.hasOwn(login.contract, 'account'), false, 'no account for a login only another workspace uses');
+  assert.equal(login.default.account?.email, EMAIL_D);
+  // Nothing but the allowed fields, for every workspace and login.
+  for (const w of r.workspaces) for (const k of Object.keys(w)) assert.ok(['id', 'name', 'color', 'order', 'here', 'logins', 'defaults', 'autofix', 'overseerModel'].includes(k), k);
+  for (const l of r.logins) for (const k of Object.keys(l)) assert.ok(['id', 'provider', 'label', 'users', 'home', 'where', 'running', 'signedIn', 'connected', 'loginCommand', 'account'].includes(k), k);
   // Each workspace's own settings (for Settings' picker): Auto-fix on or off, and its overseer's model.
   for (const w of r.workspaces) {
     assert.equal(typeof w.autofix, 'boolean', JSON.stringify(w));
     assert.ok(r.overseer.models.includes(w.overseerModel), JSON.stringify(w));
   }
   for (const x of r.repos) assert.deepEqual(Object.keys(x).sort(), ['key', 'label', 'stored', 'ws']);
-  assert.ok([true, false, null].includes(byId.contract.signedIn));
-  assert.deepEqual(Object.keys(r).filter((k) => k !== 'status').sort(), ['about', 'github', 'glue', 'ok', 'overseer', 'repos', 'watcher', 'workspaces']);
+  assert.ok([true, false, null].includes(login.contract.signedIn));
+  assert.deepEqual(Object.keys(r).filter((k) => k !== 'status').sort(), ['about', 'github', 'glue', 'hidden', 'logins', 'ok', 'overseer', 'repos', 'watcher', 'workspaces']);
   assert.deepEqual(Object.keys(r.about).sort(), ['commit', 'dataDir', 'logDir', 'platform', 'service', 'uninstall', 'update', 'version']);
   assert.equal(typeof r.watcher.enabled, 'boolean');
   assert.ok(Array.isArray(r.overseer.models) && r.overseer.models.includes(r.overseer.model), JSON.stringify(r.overseer));
@@ -227,10 +234,10 @@ test('rename, reorder and connect work on the other workspace', async () => {
   assert.ok(fs.readFileSync(other, 'utf8').includes(`127.0.0.1:${PORT}/hook/`));
   assert.deepEqual(fs.readFileSync(plain), plainBefore, 'the plain profile\'s settings are untouched');
   assert.equal(JSON.stringify(c).includes(EMAIL_C), false);
-  assert.equal((await get('/api/settings', A.client)).workspaces.find((w) => w.id === 'contract').connected, true);
-  assert.equal((await api('/api/profile/connect', { id: 'nope' }, A.client)).error, 'No such workspace.');
-  // Signing in another workspace: an unknown one is refused before anything opens.
-  assert.equal((await api('/api/setup/login', { what: 'claude', ws: 'nope' }, A.client)).error, 'No such workspace.');
+  assert.equal((await get('/api/settings', A.client)).logins.find((l) => l.id === 'contract').connected, true);
+  assert.equal((await api('/api/profile/connect', { id: 'nope' }, A.client)).error, 'There is no such login.');
+  // Signing in another login: an unknown one is refused before anything opens.
+  assert.equal((await api('/api/setup/login', { what: 'claude', login: 'nope' }, A.client)).error, 'No such login.');
 });
 
 test('settings assign is unrestricted, the page route is not', async () => {
@@ -463,7 +470,7 @@ test('settings changes Auto-fix and the overseer model of either workspace; the 
 
 test('connected means every hook entry is there, not that the file mentions the panel', async () => {
   const file = path.join(home, '.claude', 'settings.json'), url = `127.0.0.1:${PORT}/hook/`;
-  const connectedNow = async () => (await get('/api/settings', A.client)).workspaces.find((w) => w.id === 'default').connected;
+  const connectedNow = async () => (await get('/api/settings', A.client)).logins.find((l) => l.id === 'default').connected;
   const was = fs.readFileSync(file, 'utf8');
   try {
     // The URL, but not in a hook entry.
@@ -677,7 +684,7 @@ test('a launch into a new folder with one workspace nudges every page', async ()
 test('a new workspace\'s overseer starts on the Glue default', async () => {
   const p = await api('/api/settings/glue', { patch: { overseerModel: 'haiku' } }, A.client);
   assert.equal(p.ok, true, JSON.stringify(p));
-  fs.mkdirSync(path.join(home, '.claude-new', 'projects', 'p'), { recursive: true });
+  assert.equal((await api('/api/workspace/create', { name: 'New' }, A.client)).ok, true);
   const seen = await until(() => A.latest()?.workspaces?.some((w) => w.id === 'new'), 15_000);
   assert.ok(seen, 'the workspace appears: ' + log);
   const file = path.join(path.dirname(prefs), 'overseer-new.json');
