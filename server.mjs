@@ -470,6 +470,7 @@ async function pollRoster(ws) {
   if (++ws.polls % 20 === 0) ws.info = describeProfile(ws.profile); // its hooks or account may have changed outside the panel
   if (error) { ws.rosterError = error; broadcast(); return; }
   ws.rosterError = null;
+  store.touchSpaces(ws.id, [...sessions.values()].filter((s) => s.ws === ws.id).map((s) => s.sessionId));
   const seen = new Set();
   for (const r of list) {
     if (!r.sessionId || isOverseerCall(r.cwd)) continue;
@@ -803,6 +804,7 @@ async function remove(body) {
   const s = liveSession(body);
   if (!s) return { ok: true };
   if (!isEnded(s)) return { ok: false, error: 'It is still running. End it first.' };
+  store.setSpace(s.ws, s.sessionId, null); // gone from the board: out of its space too
   if (isOc(s)) return ocForget(s);
   const rm = s.kind === 'background' && s.inRoster;
   if (rm) {
@@ -1247,7 +1249,11 @@ async function reply(body) {
   const id = `${r.stdout}\n${r.stderr}`.match(/backgrounded · (\w+)/)?.[1];
   if (!id) return fail(firstLine(r));
   const copy = Boolean(tree);
-  if (copy) s.continuedAs = { id, at: Date.now() }; // the record stays on the board, ended, and says where it went
+  if (copy) {
+    s.continuedAs = { id, at: Date.now() }; // the record stays on the board, ended, and says where it went
+    const sp = store.spaceOf(s.ws, s.sessionId); // the copy joins its space; the record keeps it too
+    if (sp) pendingSpace.set(String(id), { ws: s.ws, space: sp, at: Date.now() });
+  }
   else { dismissed.delete(s.sessionId); Object.assign(s, { ended: false, closedByPanel: false, note: null }); }
   setTimeout(() => pollRoster(ws), 400);
   broadcast();
@@ -1585,6 +1591,35 @@ function reorderWorkspaces(body) {
   const r = store.reorder([...ids.filter((id) => stored.includes(id)), ...stored.filter((id) => !ids.includes(id))]);
   if (r.ok) { broadcast(); settingsChanged(); }
   return r;
+}
+
+// ---------------------------------------------------------------- spaces
+// A space groups a workspace's sessions by what they work on. Every action is on the asking page's own workspace; a
+// session of another workspace is refused by the seal before it gets here, and another workspace's space id is unknown.
+const nudged = (r) => { if (r.ok) broadcast(); return r; };
+const createSpace = (body, ctx) => nudged(store.createSpace(ctx.focus, body?.name));
+const renameSpace = (body, ctx) => nudged(store.renameSpace(ctx.focus, String(body?.id ?? ''), body?.name));
+const deleteSpace = (body, ctx) => nudged(store.deleteSpace(ctx.focus, String(body?.id ?? '')));
+/** `{ sessionId, space }`: put a session of this workspace in one of its spaces; null takes it out. */
+function moveToSpace(body, ctx) {
+  const s = sessions.get(String(body?.sessionId ?? ''));
+  if (!s || s.ws !== ctx.focus) return { ok: false, error: 'No such session.' };
+  return nudged(store.setSpace(ctx.focus, s.sessionId, body?.space == null ? null : String(body.space)));
+}
+/** The space chosen at launch (or kept on continuation) waits here for its session to show, by the id the launch gave. */
+const pendingSpace = new Map(); // launch id → { ws, space, at }
+const PENDING_MS = 10 * 60_000;
+function claimSpaces(wsId) {
+  if (!pendingSpace.size) return;
+  const now = Date.now();
+  for (const [k, p] of pendingSpace) {
+    if (now - p.at > PENDING_MS) { pendingSpace.delete(k); continue; }
+    if (p.ws !== wsId) continue;
+    for (const s of sessions.values()) {
+      if (s.ws !== wsId || store.spaceOf(wsId, s.sessionId)) continue;
+      if (s.sessionId === k || s.sessionId.startsWith(k) || s.id === k) { store.setSpace(wsId, s.sessionId, p.space); pendingSpace.delete(k); break; }
+    }
+  }
 }
 
 /** The launcher's look at a folder: is it there, and is it in a git repository. */
@@ -3093,6 +3128,8 @@ async function continueInOpenCode(body, ctx) {
                                 name: trim(`${labelOf(s)} (OpenCode)`, 60), model, mode, continuedFrom: s.sessionId, brief });
   if (!r.ok) return r;
   s.continuedAs = { id: r.sessionId, at: Date.now(), agent: 'opencode' };
+  const sp = store.spaceOf(s.ws, s.sessionId); // it carries on in the same space; the Claude one stays in it too
+  if (sp) store.setSpace(s.ws, r.sessionId, sp);
   feed('continued', s, `${labelOf(s)} carries on in OpenCode${model ? ` on ${model}` : ''}.`);
   broadcast();
   return r;
@@ -3110,9 +3147,11 @@ function watcherOf(wsId) {
 // versions, and of every workspace only { id, name, color, waiting }. Nothing else of another workspace leaves here.
 function snapshot(wsId) {
   const now = Date.now(), ws = wsById(wsId);
+  claimSpaces(wsId);
   return {
     now, armed, rosterError: ws.rosterError, port: PORT, profile: ws.info, setup: setupOut(ws),
     workspace: wsView(wsId), workspaces: wsOrder().map((id) => ({ ...wsView(id), waiting: waitingOf(id) })),
+    spaces: store.spacesOf(wsId), // this workspace's only: a space's name never reaches another workspace's page
     oldVersions: oldVersions.filter((o) => o.ws === wsId).map(({ ws: _, ...o }) => ({ ...o, shown: true })),
     sessions: [...sessions.values()].filter((s) => s.ws === wsId).map((whole) => {
       const { spawns, hereCwd, rosterCwd, ranCwd, editTops, ocStatus: _ocs, ocRead: _ocr, ...s } = whole, { ask, mismatch } = sortOf(whole);
@@ -3121,7 +3160,7 @@ function snapshot(wsId) {
       const repoSide = mismatch ? { git: null, workCwd: null, cwd: null, gh: null, elsewhere: null }
         : { git, workCwd: here, gh: sessionGh(place, wsId), elsewhere: (editTops ?? []).filter((t) => t !== git?.top && !othersOnly(t, wsId)).slice(0, 3).map((t) => placeOut(gitPlace(t))).filter(Boolean) };
       return {
-      ...s, ...repoSide, repoAsk: ask, mismatch,
+      ...s, ...repoSide, repoAsk: ask, mismatch, space: store.spaceOf(wsId, s.sessionId),
       stopping: stops.has(stopKey(s.sessionId, null)), hostsPanel: hostPids.has(s.pid), termable: !termable(s),
       queued: inbox.get(s.sessionId) ?? [], working: isWorking(s),
       subagents: [...s.subagents.values()].map((a) => ({ ...a, stopping: !a.stoppedAt && stops.has(stopKey(s.sessionId, a.agentId)) })),
@@ -3300,7 +3339,10 @@ async function handle(req, res) {
       return send(res, r.ok ? 200 : 409, r);
     }
     if (url.pathname === '/api/launch') {
+      const space = body?.space ?? null;
+      if (space !== null && !store.spacesOf(focus).some((x) => x.id === space)) return send(res, 422, { ok: false, error: 'That space is gone. Pick another.' });
       const r = await launch(body, ctx.ws);
+      if (r.ok && space && r.id) pendingSpace.set(String(r.id), { ws: focus, space, at: Date.now() });
       if (!r.ok) loginFailed(r.error);
       if (r.ok) feed('launched', null, `You started a session in ${tilde(r.cwd ?? '')}.`, focus);
       return send(res, r.ok ? 200 : 422, r);
@@ -3314,6 +3356,7 @@ async function handle(req, res) {
                       '/api/folders': listFolders, '/api/folder': folderInfo, '/api/pick-folder': pickFolder,
                       '/api/workspace/focus': focusWorkspace, '/api/workspace/assign': assignRepo, '/api/workspace/update': updateWorkspace,
                       '/api/workspace/reorder': reorderWorkspaces, '/api/settings/assign': settingsAssign,
+                      '/api/space/create': createSpace, '/api/space/rename': renameSpace, '/api/space/delete': deleteSpace, '/api/space/move': moveToSpace,
                       // Any workspace's, from Settings' picker. The page routes (/api/watcher/enabled, /api/overseer/model)
                       // stay on the page's own workspace.
                       '/api/settings/autofix': (b) => (typeof b?.ws === 'string' && W.has(b.ws) ? nudgeIfOk(watcher.setEnabled(b?.on, b.ws)) : { ok: false, error: 'No such workspace.' }),
