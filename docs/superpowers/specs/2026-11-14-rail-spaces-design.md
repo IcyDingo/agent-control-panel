@@ -76,6 +76,10 @@ Finished
 ### Making and managing spaces
 - **New agent** gets a "Space" field: "None" (default), each existing space, and "New space…", which asks for a name
   inline. The launched agent lands in that space as soon as it shows in the rail.
+- *(Added 2026-11-14.)* **A + on each space and repository header** opens New agent already in it: the space picked
+  (or None, for a repository) and the folder filled in (a space's newest agent's folder, else New agent's usual one).
+  The form starts short: what it should do, one line saying where it goes and what it starts with, **More options**
+  for every other field, and Launch. New agent from the top bar stays the full form.
 - **Moving an agent:** the session's details (the side column, or under the conversation on a narrow panel) get a
   "Space" picker with the same choices. Picking one moves the agent at once; "None" sends it back to its repository
   section.
