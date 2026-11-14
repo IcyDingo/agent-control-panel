@@ -1247,6 +1247,8 @@ const LABEL = { waiting: 'Needs you', busy: 'Working', idle: 'Idle', finished: '
 const KIND = { background: 'Background session', interactive: 'Terminal session', opencode: 'OpenCode session' };
 /** An OpenCode session (opencode.mjs): OpenCode's own service runs it, so none of Claude Code's commands reach it. */
 const isOcS = (s) => s?.kind === 'opencode';
+/** An OpenCode session whose last turn ended in an error (a provider refusing it): it waits on you, saying the error. */
+const ocFailedS = (s) => isOcS(s) && s.waitingFor === 'provider error' && Boolean(s.ocError?.message);
 /** When a usage limit resets, as the clock reads it: "15:00", or a weekday and time further off. */
 const resetText = (ms) => { if (!ms) return ''; const d = new Date(ms), soon = ms - Date.now() < 20 * 3600_000;
   return d.toLocaleString([], soon ? { hour: '2-digit', minute: '2-digit' } : { weekday: 'short', hour: '2-digit', minute: '2-digit' }); };
@@ -1518,6 +1520,7 @@ function lineOf(s) {
   const st = stateOf(s), rs = reqsOf(s.sessionId);
   if (st === 'stopping') return ['Stopping at its next tool call'];
   if (rs.length) return [(rs[0].agentId ? 'Its subagent: ' : '') + askText(rs[0]) + (rs.length > 1 ? ` (+${rs.length - 1})` : '')];
+  if (st === 'waiting' && ocFailedS(s)) return [el('span', { class: 't', text: 'Error' }), s.ocError.message];
   if (st === 'waiting') return [s.kind === 'background' ? 'Waiting on something the panel can\'t read' : isOcS(s) ? 'Waiting on something to answer in OpenCode' : WAITING_FOR[s.waitingFor] || 'Waiting in its terminal'];
   if (st === 'busy') return s.lastTool ? [el('span', { class: 't', text: s.lastTool.tool }), s.lastTool.text] : ['Working'];
   if (atLimit(s)) return [el('span', { class: 't', text: 'Limit' }), limitLine(s)];
@@ -1780,7 +1783,7 @@ function detailOf(s, st) {
     const p = rs[0], name = p.toolName === 'ExitPlanMode' ? 'Plan' : p.toolName === 'AskUserQuestion' ? 'Asks' : p.toolName;
     return { text: (p.agentId ? 'sub:' : '') + name + (rs.length > 1 ? ` +${rs.length - 1}` : ''), full: (p.agentId ? 'Its subagent: ' : '') + askText(p) };
   }
-  if (st === 'waiting') return { text: isOcS(s) ? 'opencode' : 'terminal', full: textOf(lineOf(s)) };
+  if (st === 'waiting') return { text: ocFailedS(s) ? 'error' : isOcS(s) ? 'opencode' : 'terminal', full: textOf(lineOf(s)) };
   if (st === 'busy') return { text: s.lastTool?.tool ?? '', full: s.lastTool ? `${s.lastTool.tool} ${s.lastTool.text}` : '' };
   if (atLimit(s)) return { text: 'limit', full: limitLine(s) };
   return { text: '', full: '' };
@@ -2120,7 +2123,7 @@ function renderDrawer(vis) {
     || (st === 'idle' && Boolean(s.hostsPanel || s.bgTasks));     // "reply in its terminal", "N background tasks"
 
   $('d-line').hidden = !showNow;
-  if (showNow) patch($('d-line'), JSON.stringify([st, stateWord, s.lastTool?.tool, s.lastTool?.text, s.waitingFor, s.leftRosterAt, s.state, rs.length, s.bgTasks, s.hostsPanel]),
+  if (showNow) patch($('d-line'), JSON.stringify([st, stateWord, s.lastTool?.tool, s.lastTool?.text, s.waitingFor, s.ocError?.message, s.leftRosterAt, s.state, rs.length, s.bgTasks, s.hostsPanel]),
     () => [el('span', { class: 'tag', 'data-s': st }, glyph(st), stateWord), nowLine(s, st, rs)]);
   renderCompose(s, st);
 
@@ -2174,6 +2177,9 @@ function placeBar(s, here) {
 }
 function nowLine(s, st, rs) {
   if (st === 'stopping') return quiet('Stopping at its next tool call.');
+  if (st === 'waiting' && !rs.length && ocFailedS(s)) return el('div', { class: 'wait' },
+    el('b', { text: 'OpenCode stopped with an error. ' }), s.ocError.message,
+    el('div', { class: 'quiet', text: 'Fix it with the provider (top up, check the key), or connect another one in Settings › Providers, then send a message to carry on.' }));
   if (st === 'waiting' && !rs.length && isOcS(s)) return el('div', { class: 'wait', text: 'It waits on something the panel can\'t show. Answer it in OpenCode.' });
   if (st === 'waiting' && !rs.length) return el('div', { class: 'wait', text: s.kind === 'background'
     ? `It is waiting on something the panel can't read, maybe one of its subagents. Open it with claude attach ${s.id ?? ''}.`

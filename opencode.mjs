@@ -268,7 +268,8 @@ export function itemsOf(messages) {
     } else if (m?.type === 'shell' && typeof m.command === 'string') {
       out.push({ who: 'you', key: `you:${id}`, text: `! ${m.command}`, at, pos: base });
     } else if (m?.type === 'idle' && m.outcome === 'failed' && m.error?.message) {
-      out.push({ who: 'note', key: `note:${id}`, text: `It stopped: ${String(m.error.message).slice(0, 300)}`, at, pos: base });
+      const text = `It stopped: ${errorText(m.error)}`;
+      if (out.at(-1)?.text !== text) out.push({ who: 'note', key: `note:${id}`, text, error: true, at, pos: base });
     } else if (m?.type === 'assistant' && Array.isArray(m.content)) {
       m.content.forEach((b, bi) => {
         const pos = base + bi + 1;
@@ -284,9 +285,29 @@ export function itemsOf(messages) {
           }
         }
       });
+      // A reply that ended in an error (a provider refusing the call, say) carries it on the message itself.
+      if (m.error?.message) out.push({ who: 'note', key: `note:${id}:error`, text: `It stopped: ${errorText(m.error)}`, error: true, at, pos: base + 999 });
     }
   });
   return out;
+}
+
+/** A turn's error in one line: OpenCode's message, with the provider's own error name when it gives one. */
+export const errorText = (err) => String(err?.message ?? 'an error').replace(/\s+/g, ' ').trim().slice(0, 500);
+
+/** The error its latest turn ended with, or null: on the reply that failed (`error`, finish "error"), or on the turn's
+ *  closing idle (outcome "failed"). A turn is everything after your latest message; a later reply or a turn that went
+ *  on to succeed clears it. */
+export function turnErrorOf(messages) {
+  const list = (Array.isArray(messages) ? messages : []).slice().sort((a, b) => timeOf(a) - timeOf(b));
+  let err = null;
+  for (let i = list.length - 1; i >= 0; i--) {
+    const m = list[i];
+    if (m?.type === 'user' || m?.type === 'synthetic') break;
+    if (m?.type === 'idle') { if (m.outcome === 'failed' && m.error) err ??= m.error; else if (!err) return null; }
+    if (m?.type === 'assistant' && m.error) err ??= m.error;
+  }
+  return err ? { message: errorText(err), type: typeof err.type === 'string' ? err.type.slice(0, 80) : null, status: Number.isInteger(err.status) ? err.status : null } : null;
 }
 
 /** What it said last, for the board's tile. */
@@ -357,9 +378,13 @@ export function formAnswer(form, answers) {
 }
 
 /** What an event changes about a session's status, or null when it changes nothing. `status` is idle, busy or
- *  retrying; `note` says why; `refresh` asks the caller to read its messages again (the chat, what it said last). */
+ *  retrying; `note` is a passing word on it (a retry), cleared when the status moves on; `error` is what a failed turn
+ *  ended with, which stays until a new turn starts (`clearError`), so the idle that follows a failure can't wipe it;
+ *  `refresh` asks the caller to read its messages again (the chat, what it said last). */
 export function statusOf(e) {
   const d = e?.data ?? {};
+  const failed = () => ({ sessionID: d.sessionID, status: 'idle', note: null, error: { message: errorText(d.error), type: typeof d.error?.type === 'string' ? d.error.type.slice(0, 80) : null,
+                                                                                     status: Number.isInteger(d.error?.status) ? d.error.status : null }, refresh: true });
   switch (e?.type) {
     case 'session.status': {
       const t = d.status?.type;
@@ -369,10 +394,11 @@ export function statusOf(e) {
       return null;
     }
     case 'session.idle': return { sessionID: d.sessionID, status: 'idle', refresh: true };
-    case 'session.execution.started': return { sessionID: d.sessionID, status: 'busy', note: null };
-    case 'session.execution.failed': return { sessionID: d.sessionID, status: 'idle', note: `Its last turn failed: ${String(d.error?.message ?? 'an error').slice(0, 300)}`, error: d.error ?? null, refresh: true };
+    case 'session.execution.started': return { sessionID: d.sessionID, status: 'busy', note: null, clearError: true };
+    case 'session.execution.failed': return failed();
+    case 'session.step.failed': return d.error ? { ...failed(), status: undefined } : null; // the turn may still go on (a retry); its end says
     case 'session.execution.succeeded':
-    case 'session.execution.interrupted': return { sessionID: d.sessionID, status: 'idle', refresh: true };
+    case 'session.execution.interrupted': return { sessionID: d.sessionID, status: 'idle', clearError: true, refresh: true };
     case 'session.tool.called': return { sessionID: d.sessionID, tool: { input: d.input ?? {} }, refresh: true };
     case 'session.tool.success':
     case 'session.tool.failed':

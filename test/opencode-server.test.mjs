@@ -47,7 +47,7 @@ esac
 `, { mode: 0o755 });
 
 // ---- the stand-in OpenCode service
-const oc = { sessions: new Map(), messages: new Map(), active: new Set(), perms: [], creds: [], code: null, calls: [], streams: new Set(), n: 0 };
+const oc = { sessions: new Map(), messages: new Map(), active: new Set(), perms: [], creds: [], code: null, refuse: null, calls: [], streams: new Set(), n: 0 };
 const json = (res, code, body) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(body === undefined ? '' : JSON.stringify(body)); };
 const emit = (type, data) => { for (const r of oc.streams) r.write(`data: ${JSON.stringify({ id: 'evt_' + (++oc.n), created: Date.now(), type, data })}\n\n`); };
 const svc = http.createServer((req, res) => {
@@ -78,7 +78,16 @@ const svc = http.createServer((req, res) => {
     }
     if ((m = p.match(/^\/api\/session\/(ses_\w+)\/(prompt|synthetic)$/))) {
       oc.messages.get(m[1]).push({ id: 'msg_' + (++oc.n), type: m[2] === 'prompt' ? 'user' : 'synthetic', text: body.text, time: { created: Date.now() } });
-      if (m[2] === 'prompt') oc.active.add(m[1]);
+      if (m[2] === 'prompt' && oc.refuse) {
+        // The provider refuses the call: the turn ends at once, with no text, as OpenCode reports it.
+        const error = { type: 'ProviderRequestError', message: oc.refuse, status: 402 }, sid = m[1];
+        setTimeout(() => {
+          oc.messages.get(sid).push({ id: 'msg_' + (++oc.n), type: 'assistant', time: { created: Date.now() }, content: [], finish: 'error', error },
+                                    { id: 'msg_' + (++oc.n), type: 'idle', outcome: 'failed', error, time: { created: Date.now() + 1 } });
+          emit('session.execution.failed', { sessionID: sid, error });
+          emit('session.status', { sessionID: sid, status: { type: 'idle' } });
+        }, 100);
+      } else if (m[2] === 'prompt') oc.active.add(m[1]);
       return json(res, 200, { data: { id: 'msg_x', sessionID: m[1], type: 'user' } });
     }
     if ((m = p.match(/^\/api\/session\/(ses_\w+)\/message$/))) return json(res, 200, { data: oc.messages.get(m[1]) ?? [] });
@@ -260,6 +269,33 @@ test('the overseer offers OpenCode\'s models and answers through OpenCode on one
   assert.match(oc.calls.findLast((c) => c.path.endsWith('/generate')).body.prompt, /JSON Schema[\s\S]*<you>What is going on\?<\/you>/);
   const own = [...oc.sessions.keys()].at(-1);
   assert.ok(!(await snapshot()).sessions.some((s) => s.sessionId === own), 'its session is not on the board');
+});
+
+test('a turn the provider refuses (out of credit) shows its error as what it said, and needs you until you reply', async () => {
+  const BROKE = 'Account.InsufficientFunds - Insufficient balance. Top up at https://opencode.ai/console/billing';
+  oc.refuse = BROKE;
+  const r = await api('/api/launch', { prompt: 'None of the shortcuts really seem to work?????', cwd: proj, agentKind: 'opencode', mode: 'default' });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  const snap = await until((x) => x.sessions.some((s) => s.sessionId === r.sessionId && s.waitingFor === 'provider error'), 'it needs you, with the error');
+  const s = snap.sessions.find((y) => y.sessionId === r.sessionId);
+  assert.equal(s.status, 'waiting');
+  assert.equal(s.ocError.message, BROKE);
+  assert.equal(s.lastMessage, `OpenCode stopped with an error: ${BROKE}`);
+  assert.ok(!snap.pending.some((p) => p.sessionId === r.sessionId), 'not a card: there is nothing to allow');
+  // It stays that way through the poll that follows (the service says it is idle, its messages say how the turn ended).
+  await new Promise((ok) => setTimeout(ok, 3500));
+  assert.equal((await snapshot()).sessions.find((y) => y.sessionId === r.sessionId).waitingFor, 'provider error');
+  const h = await api('/api/history', { sessionId: r.sessionId });
+  assert.deepEqual(h.items.map((m) => m.who), ['you', 'note']);
+  assert.equal(h.items[1].text, `It stopped: ${BROKE}`);
+  // A reply starts a new turn: the error is behind it.
+  oc.refuse = null;
+  assert.equal((await api('/api/reply', { sessionId: r.sessionId, text: 'Try again on another model' })).ok, true);
+  const after = (await snapshot()).sessions.find((y) => y.sessionId === r.sessionId);
+  assert.equal(after.status, 'busy');
+  assert.equal(after.ocError, null);
+  await api('/api/end', { sessionId: r.sessionId });
+  await api('/api/remove', { sessionId: r.sessionId });
 });
 
 test('providers connect from Glue: a key goes through, a browser sign-in finishes with its code, an account comes off', async () => {

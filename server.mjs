@@ -32,7 +32,7 @@ import { sanitizeGlue, mergeGlue } from './glue-prefs.mjs';
 import * as daemon from './daemon.mjs';
 import { terminalCommand } from './terminal.mjs';
 import { createClient as createOcClient, findService, findBinary as findOcBinary, OC_ID, OC_MODES, permissionRules, agentFor, modelRef, refText,
-         pickable, itemsOf, lastSaidOf, modelOfMessages, requestOf, questionOf, formAnswer, statusOf, briefOf, providersOf } from './opencode.mjs';
+         pickable, itemsOf, lastSaidOf, modelOfMessages, requestOf, questionOf, formAnswer, statusOf, briefOf, providersOf, turnErrorOf } from './opencode.mjs';
 import { logDir as linuxLogDir } from './paths.mjs';
 
 // `node server.mjs <command>` runs the CLI (cli.mjs) and never starts the server.
@@ -2613,10 +2613,13 @@ function ocApply(s) {
   const asks = ocAsks.get(s.sessionId), was = s.status;
   if (isEnded(s)) { s.status = null; s.waitingFor = null; return; }
   const perms = asks?.perms.length ?? 0, forms = asks?.forms.length ?? 0;
-  s.status = perms || forms ? 'waiting' : s.ocStatus ?? null;
-  s.waitingFor = perms ? 'permission prompt' : forms ? 'input needed' : null;
+  // A turn that ended in an error (a provider out of credit, a key refused) needs you: a top-up, another provider,
+  // a new message. It waits under Needs you, saying the error, until a new turn starts.
+  const failed = Boolean(s.ocError) && s.ocStatus !== 'busy';
+  s.status = perms || forms || failed ? 'waiting' : s.ocStatus ?? null;
+  s.waitingFor = perms ? 'permission prompt' : forms ? 'input needed' : failed ? 'provider error' : null;
   if (was === s.status) return;
-  if (s.status === 'waiting') feed('needs-you', s, `${labelOf(s)} waits for you (${s.waitingFor}).`);
+  if (s.status === 'waiting') feed('needs-you', s, failed && !perms && !forms ? `${labelOf(s)} stopped with an error: ${s.ocError.message}` : `${labelOf(s)} waits for you (${s.waitingFor}).`);
   else if (was === 'busy' && s.status === 'idle') ocRefresh(s); // an event missed while the stream was down
   if (was === 'busy' && s.status === 'idle') feed('finished', s, `${labelOf(s)} finished its turn${s.lastMessage ? `: ${String(s.lastMessage).replace(/\s+/g, ' ').slice(0, 140)}` : '.'}`);
 }
@@ -2686,6 +2689,8 @@ function onOcEvent(e) {
   }
   if (u.status && !isEnded(s)) s.ocStatus = u.status;
   if ('note' in u) s.note = u.note ? { type: 'opencode', text: u.note, at: Date.now() } : null;
+  if (u.clearError) s.ocError = null;
+  if (u.error) ocFailed(s, u.error);
   if (u.tool) s.lastTool = summarize('Tool', u.tool.input);
   if (u.asks) ocReadAsks(u.sessionID);
   if (u.refresh) ocRefresh(s);
@@ -2693,6 +2698,13 @@ function onOcEvent(e) {
   broadcast();
 }
 
+/** Its latest turn ended in `err` ({ message, type, status }): what it said is the error, word for word, and it needs
+ *  you (ocApply). */
+function ocFailed(s, err) {
+  s.ocError = { message: err.message, type: err.type ?? null, status: err.status ?? null, at: s.ocError?.message === err.message ? s.ocError.at : Date.now() };
+  s.lastMessage = `OpenCode stopped with an error: ${err.message}`;
+  s.lastMessageAt = Date.now();
+}
 /** Read its messages again, a moment after the last event that asked: what it said last, its model, and the Chat of
  *  any page that has it open. */
 const ocRefreshing = new Map();
@@ -2702,9 +2714,13 @@ function ocRefresh(s, ms = 250) {
     ocRefreshing.delete(s.sessionId);
     let msgs;
     try { msgs = await oc.messages(s.sessionId); } catch { return; }
-    const said = lastSaidOf(msgs);
+    const said = lastSaidOf(msgs), err = turnErrorOf(msgs);
     if (said) { s.lastMessage = trimMid(said, 3000); s.lastMessageAt = Date.now(); }
+    // Its messages say how its latest turn ended, also for one that failed before Glue was watching (or started).
+    if (err && s.ocStatus !== 'busy') ocFailed(s, err);
+    else if (!err && s.ocError && s.ocStatus !== 'busy') s.ocError = null;
     s.model = modelOfMessages(msgs) ?? s.model;
+    ocApply(s);
     if (follows.has(s.sessionId)) { try { threadOf(s.sessionId).addItems(itemsOf(msgs)); } catch (err) { console.error('thread:', err?.message ?? err); } }
     broadcast();
   }, ms));
@@ -2769,6 +2785,7 @@ async function ocReply(s, body) {
   if (!up.ok) return up;
   if (body?.mode && body.mode !== s.mode) { const r = await ocMode(s, body.mode); if (!r.ok) return r; }
   try { await oc.prompt(s.sessionId, text, { delivery: 'queue' }); } catch (e) { return fail(e.message); }
+  s.ocError = null; // a new turn: what the last one failed with is behind it
   if (isEnded(s)) {
     Object.assign(s, { ended: false, state: null });
     if (ocRecords[s.sessionId]) { ocRecords[s.sessionId].ended = false; saveOc(); }
