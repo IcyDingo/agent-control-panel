@@ -1042,6 +1042,18 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 .ov-act .row { margin-top: 2px; }
 .ov-act .lf-inline { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--fg-dim); }
 .ov-act .lf-inline input[type="text"] { flex: 1; min-width: 0; height: 30px; padding: 0 10px; border: 1px solid transparent; border-radius: var(--r-1); background: var(--code); font: 12.5px var(--mono); }
+/* Follow up: agents that stopped before the work was done, each with what it asks and a drafted reply to send. */
+#h-follow:empty { display: none; }
+#h-follow { display: grid; gap: 10px; margin-bottom: 24px; }
+.fu-head { display: flex; align-items: baseline; gap: 8px; font-size: 13px; font-weight: 600; }
+.fu-head .fu-n { color: var(--fg-dim); font: 500 12px var(--mono); }
+.fu-card .a-head .tag { flex: none; }
+.fu-card .a-head .ft { flex: none; margin-left: auto; font: 11.5px var(--mono); color: var(--fg-faint); }
+.fu-card .fu-ask { margin: 0; font-size: 13.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.fu-card details summary { cursor: pointer; color: var(--fg-faint); font-size: 12px; }
+.fu-card details .m-body { margin-top: 6px; max-height: 18em; overflow: auto; font-size: 13px; color: var(--fg-dim); }
+.fu-card[data-v="needs-answer"] { background: var(--amber-fill); }
+.fu-card[data-v="stopped-short"] { background: var(--run-fill); }
 /* The GitHub panel's lists: each repository's pull requests and default-branch runs, with their states. */
 .gh-side .gh-hint { margin: 8px 0 0; color: var(--fg-dim); font-size: 12.5px; line-height: 1.5; }
 .gh-side .gh-hint p { margin: 0; }
@@ -1165,6 +1177,7 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
       </div></div>
       <div class="d-scroll" id="h-scroll">
         <div class="d-col">
+          <div id="h-follow"></div>
           <div id="h-next"></div>
           <div class="h-intro" id="h-intro"></div>
           <div class="thread" id="h-thread"></div>
@@ -3211,11 +3224,12 @@ const ovRow = el('button', { class: 'srow ov', type: 'button', title: 'The overs
   onclick: () => { cancelAdvance(); selectNow(); subFocus = null; open = null; homeOpen = true; render(); $('h-say').focus({ preventScroll: true }); } },
   el('span', { class: 'chev-slot', 'aria-hidden': 'true' }), el('span', { class: 'ov-mark', 'aria-hidden': 'true' }), el('span', { class: 'tname', text: 'Overseer' }), el('span', { class: 'tdetail' }));
 function renderOvRow() {
-  const st = snap.overseer, n = st?.proposed ?? 0;
+  const st = snap.overseer, n = st?.proposed ?? 0, fu = st?.follow?.length ?? 0;
   setAttr(ovRow, 'aria-current', String(open === null));
   setAttr(ovRow, 'data-busy', st?.busy ? '1' : '0');
-  setAttr(ovRow, 'data-proposed', n ? '1' : '0');
-  setText(ovRow.lastChild, st?.busy ? (st.busy.phase === 'looking' ? 'reading' : 'thinking') : n ? `${n} to confirm` : '');
+  setAttr(ovRow, 'data-proposed', n || fu ? '1' : '0');
+  const waits = [n ? `${n} to confirm` : '', fu ? `${fu} to follow up` : ''].filter(Boolean).join(' · ');
+  setText(ovRow.lastChild, st?.busy ? (st.busy.phase === 'looking' ? 'reading' : 'thinking') : waits);
 }
 /** A short time of day, or a date when it is not today. */
 function clock(at) {
@@ -3223,6 +3237,13 @@ function clock(at) {
   return today ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 const sessionByShort = (id) => snap.sessions.find((s) => s.sessionId === id);
+/** How a message to session `s` would arrive now (the server's tellEffect), in words, and whether that's a warning. */
+function howWords(how, s) {
+  if (how === 'send') return ['It reads this at its next step.', false];
+  if (how === 'queue') return ['It is working, so this waits until it is done.', false];
+  if (how === 'restart') return [s?.kind === 'interactive' && s.inRoster ? 'Sending closes Claude in its terminal; it carries on in the background with this.' : 'It restarts in the background with this as its next prompt.', true];
+  return null;
+}
 /** One proposal: what it does, to whom, the exact words, and Run or Decline while it waits. */
 function actCard(t, a) {
   const live = a.state === 'proposed' && !a.expired, s = a.sessionId ? sessionByShort(a.sessionId) : null, who = a.target || (s && label(s)) || 'a session';
@@ -3235,9 +3256,7 @@ function actCard(t, a) {
     requestAnimationFrame(() => fit(ta));
     return ta;
   };
-  const HOW = { send: ['It reads this at its next step.', false], queue: ['It is working, so this waits until it is done.', false],
-    restart: [s?.kind === 'interactive' && s.inRoster ? 'Sending closes Claude in its terminal; it carries on in the background with this.' : 'It restarts in the background with this as its next prompt.', true] };
-  const how = a.type === 'tell' && live ? HOW[a.how] : null;
+  const how = a.type === 'tell' && live ? howWords(a.how, s) : null;
   const RUN = { tell: 'Send', launch: 'Start it', interrupt: 'Interrupt' };
   const STATE = { running: 'Running…', declined: 'Declined', done: a.result || 'Done', failed: a.result || 'It failed', invalid: a.result || 'It cannot run' };
   return el('div', { class: 'ov-act', 'data-state': live ? 'proposed' : a.state },
@@ -3262,6 +3281,59 @@ async function actOn(t, a, decision, btn) {
   if (!r.ok) { toast(r.error || 'It did not run.', true); return; }
   ovEdits.delete(a.id);
   if (r.action?.type === 'launch' && r.action.state === 'done') { const id = /\((\w+)\)/.exec(r.action.result ?? '')?.[1]; if (id) launchedId = id; }
+}
+// ---------- follow up: agents that stopped before the work was done (the overseer checks each turn's last message) ----------
+const fuEdits = new Map(); // sessionId → the reply as you changed it
+const fuNodes = new Map(); // sessionId → { sig, node }
+const fuSure = new Set();  // sessionIds whose send was held for a restart: the next click sends anyway
+const FU_WORDS = { 'needs-answer': 'Asks you', 'stopped-short': 'Stopped short' };
+/** The cards, newest first. Each is rebuilt only when it changes, so a reply you are editing survives a broadcast. */
+function renderFollow() {
+  const list = snap.overseer?.follow ?? [], box = $('h-follow');
+  if (!list.length) { box.replaceChildren(); fuNodes.clear(); return; }
+  const want = [box.firstChild?.classList?.contains('fu-head') ? box.firstChild : el('div', { class: 'fu-head' }, el('span', { text: 'Follow up' }), el('span', { class: 'fu-n' }))];
+  setText(want[0].lastChild, String(list.length));
+  for (const f of list) {
+    const s = sessionByShort(f.sessionId), sig = JSON.stringify([f, s && label(s), s?.lastMessage, fuSure.has(f.sessionId)]);
+    let n = fuNodes.get(f.sessionId);
+    if (!n || n.sig !== sig) { n = { sig, node: fuCard(f, s) }; fuNodes.set(f.sessionId, n); }
+    want.push(n.node);
+  }
+  const keep = new Set(list.map((f) => f.sessionId));
+  for (const k of fuNodes.keys()) if (!keep.has(k)) { fuNodes.delete(k); fuEdits.delete(k); fuSure.delete(k); }
+  want.forEach((n, i) => { if (box.children[i] !== n) box.insertBefore(n, box.children[i] ?? null); });
+  while (box.children.length > want.length) box.lastChild.remove();
+}
+/** One agent to follow up: what it asks or left, what it said, a drafted reply you can change, and Send, Open, Dismiss. */
+function fuCard(f, s) {
+  const name = s ? label(s) : f.sessionId.slice(0, 8), how = howWords(f.how, s);
+  const ta = el('textarea', { class: 'cmd', rows: 2, 'aria-label': `Your reply to ${name}`, spellcheck: 'true' });
+  ta.value = fuEdits.get(f.sessionId) ?? f.reply;
+  ta.classList.toggle('edited', ta.value !== f.reply);
+  ta.oninput = () => { fuEdits.set(f.sessionId, ta.value); ta.classList.toggle('edited', ta.value !== f.reply); fit(ta); };
+  ta.onkeydown = (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send.click(); } };
+  requestAnimationFrame(() => fit(ta));
+  const send = el('button', { class: 'btn primary small', type: 'button', text: fuSure.has(f.sessionId) ? 'Send anyway' : 'Send',
+    title: 'Send this to the agent (⌘↩)', onclick: (e) => fuAct(f, 'send', e.currentTarget, ta.value) });
+  return el('div', { class: 'ov-act fu-card', 'data-state': 'proposed', 'data-v': f.verdict },
+    el('div', { class: 'a-head' }, el('span', { class: 'a-what', text: name }), el('span', { class: 'tag', text: FU_WORDS[f.verdict] ?? f.verdict }),
+      el('span', { class: 'ft', text: clock(f.at), title: new Date(f.at).toLocaleString() })),
+    f.ask ? el('p', { class: 'fu-ask', text: f.ask }) : null,
+    s?.lastMessage ? el('details', {}, el('summary', { text: 'What it said' }), el('div', { class: 'm-body' }, md(s.lastMessage))) : null,
+    ta,
+    how ? el('div', { class: 'a-how' + (how[1] ? ' warn' : ''), text: how[0] }) : null,
+    el('div', { class: 'row' }, send,
+      el('button', { class: 'btn quiet small', type: 'button', text: 'Open', onclick: () => { cancelAdvance(); open = f.sessionId; render(); } }),
+      el('button', { class: 'btn quiet small', type: 'button', text: 'Dismiss', title: 'Nothing to follow up: hide this card', onclick: (e) => fuAct(f, 'dismiss', e.currentTarget) })));
+}
+async function fuAct(f, decision, btn, text) {
+  btn.disabled = true;
+  const r = await api('/api/overseer/follow', { sessionId: f.sessionId, decision, text, how: fuSure.has(f.sessionId) ? 'restart' : f.how });
+  btn.disabled = false;
+  if (r.how === 'restart') { fuSure.add(f.sessionId); toast(r.error); render(); return; }
+  if (!r.ok) { toast(r.error || 'It did not go through.', true); return; }
+  fuEdits.delete(f.sessionId); fuSure.delete(f.sessionId);
+  if (r.result && r.result !== 'Sent.') toast(r.result);
 }
 const ovNodes = new Map(); // thread key → { sig, node }
 /** The thread: your messages, its answers with their proposals, and feed lines, in time order. Each item is rebuilt
@@ -3503,6 +3575,7 @@ function renderHome(g) {
   const starters = !ov.turns.length && !busy;
   patch($('h-chips'), String(starters), () => starters
     ? STARTERS.map((q) => el('button', { class: 'chip', type: 'button', text: q, onclick: () => sayOverseer(q) })) : null);
+  renderFollow();
   renderOvThread();
   $('h-busy').hidden = !busy;
   if (busy) patch($('h-busy'), JSON.stringify([busy.phase, Math.floor((snap.now - busy.since) / 1000)]), () => [
@@ -5152,7 +5225,11 @@ function setOverseerTab(panel) {
   // longer lists (its service is down) stays in the list, so the select still shows it.
   const inUse = [...list.map((w) => w.overseerModel), setData.glue?.overseerModel].filter((m) => m && !models.includes(m));
   const options = [...models, ...new Set(inUse)].map((m) => [m, ovModelName(m)]);
-  setPatch(box, JSON.stringify([models, list.map((w) => [w.id, w.name, w.overseerModel]), setData.glue?.overseerModel]), () => [
+  setPatch(box, JSON.stringify([models, list.map((w) => [w.id, w.name, w.overseerModel]), setData.glue?.overseerModel, setData.glue?.followUps]), () => [
+    el('section', { class: 'set-block', 'aria-label': 'Follow up' }, setBlockHead(null, 'Follow up'),
+      el('div', { class: 'set-opts' },
+        setOpt('Check agents when they stop', 'When an agent ends its turn, the overseer reads its last message with Haiku, on the workspace’s Claude login. One that asks you something or stopped before the work was done gets a card at the top of the overseer, with a reply drafted for you to send.',
+          setSwitch('follow-ups', 'Check agents when they stop', setData.glue?.followUps !== false, (on) => setGlue({ followUps: on }))))),
     // Each workspace's own overseer, a row each: the same choice sits under its composer.
     el('section', { class: 'set-block', 'aria-label': 'Model' }, setBlockHead(null, 'Model'),
       el('p', { class: 'set-lead set-in', text: 'The model each workspace’s overseer answers with. The same choice sits under its composer.' }),

@@ -301,7 +301,7 @@ test('a declined proposal is marked declined; a confirmed one resumes the job in
 
 test('the overseer routes need the token', async () => {
   const n = calls(claudeCalls).filter((c) => c.args[0] === '-p').length;
-  for (const p of ['/api/overseer/say', '/api/overseer/turns', '/api/overseer/act', '/api/github/log']) {
+  for (const p of ['/api/overseer/say', '/api/overseer/turns', '/api/overseer/act', '/api/overseer/follow', '/api/github/log']) {
     const r = await post(p, { text: 'hello' }, '0'.repeat(48));
     assert.equal(r.status, 403, p);
   }
@@ -309,6 +309,32 @@ test('the overseer routes need the token', async () => {
   assert.equal(noOrigin.status, 403, 'and a same-origin Origin');
   await pause(300);
   assert.equal(calls(claudeCalls).filter((c) => c.args[0] === '-p').length, n, 'nothing was asked');
+});
+
+test('a follow-up that is not open is refused, and the snapshot lists the open ones', async () => {
+  const r = await api('/api/overseer/follow', { sessionId: SID, decision: 'send', text: 'Yes.' });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /not open any more/);
+  assert.deepEqual((await snapshot()).overseer.follow, []);
+});
+
+test('an agent that ends its turn with a question gets a follow-up card from one locked-down Haiku call', async () => {
+  const verdict = { verdict: 'needs-answer', ask: 'Should it also update the docs?', reply: 'Yes, update the docs too.' };
+  fs.writeFileSync(answers, JSON.stringify([tellAnswer, tellAnswer, verdict, slashAnswer]));
+  const r = await fetch(BASE + '/hook/event', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ hook_event_name: 'Stop', session_id: SID, cwd: repo, last_assistant_message: 'Feature x works. Should I also update the docs?' }) });
+  assert.equal(r.status, 200);
+  const card = await until(async () => (await snapshot()).overseer.follow[0]);
+  assert.ok(card, 'a card shows');
+  assert.equal(card.sessionId, SID);
+  assert.equal(card.ask, verdict.ask);
+  assert.equal(card.reply, verdict.reply);
+  const call = calls(claudeCalls).filter((c) => c.args[0] === '-p').at(-1);
+  assert.equal(call.args[call.args.indexOf('--model') + 1], 'haiku');
+  assert.equal(call.args[call.args.indexOf('--tools') + 1], '');
+  assert.match(call.args.at(-1), /Should I also update the docs\?/);
+  assert.deepEqual(await api('/api/overseer/follow', { sessionId: SID, decision: 'dismiss' }), { ok: true });
+  assert.deepEqual((await snapshot()).overseer.follow, []);
 });
 
 test('a proposed tell that starts with / is kept as invalid, and cannot be run', async () => {
@@ -322,7 +348,7 @@ test('a proposed tell that starts with / is kept as invalid, and cannot be run',
   assert.equal(r.ok, false);
   assert.match(r.error, /^The panel won't run this one\./);
   assert.equal(calls(claudeCalls).filter((c) => c.args[0] === '--bg').length, 1, 'nothing more was sent');
-  assert.equal(fs.readFileSync(counter, 'utf8'), '3', 'three asks in all');
+  assert.equal(fs.readFileSync(counter, 'utf8'), '4', 'four asks in all: three messages and a follow-up check');
 });
 
 test('the PR watcher, turned on, asks the job on the failing branch to fix it, with the failing log', async () => {

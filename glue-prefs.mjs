@@ -1,5 +1,5 @@
 // Glue-wide preferences: what applies to every workspace and every page (the theme, which queues start folded, which
-// events notify, the title count, what a new agent starts with, the overseer's model). Pure functions over plain
+// events notify, the title count, what a new agent starts with, the overseer's model and follow-up checks). Pure functions over plain
 // objects; where they are kept is the caller's business. Node standard library only.
 //
 // Not here, on purpose: "Answering here" (`armed`). It resets to on at every start, so it is never remembered.
@@ -29,6 +29,7 @@ export const GLUE_DEFAULTS = Object.freeze({
   titleCount: true,
   agentDefaults: Object.freeze({ model: '', effort: '', mode: 'default', worktree: false, agent: 'claude', opencodeModel: '' }),
   overseerModel: 'sonnet',
+  followUps: true, // the overseer reads each agent's last message when its turn ends (a Haiku call), for follow-up cards
   fallbackModel: '', // the OpenCode model a Claude session at its usage limit carries on with; empty: OpenCode's default
 
   seeded: false,
@@ -49,6 +50,7 @@ const SHAPE = {
   agentDefaults: { model: oneOf(AGENT_MODELS), effort: oneOf(AGENT_EFFORTS), mode: oneOf(AGENT_MODES), worktree: isBool,
                    agent: oneOf(AGENT_KINDS), opencodeModel: ocModel },
   overseerModel: isOverseerModel,
+  followUps: isBool,
   fallbackModel: ocModel,
   seeded: isBool,
 };

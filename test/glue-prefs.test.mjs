@@ -14,7 +14,9 @@ test('defaults for missing, null, corrupt', () => {
   assert.deepEqual(sanitizeGlue({ notify: { ci: 'x' } }), GLUE_DEFAULTS);
   assert.deepEqual(sanitizeGlue({ notify: 5, agentDefaults: 'no', folded: 'no' }), GLUE_DEFAULTS);
   // valid fields are kept beside bad ones
-  const g = sanitizeGlue({ theme: 'light', notify: { ci: false, watcher: 'x' }, titleCount: 'x', overseerModel: 'opus', bogus: 1 });
+  const g = sanitizeGlue({ theme: 'light', notify: { ci: false, watcher: 'x' }, titleCount: 'x', overseerModel: 'opus', followUps: 'no', bogus: 1 });
+  assert.equal(sanitizeGlue({ followUps: false }).followUps, false);
+  assert.equal(g.followUps, true);
   assert.equal(g.theme, 'light');
   assert.deepEqual(g.notify, { requests: true, ci: false, watcher: true });
   assert.equal(g.titleCount, true);
@@ -25,7 +27,7 @@ test('defaults for missing, null, corrupt', () => {
 test('the defaults match the page and the server', () => {
   assert.deepEqual(GLUE_DEFAULTS, { theme: 'dark', folded: ['finished'], notify: { requests: true, ci: true, watcher: true },
     titleCount: true, agentDefaults: { model: '', effort: '', mode: 'default', worktree: false, agent: 'claude', opencodeModel: '' },
-    overseerModel: 'sonnet', fallbackModel: '', seeded: false });
+    overseerModel: 'sonnet', followUps: true, fallbackModel: '', seeded: false });
 });
 
 test('the OpenCode defaults: which agent, and models by their provider/model shape', () => {
