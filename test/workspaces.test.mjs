@@ -15,8 +15,8 @@ test('a first start makes a workspace for each profile found, with that profile 
   assert.deepEqual(s.list().map((w) => [w.id, w.name, w.color]), [['contract', 'claude-contract', 'blue'], ['default', 'claude', 'violet']]);
   assert.deepEqual(s.list().map((w) => w.order), [0, 1]);
   assert.deepEqual(s.logins(), [{ id: 'contract', provider: 'claude', label: 'claude-contract', dir: '/h/.claude-contract' },
-    { id: 'default', provider: 'claude', label: 'claude', dir: '/h/.claude' }]);
-  assert.deepEqual(s.loginsOf('contract'), ['contract']);
+    { id: 'default', provider: 'claude', label: 'claude', dir: '/h/.claude' }, { id: 'opencode', provider: 'opencode', label: 'OpenCode', dir: '' }]);
+  assert.deepEqual(s.loginsOf('contract'), ['contract', 'opencode']);
   assert.equal(s.defaultOf('default', 'claude'), 'default');
   assert.equal(s.defaultOf('default', 'codex'), null);
   assert.equal(COLORS.violet, '#a98af0');
@@ -28,7 +28,7 @@ test('with no profile yet, one workspace on plain claude; ~/.codex is an OpenAI 
   assert.deepEqual(s.list().map((w) => w.id), ['default']);
   assert.deepEqual(s.login('default'), { id: 'default', provider: 'claude', label: 'claude', dir: '/h/.claude' });
   assert.deepEqual(s.login('codex'), { id: 'codex', provider: 'codex', label: 'OpenAI', dir: '/h/.codex' });
-  assert.deepEqual(s.loginsOf('default'), ['default', 'codex']);
+  assert.deepEqual(s.loginsOf('default'), ['default', 'codex', 'opencode']);
   assert.equal(s.defaultOf('default', 'codex'), 'codex');
 });
 
@@ -43,8 +43,8 @@ test('a v1 file (a workspace per profile) upgrades keeping every id, name, colou
   assert.equal(s.focus(), 'contract');
   assert.equal(s.spaceOf('contract', SID), 'sp1');
   assert.deepEqual(s.login('contract'), { id: 'contract', provider: 'claude', label: 'Work', dir: '/h/.claude-contract' });
-  assert.deepEqual(s.loginsOf('default'), ['default', 'codex'], '~/.codex goes on the workspace on plain claude');
-  assert.deepEqual(s.loginsOf('new'), ['new'], 'a profile v1 had not listed yet still gets its workspace');
+  assert.deepEqual(s.loginsOf('default'), ['default', 'codex', 'opencode'], '~/.codex goes on the workspace on plain claude');
+  assert.deepEqual(s.loginsOf('new'), ['new', 'opencode'], 'a profile v1 had not listed yet still gets its workspace');
   const again = createStore({ file, home: '/h', profiles: [] });
   assert.deepEqual(again.list().map((w) => w.id), ['default', 'contract', 'new'], 'kept as v2: profiles no longer make workspaces');
   assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).v, 2);
@@ -83,7 +83,7 @@ test('a workspace uses several logins per provider, one the default; one login s
   s.attach('contract', 'second-max');
   s.attach('contract', key);
   s.attach('default', 'second-max');
-  assert.deepEqual(s.loginsOf('contract'), ['contract', 'second-max', key]);
+  assert.deepEqual(s.loginsOf('contract'), ['contract', 'opencode', 'second-max', key]);
   assert.equal(s.defaultOf('contract', 'claude'), 'contract', 'the first stays the default');
   assert.equal(s.defaultOf('contract', 'codex'), key);
   assert.deepEqual(s.setDefault('contract', 'second-max'), { ok: true });
@@ -97,12 +97,29 @@ test('a workspace uses several logins per provider, one the default; one login s
   assert.equal(s.login('second-max').label, 'Max 2');
 });
 
+test('OpenCode is one login, used by every workspace to start with, ticked off per workspace, and never removed', () => {
+  const file = tmp();
+  const s = createStore({ file, home: '/h', profiles: PROFILES });
+  assert.deepEqual(s.usersOf('opencode'), ['contract', 'default']);
+  assert.equal(s.defaultOf('default', 'opencode'), null, 'it has no default: it picks its own model');
+  s.detach('contract', 'opencode');
+  assert.deepEqual(createStore({ file, home: '/h', profiles: PROFILES }).usersOf('opencode'), ['default'], 'unticked stays unticked');
+  assert.equal(s.removeLogin('opencode').ok, false);
+  assert.equal(s.renameLogin('opencode', 'X').ok, false);
+  // A v2 file from before OpenCode was a login gets it, in every workspace, once.
+  const old = tmp(), saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+  delete saved.logins.opencode;
+  for (const w of Object.values(saved.workspaces)) w.logins = w.logins.filter((l) => l !== 'opencode');
+  fs.writeFileSync(old, JSON.stringify(saved));
+  assert.deepEqual(createStore({ file: old, home: '/h', profiles: PROFILES }).usersOf('opencode'), ['contract', 'default']);
+});
+
 test('a removed login leaves every workspace and is not picked up again until shown', () => {
   const s = createStore({ file: tmp(), home: '/h', profiles: PROFILES });
   s.attach('default', 'contract');
   assert.deepEqual(s.removeLogin('contract'), { ok: true });
-  assert.deepEqual(s.loginsOf('contract'), []);
-  assert.deepEqual(s.loginsOf('default'), ['default']);
+  assert.deepEqual(s.loginsOf('contract'), ['opencode']);
+  assert.deepEqual(s.loginsOf('default'), ['default', 'opencode']);
   assert.equal(s.defaultOf('contract', 'claude'), null);
   assert.deepEqual(s.addFound([{ provider: 'claude', dir: '/h/.claude-contract', id: 'contract' }]), [], 'kept out');
   assert.equal(s.hiddenCount(), 1);

@@ -27,7 +27,7 @@ import { createOverseer, migrateFrom, MODELS as OVERSEER_MODELS, OC_PREFIX as OV
 import { createWatcher } from './watcher.mjs';
 import { parseClaudeAuth, parseGhAuth, claudeLoginCommand, loginScript, LOGIN_ERROR } from './setup.mjs';
 import { migrateFolders } from './migrate.mjs';
-import { createStore, countOnly, repoKey, slugId, PROVIDERS } from './workspaces.mjs';
+import { createStore, countOnly, repoKey, slugId, PROVIDERS, OPENCODE } from './workspaces.mjs';
 import { sanitizeGlue, mergeGlue } from './glue-prefs.mjs';
 import * as daemon from './daemon.mjs';
 import { terminalCommand } from './terminal.mjs';
@@ -707,6 +707,9 @@ function launchLogin(wsId, want) {
   return typeof want === 'string' && store.loginsOf(wsId).includes(want) && L.has(want) ? L.get(want) : defaultLogin(wsId);
 }
 const NO_LOGIN = 'This workspace has no Claude login yet. Add one in Settings › Providers › Claude.';
+/** Whether a workspace uses OpenCode (one service for the computer, ticked per workspace). */
+const usesOpenCode = (wsId) => store.loginsOf(wsId).includes(OPENCODE);
+const NO_OPENCODE = 'This workspace doesn’t use OpenCode. Tick it under Settings › Workspaces.';
 /** Background ids just launched → the workspace they were started in: the roster says their session id. */
 const launchedIn = new Map();
 function launch(body, ws = shownWs()) {
@@ -724,6 +727,7 @@ function launch(body, ws = shownWs()) {
     const ocKind = body.agentKind === 'opencode';
     if (body.agentKind != null && body.agentKind !== 'claude' && !ocKind) return fail('Pick Claude Code or OpenCode.');
     if (ocKind) {
+      if (!usesOpenCode(ws?.id)) return fail(NO_OPENCODE);
       if (model && !modelRef(model)) return fail('Pick a model from the list.');
       if (!OC_MODES.has(mode)) return fail('Pick a permission mode from the list.');
     } else {
@@ -1873,10 +1877,11 @@ function removeLogin(body) {
   if ([...sessions.values()].some((s) => s.login === l.id && isLive(s))) return { ok: false, error: `Sessions are still running on ${l.label}. End them first.` };
   return loginsChanged({ ...store.removeLogin(l.id), dir: tilde(l.dir) });
 }
-/** `{ name, color? }`: a new workspace, using the page's workspace's default Claude login to start with. */
+/** `{ name, color? }`: a new workspace, using the page's workspace's default Claude login (and OpenCode, if it does) to
+ *  start with. */
 function createWorkspace(body, ctx) {
-  const start = store.defaultOf(ctx?.focus, 'claude');
-  return loginsChanged(store.createWorkspace({ name: body?.name, color: body?.color ?? undefined, logins: start ? [start] : [] }));
+  const start = [store.defaultOf(ctx?.focus, 'claude'), usesOpenCode(ctx?.focus) ? OPENCODE : null].filter(Boolean);
+  return loginsChanged(store.createWorkspace({ name: body?.name, color: body?.color ?? undefined, logins: start }));
 }
 /** `{ id }`: forget a workspace. Refused while sessions run in it. Its logins stay, its repositories are unsorted again. */
 function removeWorkspace(body) {
@@ -1998,7 +2003,7 @@ function settingsFor(focus, about = {}) {
       autofix: Boolean(watcher.status(id).enabled), overseerModel: overseerOf(id)?.status().model ?? g.overseerModel })),
     logins: store.logins().map((l) => {
       const users = store.usersOf(l.id), x = L.get(l.id);
-      const out = { id: l.id, provider: l.provider, label: l.label, users, home: store.homeOf(l.id), where: tilde(l.dir),
+      const out = { id: l.id, provider: l.provider, label: l.label, users, home: store.homeOf(l.id), where: l.dir ? tilde(l.dir) : null,
         running: [...sessions.values()].filter((s) => s.login === l.id && isLive(s)).length };
       if (x) {
         Object.assign(out, { signedIn: signedInOf(x), connected: hooksHere(x.profile), loginCommand: claudeLoginCommand(x.profile) });
@@ -3389,6 +3394,7 @@ async function continueInOpenCode(body, ctx) {
   if (!s || isOc(s)) return fail('Only a Claude Code session carries on in OpenCode.');
   const ws = wsById(s.ws);
   if (!ws) return fail(NO_WS);
+  if (!usesOpenCode(ws.id)) return fail(NO_OPENCODE);
   if (isWorking(s)) return fail('It is still working. Interrupt it first, or wait for it to stop.');
   const model = typeof body?.model === 'string' ? body.model : '';
   if (model && !modelRef(model)) return fail('Pick a model from the list.');
@@ -3434,7 +3440,7 @@ function snapshot(wsId) {
   const now = Date.now(), ws = wsById(wsId), logins = store.loginsOf(wsId).map((id) => L.get(id)).filter(Boolean);
   claimSpaces(wsId);
   return {
-    now, armed, rosterError: rosterErrorOf(wsId), port: PORT, setup: setupOut(ws), logins: loginsView(wsId),
+    now, armed, rosterError: rosterErrorOf(wsId), port: PORT, setup: setupOut(ws), logins: loginsView(wsId), opencode: usesOpenCode(wsId),
     profile: (logins.find((l) => !l.info.connected) ?? defaultLogin(wsId) ?? logins[0])?.info ?? null,
     workspace: wsView(wsId), workspaces: wsOrder().map((id) => ({ ...wsView(id), waiting: waitingOf(id) })),
     spaces: store.spacesOf(wsId), // this workspace's only: a space's name never reaches another workspace's page
