@@ -302,21 +302,22 @@ the last tab while the page is open. It has six tabs:
 
 - **Workspaces.** A row for each workspace: its name (1–24 characters, unique), one of five colours, and up and down
   buttons that set its place in the switch (⌃1, ⌃2…). Every row can be edited from either workspace; the one you are in is
-  marked "you're here", and × removes one (not the last, and not while sessions run in it: its logins stay, its
-  repositories are unsorted again). **New workspace** makes one, starting with the logins of the workspace in view.
-  Below, **Logins**: a table with a column per workspace and a row per login (Claude, OpenAI, and OpenCode as one row).
-  Tick a box to let a workspace use a login; ☆ marks what that workspace's new agents start on. With two or more
-  workspaces, the repositories of the one picked at the top follow, each with **Move** and **Forget**, and the "N
-  repositories aren't in a workspace yet · Sort" line.
+  marked "you're here". × removes one: it turns into **Remove?**, and a second click removes it (not the last, and not
+  while sessions run in it: its logins stay, its repositories are unsorted again). **New workspace** makes one,
+  starting with the logins of the workspace in view. Below, **Logins**: a table with a column per workspace and a row
+  per login (Claude, OpenAI, and OpenCode as one row). Tick a box to let a workspace use a login; ☆ marks what that
+  workspace's new agents start on. With two or more workspaces, every workspace's repositories follow under its name,
+  each with **Move** and **Forget**, and the "N repositories aren't in a workspace yet · Sort" line. No tab in Settings
+  has a workspace picker: what is a workspace's own shows a row per workspace.
 - **Live updates.** A block per Claude login: whether its sessions report here as they run (their tools, subagents and
   permission requests), and **Turn on live updates** when they don't (Glue adds its hooks to that profile's
   `settings.json` and keeps a dated copy). Off, sessions still show, but ask in their own terminal. Sign-ins are under
   **Providers**; on a first run the Claude sign-in the workspace in view still needs shows here too.
-- **GitHub, alerts & Auto-fix.** The GitHub CLI sign-in (shared: one `gh` login), then **Auto-fix** for the workspace in
-  view. It is the same switch as the GitHub panel's, and shows the same state.
-- **Overseer.** What the overseer does, then the **model** of the workspace in view's overseer (the same select as the
-  one under the overseer's box, showing the same state) and the **model a new workspace's overseer starts with** (kept
-  with Glue's own settings in `prefs.json`).
+- **GitHub, alerts & Auto-fix.** The GitHub CLI sign-in (shared: one `gh` login), then **Auto-fix**, a switch per
+  workspace. Each is the same switch as that workspace's GitHub panel's, and shows the same state.
+- **Overseer.** What the overseer does, then each workspace's overseer **model**, a row each (the same select as the
+  one under its box, showing the same state), and the **model a new workspace's overseer starts with** (kept with
+  Glue's own settings in `prefs.json`).
 - **Providers.** Where logins are connected, one tab per provider, with a dot for how it stands (green: set up; amber:
   it needs you). Which workspaces use each login is ticked under **Workspaces**.
   - **Claude**: a row per login: whether it is signed in, its account, how many workspaces use it, and **Sign in**
