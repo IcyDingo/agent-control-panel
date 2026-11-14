@@ -305,11 +305,12 @@ function wsView(id) {
 /** The live workspaces, in the store's order. */
 const wsOrder = () => { const known = store.list().map((w) => w.id).filter((id) => W.has(id)); return [...known, ...[...W.keys()].filter((id) => !known.includes(id))]; };
 /** What waits on you in a workspace: held requests, open questions and plans, and its overseer's cards waiting for a
- *  click. */
+ *  click: proposals and follow-ups. */
 function waitingOf(wsId) {
   let n = openRequests(wsId).length;
   for (const p of pending.values()) if (p.ws === wsId) n++;
-  n += overseerOf(wsId)?.status().proposed ?? 0;
+  const st = overseerOf(wsId)?.status();
+  n += (st?.proposed ?? 0) + (st?.follow?.length ?? 0);
   return n;
 }
 /** Moves a session (and what it holds open here) to workspace `id`. */
@@ -470,7 +471,10 @@ function onHookEvent(e) {
       s.note = null;
       stops.delete(stopKey(e.session_id, null));
       setTimeout(() => pollRoster(L.get(s.login)), 1500); // a message waiting for this turn to end can go now
-      if (!e.agent_id) feed('finished', s, `${labelOf(s)} finished its turn${s.lastMessage ? `: ${String(s.lastMessage).replace(/\s+/g, ' ').slice(0, 140)}` : '.'}`);
+      if (!e.agent_id) {
+        feed('finished', s, `${labelOf(s)} finished its turn${s.lastMessage ? `: ${String(s.lastMessage).replace(/\s+/g, ' ').slice(0, 140)}` : '.'}`);
+        followUp(s);
+      }
       break;
     }
     case 'SessionEnd':
@@ -2631,6 +2635,13 @@ function overseerOf(id) {
 }
 /** The overseer whose feed a line about session `sessionId` goes in: its workspace's. None when no workspace knows it. */
 const overseerOfSession = (sessionId) => { const w = typeof sessionId === 'string' ? wsIdOfSession(sessionId) : null; return w ? overseerOf(w) : null; };
+/** A turn ended: its workspace's overseer reads what it said last, for a follow-up card when it stopped before the work
+ *  was done. Not when that's off in Settings, when it holds a request (Needs you has it) or has a message waiting (it
+ *  carries on), or when the panel runs inside it (no reply goes there from here). */
+function followUp(s) {
+  if (glue().followUps === false || !s.lastMessage || heldFor(s.sessionId).length || inbox.get(s.sessionId)?.length || hostPids.has(s.pid)) return;
+  try { overseerOf(s.ws)?.check(s.sessionId); } catch (e) { console.error('overseer: follow-up check:', e?.message ?? e); }
+}
 // A GitHub event goes in the feed of each workspace whose sessions it is about. One about no session belongs to no
 // workspace's feed, so it is dropped: telling it to any overseer could carry one workspace's repository to another.
 onGithubEvent = (ev) => {
@@ -2682,6 +2693,7 @@ const OVERSEER = {
   '/api/overseer/stop': withOverseer((o) => o.stop()),
   '/api/overseer/model': withOverseer((o, b) => nudgeIfOk(o.setModel(b?.model))),
   '/api/overseer/clear': withOverseer((o) => o.clear()),
+  '/api/overseer/follow': withOverseer((o, b) => o.follow({ sessionId: b?.sessionId, decision: b?.decision, text: b?.text, how: b?.how })),
 };
 
 // ---------------------------------------------------------------- the embedded terminal: a background session's own screen
@@ -2964,6 +2976,7 @@ function ocRefresh(s, ms = 250) {
     else if (!err && s.ocError && s.ocStatus !== 'busy') s.ocError = null;
     s.model = modelOfMessages(msgs) ?? s.model;
     ocApply(s);
+    if (s.status === 'idle') followUp(s); // its turn is over: once per message (overseer.check)
     if (follows.has(s.sessionId)) { try { threadOf(s.sessionId).addItems(itemsOf(msgs)); } catch (err) { console.error('thread:', err?.message ?? err); } }
     broadcast();
   }, ms));
