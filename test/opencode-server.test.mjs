@@ -340,3 +340,14 @@ test('providers connect from Glue: a key goes through, a browser sign-in finishe
   assert.deepEqual((await api('/api/opencode/providers', {})).providers[0].accounts.map((a) => a.id), ['cred_o']);
   assert.equal((await api('/api/opencode/connect', { how: 'key', integrationID: '../x', key: 'k' })).ok, false);
 });
+
+test('Settings sees the accounts OpenCode holds, by provider and label, never by secret', async () => {
+  await api('/api/opencode/connect', { how: 'key', integrationID: 'openai', key: 'sk-test-456' });
+  const r = await api('/api/opencode', {});
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.accounts.map((a) => [a.id, a.provider, a.name, a.label, a.active]),
+    [['cred_o', 'openai', 'OpenAI', 'chatgpt', false], ['cred_k', 'openai', 'OpenAI', 'key', true]]);
+  assert.deepEqual(r.connected, ['openai']);
+  assert.doesNotMatch(JSON.stringify(r), /sk-test-456/, 'a key never comes back');
+  await api('/api/opencode/disconnect', { credentialID: 'cred_k' });
+});
