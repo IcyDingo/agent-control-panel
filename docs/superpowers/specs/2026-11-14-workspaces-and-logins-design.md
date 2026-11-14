@@ -112,8 +112,8 @@ Which workspace shows it, in order:
    ("Remember chai-expense-tracker as Work?").
 5. **Its login is in no workspace**: nowhere, only counted on the login in Settings › Providers.
 
-A login's **home** is the first workspace it was attached to, and moves to the next one if it is detached from that.
-Settings shows it on the login ("Home: Private"). Glue picks it; there is no separate control. *(My call.)*
+A login's **home** is the first workspace, in switch order, that uses it. It moves when that workspace stops using it.
+Glue picks it; there is no separate control. *(My call.)*
 
 Once a session is shown in a workspace, it stays there while it lives, even if a repository is sorted later. Only a
 new session follows the new rule. *(My call: the same as "no moving a running session between workspaces".)*
@@ -228,3 +228,19 @@ listing the workspace's other Claude logins, beside today's "Continue in OpenCod
 full continuation: the transcript is copied into the other login's profile and resumed there with `claude --resume`.
 A summary brief is the fallback if resuming across profiles fails. Glue never switches by itself. (Decided 2026-11-13,
 parked until logins existed.)
+
+## Calls made while building (from the review)
+
+The user asked for no more questions, so these were settled by the builder:
+
+1. **A removed login stays removed.** Its folder goes on a hidden list in `workspaces.json`, so discovery doesn't add
+   it back. Settings › Providers says how many logins are hidden and offers **Show them again**. Adding a login for that
+   folder on purpose takes it off the list.
+2. **Detaching a login from a workspace never moves running sessions.** A session already shown there stays until it
+   ends; new sessions follow the rule. The same applies when a login's home moves.
+3. **A fresh install gets a workspace per profile found**, each with that profile attached as its Claude login (with
+   no profile at all, one workspace on plain `~/.claude`). Only folders found *later* become logins in no workspace.
+4. **Every session's placement is kept**, not only Glue-launched ones: `placed: { sessionId → { ws, at } }` in
+   `workspaces.json`, dropped 14 days after the session was last seen live. A session no record knows (an old
+   transcript) belongs to its login's home; one whose login is in no workspace is nobody's to touch.
+5. **Discovery also finds `~/.codex-*` folders**, as OpenAI logins in no workspace.

@@ -32,15 +32,15 @@ into `~/Applications`. Then:
      the old file). Sessions you start after that show up on the board; one already running keeps asking in its
      terminal until it restarts.
 
-   If you use more than one Claude Code profile, each is a workspace, and Settings does both steps for every one of
+   If you use more than one Claude Code profile, each is a Claude login, and Settings does both steps for every one of
    them, without switching (see [Workspaces](#workspaces)). **Done** at the foot of the dialog (or **Skip for now**) ends
    the first run, remembered in `prefs.json`. Esc or ✕ just closes it, and it opens again the next time the page loads,
    until you press one. Everything else in Settings is optional: GitHub, desktop alerts, naming and colouring the
    workspaces. Then start your first agent, with **New agent** or `claude` in any terminal.
 
    Later on, a lapsed login shows by itself. Signed out of Claude, an amber banner says so with **Sign in in
-   Terminal…**, **Copy command** and **Open Settings**, and goes once you're back in. The banner is about the workspace
-   in view. A profile without the hooks gets a "Live updates are off" banner with **Turn on live updates** the same way. With `gh` signed out, the
+   Terminal…**, **Copy command** and **Open Settings**, and goes once you're back in. The banner names the login, among
+   those the workspace in view uses. A login without the hooks gets a "Live updates are off" banner with **Turn on live updates** the same way. With `gh` signed out, the
    GitHub button turns amber and its panel has the same Terminal sign-in. The panel looks every few minutes while a page
    is open, when you come back to its window, while Settings is open, and at once when the overseer, a launch or a reply
    fails with a login error.
@@ -233,10 +233,25 @@ publish. The app's icons come from `app/icon.svg` by way of `app/render-linux-ic
 
 ## Workspaces
 
-A workspace is one Claude Code profile with a name and a colour: `~/.claude` for plain `claude`, `~/.claude-<name>` for
-one started with `CLAUDE_CONFIG_DIR=~/.claude-<name>`. Every profile the panel finds becomes a workspace, named after its
-folder (`claude`, `claude-work`) until you rename it in Settings. With one profile there is no switch and the
-panel looks as it always has.
+A workspace is how you work: a name, a colour, its repositories, agents and overseer. You make, rename and remove them
+in Settings; no folder on disk makes one. A workspace runs on **logins**, which are separate from workspaces:
+
+- A **Claude login** is a Claude Code profile: `~/.claude` for plain `claude`, `~/.claude-<name>` for one run with
+  `CLAUDE_CONFIG_DIR=~/.claude-<name>`. An **OpenAI login** is a Codex home: `~/.codex`, or `~/.codex-<name>`.
+- A workspace uses any number of logins per provider (two Claude subscriptions, say), one of them its **default**. One
+  login can serve several workspaces.
+- New agent starts on the workspace's default Claude login, and its **Login** picker (shown when there is more than
+  one) starts it on another. The overseer runs on the default. Everything Glue runs for a session (a reply, a mode
+  switch, its terminal) runs under that session's own login.
+- **Which workspace shows a session.** One started from Glue stays in the workspace it was started in. Any other goes to
+  the workspace its repository is in that uses its login, else to its login's home (the first workspace, in switch
+  order, that uses it). Once placed, a session stays there while it lives. A login no workspace uses shows its
+  sessions nowhere, only as a count in Settings › Providers.
+- **Upgrading.** Every Claude profile that was a workspace stays one, with the same name, colour, repositories, spaces
+  and overseer, and that profile attached as its Claude login. A profile folder found later is a login in no workspace
+  until you use it in one.
+
+With one workspace on one login there is no switch, and the panel looks as it always has.
 
 - **The switch.** With two or more, the top bar shows a switch naming each workspace (`Work | Private`). Click one, or press
   ⌃1, ⌃2 and so on in the switch's order (from anywhere, a reply box or the terminal too). The workspace in view is drawn in its colour: a thin line along the
@@ -245,7 +260,7 @@ panel looks as it always has.
   permission request, a question or plan, or an overseer proposal waiting for a click. That number is all you see of it.
 - **Every workspace keeps working.** Switching changes what you see, not what runs. A request held for the other workspace stays
   held and shows when you switch back, its overseer and PR watcher carry on, and messages waiting for a busy agent still go
-  out. A message you were typing stays with its session. Each workspace's agents run on its own profile's login.
+  out. A message you were typing stays with its session. Each session runs on its own login.
 - **The seal.** Outside Settings, the page is sent the workspace in view and, for each other, only its name, colour and that count. No session,
   conversation, repository, pull request, branch or check of the other reaches the page, a desktop notification (which says
   only `Private: 2 needs you`, with the count, or `Private: a check failed`), the overseer's digest or a model call. Every action on a session
@@ -265,13 +280,14 @@ panel looks as it always has.
 - **Renaming, colours, order and repositories.** These live in [Settings](#settings): its **Workspaces** tab has a row per
   workspace for its name, colour and place in the switch, and the repositories of the workspace in view, each with **Move**
   (the launcher's choice) and **Forget** (it is asked again next time).
-- **What is kept.** Names, colours, order, repositories and the workspace last in view are in
+- **What is kept.** Names, colours, order, repositories, logins (and which workspace uses which), each session's
+  workspace and the workspace last in view are in
   `~/Library/Application Support/Glue/workspaces.json` (beside `prefs.json`; for a second panel on another port, `ACP_PREFS`
   names another prefs file, and `workspaces.json` sits in that file's folder, so give each panel a folder of its own).
   A page opens on the workspace last in view and keeps its own after that.
 
-A profile's sessions report here only once its settings have the hooks. When a profile doesn't have
-them, the panel shows a "Live updates are off" banner, and Settings › Live updates shows **Turn on live updates** for every workspace. Either adds the entries from
+A Claude login's sessions report here only once its profile's settings have the hooks. When one doesn't have
+them, the panel shows a "Live updates are off" banner, and Settings › Live updates shows **Turn on live updates** for every login. Either adds the entries from
 `hooks.example.json` that the profile's `settings.json` lacks. It changes nothing else in the file,
 and keeps a dated copy of the old file beside it.
 
@@ -283,29 +299,34 @@ the last tab while the page is open. It has six tabs:
 
 - **Workspaces.** A row for each workspace: its name (1–24 characters, unique), one of five colours, and up and down
   buttons that set its place in the switch (⌃1, ⌃2…). Every row can be edited from either workspace; the one you are in is
-  marked "you're here". With two or more, below the rows are the repositories of the workspace in view, each with
-  **Move** and **Forget**, and the "N repositories aren't in a workspace yet · Sort" line. With one workspace there is just
-  its row, and a note that a second Claude Code profile (`~/.claude-<name>`) becomes a second workspace.
-- **Live updates.** A block per workspace, each acting on its own profile without switching: whether its Claude Code
-  sessions report here as they run (their tools, subagents and permission requests), and **Turn on live updates** when
-  they don't (Glue adds its hooks to that profile's `settings.json` and keeps a dated copy). Off, sessions still show,
-  but ask in their own terminal. Sign-ins are under **Providers**; on a first run the Claude sign-in the workspace in view
-  still needs shows here too.
+  marked "you're here". **New workspace** makes one, starting on the default Claude login of the workspace in view.
+  Below, the **logins** the workspace picked at the top uses, per provider, as chips: the default marked, **make default**
+  on the others, × to stop using one, and **Add…** for the provider's other logins; then **Remove** (not the last
+  workspace, and not while sessions run in it: its logins stay, its repositories are unsorted again). With two or more,
+  the repositories of that workspace follow, each with **Move** and **Forget**, and the "N repositories aren't in a
+  workspace yet · Sort" line.
+- **Live updates.** A block per Claude login: whether its sessions report here as they run (their tools, subagents and
+  permission requests), and **Turn on live updates** when they don't (Glue adds its hooks to that profile's
+  `settings.json` and keeps a dated copy). Off, sessions still show, but ask in their own terminal. Sign-ins are under
+  **Providers**; on a first run the Claude sign-in the workspace in view still needs shows here too.
 - **GitHub, alerts & Auto-fix.** The GitHub CLI sign-in (shared: one `gh` login), then **Auto-fix** for the workspace in
   view. It is the same switch as the GitHub panel's, and shows the same state.
 - **Overseer.** What the overseer does, then the **model** of the workspace in view's overseer (the same select as the
   one under the overseer's box, showing the same state) and the **model a new workspace's overseer starts with** (kept
   with Glue's own settings in `prefs.json`).
 - **Providers.** What runs your agents, one tab each, with a dot for how it stands (green: set up; amber: it needs you).
-  - **Claude**: each workspace's own Claude account. **Sign in here** runs `claude auth login` for that workspace's
-    `CLAUDE_CONFIG_DIR` in a terminal inside Settings; **In Terminal…** and **Copy command** do it in a terminal window.
-    **Add a Claude account** makes a new profile (`~/.claude-<name>`, with Glue's hooks already in its `settings.json`)
-    and so a new workspace, then opens its sign-in. The account's email and plan show for the workspace in view only.
-  - **OpenAI**: OpenAI's own sign-in, through OpenAI's Codex CLI, one per workspace in its own Codex home (`~/.codex` for
-    the plain workspace, `~/.codex-<id>` for the others). **Install in Terminal…** (Homebrew, else npm), then per
-    workspace **Sign in with ChatGPT** (`codex login`, in a terminal inside Settings), **Use an API key…** (handed to
-    `codex login --with-api-key` on its stdin; Glue keeps no copy), or **Sign out**. Running agents on Codex is listed
-    as coming next. OpenAI's models can also run in OpenCode, by connecting an OpenAI key there.
+  - **Claude**: a block per Claude login: its account, **Sign in here** (`claude auth login` on its profile, in a
+    terminal inside Settings), **In Terminal…** and **Copy command**, which workspaces use it (**Use in** the workspace in
+    view), **Rename…** and **Remove…** (refused while sessions run on it; its folder stays, and Glue doesn't pick it up
+    again until **Show them again**). **Add a Claude login** makes a new profile (`~/.claude-<name>`, with Glue's hooks
+    already in its `settings.json`), used by the workspace in view, and opens its sign-in. A login's email and plan show
+    only when the workspace in view uses it, or none does.
+  - **OpenAI**: OpenAI's own sign-in, through OpenAI's Codex CLI. **Install in Terminal…** (Homebrew, else npm), then a
+    block per OpenAI login (a Codex home): **Sign in with ChatGPT** (`codex login`, in a terminal inside Settings), **Use
+    an API key…** (handed to `codex login --with-api-key` on its stdin; Glue keeps no copy), or **Sign out**, and which
+    workspaces use it. **Add an OpenAI login** makes a Codex home (`~/.codex` for the first, `~/.codex-<name>` after).
+    Running agents on Codex is listed as coming next. OpenAI's models can also run in OpenCode, by connecting an OpenAI
+    key there.
   - **OpenCode**: set up in four steps on a rail that fills as each is done: **Install** (in a Terminal window, with
     Homebrew or OpenCode's own script), **Start it**, **Connect a provider** (a key or a browser sign-in, kept by OpenCode
     itself), and **Pick a model** new OpenCode agents start on. Once it is ready, the steps fold into one row, and the

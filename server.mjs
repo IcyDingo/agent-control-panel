@@ -750,13 +750,13 @@ function launch(body, ws = shownWs()) {
     if (agent) args.push('--agent', agent);
     if (worktree) args.push('--worktree', ...(wtName ? [wtName] : []));
     args.push('--', prompt);
-    // Under its workspace's profile, and only in a repository of that workspace's. One nobody has sorted yet is asked
+    // In its workspace, and only in a repository of that workspace's. One nobody has sorted yet is asked
     // about first; the answer (`assign`) is kept before it starts. With one workspace there is nothing to ask.
     if (!ws) return fail(NO_WS);
     const repo = repoOf(cwd);
     let inWs = sortedIn(repo.key);
     if (!inWs.length) {
-      if (W.size === 1) { store.assign(repo.key, [ws.id]); settingsChanged(); } // the stand-in for no profile is not in the store: nothing kept
+      if (W.size === 1) { store.assign(repo.key, [ws.id]); settingsChanged(); }
       else if (body.assign === undefined) return resolve({ ok: false, ask: { ...repo, suggest: suggestFor(repo.key) } });
       else {
         const ids = body.assign;
@@ -2198,7 +2198,7 @@ async function checkVersions() {
     const found = await findRemoved(rows.map(({ s }) => s.pid), { run: runPlain });
     const next = rows.filter(({ s }) => found.has(s.pid)).map(({ s, p }) => ({
       sessionId: s.sessionId, id: s.id ?? null, name: s.name ?? null, kind: s.kind ?? null, ws: s.ws,
-      profile: { id: p.id, label: path.basename(p.dir).slice(1), command: cliOf(p) },
+      profile: { id: p.id, label: L.get(p.id)?.label ?? p.id, command: cliOf(p) },
       version: found.get(s.pid).version, self: found.get(s.pid).self }));
     for (const s of sessions.values()) {
       const o = next.find((x) => x.sessionId === s.sessionId);
@@ -3425,7 +3425,7 @@ function watcherOf(wsId) {
 function loginsView(wsId) {
   const def = store.defaultOf(wsId, 'claude');
   return store.loginsOf(wsId).map((id) => L.get(id)).filter(Boolean).sort((a, b) => (b.id === def) - (a.id === def))
-    .map((l) => ({ id: l.id, label: l.label, isDefault: l.id === def, signedIn: signedInOf(l), connected: l.info.connected, effort: l.info.effort }));
+    .map((l) => ({ id: l.id, label: l.label, isDefault: l.id === def, signedIn: signedInOf(l), connected: l.info.connected, effort: l.info.effort, command: l.info.command }));
 }
 // What a page shown workspace `wsId` gets: that workspace's sessions, requests, logins, roster error, setup and old
 // versions, and of every workspace only { id, name, color, waiting }. Nothing else of another workspace leaves here.
