@@ -90,7 +90,14 @@ const svc = http.createServer((req, res) => {
       } else if (m[2] === 'prompt') oc.active.add(m[1]);
       return json(res, 200, { data: { id: 'msg_x', sessionID: m[1], type: 'user' } });
     }
-    if ((m = p.match(/^\/api\/session\/(ses_\w+)\/message$/))) return json(res, 200, { data: oc.messages.get(m[1]) ?? [] });
+    if ((m = p.match(/^\/api\/session\/(ses_\w+)\/message$/))) {
+      // As OpenCode 2.3 does: a limit over 200, or an order but asc or desc, is refused; desc gives the newest first.
+      const limit = u.searchParams.get('limit'), order = u.searchParams.get('order') ?? 'desc';
+      if (limit != null && !(Number(limit) >= 1 && Number(limit) <= 200)) return json(res, 400, { _tag: 'InvalidRequestError', message: 'Expected a value less than or equal to 200\n  at ["limit"]', kind: 'Query' });
+      if (!['asc', 'desc'].includes(order)) return json(res, 400, { _tag: 'InvalidRequestError', message: 'Expected "asc" | "desc"\n  at ["order"]', kind: 'Query' });
+      const all = oc.messages.get(m[1]) ?? [], sorted = order === 'asc' ? all : [...all].reverse();
+      return json(res, 200, { data: sorted.slice(0, Number(limit ?? 50)), cursor: {} });
+    }
     if (p === '/api/integration') return json(res, 200, { location: { directory: '/' }, data: [
       { id: 'openai', name: 'OpenAI', methods: [{ type: 'key', label: 'API key' }, { type: 'oauth', id: 'chatgpt', label: 'ChatGPT' }] }] });
     if (p === '/api/credential') return json(res, 200, { data: oc.creds });
@@ -194,6 +201,18 @@ test('OpenCode: a session starts, asks, is answered, finishes, takes a reply, en
   assert.equal(ok.ok, true, JSON.stringify(ok));
   assert.deepEqual(oc.calls.findLast((c) => c.path.endsWith('/reply')).body, { decision: 'always' });
 
+  // While it works: the tool it runs shows by name (the event names none), and its Chat fills from its messages.
+  oc.messages.get(OCID).push({ id: 'msg_work', type: 'assistant', time: { created: Date.now() }, model: { providerID: 'fake', id: 'm1' },
+    content: [{ type: 'tool', id: 'call_0', name: 'shell', state: { status: 'running', input: { command: 'npm run build' }, metadata: {} }, time: { created: Date.now() } }] });
+  emit('session.tool.called', { sessionID: OCID, assistantMessageID: 'msg_work', id: 'call_0', input: { command: 'npm run build' }, executed: false });
+  s = (await until((x) => x.sessions.find((y) => y.sessionId === OCID)?.lastTool?.tool === 'shell', 'the tool it runs, by name')).sessions.find((y) => y.sessionId === OCID);
+  assert.equal(s.lastTool.text, 'npm run build');
+  const mid = await api('/api/history', { sessionId: OCID });
+  assert.equal(mid.ok, true, JSON.stringify(mid));
+  assert.ok(mid.items.some((m) => m.who === 'tool' && m.name === 'shell' && m.state === 'running'), 'its Chat shows the call in progress');
+  const reads = oc.calls.filter((c) => c.path === `/api/session/${OCID}/message`);
+  assert.ok(reads.length > 0);
+
   // It finishes its turn.
   oc.messages.get(OCID).push({ id: 'msg_done', type: 'assistant', time: { created: Date.now() }, model: { providerID: 'fake', id: 'm1' },
     content: [{ type: 'tool', id: 'call_1', name: 'bash', state: { status: 'completed', input: { command: 'npm test' }, content: [{ type: 'text', text: 'ok' }] }, time: { created: Date.now() } },
@@ -206,7 +225,7 @@ test('OpenCode: a session starts, asks, is answered, finishes, takes a reply, en
 
   const h = await api('/api/history', { sessionId: OCID });
   assert.equal(h.ok, true);
-  assert.deepEqual(h.items.map((m) => m.who), ['you', 'tool', 'result', 'claude']);
+  assert.deepEqual(h.items.map((m) => m.who), ['you', 'tool', 'tool', 'result', 'claude']);
 
   const rep = await api('/api/reply', { sessionId: OCID, text: 'Now the header' });
   assert.equal(rep.ok, true, JSON.stringify(rep));
