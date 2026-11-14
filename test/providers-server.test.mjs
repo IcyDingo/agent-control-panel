@@ -118,7 +118,7 @@ test('a Claude login made in Settings is a new profile with live updates on, use
   assert.ok(JSON.stringify(JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8')).hooks).includes(`127.0.0.1:${PORT}/hook/`));
   const s = await settings();
   assert.deepEqual(s.workspaces.map((w) => w.id), ['default'], 'still one workspace');
-  assert.deepEqual(s.workspaces[0].logins, ['default', 'second-max']);
+  assert.deepEqual(s.workspaces[0].logins, ['default', 'opencode', 'second-max']);
   assert.equal(s.workspaces[0].defaults.claude, 'default', 'the first stays the default');
   const l = s.logins.find((x) => x.id === 'second-max');
   assert.deepEqual([l.provider, l.label, l.where, l.connected, l.users], ['claude', 'Second Max', '~/.claude-second-max', true, ['default']]);
@@ -156,7 +156,7 @@ test('a workspace shows the sessions of every login it uses; a launch runs on th
 test('a login shared by two workspaces: its session lands in the workspace its repository is in, else its home', async () => {
   const made = await api('/api/workspace/create', { name: 'Side' });
   assert.deepEqual(made, { ok: true, id: 'side' });
-  assert.deepEqual((await settings()).workspaces.find((w) => w.id === 'side').logins, ['default'], 'it starts on the default login of the workspace in view');
+  assert.deepEqual((await settings()).workspaces.find((w) => w.id === 'side').logins, ['default', 'opencode'], 'it starts on the default login of the workspace in view, and OpenCode');
   assert.equal((await api('/api/login/attach', { ws: 'side', id: 'second-max' })).ok, true);
   assert.deepEqual((await loginOf('second-max')).users, ['default', 'side']);
   assert.equal((await api('/api/settings/assign', { key: `dir:${side}`, ws: ['side'] })).ok, true);
@@ -189,6 +189,19 @@ test('a login with sessions running can’t be removed; removed, its folder stay
   assert.equal((await api('/api/login/unhide', {})).ok, true);
   assert.ok(await loginOf('second-max'), 'shown again, in no workspace');
   assert.deepEqual((await loginOf('second-max')).users, []);
+});
+
+test('OpenCode is ticked per workspace: one that doesn’t use it starts no OpenCode agent, and its page knows', async () => {
+  assert.ok((await loginOf('opencode')).users.includes('default'), 'every workspace uses it to start with');
+  assert.equal(snap().opencode, true);
+  assert.equal((await api('/api/login/remove', { id: 'opencode' })).ok, false, 'it is never removed, only unticked');
+  assert.equal((await api('/api/login/detach', { ws: 'default', id: 'opencode' })).ok, true);
+  assert.ok(await until(() => snap()?.opencode === false), 'the page hears it');
+  const r = await api('/api/launch', { prompt: 'go', cwd: work, agentKind: 'opencode', model: '', mode: 'default' });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /doesn’t use OpenCode/);
+  assert.equal((await api('/api/login/attach', { ws: 'default', id: 'opencode' })).ok, true);
+  assert.ok(await until(() => snap()?.opencode === true));
 });
 
 test('a workspace can be removed (not the last); its logins stay', async () => {

@@ -11,8 +11,11 @@ import { randomUUID } from 'node:crypto';
 
 /** The colours a workspace can take. Amber is not one: it means "needs you" everywhere else in the panel. */
 export const COLORS = { blue: '#7ea6e6', violet: '#a98af0', green: '#55b985', teal: '#5bb8c4', rose: '#e07a9a' };
-/** What a login runs: Claude Code, or OpenAI's Codex. */
+/** What a login with a folder of its own runs: Claude Code, or OpenAI's Codex. */
 export const PROVIDERS = ['claude', 'codex'];
+/** OpenCode's login: one service for the computer, so one login, which each workspace uses or not. */
+export const OPENCODE = 'opencode';
+const OPENCODE_LOGIN = Object.freeze({ provider: 'opencode', label: 'OpenCode', dir: '' });
 
 // What a workspace takes, in turn; the one on plain `~/.claude` is violet.
 const PICK = ['blue', 'green', 'teal', 'rose', 'violet'];
@@ -61,9 +64,11 @@ export function createStore({ file, home = '', profiles = [], codex = null } = {
 
   // ---- loading, entry by entry: anything malformed is dropped, the rest still loads
   if (fromDisk) {
-    if (saved.v === 2) for (const [id, l] of Object.entries(saved.logins ?? {}))
-      if (l && PROVIDERS.includes(l.provider) && typeof l.label === 'string' && l.label && typeof l.dir === 'string' && path.isAbsolute(l.dir))
+    if (saved.v === 2) for (const [id, l] of Object.entries(saved.logins ?? {})) {
+      if (id === OPENCODE && l?.provider === 'opencode') st.logins[id] = { ...OPENCODE_LOGIN };
+      else if (l && PROVIDERS.includes(l.provider) && typeof l.label === 'string' && l.label && typeof l.dir === 'string' && path.isAbsolute(l.dir))
         st.logins[id] = { provider: l.provider, label: l.label, dir: l.dir };
+    }
     for (const [id, w] of Object.entries(saved.workspaces)) {
       if (!w || typeof w.name !== 'string' || !w.name || !isColor(w.color)) continue;
       const logins = saved.v === 2 ? (Array.isArray(w.logins) ? w.logins : []).filter((l, i, a) => st.logins[l] && a.indexOf(l) === i) : [];
@@ -107,7 +112,7 @@ export function createStore({ file, home = '', profiles = [], codex = null } = {
   const attachTo = (ws, login) => {
     const w = st.workspaces[ws], p = st.logins[login].provider;
     if (!w.logins.includes(login)) w.logins.push(login);
-    w.defaults[p] ??= login;
+    if (p !== 'opencode') w.defaults[p] ??= login; // OpenCode has no default: it picks its own model
   };
   const detachFrom = (ws, login) => {
     const w = st.workspaces[ws], p = st.logins[login].provider;
@@ -154,8 +159,11 @@ export function createStore({ file, home = '', profiles = [], codex = null } = {
       console.error(`workspaces: could not write ${file} (${e?.code ?? 'error'}).`);
     }
   }
+  // OpenCode: one service for the computer, used by the workspaces you tick. The first time, by every one, as before.
+  const ocNew = !st.logins[OPENCODE];
+  if (ocNew) { st.logins[OPENCODE] = { ...OPENCODE_LOGIN }; for (const id of st.order) attachTo(id, OPENCODE); }
   const upgraded = !fromDisk || saved.v === 1; // made or upgraded on this start
-  if (upgraded) save();
+  if (upgraded || ocNew) save();
 
   const view = (id) => ({ id, name: st.workspaces[id].name, color: st.workspaces[id].color });
   const loginView = (id) => ({ id, ...st.logins[id] });
@@ -275,7 +283,7 @@ export function createStore({ file, home = '', profiles = [], codex = null } = {
       return added;
     },
     renameLogin(id, label) {
-      if (!st.logins[id]) return NOLOGIN;
+      if (!st.logins[id] || id === OPENCODE) return NOLOGIN;
       const n = checkLabel(label, id);
       if (n.error) return { ok: false, error: n.error };
       st.logins[id].label = n.label;
@@ -284,7 +292,7 @@ export function createStore({ file, home = '', profiles = [], codex = null } = {
     },
     /** Forget a login: it leaves every workspace, and its folder (not touched) isn't picked up again until shown. */
     removeLogin(id) {
-      if (!st.logins[id]) return NOLOGIN;
+      if (!st.logins[id] || id === OPENCODE) return NOLOGIN; // OpenCode is not removed here: untick it in each workspace
       for (const ws of Object.keys(st.workspaces)) detachFrom(ws, id);
       if (!st.hidden.includes(st.logins[id].dir)) st.hidden.push(st.logins[id].dir);
       delete st.logins[id];

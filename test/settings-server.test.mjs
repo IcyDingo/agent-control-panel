@@ -143,13 +143,13 @@ test('settings shows both workspaces and every login, an email only for a login 
     assert.ok(w.name);
     assert.equal(typeof w.color, 'string');
     assert.equal(typeof w.order, 'number');
-    assert.deepEqual(w.logins, [w.id], 'each uses the profile it was, upgraded');
+    assert.deepEqual(w.logins, [w.id, 'opencode'], 'each uses the profile it was, upgraded, and OpenCode');
     assert.equal(w.defaults.claude, w.id);
   }
   assert.equal(byId.default.here, true);
   assert.equal(byId.contract.here, false);
   const login = Object.fromEntries(r.logins.map((l) => [l.id, l]));
-  for (const l of r.logins) {
+  for (const l of r.logins.filter((x) => x.provider === 'claude')) {
     assert.equal(l.connected, false, JSON.stringify(l));
     assert.equal(typeof l.loginCommand, 'string');
   }

@@ -241,7 +241,8 @@ in Settings; no folder on disk makes one. A workspace runs on **logins**, which 
 - A **Claude login** is a Claude Code profile: `~/.claude` for plain `claude`, `~/.claude-<name>` for one run with
   `CLAUDE_CONFIG_DIR=~/.claude-<name>`. An **OpenAI login** is a Codex home: `~/.codex`, or `~/.codex-<name>`.
 - A workspace uses any number of logins per provider (two Claude subscriptions, say), one of them its **default**. One
-  login can serve several workspaces.
+  login can serve several workspaces. **OpenCode** is one service for the computer, ticked per workspace: a workspace
+  that doesn't use it starts no OpenCode agent and isn't offered "Continue in OpenCode".
 - New agent starts on the workspace's default Claude login, and its **Login** picker (shown when there is more than
   one) starts it on another. The overseer runs on the default. Everything Glue runs for a session (a reply, a mode
   switch, its terminal) runs under that session's own login.
@@ -301,12 +302,12 @@ the last tab while the page is open. It has six tabs:
 
 - **Workspaces.** A row for each workspace: its name (1–24 characters, unique), one of five colours, and up and down
   buttons that set its place in the switch (⌃1, ⌃2…). Every row can be edited from either workspace; the one you are in is
-  marked "you're here". **New workspace** makes one, starting on the default Claude login of the workspace in view.
-  Below, the **logins** the workspace picked at the top uses, per provider, as chips: the default marked, **make default**
-  on the others, × to stop using one, and **Add…** for the provider's other logins; then **Remove** (not the last
-  workspace, and not while sessions run in it: its logins stay, its repositories are unsorted again). With two or more,
-  the repositories of that workspace follow, each with **Move** and **Forget**, and the "N repositories aren't in a
-  workspace yet · Sort" line.
+  marked "you're here", and × removes one (not the last, and not while sessions run in it: its logins stay, its
+  repositories are unsorted again). **New workspace** makes one, starting with the logins of the workspace in view.
+  Below, **Logins**: a table with a column per workspace and a row per login (Claude, OpenAI, and OpenCode as one row).
+  Tick a box to let a workspace use a login; ☆ marks what that workspace's new agents start on. With two or more
+  workspaces, the repositories of the one picked at the top follow, each with **Move** and **Forget**, and the "N
+  repositories aren't in a workspace yet · Sort" line.
 - **Live updates.** A block per Claude login: whether its sessions report here as they run (their tools, subagents and
   permission requests), and **Turn on live updates** when they don't (Glue adds its hooks to that profile's
   `settings.json` and keeps a dated copy). Off, sessions still show, but ask in their own terminal. Sign-ins are under
@@ -316,19 +317,19 @@ the last tab while the page is open. It has six tabs:
 - **Overseer.** What the overseer does, then the **model** of the workspace in view's overseer (the same select as the
   one under the overseer's box, showing the same state) and the **model a new workspace's overseer starts with** (kept
   with Glue's own settings in `prefs.json`).
-- **Providers.** What runs your agents, one tab each, with a dot for how it stands (green: set up; amber: it needs you).
-  - **Claude**: a block per Claude login: its account, **Sign in here** (`claude auth login` on its profile, in a
-    terminal inside Settings), **In Terminal…** and **Copy command**, which workspaces use it (**Use in** the workspace in
-    view), **Rename…** and **Remove…** (refused while sessions run on it; its folder stays, and Glue doesn't pick it up
-    again until **Show them again**). **Add a Claude login** makes a new profile (`~/.claude-<name>`, with Glue's hooks
-    already in its `settings.json`), used by the workspace in view, and opens its sign-in. A login's email and plan show
-    only when the workspace in view uses it, or none does.
-  - **OpenAI**: OpenAI's own sign-in, through OpenAI's Codex CLI. **Install in Terminal…** (Homebrew, else npm), then a
-    block per OpenAI login (a Codex home): **Sign in with ChatGPT** (`codex login`, in a terminal inside Settings), **Use
-    an API key…** (handed to `codex login --with-api-key` on its stdin; Glue keeps no copy), or **Sign out**, and which
-    workspaces use it. **Add an OpenAI login** makes a Codex home (`~/.codex` for the first, `~/.codex-<name>` after).
-    Running agents on Codex is listed as coming next. OpenAI's models can also run in OpenCode, by connecting an OpenAI
-    key there.
+- **Providers.** Where logins are connected, one tab per provider, with a dot for how it stands (green: set up; amber:
+  it needs you). Which workspaces use each login is ticked under **Workspaces**.
+  - **Claude**: a row per login: whether it is signed in, its account, how many workspaces use it, and **Sign in**
+    (`claude auth login` on its profile, in a terminal inside Settings). Its ⋯ holds **Sign in in Terminal…**, **Copy
+    sign-in command**, **Rename…** and **Remove…** (refused while sessions run on it; its folder stays, and Glue doesn't
+    pick it up again until **Show them again**). **Connect Claude login** makes a new profile (`~/.claude-<name>`, with
+    Glue's hooks already in its `settings.json`), used by the workspace in view, and opens its sign-in. A login's email
+    and plan show only when the workspace in view uses it, or none does.
+  - **OpenAI**: through OpenAI's Codex CLI (**Install in Terminal…** when it is missing, with Homebrew, else npm). A row
+    per login (a Codex home): **Sign in with ChatGPT** (`codex login`, in a terminal inside Settings) or **Use an API
+    key…** (handed to `codex login --with-api-key` on its stdin; Glue keeps no copy); its ⋯ holds **Sign out**, the
+    sign-in command, **Rename…** and **Remove…**. **Connect OpenAI login** makes a Codex home (`~/.codex` for the
+    first, `~/.codex-<name>` after). Running agents on Codex is listed as coming next.
   - **OpenCode**: set up in four steps on a rail that fills as each is done: **Install** (in a Terminal window, with
     Homebrew or OpenCode's own script), **Start it**, **Connect a provider** (a key or a browser sign-in, kept by OpenCode
     itself), and **Pick a model** new OpenCode agents start on. Once it is ready, the steps fold into one row, and the
