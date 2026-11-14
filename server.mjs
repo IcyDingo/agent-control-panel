@@ -32,7 +32,7 @@ import { sanitizeGlue, mergeGlue } from './glue-prefs.mjs';
 import * as daemon from './daemon.mjs';
 import { terminalCommand } from './terminal.mjs';
 import { createClient as createOcClient, findService, findBinary as findOcBinary, OC_ID, OC_MODES, permissionRules, agentFor, modelRef, refText,
-         pickable, itemsOf, lastSaidOf, modelOfMessages, requestOf, questionOf, formAnswer, statusOf, briefOf, providersOf, turnErrorOf } from './opencode.mjs';
+         pickable, itemsOf, lastSaidOf, modelOfMessages, requestOf, questionOf, formAnswer, statusOf, briefOf, providersOf, turnErrorOf, lastToolOf } from './opencode.mjs';
 import { logDir as linuxLogDir } from './paths.mjs';
 
 // `node server.mjs <command>` runs the CLI (cli.mjs) and never starts the server.
@@ -2713,9 +2713,17 @@ function ocRefresh(s, ms = 250) {
   ocRefreshing.set(s.sessionId, setTimeout(async () => {
     ocRefreshing.delete(s.sessionId);
     let msgs;
-    try { msgs = await oc.messages(s.sessionId); } catch { return; }
-    const said = lastSaidOf(msgs), err = turnErrorOf(msgs);
+    try { msgs = await oc.messages(s.sessionId); s.ocReadError = null; }
+    catch (e) {
+      // Said once per kind of failure: a refused read leaves its Chat empty, which must not go unnoticed.
+      if (s.ocReadError !== e.message) console.error(`opencode: reading ${s.sessionId}'s messages: ${e.message}`);
+      s.ocReadError = e.message;
+      return;
+    }
+    const said = lastSaidOf(msgs), err = turnErrorOf(msgs), tool = lastToolOf(msgs);
     if (said) { s.lastMessage = trimMid(said, 3000); s.lastMessageAt = Date.now(); }
+    // The tool it runs, by name (the event that announced it named none).
+    if (tool && s.ocStatus === 'busy') s.lastTool = summarize(tool.name, tool.input);
     // Its messages say how its latest turn ended, also for one that failed before Glue was watching (or started).
     if (err && s.ocStatus !== 'busy') ocFailed(s, err);
     else if (!err && s.ocError && s.ocStatus !== 'busy') s.ocError = null;

@@ -18,6 +18,8 @@ import { summaryOf, previewOf } from './history.mjs';
 export const OC_ID = /^ses[\w-]{4,100}$/;
 /** A model as OpenCode names it: provider/model, with an optional #variant. */
 export const MODEL_REF = /^[\w.@-]{1,60}\/[\w.@:/[\]-]{1,120}(#[\w.-]{1,40})?$/;
+/** The most messages one read of a session asks for: OpenCode 2 refuses a `limit` over 200. */
+export const MESSAGES_MAX = 200;
 /** How Glue's permission modes read for OpenCode, which has no modes of its own: rules, and the plan agent. */
 export const OC_MODES = new Set(['', 'default', 'acceptEdits', 'plan', 'auto']);
 
@@ -121,7 +123,10 @@ export function createClient({ service, fetch: doFetch = globalThis.fetch, timeo
     /** One answer from the session's model to `prompt`, outside its conversation: `{ text, tokens, cost }`. */
     generate: async (id, prompt, { ms = 90_000 } = {}) => req('POST', `/session/${sid(id)}/generate`, { body: { prompt }, ms }),
     synthetic: async (id, text) => req('POST', `/session/${sid(id)}/synthetic`, { body: { text, resume: false } }),
-    messages: async (id, { limit = 400 } = {}) => req('GET', `/session/${sid(id)}/message`, { query: { limit, order: 'asc' } }),
+    /** Its newest messages, at most MESSAGES_MAX (the most the service takes: more is refused with a 400, and `asc`
+     *  would give the oldest page). Callers sort them by time. */
+    messages: async (id, { limit = MESSAGES_MAX } = {}) => req('GET', `/session/${sid(id)}/message`,
+      { query: { limit: Math.max(1, Math.min(MESSAGES_MAX, limit)), order: 'desc' } }),
     interrupt: async (id) => req('POST', `/session/${sid(id)}/interrupt`),
     setAgent: async (id, agent) => req('POST', `/session/${sid(id)}/agent`, { body: { agent } }),
     setPermissions: async (id, permissions) => req('PATCH', `/session/${sid(id)}`, { body: { permissions } }),
@@ -310,6 +315,16 @@ export function turnErrorOf(messages) {
   return err ? { message: errorText(err), type: typeof err.type === 'string' ? err.type.slice(0, 80) : null, status: Number.isInteger(err.status) ? err.status : null } : null;
 }
 
+/** Its newest tool call, by name, for the "now" line: the event that says a tool was called names none. */
+export function lastToolOf(messages) {
+  const list = (Array.isArray(messages) ? messages : []).slice().sort((a, b) => timeOf(a) - timeOf(b));
+  for (let i = list.length - 1; i >= 0; i--) {
+    const tools = Array.isArray(list[i]?.content) ? list[i].content.filter((b) => b?.type === 'tool' && b.name) : [];
+    const t = tools.at(-1);
+    if (t) return { name: String(t.name), input: t.state?.input && typeof t.state.input === 'object' ? t.state.input : {}, running: t.state?.status === 'running' || t.state?.status === 'streaming' };
+  }
+  return null;
+}
 /** What it said last, for the board's tile. */
 export function lastSaidOf(messages) {
   const list = (Array.isArray(messages) ? messages : []).slice().sort((a, b) => timeOf(a) - timeOf(b));
