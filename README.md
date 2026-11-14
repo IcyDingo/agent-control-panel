@@ -71,6 +71,8 @@ section's header to fold it to one line, which keeps its count and the name of i
 Finished starts folded; Settings › Glue › Look & keys offers Other folders and Finished, and what you
 fold there is the same in every window. A repository's or space's section you fold stays folded in that browser
 (or the app) only. Drag the rail's right edge to widen it (double-click for the default).
+The **+** on a space's or repository's header starts a new agent there: New agent opens with that space and folder
+filled in, asking only what it should do (**More options** shows the rest).
 Each session is one row: its state square, its name, what it is doing (the tool it runs, or what it asks
 for: `Bash`, `Asks`, `Plan`, with `sub:` in front when a subagent is asking) and its age. Hover a row for its
 branch, folder and the full text; hover its right end for Interrupt, End or Remove. A session with
