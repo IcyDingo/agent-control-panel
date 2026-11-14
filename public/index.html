@@ -209,10 +209,13 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .col-h .n { font: 500 11.5px var(--mono); color: var(--fg-dim); }
 .col-h .btn.small { height: 24px; padding: 0 9px; font-size: 11.5px; }
 .col[data-col="waiting"] .col-h { color: var(--amber); }
-.col[data-col="repo"] .col-h { color: var(--fg); font-size: 13px; }
+.col[data-col="repo"] .col-h, .col[data-col="space"] .col-h { color: var(--fg); font-size: 13px; }
+.col-rename { flex: 1; min-width: 0; height: 28px; margin-left: 10px; }
+/* A space's Rename and Delete show on hover and focus, so its name keeps the room the rest of the time. */
+@media (hover: hover) { .col[data-col="space"]:not(:hover, :focus-within) .sp-tool:not(.armed) { display: none; } }
 .col-name { flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: 8px; padding: 0 0 0 16px; border: 0; background: none; font-weight: inherit; text-align: left; }
 .col-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.col:not([data-col="repo"]) .col-title { flex: none; }
+.col:not([data-col="repo"], [data-col="space"]) .col-title { flex: none; }
 .col-asks { flex: none; font-size: 11.5px; font-weight: 500; color: var(--amber); }
 .col-fold { cursor: pointer; }
 .col-fold:hover { color: var(--fg); }
@@ -968,7 +971,7 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
   body.rail-slim .board { width: 44px; overflow-x: hidden; scrollbar-width: none; }
   body.rail-slim .board::-webkit-scrollbar { display: none; }
   body.rail-slim :is(.r-grip, #rail-find, #rail-keys, .col-path, .ck, .col-hint, .col-empty, .board-empty, .sub, .rask, .qstop),
-  body.rail-slim .col[data-col="waiting"]:not(:has(.tile-wrap)), body.rail-slim .col.folded:not(:has(.tile-wrap.rail-live)),
+  body.rail-slim .col:is([data-col="waiting"], [data-col="space"]):not(:has(.tile-wrap)), body.rail-slim .col.folded:not(:has(.tile-wrap.rail-live)),
   body.rail-slim .col.folded .tile-wrap:not(.rail-live) { display: none; }
   body.rail-slim .col.folded .col-body { display: grid; }
   body.rail-slim .rail-head { justify-content: center; padding: 4px 0 2px; }
@@ -1276,6 +1279,7 @@ const HINT = {
   clear: 'Removes every finished session from the list. Transcripts are kept, and a worktree with unsaved work keeps its session.',
   sub: 'It stops at its next tool call. Its session carries on without it.',
   ovclear: 'Clears this conversation with the overseer. The feed of what happened stays.',
+  spacedel: 'Deletes the space. Its agents go back to their repositories.',
 };
 const SETTLED = {
   allow: 'Allowed from the panel', deny: 'Denied from the panel', answer: 'Answered from the panel',
@@ -1589,13 +1593,15 @@ function repoFolded() {
   const at = repoFoldKey();
   if (at !== repoFoldsAt) {
     repoFoldsAt = at;
-    repoFolds = new Set((() => { try { const v = JSON.parse(localStorage.getItem(at)); if (Array.isArray(v)) return v.filter((k) => typeof k === 'string' && k.startsWith('repo:')); } catch {} return []; })());
+    repoFolds = new Set((() => { try { const v = JSON.parse(localStorage.getItem(at)); if (Array.isArray(v)) return v.filter((k) => typeof k === 'string' && PAGE_FOLD.test(k)); } catch {} return []; })());
   }
   return repoFolds;
 }
-const isFolded = (k) => (k.startsWith('repo:') ? repoFolded().has(k) : folded.has(k));
+// A space's fold is this page's own too, like a repository's: its name must not reach another workspace either.
+const PAGE_FOLD = /^(repo|space):/;
+const isFolded = (k) => (PAGE_FOLD.test(k) ? repoFolded().has(k) : folded.has(k));
 function toggleFold(k) {
-  if (k.startsWith('repo:')) {
+  if (PAGE_FOLD.test(k)) {
     const set = repoFolded();
     set.has(k) ? set.delete(k) : set.add(k);
     try { localStorage.setItem(repoFoldKey(), JSON.stringify([...set].slice(-200))); } catch {}
@@ -1625,9 +1631,24 @@ function sectionEl(key, kind) {
     c.head = el('button', { class: 'col-name col-fold', type: 'button', 'aria-controls': body.id, onclick: () => toggleFold(key) },
       c.title, c.n, c.asks, c.peek, el('span', { class: 'chev', 'aria-hidden': 'true', text: '›' }));
   }
-  c.sec = el('section', { class: 'col', 'data-col': kind }, el('div', { class: 'col-h' }, c.head, c.tools), c.path, body);
+  if (kind === 'space') c.rename = el('input', { class: 'field col-rename', maxlength: 40, spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Space name', hidden: true,
+    onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); saveRename(c); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); endRename(); } },
+    onblur: () => { if (renaming === c.key.slice(6)) saveRename(c); } });
+  c.sec = el('section', { class: 'col', 'data-col': kind }, el('div', { class: 'col-h' }, ...(c.rename ? [c.rename] : []), c.head, c.tools), c.path, body);
   secs.set(key, c);
   return c;
+}
+/** The space a session is in, if that space is still listed for this workspace; else null. */
+const spaceIn = (s) => (s?.space && snap?.spaces?.some((x) => x.id === s.space) ? s.space : null);
+let renaming = null; // the space whose name is being edited in its header
+function endRename() { renaming = null; render(); }
+async function saveRename(c) {
+  const id = c.key.slice(6), name = c.rename.value.trim(), was = snap.spaces?.find((x) => x.id === id)?.name;
+  if (!name || name === was) return endRename();
+  renaming = null;
+  const r = await api('/api/space/rename', { id, name });
+  if (!r.ok) { toast(r.error || 'The space was not renamed.', true); renaming = id; }
+  render();
 }
 const boardEmpty = el('p', { class: 'board-empty', text: 'No sessions yet. Press New agent, or run claude in a terminal, and it shows up here.' });
 /** Which checkout of its repository a session works in: '' for the main one, else its worktree's name. */
@@ -1636,15 +1657,25 @@ const ckOf = (s) => s.git?.worktree ?? '';
 function sections(g) {
   const out = [{ key: 'waiting', kind: 'waiting', title: 'Needs you', list: g.waiting }];
   const repos = new Map(), loose = [], asks = new Map();
+  // Spaces first, in the order they were made: a session in one is listed there instead of under its repository.
+  const spaces = snap.spaces ?? [], inSpace = new Map(spaces.map((x) => [x.id, []])), spaceAsks = new Map();
   for (const s of [...g.busy, ...g.idle]) {
+    const sp = spaceIn(s);
+    if (sp) { inSpace.get(sp).push(s); continue; }
     const r = s.git?.repo;
     if (!r) { loose.push(s); continue; }
     if (!repos.has(r)) repos.set(r, []);
     repos.get(r).push(s);
   }
-  for (const s of g.waiting) if (s.git?.repo) asks.set(s.git.repo, (asks.get(s.git.repo) ?? 0) + 1);
+  for (const s of g.waiting) {
+    const sp = spaceIn(s);
+    if (sp) spaceAsks.set(sp, (spaceAsks.get(sp) ?? 0) + 1);
+    else if (s.git?.repo) asks.set(s.git.repo, (asks.get(s.git.repo) ?? 0) + 1);
+  }
   for (const r of asks.keys()) if (!repos.has(r)) repos.set(r, []);
   const working = (s) => (['busy', 'stopping'].includes(stateOf(s)) ? 0 : 1);
+  for (const x of spaces) out.push({ key: 'space:' + x.id, kind: 'space', space: x.id, title: x.name, asks: spaceAsks.get(x.id) ?? 0,
+    list: inSpace.get(x.id).sort((a, b) => working(a) - working(b) || (b.startedAt ?? 0) - (a.startedAt ?? 0) || a.sessionId.localeCompare(b.sessionId)) });
   for (const r of [...repos.keys()].sort((a, b) => base(a).localeCompare(base(b)) || a.localeCompare(b))) {
     // The main checkout first, then worktrees by name; in each, working before idle, newest first.
     const list = repos.get(r).sort((a, b) => (ckOf(a) ? 1 : 0) - (ckOf(b) ? 1 : 0) || ckOf(a).localeCompare(ckOf(b))
@@ -1886,7 +1917,7 @@ function tile(s) {
   setText(t.name, label(s));
   t.oc.hidden = !isOcS(s);
   // Under Needs you a row is away from its repository's section, so it names the repository.
-  const away = st === 'waiting' && repoOf(s.git), tag = s.mismatch ? `from ${s.mismatch.name}` : away;
+  const away = (st === 'waiting' || spaceIn(s)) && repoOf(s.git), tag = s.mismatch ? `from ${s.mismatch.name}` : away;
   setText(t.repo, tag || '');
   t.repo.classList.toggle('mismatch', Boolean(s.mismatch));
   const ci = ciOf(s);
@@ -1940,7 +1971,7 @@ let shownSecs = []; // the sections on the rail now, in order
 function bulksOf(sec) {
   if (sec.kind === 'finished') return [{ key: 'clear:', text: 'Clear', armed: `Clear ${sec.list.length}`,
     run: () => bulk(sec.list, doRemove, (n) => `Cleared ${sessions(n)}. Transcripts are kept.`) }];
-  if (sec.kind !== 'repo' && sec.kind !== 'loose') return [];
+  if (sec.kind !== 'repo' && sec.kind !== 'loose' && sec.kind !== 'space') return [];
   const working = sec.list.filter((s) => stateOf(s) === 'busy');
   // Bulk ending stays with background sessions: you may be typing in one of the terminal ones.
   const idleBg = sec.list.filter((s) => stateOf(s) === 'idle' && s.kind === 'background' && canEnd(s));
@@ -1949,6 +1980,9 @@ function bulksOf(sec) {
       run: () => bulk(working, (s) => api('/api/interrupt', { sessionId: s.sessionId }), (n) => `Interrupting ${sessions(n)} at the next tool call.`) },
     idleBg.length > 0 && { key: `idle:${sec.key}`, text: 'End idle', armed: `End ${idleBg.length} background`,
       run: () => bulk(idleBg, doEnd, (n) => `Ended ${sessions(n)}. Conversations are kept.`) },
+    sec.kind === 'space' && { key: `spacedel:${sec.space}`, text: 'Delete', armed: 'Delete?', run: async () => {
+      const r = await api('/api/space/delete', { id: sec.space });
+      if (!r.ok) toast(r.error || 'The space was not deleted.', true); } },
   ].filter(Boolean);
 }
 const hintOf = (key) => HINT[key.split(':')[0]];
@@ -1967,7 +2001,13 @@ function renderBoard(g, vis) {
       setAttr(c.head, 'aria-expanded', String(!shut));
       setText(c.peek, rows[0] ? label(rows[0]) : '');
     }
-    setAttr(c.sec, 'aria-label', sec.kind === 'repo' ? `Repository ${sec.title}` : sec.title);
+    setAttr(c.sec, 'aria-label', sec.kind === 'repo' ? `Repository ${sec.title}` : sec.kind === 'space' ? `Space ${sec.title}` : sec.title);
+    if (c.rename) {
+      const on = renaming === sec.space;
+      c.head.hidden = on;
+      if (on && c.rename.hidden) { c.rename.hidden = false; c.rename.value = sec.title; c.rename.focus(); c.rename.select(); }
+      else if (!on) c.rename.hidden = true;
+    }
     // Under a repository's name, the checkout and branch when only one checkout of it is in use. Its folder is in the
     // name's tooltip and in the open session's place bar, so the rail stays clean.
     const tops = sec.kind === 'repo' ? [...new Set(sec.list.map((s) => s.git.top))] : [];
@@ -1977,13 +2017,16 @@ function renderBoard(g, vis) {
       el('span', { class: 'br' + (one.worktree ? ' wt' : '') }, el('span', { text: (one.worktree ? `${one.worktree} · ` : '') + (one.branch ?? `detached ${one.commit ?? ''}`) })));
     setAttr(c.head, 'title', sec.kind === 'repo' ? tilde(sec.repo) : '');
     const bs = bulksOf(sec), armedB = bs.find((b) => armed?.key === b.key);
-    patch(c.tools, JSON.stringify(bs.map((b) => [b.key, b.text, b.armed, armed?.key === b.key])), () => bs.map((b) => el('button', {
-      class: 'btn danger soft small' + (armed?.key === b.key ? ' armed' : ''), type: 'button', 'data-key': b.key, title: hintOf(b.key),
-      text: armed?.key === b.key ? b.armed : b.text, onclick: () => confirmOr(b.key, b.run) })));
+    const renameBtn = sec.kind === 'space' && renaming !== sec.space;
+    patch(c.tools, JSON.stringify([renameBtn, bs.map((b) => [b.key, b.text, b.armed, armed?.key === b.key])]), () => [
+      renameBtn ? el('button', { class: 'btn quiet small sp-tool', type: 'button', text: 'Rename', title: 'Rename this space', onclick: () => { renaming = sec.space; render(); } }) : null,
+      ...bs.map((b) => el('button', {
+        class: 'btn danger soft small' + (b.key.startsWith('spacedel:') ? ' sp-tool' : '') + (armed?.key === b.key ? ' armed' : ''), type: 'button', 'data-key': b.key, title: hintOf(b.key),
+        text: armed?.key === b.key ? b.armed : b.text, onclick: () => confirmOr(b.key, b.run) }))]);
     c.hint.hidden = !armedB;
     if (armedB) setText(c.hint, hintOf(armedB.key));
-    c.empty.hidden = sec.kind !== 'waiting' || rows.length > 0 || Boolean(railQuery);
-    setText(c.empty, 'Nothing needs you.');
+    c.empty.hidden = (sec.kind !== 'waiting' && sec.kind !== 'space') || rows.length > 0 || Boolean(railQuery);
+    setText(c.empty, sec.kind === 'space' ? 'No agents right now.' : 'Nothing needs you.');
     // Two or more checkouts of one repository: a label before each checkout's sessions.
     const labelled = tops.length > 1;
     const want = [c.hint];
