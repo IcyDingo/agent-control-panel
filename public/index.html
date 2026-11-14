@@ -211,6 +211,9 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .col[data-col="waiting"] .col-h { color: var(--amber); }
 .col[data-col="repo"] .col-h, .col[data-col="space"] .col-h { color: var(--fg); font-size: 13px; }
 .col-rename { flex: 1; min-width: 0; height: 28px; margin-left: 10px; }
+.d-space-row { display: grid; gap: 6px; }
+.d-space-row .field, .l-space .field { height: 30px; }
+.l-space .lf-row .field { flex: 1; min-width: 0; }
 /* A space's Rename and Delete show on hover and focus, so its name keeps the room the rest of the time. */
 @media (hover: hover) { .col[data-col="space"]:not(:hover, :focus-within) .sp-tool:not(.armed) { display: none; } }
 .col-name { flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: 8px; padding: 0 0 0 16px; border: 0; background: none; font-weight: inherit; text-align: left; }
@@ -1160,6 +1163,7 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
     </div>
     <p class="l-note" id="l-wt-note" hidden></p>
     <div class="lf l-ws" role="radiogroup" aria-labelledby="l-ws-t" id="l-ws" hidden><span id="l-ws-t"></span><div class="seg" id="l-ws-seg"></div></div>
+    <div class="lf l-space"><span id="l-space-t">Space</span><span class="lf-row"><select class="field" id="l-space" aria-labelledby="l-space-t"></select><input class="field" id="l-space-new" maxlength="40" placeholder="Name the space" spellcheck="false" autocomplete="off" aria-label="New space name" hidden></span></div>
     <div class="pair">
       <label class="lf"><span>Name <small>(optional)</small></span><input id="l-name" maxlength="60" placeholder="fix-timesheet-tests" spellcheck="false"></label>
       <label class="lf l-claude"><span>Agent type <small>(optional)</small></span><input id="l-agent" list="l-agents" placeholder="e.g. code-reviewer" spellcheck="false"><datalist id="l-agents"></datalist></label>
@@ -2163,7 +2167,8 @@ function renderDrawer(vis) {
   renderCompose(s, st);
 
   // The column: where it works, how to reopen it, its subagents, and the buttons that stop it.
-  patch($('d-info'), JSON.stringify([s.sessionId, s.cwd, here, s.git, s.mismatch, s.kind, s.id, Boolean(s.leftRosterAt), snap.profile?.command, sharers, elsewhere]), () => el('dl', { class: 'kv' },
+  patch($('d-info'), JSON.stringify([s.sessionId, s.cwd, here, s.git, s.mismatch, s.kind, s.id, Boolean(s.leftRosterAt), snap.profile?.command, sharers, elsewhere, spaceIn(s), snap.spaces]), () => el('dl', { class: 'kv' },
+    s.mismatch ? null : [el('dt', { text: 'Space' }), el('dd', {}, spacePicker(s))],
     s.mismatch ? [el('dt', { text: 'Folder' }), el('dd', { class: 'mismatch', text: mismatchText(s), title: MISMATCH_WHY })]
       : [el('dt', { text: 'Folder' }), el('dd', { class: 'mono', text: here || 'unknown', title: here !== s.cwd && s.cwd ? `Started in ${s.cwd}` : null })],
     where ? [el('dt', { text: 'Branch' }), el('dd', { class: 'mono' + (s.git.worktree ? ' where-b wt' : ' where-b'), text: where.on, title: where.long }), el('dt', { text: 'Checkout' }), el('dd', { text: where.at[0].toUpperCase() + where.at.slice(1) })] : null,
@@ -3627,6 +3632,8 @@ function openLauncher() {
   for (const s of snap?.sessions ?? []) for (const a of s.subagents) types.add(a.agentType);
   $('l-agents').replaceChildren(...[...types].map((t) => el('option', { value: t })));
   if (!$('l-cwd').value) $('l-cwd').value = ranked[0] || '~';
+  spaceOptions($('l-space'), $('l-space').value);
+  $('l-space-new').hidden = $('l-space').value !== '+new';
   lErr.hidden = true;
   setWsAsk(null); // asked again for this page's workspace, once the folder is looked at
   checkFolder();
@@ -3734,6 +3741,40 @@ function showWorktree() {
 $('l-wt').addEventListener('change', showWorktree);
 $('l-wt-name').addEventListener('input', showWorktree);
 $('l-name').addEventListener('input', showWorktree);
+/** The Space picker in a session's details: moving takes effect at once; New space… asks for a name inline. */
+function spacePicker(s) {
+  const sel = el('select', { class: 'field d-space', 'aria-label': 'Space' }), name = el('input', { class: 'field d-space-new', maxlength: 40, placeholder: 'Name the space', spellcheck: 'false', autocomplete: 'off', 'aria-label': 'New space name', hidden: true });
+  spaceOptions(sel, spaceIn(s) ?? '');
+  const move = async (space) => {
+    const r = await api('/api/space/move', { sessionId: s.sessionId, space });
+    if (!r.ok) { toast(r.error || 'It did not move.', true); spaceOptions(sel, spaceIn(s) ?? ''); }
+  };
+  sel.onchange = () => {
+    if (sel.value !== '+new') { name.hidden = true; return move(sel.value || null); }
+    name.hidden = false;
+    name.focus();
+  };
+  name.onkeydown = async (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); name.value = ''; name.hidden = true; spaceOptions(sel, spaceIn(s) ?? ''); return; }
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const c = await api('/api/space/create', { name: name.value });
+    if (!c.ok) return toast(c.error || 'The space was not made.', true);
+    move(c.id);
+  };
+  return el('span', { class: 'd-space-row' }, sel, name);
+}
+/** A Space picker's options: None, this workspace's spaces, and New space…; keeps `current` if it is still there. */
+function spaceOptions(sel, current) {
+  const list = snap?.spaces ?? [];
+  sel.replaceChildren(el('option', { value: '', text: 'None' }), ...list.map((x) => el('option', { value: x.id, text: x.name })), el('option', { value: '+new', text: 'New space…' }));
+  sel.value = current === '+new' || list.some((x) => x.id === current) ? current : '';
+}
+$('l-space').addEventListener('change', () => {
+  const fresh = $('l-space').value === '+new';
+  $('l-space-new').hidden = !fresh;
+  if (fresh) $('l-space-new').focus();
+});
 $('launch-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const go = $('l-go');
@@ -3743,10 +3784,20 @@ $('launch-form').addEventListener('submit', async (e) => {
   const worktree = $('l-wt').checked && !$('l-wt').disabled, worktreeName = worktree ? wtName() : '';
   const name = $('l-name').value.trim() || worktreeName, assign = wsAnswer();
   const ocKind = picked('l-kind') === 'opencode';
+  let space = $('l-space').value || null;
+  if (space === '+new') {
+    const c = await api('/api/space/create', { name: $('l-space-new').value });
+    if (!c.ok) { go.disabled = false; go.textContent = 'Launch agent'; lErr.textContent = c.error || 'The space was not made.'; lErr.hidden = false; $('l-space-new').focus(); return; }
+    space = c.id; // picked from here on, so a second Launch (after a question) doesn't make it twice
+    $('l-space').append(el('option', { value: c.id, text: $('l-space-new').value.trim() }));
+    $('l-space').value = c.id;
+    $('l-space-new').value = '';
+    $('l-space-new').hidden = true;
+  }
   const r = await api('/api/launch', {
     prompt: $('l-prompt').value, cwd: $('l-cwd').value, name, agentKind: ocKind ? 'opencode' : 'claude',
     ...(ocKind ? { model: $('l-oc-model').value } : { agent: $('l-agent').value.trim(), model: picked('l-model'), effort: EFFORT_STOPS[$('l-effort').value][0] }),
-    mode: picked('l-mode'), worktree, worktreeName, assign,
+    mode: picked('l-mode'), worktree, worktreeName, assign, space,
   });
   go.disabled = false;
   go.textContent = 'Launch agent';
