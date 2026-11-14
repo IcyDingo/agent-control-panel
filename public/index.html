@@ -3540,13 +3540,14 @@ function syncKind() {
   showTrust();
   if (!oc) return;
   const sel = $('l-oc-model');
-  if (sel.value) ocWant = sel.value;
+  // ocWant is the pick: the default Glue keeps, or what was chosen here. The select may still hold the value of the
+  // last time the launcher was open, and it must not overrule the default.
   const models = i?.models ?? [], c = (t) => el('code', { text: t });
   patch(sel, JSON.stringify([models, i?.defaultModel, ocWant]), () => {
     const groups = new Map();
     for (const m of models) groups.set(m.provider, [...(groups.get(m.provider) ?? []), m]);
     const known = models.some((m) => m.ref === ocWant);
-    return [el('option', { value: '', text: `OpenCode's default${i?.defaultModel ? ` (${i.defaultModel})` : ''}` }),
+    return [el('option', { value: '', text: `OpenCode’s default${i?.defaultModel ? ` (${i.defaultModel})` : ''}` }),
       ...(ocWant && !known ? [el('option', { value: ocWant, text: ocWant })] : []),
       ...[...groups].map(([p, list]) => el('optgroup', { label: p }, ...list.map((m) => el('option', { value: m.ref, text: m.name })))),
     ];
@@ -3730,7 +3731,7 @@ let contFor = null;
 function ocOptions(info, want) {
   const groups = new Map();
   for (const m of info?.models ?? []) groups.set(m.provider, [...(groups.get(m.provider) ?? []), m]);
-  return [el('option', { value: '', text: `OpenCode's default${info?.defaultModel ? ` (${info.defaultModel})` : ''}` }),
+  return [el('option', { value: '', text: `OpenCode’s default${info?.defaultModel ? ` (${info.defaultModel})` : ''}` }),
     ...(want && !(info?.models ?? []).some((m) => m.ref === want) ? [el('option', { value: want, text: want })] : []),
     ...[...groups].map(([p, list]) => el('optgroup', { label: p }, ...list.map((m) => el('option', { value: m.ref, text: m.name }))))];
 }
@@ -4621,15 +4622,20 @@ async function setAssign(key, ws) {
 function setLoginsTab(panel) {
   if (!panel.firstChild) panel.append(
     el('h3', { text: 'Logins & connection' }),
-    el('p', { class: 'set-lead', text: 'Glue has no account of its own. Each workspace runs on its profile’s own Claude Code login, and reaches its sessions through hooks in that profile’s settings. OpenCode has one set of sign-ins for the whole computer, kept by OpenCode itself.' }),
+    el('p', { class: 'set-lead', text: 'Glue has no account of its own. Each workspace runs on its profile’s own Claude Code login, and reaches its sessions through hooks in that profile’s settings. OpenCode has one set of sign-ins for the whole computer, kept by OpenCode itself: they are under Providers.' }),
     el('div', { class: 'set-blocks' }));
   const box = panel.children[2];
   if (!setReady(box)) return;
   const list = setData.workspaces;
   const first = setupPending();
-  askSetOc();
-  patch(box, JSON.stringify([first, list.map((w) => [w.id, w.name, w.color, w.here, w.signedIn, w.connected, w.loginCommand, w.account]), setOc]),
-    () => [...list.map((w) => setLoginBlock(w, list.length > 1, first && w.here)), setOcBlock(list.length > 1)]);
+  patch(box, JSON.stringify([first, list.map((w) => [w.id, w.name, w.color, w.here, w.signedIn, w.connected, w.loginCommand, w.account])]),
+    () => [...list.map((w) => setLoginBlock(w, list.length > 1, first && w.here)), setOcPointer()]);
+}
+/** OpenCode is not here: it is one for the whole computer, and its sign-ins are under Providers. */
+function setOcPointer() {
+  return el('section', { class: 'set-block', 'aria-label': 'OpenCode' }, setBlockHead(null, 'OpenCode'),
+    setLine('wait', '·', 'One OpenCode for this computer', 'Its sign-ins, its models and what it can run on are under Providers.',
+      [el('button', { class: 'btn small', type: 'button', text: 'Providers…', 'data-f': 'to-providers', onclick: () => showSetTab('providers') })]));
 }
 /** One line of a block: a mark (✓ ✗ ·), what it is, a sentence on it, and what you can do. */
 const setLine = (s, mark, t, d, acts, cls) => el('div', { class: 'set-line' + (cls ? ' ' + cls : ''), 'data-s': s },
@@ -4702,6 +4708,18 @@ function setSelect(f, label, options, value, change) {
   const s = el('select', { class: 'set-sel', 'data-f': f, 'aria-label': label, onchange: (e) => change(e.target.value) },
     ...options.map(([v, t]) => el('option', { value: v, text: t })));
   s.value = value;
+  return s;
+}
+/** A picker for OpenCode’s models: its own default first, then each provider’s own group. The one that is saved stays in
+ *  the list even when OpenCode is not answering, so it is never silently dropped. */
+function ocModelSelect(f, label, info, want, change) {
+  const s = el('select', { class: 'set-sel', 'data-f': f, 'aria-label': label, onchange: (e) => change(e.target.value) });
+  const models = info?.models ?? [], groups = new Map();
+  for (const m of models) groups.set(m.provider, [...(groups.get(m.provider) ?? []), m]);
+  s.append(el('option', { value: '', text: `OpenCode’s default${info?.defaultModel ? ` (${info.defaultModel})` : ''}` }));
+  if (want && !models.some((m) => m.ref === want)) s.append(el('option', { value: want, text: want }));
+  for (const [p, list] of groups) s.append(el('optgroup', { label: p }, ...list.map((m) => el('option', { value: m.ref, text: m.name }))));
+  s.value = want ?? '';
   return s;
 }
 /** A block's heading: a workspace's (its colour, its name, "you're here") or a plain one, with an optional tag. */
@@ -4790,11 +4808,12 @@ function setWsField(ws, change) {
   renderSettings();
 }
 
-// The Providers tab: what runs the agents. Claude Code today, with each workspace's sign-in; two places kept for later.
+// The Providers tab: what runs the agents. Claude Code, on each workspace's own login, and OpenCode, on the providers it
+// is signed in to. One place kept for later.
 function setProvidersTab(panel) {
   if (!panel.firstChild) panel.append(
     el('h3', { text: 'Providers' }),
-    el('p', { class: 'set-lead', text: 'A provider is what runs your agents: Claude Code, on each workspace’s own login, and OpenCode, on the providers you sign it in to (API keys, GitHub Copilot and the like, never a Claude subscription). A Claude session at its usage limit can carry on in OpenCode when you ask.' }),
+    el('p', { class: 'set-lead', text: 'A provider is what runs your agents. Claude Code runs on each workspace’s own login. OpenCode runs on the providers you sign it in to here (API keys, GitHub Copilot and the like, never a Claude subscription): it is one OpenCode for this computer, and every workspace uses it. A Claude session at its usage limit can carry on in OpenCode when you ask.' }),
     el('div', { class: 'set-blocks' }));
   const box = panel.children[2];
   if (!setReady(box)) return;
@@ -4823,27 +4842,47 @@ function askSetOc() {
   setOcAsked = true;
   api('/api/opencode', {}).then((r) => { setOc = r.ok ? r : { error: r.error }; renderSettings(); }, () => { setOc = { error: 'Glue could not ask OpenCode.' }; renderSettings(); });
 }
-/** OpenCode's block, in Providers and in Logins & connection: one for every workspace, since OpenCode is one service per
- *  computer with one set of sign-ins. */
+// OpenCode's block, in the Providers tab: what it is, who it is signed in to, and what it can run on. One OpenCode for the
+// computer: its sign-ins are shared by every workspace, and each OpenCode session shows in the workspace that started it.
 function setOcBlock(several) {
-  const o = setOc, ocAct = (path) => async () => { const r = await api(path, {}); if (!r.ok) toast(r.error || 'That did not work.', true); setOcAsked = false; renderSettings(); };
-  return el('section', { class: 'set-block', 'aria-label': 'OpenCode' }, setBlockHead(null, 'OpenCode', several ? 'every workspace' : o?.running ? 'Running' : o?.installed ? 'Installed' : null),
-    !o ? setLine('wait', '·', 'OpenCode', 'Checking…')
-      : o.error && !o.installed && !o.running ? setLine('todo', '✗', 'OpenCode', o.error)
-      : !o.installed && !o.running ? setLine('off', '·', 'Not installed', IS_MAC ? 'brew install anomalyco/tap/opencode-v2' : 'Install it from opencode.ai')
-      : !o.running ? setLine('todo', '·', `OpenCode${o.version ? ' ' + o.version : ''}`, 'Not running. Glue starts it when an agent or the overseer needs it.',
-          [el('button', { class: 'btn small', type: 'button', text: 'Start it', onclick: ocAct('/api/opencode/start') })])
-      // Connected = the accounts OpenCode holds. A provider it reads from the environment (an API key variable) has none,
-      // so models with no account still say they can be used.
-      : (() => {
-          const conn = o.connected ?? [], ok = conn.length > 0 || o.models.length > 0;
-          const text = conn.length ? `Connected to ${conn.join(', ')}. ${o.models.length} models${o.defaultModel ? `, default ${o.defaultModel}` : ''}.`
-            : o.models.length ? `No account connected here, but ${o.models.length} models are available (from your environment)${o.defaultModel ? `. Default ${o.defaultModel}` : ''}.`
-            : 'Not connected to any provider yet';
-          return setLine(ok ? 'ok' : 'todo', ok ? '✓' : '✗', `OpenCode ${o.version ?? ''}`.trim(), text,
-            [el('button', { class: 'btn small' + (ok ? '' : ' primary'), type: 'button', text: conn.length ? 'Providers…' : 'Connect a provider…', onclick: () => openProviders() })]);
-        })(),
+  const o = setOc;
+  const section = (...lines) => el('section', { class: 'set-block', 'aria-label': 'OpenCode' },
+    setBlockHead(null, 'OpenCode', several ? 'every workspace' : o?.running ? 'Running' : o?.installed ? 'Installed' : null), ...lines);
+  if (!o) return section(setLine('wait', '·', 'OpenCode', 'Checking…'));
+  if (o.error && !o.installed && !o.running) return section(setLine('todo', '✗', 'OpenCode', o.error));
+  if (!o.installed && !o.running) return section(setLine('off', '·', 'Not installed',
+    IS_MAC ? 'brew install anomalyco/tap/opencode-v2' : 'Install it from opencode.ai'));
+  if (!o.running) return section(setLine('todo', '·', `OpenCode${o.version ? ' ' + o.version : ''}`,
+    'Not running. Glue starts it when an agent or the overseer needs it.',
+    [el('button', { class: 'btn small', type: 'button', text: 'Start it', 'data-f': 'oc-start', onclick: () => ocDo('/api/opencode/start') })]));
+  // It is running: the accounts it holds (by name, never their secrets), and the models it can run on.
+  const accounts = o.accounts ?? [], models = o.models ?? [];
+  const who = accounts.map((a) => `${a.name}${a.label && a.label !== a.name ? ' · ' + a.label : ''}${a.active ? '' : ' (not in use)'}`);
+  const byProvider = new Map();
+  for (const m of models) byProvider.set(m.provider, (byProvider.get(m.provider) ?? 0) + 1);
+  const spread = [...byProvider].map(([p, n]) => `${p} ${n}`).join(', ');
+  // A provider it reads from the environment (an API key variable) has no account, yet its models are usable.
+  const signIn = who.length ? setLine('ok', '✓', 'Signed in to', who.join(', '))
+    : models.length ? setLine('wait', '·', 'No sign-in here', 'It reads its models from your environment (an API key variable), so there is nothing to sign in to.')
+    : setLine('todo', '✗', 'Signed in to', 'Not signed in to any provider yet. It needs one before it can run on anything.');
+  signIn.append(el('span', { class: 'acts' },
+    el('button', { class: 'btn small' + (who.length ? '' : ' primary'), type: 'button', text: who.length ? 'Providers…' : 'Connect a provider…',
+      'data-f': 'oc-providers', onclick: () => openProviders() })));
+  return section(
+    setLine('ok', '✓', `OpenCode${o.version ? ' ' + o.version : ''}`,
+      'Running. It is the one OpenCode on this computer: every workspace runs its OpenCode sessions on it.'),
+    signIn,
+    setLine(models.length ? 'ok' : 'todo', models.length ? '✓' : '·', 'Models',
+      models.length ? `${models.length} from ${byProvider.size} provider${byProvider.size === 1 ? '' : 's'} (${spread}).${o.defaultModel ? ` Its default is ${o.defaultModel}.` : ''}`
+        : 'None yet: they come with the providers it is signed in to.'),
     several ? el('p', { class: 'set-lead set-in', text: 'One OpenCode for this computer: its sign-ins are shared by every workspace. Each OpenCode session shows only in the workspace that started it.' }) : null);
+}
+/** Something of OpenCode's own, from Settings: it asks the service again, and Settings draws it afresh. */
+async function ocDo(path) {
+  const r = await api(path, {});
+  if (!r.ok) toast(r.error || 'That did not work.', true);
+  setOcAsked = false;
+  renderSettings();
 }
 
 // The Glue tab: what applies to every workspace and every page, kept on the server (prefs.json › glue), and every
@@ -4921,13 +4960,30 @@ async function setArm(on) {
 }
 function setGlueAgents(box, g) {
   const a = g.agentDefaults;
-  setPatch(box, JSON.stringify(a), () => [
-    el('p', { class: 'set-quiet set-sub', text: 'What New agent starts with. You can still change each one when you start an agent.' }),
-    setOpt('Model', null, setSelect('ad-model', 'Model a new agent starts with', AGENT_MODELS, a.model, (v) => setGlue({ agentDefaults: { model: v } }))),
-    setOpt('Effort', null, setSelect('ad-effort', 'Effort a new agent starts with', EFFORT_STOPS, a.effort, (v) => setGlue({ agentDefaults: { effort: v } }))),
-    setOpt('Permissions', null, setSelect('ad-mode', 'Permissions a new agent starts with', AGENT_MODES, a.mode, (v) => setGlue({ agentDefaults: { mode: v } }))),
-    setOpt('Its own worktree', 'A new branch in a folder of its own, off the one you are on.', setSwitch('ad-wt', 'Its own worktree', a.worktree, (on) => setGlue({ agentDefaults: { worktree: on } }))),
-  ]);
+  askSetOc();
+  const oc = setOc;
+  setPatch(box, JSON.stringify([a, g.fallbackModel, oc]), () => {
+    const opencode = a.agent === 'opencode';
+    const which = el('div', { class: 'seg set-seg', role: 'radiogroup', 'aria-label': 'Which agent a new agent runs on' },
+      ...[['claude', 'Claude Code'], ['opencode', 'OpenCode']].map(([v, name]) => el('label', {},
+        el('input', { type: 'radio', name: 'set-agent', value: v, 'data-f': 'ad-agent-' + v, checked: a.agent === v,
+          onchange: () => setGlue({ agentDefaults: { agent: v } }) }),
+        el('span', { text: name }))));
+    return [
+      el('p', { class: 'set-quiet set-sub', text: 'What New agent starts with. You can still change each one when you start an agent.' }),
+      setOpt('Which agent', 'Claude Code runs on your Claude subscription; OpenCode runs on the providers it is signed in to (Settings › Providers).', which),
+      opencode
+        ? setOpt('Model', 'The model OpenCode runs on; its own default when this is empty.',
+            ocModelSelect('ad-oc-model', 'The model a new OpenCode agent starts with', oc, a.opencodeModel, (v) => setGlue({ agentDefaults: { opencodeModel: v } })))
+        : setOpt('Model', null, setSelect('ad-model', 'Model a new agent starts with', AGENT_MODELS, a.model, (v) => setGlue({ agentDefaults: { model: v } }))),
+      // OpenCode has no effort of its own: it picks its own.
+      opencode ? null : setOpt('Effort', null, setSelect('ad-effort', 'Effort a new agent starts with', EFFORT_STOPS, a.effort, (v) => setGlue({ agentDefaults: { effort: v } }))),
+      setOpt('Permissions', null, setSelect('ad-mode', 'Permissions a new agent starts with', AGENT_MODES, a.mode, (v) => setGlue({ agentDefaults: { mode: v } }))),
+      setOpt('Its own worktree', 'A new branch in a folder of its own, off the one you are on.', setSwitch('ad-wt', 'Its own worktree', a.worktree, (on) => setGlue({ agentDefaults: { worktree: on } }))),
+      setOpt('At its usage limit', 'The OpenCode model a Claude Code session carries on with when it runs out of its subscription.',
+        ocModelSelect('ad-fallback', 'The model a Claude session carries on with', oc, g.fallbackModel, (v) => setGlue({ fallbackModel: v }))),
+    ];
+  });
 }
 function setGlueAbout(box, ab) {
   const sv = ab.service ?? {};

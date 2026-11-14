@@ -2989,19 +2989,29 @@ async function ocDisconnect(body) {
   return { ok: true };
 }
 
-/** What Settings and the launcher show of OpenCode: installed, running, its models and default. */
+/** What Settings and the launcher show of OpenCode: installed, running, its models and default, and the accounts it is
+ *  signed in to (by provider and label, never their secrets). */
 async function ocStatus(body) {
   const bin = findOcBinary(ocWhere);
-  let info = null, error = null, models = [], defaultModel = null, connected = [];
+  let info = null, error = null, models = [], defaultModel = null, connected = [], accounts = [];
   try { info = await oc.info(); } catch (e) { error = e.message; }
   if (info && body?.models !== false) {
     const dir = typeof body?.cwd === 'string' && path.isAbsolute(body.cwd) ? body.cwd : undefined;
     try { models = pickable(await oc.models(dir)); if (!dir) ocModelCache = models; } catch (e) { error = e.message; }
     try { const d = await oc.defaultModel(dir); defaultModel = d?.providerID ? `${d.providerID}/${d.id ?? d.modelID}` : null; } catch {}
     // What it is signed in to: its accounts, by provider (never their secrets).
-    try { connected = [...new Set((await oc.credentials()).map((c) => c?.integrationID).filter((x) => typeof x === 'string'))].slice(0, 30); } catch {}
+    try {
+      const creds = await oc.credentials();
+      connected = [...new Set(creds.map((c) => c?.integrationID).filter((x) => typeof x === 'string'))].slice(0, 30);
+      // The providers' own names, so Settings says "Anthropic" and not "anthropic".
+      const names = new Map();
+      try { for (const i of await oc.integrations()) if (i?.id) names.set(i.id, String(i.name ?? i.id)); } catch {}
+      accounts = creds.filter((c) => typeof c?.integrationID === 'string').map((c) => ({
+        id: String(c.id ?? ''), provider: c.integrationID, name: names.get(c.integrationID) ?? c.integrationID,
+        label: String(c.label ?? 'Account'), active: c.active === true })).slice(0, 30);
+    } catch {}
   }
-  return { ok: true, installed: Boolean(bin), running: Boolean(info), version: info?.version ?? null, models, defaultModel, connected, error,
+  return { ok: true, installed: Boolean(bin), running: Boolean(info), version: info?.version ?? null, models, defaultModel, connected, accounts, error,
            sessions: Object.keys(ocRecords).length };
 }
 const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
