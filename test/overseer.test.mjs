@@ -785,36 +785,51 @@ test('days and parts of the day are local: night, morning, midday, evening', () 
   assert.deepEqual([0, 5, 6, 11, 12, 17, 18, 23].map((h) => partOf(new Date(2026, 10, 12, h, 30).getTime())), [0, 0, 1, 1, 2, 2, 3, 3]);
 });
 
-test('agent minutes and turns add up per part of the day, over the last seven days', () => {
+test('agent minutes and turns add up per day, split by part of the day, and only days with work are sent', () => {
   const file = tmp(), c = clock(new Date(2026, 10, 12, 14, 0).getTime()), k = mk({ file, clock: c });
   k.o.tally([A, B]);
   k.o.tally([A]);
   k.o.turnDone(A);
   k.o.tally([]); // nobody working: nothing
-  let days = k.o.status().heat;
-  assert.equal(days.length, 7);
-  assert.equal(days[6].key, '2026-11-12');
-  assert.equal(days[0].key, '2026-11-06');
-  assert.deepEqual(days[6].cells[2], { m: 3, agents: 2, turns: 1, now: true });
-  assert.deepEqual(days[6].cells[3], { m: 0, agents: 0, turns: 0, ahead: true }, 'the evening is still to come');
-  assert.deepEqual(days[6].cells[1], { m: 0, agents: 0, turns: 0 });
+  let heat = k.o.status().heat;
+  assert.equal(heat.today, '2026-11-12');
+  assert.equal(heat.since, '2026-11-12');
+  assert.deepEqual(heat.days, [{ key: '2026-11-12', m: 3, turns: 1, agents: 2, parts: [0, 0, 3, 0], partTurns: [0, 0, 1, 0] }]);
   c.tick(9 * 3_600_000); // 23:00
   k.o.tally([C], 30);
-  days = k.o.status().heat;
-  assert.equal(days[6].cells[3].m, 30);
+  heat = k.o.status().heat;
+  assert.deepEqual(heat.days[0], { key: '2026-11-12', m: 33, turns: 1, agents: 3, parts: [0, 0, 3, 30], partTurns: [0, 0, 1, 0] }, 'an agent is counted once a day');
   assert.equal(k.o.status().rev, 0, 'a tally does not make the page fetch the conversation again');
   c.tick(2 * 3_600_000); // 01:00 the next day
   k.o.tally([A]);
-  days = k.o.status().heat;
-  assert.deepEqual([days[5].key, days[5].cells[2].m, days[6].key, days[6].cells[0].m], ['2026-11-12', 3, '2026-11-13', 1]);
+  heat = k.o.status().heat;
+  assert.equal(heat.today, '2026-11-13');
+  assert.deepEqual(heat.days.map((d) => [d.key, d.m, d.agents]), [['2026-11-12', 33, 3], ['2026-11-13', 1, 1]], 'yesterday keeps its agents once it is kept small');
   k.o.flush();
-  assert.equal(mk({ file, clock: c }).o.status().heat[5].cells[2].m, 3, 'kept in the file');
+  const kept = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const day = Object.values(kept.profiles)[0].heat['2026-11-12'];
+  assert.deepEqual(day, { p: [[0, 0], [0, 0], [3, 1], [30, 0]], n: 3 }, 'a day that is over is kept small, with no agent ids');
+  assert.deepEqual(mk({ file, clock: c }).o.status().heat.days[0], { key: '2026-11-12', m: 33, turns: 1, agents: 3, parts: [0, 0, 3, 30], partTurns: [0, 0, 1, 0] }, 'kept in the file');
 });
 
-test('only the newest eight days are kept', () => {
-  const c = clock(new Date(2026, 10, 1, 9, 0).getTime()), k = mk({ clock: c });
-  for (let d = 0; d < 12; d++) { k.o.tally([A]); c.tick(86_400_000); }
+test('a year of days is kept: the oldest drop off', () => {
+  const c = clock(new Date(2025, 10, 1, 9, 0).getTime()), k = mk({ clock: c });
+  for (let d = 0; d < 380; d++) { k.o.tally([A]); c.tick(86_400_000); }
   k.o.tally([A]);
-  const days = k.o.status().heat;
-  assert.ok(days.every((d) => d.cells[1].m === 1), 'each of the last seven mornings');
+  const heat = k.o.status().heat;
+  assert.equal(heat.days.length, 371, 'the 371 days the page can show');
+  assert.equal(heat.days.at(-1).key, heat.today);
+  assert.ok(heat.days.every((d) => d.parts[1] === 1 && d.agents === 1), 'each morning');
+});
+
+test('a file from the seven-day heatmap is read: past days kept small, today as it was', () => {
+  const file = tmp(), c = clock(new Date(2026, 10, 12, 14, 0).getTime());
+  const cell = (m, a) => ({ m, t: 1, a });
+  fs.writeFileSync(file, JSON.stringify({ v: 1, profiles: { default: { seq: 0, fseq: 0, turns: [], feed: [], heat: {
+    '2026-11-11': [cell(5, [A]), cell(0, []), cell(10, [A, B]), cell(0, [])],
+    '2026-11-12': [cell(0, []), cell(2, [C]), cell(0, []), cell(0, [])] } } } }));
+  const k = mk({ file, clock: c });
+  k.o.tally([C]); // midday today: C is already counted today
+  assert.deepEqual(k.o.status().heat.days, [{ key: '2026-11-11', m: 15, turns: 4, agents: 2, parts: [5, 0, 10, 0], partTurns: [1, 1, 1, 1] },
+                                           { key: '2026-11-12', m: 3, turns: 4, agents: 1, parts: [0, 2, 1, 0], partTurns: [1, 1, 1, 1] }]);
 });
