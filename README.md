@@ -94,7 +94,8 @@ change any of them. What the box will do is the Send button's tooltip. The chat 
 to reading width on a big screen. Its details sit in a column on the right: its folder and branch, the
 command that reopens it, its subagents (each titled with the task its parent gave it) and the buttons that
 stop it. The column's **Details** tab folds it to a strip, and dragging its left edge widens it (double-click
-for the default). On a narrow panel the same details sit under the conversation. Collapsed, the rail is a
+for the default). On a narrow panel a **Details** button in the header slides the same column in over the chat;
+the button again, its ✕, Esc or a click outside closes it. Collapsed, the rail is a
 44px strip with one state light per session (amber when it needs you, the name in its tooltip), so the panel
 gets nearly the whole window and nothing that needs you drops out of sight. When the open session goes away, the top of Needs you takes its place;
 close it yourself and the space offers that one instead. On a narrow window the rail takes the width
@@ -537,8 +538,9 @@ Esc, Shift+Tab, slash commands and its menus all work, and the session keeps run
 and it lets go 15 seconds after the last one leaves. A session running in a terminal window of its own
 doesn't open here: macOS lets no other program type into it.
 
-**Enter** sends at once: the message leaves the box and shows in the chat as sending. If it doesn't
-go through, it goes back into the box (ahead of anything you typed since) and the panel says why.
+**Enter** sends at once: the message leaves the box and shows in the chat as sending. The box stays free
+while it goes: what you send next waits its turn and goes in order. If one doesn't go through, it and any
+behind it go back into the box (ahead of anything you typed since) and the panel says why.
 Shift+Enter starts a new line.
 How a message gets in depends on the kind of session, because only Claude Code's own ways in count
 as you: text a hook hands back reaches the model as hook output, and it rightly won't take

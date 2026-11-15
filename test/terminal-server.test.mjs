@@ -56,7 +56,7 @@ if (!a.length) { fs.writeFileSync(${JSON.stringify(trustMark)}, process.cwd()); 
 if (a[0] === '--resume') {
   // Claude Code takes a message for a running job only at a terminal: anything else and it refuses.
   if (!process.stdout.isTTY) { console.error('not a terminal'); process.exit(1); }
-  fs.appendFileSync(${JSON.stringify(sendLog)}, JSON.stringify({ type: 'user', message: { content: a[3] }, size: process.stdout.columns + 'x' + process.stdout.rows }) + '\\n');
+  fs.appendFileSync(${JSON.stringify(sendLog)}, JSON.stringify({ type: 'user', message: { content: a[3] }, size: process.stdout.columns + 'x' + process.stdout.rows, at: Date.now(), pid: process.pid }) + '\\n');
   setInterval(() => {}, 1000);
 } else if (a[0] === 'attach') {
   process.stdin.setRawMode(true);
@@ -120,12 +120,26 @@ const board = () => frames.findLast((f) => Array.isArray(f?.sessions) && f.sessi
 test('a message for a running background job is handed to Claude Code at a terminal of its own', async () => {
   assert.ok(await until(() => board()?.sessions.some((x) => x.sessionId === SEND)), 'the roster reached the board: ' + log);
   const r = await api('/api/reply', { sessionId: SEND, text: 'carry on with the tests' });
+  const answered = Date.now();
   assert.deepEqual({ ok: r.ok, sent: r.sent }, { ok: true, sent: true }, JSON.stringify(r) + log);
   const got = fs.readFileSync(sendLog, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).at(-1);
   assert.equal(got.message.content, 'carry on with the tests');
+  // The answer comes as soon as the message is in its transcript, not after the client is hung up.
+  assert.ok(answered - got.at < 700, `answered ${answered - got.at} ms after the message was written`);
+  const alive = () => { try { process.kill(got.pid, 0); return true; } catch { return false; } };
+  assert.ok(await until(() => !alive(), 5000), 'the client was hung up afterwards');
   // Off a Mac the terminal is pty-bridge.py's, which has a size. A Mac's is script(1)'s, which has none without a
   // terminal of its own to copy it from; Claude Code takes the message there all the same.
   if (process.platform !== 'darwin') assert.match(got.size, /^[1-9]\d*x[1-9]\d*$/, 'the terminal it ran in had no size');
+});
+
+test('a message sent right after the last one waits for its client to be hung up, and both go in order', async () => {
+  const first = await api('/api/reply', { sessionId: SEND, text: 'first of two' });
+  assert.equal(first.ok, true, JSON.stringify(first) + log);
+  const second = await api('/api/reply', { sessionId: SEND, text: 'second of two' });
+  assert.equal(second.ok, true, JSON.stringify(second) + log);
+  const said = fs.readFileSync(sendLog, 'utf8').trim().split('\n').map((l) => JSON.parse(l).message.content);
+  assert.deepEqual(said.slice(-2), ['first of two', 'second of two']);
 });
 
 // On a Mac both of these open Terminal.app for real, so they run only where the terminal is the stand-in above.
