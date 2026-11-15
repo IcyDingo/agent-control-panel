@@ -459,6 +459,6 @@ export function briefOf({ from = 'Claude Code', to = 'opencode', prompt, earlier
     `\n## The conversation so far\n${talk || '(nothing saved)'}`,
     status || diffStat ? `\n## The files now\n${[status && `git status --short:\n${status}`, diffStat && `git diff --stat:\n${diffStat}`].filter(Boolean).join('\n\n')}` : null,
     rules ? `\nThis project keeps its rules for agents in ${rules}. Read it before you change anything.` : null,
-    '\nCarry on from where it stopped. Check the current state of the files before you change them.',
+    '\nCarry on from where it stopped. Read the files you will work on before you change them; the state of the files above saves running commands just to look.',
   ].filter((x) => x != null).join('\n');
 }
