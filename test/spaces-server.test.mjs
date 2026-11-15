@@ -223,3 +223,38 @@ test('deleting a space sends its sessions back', async () => {
   assert.equal((await api('/api/space/delete', { id }, A.client)).ok, true);
   assert.ok(await until(() => sessionIn(A, SID_D)?.space === null && !A.latest().spaces.some((x) => x.id === id)));
 });
+
+test('Ask Glue reads each session\'s space and an open question the rail shows, and never another workspace\'s spaces', async () => {
+  const c = await api('/api/space/create', { name: 'Billing' }, A.client);
+  assert.equal(c.ok, true, JSON.stringify(c));
+  // A background job waiting on a question its transcript holds open, which no hook request holds any more.
+  const sid = 'bbbbbbbb-6666-4666-8666-666666666666';
+  fs.writeFileSync(path.join(home, '.claude', 'projects', 'p', `${sid}.jsonl`), [
+    JSON.stringify({ type: 'user', cwd: work, permissionMode: 'default', timestamp: '2026-11-12T10:00:00.000Z', message: { role: 'user', content: 'set up billing' } }),
+    JSON.stringify({ type: 'assistant', cwd: work, timestamp: '2026-11-12T10:00:01.000Z', message: { role: 'assistant', model: 'claude-sonnet-5-5',
+      content: [{ type: 'tool_use', id: 'toolu_q1', name: 'AskUserQuestion', input: { questions: [{ question: 'Which currency first?', header: 'Currency', options: [{ label: 'EUR' }, { label: 'DKK' }], multiSelect: false }] } }] } }),
+  ].join('\n') + '\n');
+  const roster = JSON.parse(fs.readFileSync(path.join(home, 'roster-default.json'), 'utf8'));
+  fs.writeFileSync(path.join(home, 'roster-default.json'), JSON.stringify([...roster, { ...job(sid, 'billing setup', work), status: 'waiting' }]));
+  assert.ok(await until(() => A.latest()?.pending?.some((p) => p.open && p.sessionId === sid), 15_000), 'the rail shows its question');
+  assert.equal((await api('/api/space/move', { sessionId: sid, space: c.id }, A.client)).ok, true);
+  assert.ok(await until(() => sessionIn(A, sid)?.space === c.id));
+
+  const ask = (client, text) => api('/api/overseer/say', { text }, client);
+  const promptFor = (text) => until(() => logged().findLast((x) => x.args[0] === '-p' && x.args.at(-1).includes(`<you>${text}</you>`))?.args.at(-1), 10_000);
+  assert.equal((await ask(A.client, 'How is billing going?')).ok, true);
+  const mine = await promptFor('How is billing going?');
+  assert.ok(mine, 'the default workspace asked');
+  assert.match(mine, /\[bbbbbbbb\] "billing setup" · background · needs you [^\n]*· space "Billing"/);
+  assert.match(mine, /asks you: A question: Which currency first\?/);
+  assert.match(mine, /"Billing": 1 needs you/);
+
+  const theirs = await api('/api/space/create', { name: 'Contract only' }, B.client);
+  assert.equal(theirs.ok, true, JSON.stringify(theirs));
+  assert.equal((await ask(B.client, 'Anything on contract?')).ok, true);
+  const other = await promptFor('Anything on contract?');
+  assert.ok(other, 'the contract workspace asked');
+  assert.match(other, /"Contract only": no sessions/);
+  for (const word of ['Billing', 'Kept', 'billing setup', 'Which currency']) assert.equal(other.includes(word), false, `contract's Ask Glue never reads ${word}`);
+  assert.equal(mine.includes('Contract only'), false);
+});

@@ -5564,7 +5564,7 @@ function setGithubTab(panel) {
 function setOverseerTab(panel) {
   if (!panel.firstChild) panel.append(
     el('h3', { text: 'Assistant' }),
-    el('p', { class: 'set-lead', text: 'Ask Glue, on Home, is one chat that reads every session on this board: its repository and branch, what it asks you, and what GitHub shows for its pull request. It can propose a message to an agent, a new session or an interrupt, and nothing runs until you click. Each workspace has its own.' }),
+    el('p', { class: 'set-lead', text: 'Ask Glue, on Home, is one chat that reads every session on this board: its space, repository and branch, what it asks you, and what GitHub shows for its pull request. It can propose a message to an agent, a new session or an interrupt, and nothing runs until you click. Each workspace has its own.' }),
     el('div', { class: 'set-blocks' }));
   const box = panel.children[2];
   if (!setReady(box)) return;
