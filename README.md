@@ -378,8 +378,9 @@ and nothing opens. Anyone who finished setup before is not interrupted.
 
 Needs you comes first. Below it, every other live session sits under the repository it works in, in
 name order so the sections hold still while agents work: the header names the repository (its folder
-is in the tooltip) and, when one checkout of it is in use, that checkout and its branch. With two or more
-checkouts in use (the main one and worktrees), a quiet label heads each checkout's sessions. Sessions
+is in the tooltip). A repository's section looks like a space's: one list, working before idle, newest
+first, and a session in a worktree names that worktree on its row where a space's row names its
+repository (its branch is in the tooltip). Sessions
 outside any repository are under Other folders, and ended ones under Finished. A session under Needs
 you names its repository on its row. The open session's header shows its repository, checkout and
 branch as chips, its folder beneath (a click copies it), and its pull request when it has one.
