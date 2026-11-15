@@ -400,7 +400,8 @@ function cleanFollow(raw) {
   const ok = (f) => f && typeof f === 'object' && typeof f.key === 'string' && Number.isFinite(f.at)
     && (f.error || (VERDICTS.includes(f.verdict) && typeof f.ask === 'string' && typeof f.reply === 'string'));
   const list = Object.entries(raw && typeof raw === 'object' ? raw : {}).filter(([id, f]) => id.length <= 64 && ok(f));
-  return Object.fromEntries(list.sort((a, b) => b[1].at - a[1].at).slice(0, FOLLOW_KEEP));
+  // A send caught on its way by a restart is not kept as sending: the card is open again.
+  return Object.fromEntries(list.sort((a, b) => b[1].at - a[1].at).slice(0, FOLLOW_KEEP).map(([id, { sending: _, ...f }]) => [id, f]));
 }
 
 // ---------------------------------------------------------------- how much the agents work, by day and part of day
@@ -748,7 +749,7 @@ export function createOverseer({
     return open.flatMap(([sessionId, f]) => {
       const s = sessionNow(sessionId, all);
       if (!s || !STOPPED.has(s.state) || saidKey(saidOf(s)) !== f.key) return [];
-      return [{ sessionId, at: f.at, verdict: f.verdict, ask: f.ask, reply: f.reply, how: effectOf(sessionId) }];
+      return [{ sessionId, at: f.at, verdict: f.verdict, ask: f.ask, reply: f.reply, how: effectOf(sessionId), sending: Boolean(f.sending) }];
     }).sort((a, b) => b.at - a.at);
   }
 
@@ -759,15 +760,21 @@ export function createOverseer({
     const f = followUps().find((x) => x.sessionId === sessionId);
     if (!f) return fail('That follow-up is not open any more.');
     const entry = prof().follow[sessionId];
+    if (entry.sending) return fail('Your reply to it is still on its way.');
     if (decision === 'dismiss' || decision === 'merged') { entry.closed = decision; changed(); return { ok: true }; }
     if (decision !== 'send') return fail('Choose send or dismiss.');
     const t = typeof text === 'string' ? text.trim() : f.reply;
     const problem = textProblem(t);
     if (problem) return fail(problem);
     if (f.how === 'restart' && how !== 'restart') return { ok: false, how: 'restart', error: 'Sending this now restarts it in the background. Click again to send it anyway.' };
+    // Delivering can take seconds (a background job is resumed with it): the card says it is sending meanwhile, on
+    // every page, and takes no second send.
+    entry.sending = true;
+    changed();
     let r;
     try { r = await actions.reply({ sessionId, text: t }); } catch (e) { r = { ok: false, error: e?.message }; }
-    if (!r?.ok) return fail(flat(r?.error, 300) || "The message couldn't be sent.");
+    delete entry.sending;
+    if (!r?.ok) { changed(); return fail(flat(r?.error, 300) || "The message couldn't be sent."); }
     entry.closed = 'sent';
     changed();
     return { ok: true, result: r.queued ? TELL_WORDS.queued : r.copy ? TELL_WORDS.copy : r.same ? TELL_WORDS.same : 'Sent.' };

@@ -651,7 +651,7 @@ test('a stopped agent that asks something gets a card with a drafted reply; one 
   assert.match(k.asks[0].prompt, /Should I also migrate/);
   assert.equal(k.asks[0].opts.timeout, 30_000);
   const [card] = k.o.status().follow;
-  assert.deepEqual({ ...card, at: undefined }, { sessionId: A, at: undefined, verdict: 'needs-answer', ask: 'Migrate the old sessions table?', reply: 'Yes, migrate it and add a test.', how: 'send' });
+  assert.deepEqual({ ...card, at: undefined }, { sessionId: A, at: undefined, verdict: 'needs-answer', ask: 'Migrate the old sessions table?', reply: 'Yes, migrate it and add a test.', how: 'send', sending: false });
   assert.equal(k.o.check(A), false, 'the same message is checked once');
   assert.match(digest(k.fx.board(), null, { follow: new Map([[A, card]]) }), /follow-up: it asks you: Migrate the old sessions table\?/);
 
@@ -730,6 +730,39 @@ test('sending from a card goes through reply, checked like any message, and clos
   assert.deepEqual(r2, { ok: true, result: 'Sent.' });
   assert.deepEqual(k.calls.reply, [{ sessionId: A, text: 'Yes, and add a test.' }]);
   assert.deepEqual(k.o.status().follow, []);
+});
+
+test('a card shows it is sending at once, while the message is still on its way, and a second send waits', async () => {
+  const k = mk(), gate = defer();
+  k.fx.board = boardWith(QUESTION);
+  k.answers.push(verdict('needs-answer', 'Migrate?', 'Yes, migrate it.'));
+  k.o.check(A);
+  await k.o.settled();
+  k.fx.reply = gate.promise;
+  const before = k.changes();
+  const sending = k.o.follow({ sessionId: A, decision: 'send' });
+  assert.ok(k.changes() > before, 'the page is told right away');
+  assert.equal(k.o.status().follow[0].sending, true);
+  assert.match((await k.o.follow({ sessionId: A, decision: 'send' })).error, /on its way/);
+  assert.match((await k.o.follow({ sessionId: A, decision: 'dismiss' })).error, /on its way/);
+  gate.resolve({ ok: true, sent: true });
+  assert.deepEqual(await sending, { ok: true, result: 'Sent.' });
+  assert.deepEqual(k.o.status().follow, []);
+  assert.equal(k.calls.reply.length, 1);
+});
+
+test('a send that fails leaves the card as it was, ready to send again', async () => {
+  const file = tmp(), k = mk({ file });
+  k.fx.board = boardWith(QUESTION);
+  k.answers.push(verdict('needs-answer', 'Migrate?', 'Yes, migrate it.'));
+  k.o.check(A);
+  await k.o.settled();
+  k.fx.reply = { ok: false, error: 'Its folder is gone.' };
+  assert.match((await k.o.follow({ sessionId: A, decision: 'send' })).error, /folder is gone/);
+  const [card] = k.o.status().follow;
+  assert.equal(card.sending, false);
+  k.o.flush();
+  assert.equal(JSON.stringify(JSON.parse(fs.readFileSync(file, 'utf8'))).includes('sending'), false, 'sending is never kept');
 });
 
 test('follow-ups are kept in the file', async () => {
