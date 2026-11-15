@@ -202,7 +202,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 /* Sections take what they need and the whole rail scrolls: no queue scrolls inside another. */
 .col { flex: none; min-width: 0; display: flex; flex-direction: column; padding: 2px 0 10px; }
 .col.folded { padding-bottom: 2px; }
-.col.folded .col-body, .col.folded .col-path { display: none; }
+.col.folded .col-body { display: none; }
 .col-h { flex: none; display: flex; align-items: center; gap: 8px; min-height: 34px; padding-right: 10px; font-size: 12.5px; font-weight: 600; color: var(--fg-dim); }
 .col-h .n { font: 500 11.5px var(--mono); color: var(--fg-dim); }
 .col-h .btn.small { height: 24px; padding: 0 9px; font-size: 11.5px; }
@@ -238,23 +238,9 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .col.folded .col-add { opacity: 0; transition: opacity .12s; }
 .col.folded:hover .col-add, .col.folded:focus-within .col-add { opacity: 1; }
 @media (hover: none) { .col-h .col-add, .col.folded .col-add { opacity: 1; } }
-/* A repository's folder, and its branch when one checkout of it is in use, under its name. */
-.col-path { display: grid; gap: 3px; min-width: 0; margin: -5px 0 6px; padding: 0 16px; font: 11.5px var(--mono); color: var(--fg-dim); white-space: nowrap; }
-.col-path > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.col-path .br { display: flex; align-items: center; gap: 6px; }
-.col-path .br > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.col-path .br::before { content: ""; flex: none; width: 11px; height: 11px; background: currentColor; -webkit-mask: var(--i-branch) center / contain no-repeat; mask: var(--i-branch) center / contain no-repeat; }
-.col-path .br.wt::before { -webkit-mask-image: var(--i-tree); mask-image: var(--i-tree); }
 .col-body { padding: 0 8px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; align-content: start; } /* rows fit the rail: a long name shrinks, never the time */
 .col-empty { margin: 2px 8px 4px; color: var(--fg-dim); font-size: 12.5px; }
 .board-empty { margin: 10px 16px; color: var(--fg-dim); font-size: 13px; }
-/* With two or more checkouts of a repository in use, a quiet label names each: its worktree or the main checkout, and its branch. */
-.ck { display: flex; align-items: center; gap: 6px; min-width: 0; height: 24px; margin-top: 4px; padding: 0 8px; font: 11.5px var(--mono); color: var(--fg-dim); white-space: nowrap; }
-.ck:first-child { margin-top: 0; }
-.ck::before { content: ""; flex: none; width: 11px; height: 11px; background: currentColor; -webkit-mask: var(--i-branch) center / contain no-repeat; mask: var(--i-branch) center / contain no-repeat; }
-.ck.wt::before { -webkit-mask-image: var(--i-tree); mask-image: var(--i-tree); }
-.ck span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.ck .br { flex: none; max-width: 60%; color: var(--fg-faint); }
 
 .tile-wrap { position: relative; min-width: 0; }
 /* One line per session: a chevron slot (filled when it has subagents), its state light, name, a short mono detail
@@ -1161,7 +1147,7 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 @media (min-width: 861px) {
   body.rail-slim .board { width: 44px; overflow-x: hidden; scrollbar-width: none; }
   body.rail-slim .board::-webkit-scrollbar { display: none; }
-  body.rail-slim :is(.r-grip, #rail-find, #rail-keys, .col-add, .col-path, .ck, .col-empty, .board-empty, .sub, .rask, .qstop),
+  body.rail-slim :is(.r-grip, #rail-find, #rail-keys, .col-add, .col-empty, .board-empty, .sub, .rask, .qstop),
   body.rail-slim .col:is([data-col="waiting"], [data-col="space"]):not(:has(.tile-wrap)), body.rail-slim .col.folded:not(:has(.tile-wrap.rail-live)),
   body.rail-slim .col.folded .tile-wrap:not(.rail-live) { display: none; }
   body.rail-slim .col.folded .col-body { display: grid; }
@@ -1848,7 +1834,7 @@ function sectionEl(key, kind) {
   if (c) return c;
   const body = el('div', { class: 'col-body', id: 'q-' + ++secSeq });
   c = { key, kind, body, n: el('span', { class: 'n' }), title: el('span', { class: 'col-title' }), asks: el('span', { class: 'col-asks', hidden: true }),
-        path: el('div', { class: 'col-path', hidden: true }), tools: el('span', { class: 'col-tools' }), menu: el('div', { class: 'more-m', role: 'menu' }),
+        tools: el('span', { class: 'col-tools' }), menu: el('div', { class: 'more-m', role: 'menu' }),
         empty: el('p', { class: 'col-empty' }) };
   if (kind === 'waiting') c.head = el('span', { class: 'col-name' }, c.title, c.n);
   else {
@@ -1864,7 +1850,7 @@ function sectionEl(key, kind) {
   // is kept across redraws, so it stays open while an action waits for its confirm click.
   c.more = el('details', { class: 'more col-more' }, el('summary', { class: 'btn icon col-more-b', title: 'More', text: '⋯' }), c.menu);
   c.tools.append(c.more);
-  c.sec = el('section', { class: 'col', 'data-col': kind }, el('div', { class: 'col-h' }, ...(c.rename ? [c.rename] : []), c.head, ...(c.add ? [c.add] : []), c.tools), c.path, body);
+  c.sec = el('section', { class: 'col', 'data-col': kind }, el('div', { class: 'col-h' }, ...(c.rename ? [c.rename] : []), c.head, ...(c.add ? [c.add] : []), c.tools), body);
   secs.set(key, c);
   return c;
 }
@@ -1881,8 +1867,6 @@ async function saveRename(c) {
   render();
 }
 const boardEmpty = el('p', { class: 'board-empty', text: 'No sessions yet. Press New agent, or run claude in a terminal, and it shows up here.' });
-/** Which checkout of its repository a session works in: '' for the main one, else its worktree's name. */
-const ckOf = (s) => s.git?.worktree ?? '';
 /** The rail's sections, each with the sessions it lists. A session that needs you is listed only under Needs you, in
  *  one list across every space. A finished one stays in its space; one in no space goes under Finished. */
 function sections(g) {
@@ -1915,25 +1899,13 @@ function sections(g) {
     list: inSpace.get(x.id).sort((a, b) => done(a) - done(b) || (done(a) ? ended(b) - ended(a) : working(a) - working(b) || (b.startedAt ?? 0) - (a.startedAt ?? 0))
       || a.sessionId.localeCompare(b.sessionId)) });
   for (const r of [...repos.keys()].sort((a, b) => base(a).localeCompare(base(b)) || a.localeCompare(b))) {
-    // The main checkout first, then worktrees by name; in each, working before idle, newest first.
-    const list = repos.get(r).sort((a, b) => (ckOf(a) ? 1 : 0) - (ckOf(b) ? 1 : 0) || ckOf(a).localeCompare(ckOf(b))
-      || working(a) - working(b) || (b.startedAt ?? 0) - (a.startedAt ?? 0) || a.sessionId.localeCompare(b.sessionId));
+    // As in a space: working before idle, newest first. A row in a worktree names it.
+    const list = repos.get(r).sort((a, b) => working(a) - working(b) || (b.startedAt ?? 0) - (a.startedAt ?? 0) || a.sessionId.localeCompare(b.sessionId));
     out.push({ key: 'repo:' + r, kind: 'repo', repo: r, title: base(r), list, asks: asks.get(r) ?? 0 });
   }
   if (loose.length) out.push({ key: 'loose', kind: 'loose', title: 'Other folders', list: loose });
   if (finished.length) out.push({ key: 'finished', kind: 'finished', title: 'Finished', list: finished });
   return out;
-}
-const ckEls = new Map(); // repo|checkout → its label
-function ckLabel(sec, s) {
-  const key = `${sec.repo}|${s.git.top}`;
-  let n = ckEls.get(key);
-  if (!n) { n = el('div', { class: 'ck' }, el('span'), el('span', { class: 'br' })); ckEls.set(key, n); }
-  n.classList.toggle('wt', Boolean(s.git.worktree));
-  setText(n.children[0], s.git.worktree ?? 'main checkout');
-  setText(n.children[1], s.git.branch ?? (s.git.commit ? `detached ${s.git.commit}` : ''));
-  setAttr(n, 'title', s.git.top);
-  return n;
 }
 // ---- find by name, and the keys that move you through the rail
 let railQuery = '';
@@ -2154,8 +2126,10 @@ function tile(s) {
   setAttr(t.glyph, 'data-s', st);
   setText(t.name, label(s));
   t.oc.hidden = !isOcS(s);
-  // Under Needs you a row is away from its repository's section, so it names the repository.
-  const away = (st === 'waiting' || spaceIn(s)) && repoOf(s.git), tag = s.mismatch ? `from ${s.mismatch.name}` : away;
+  // Under Needs you or in a space a row is away from its repository's section, so it names the repository; in that
+  // section it names its worktree (nothing for the main checkout), as a space's row names its repository.
+  const away = (st === 'waiting' || spaceIn(s)) && repoOf(s.git), home = !away && colOf(st) !== 'finished' && s.git?.worktree;
+  const tag = s.mismatch ? `from ${s.mismatch.name}` : away || home;
   setText(t.repo, tag || '');
   t.repo.classList.toggle('mismatch', Boolean(s.mismatch));
   const ci = ciOf(s);
@@ -2253,13 +2227,6 @@ function renderBoard(g, vis) {
       if (on && c.rename.hidden) { c.rename.hidden = false; c.rename.value = sec.title; c.rename.focus(); c.rename.select(); }
       else if (!on) c.rename.hidden = true;
     }
-    // Under a repository's name, the checkout and branch when only one checkout of it is in use. Its folder is in the
-    // name's tooltip and in the open session's place bar, so the rail stays clean.
-    const tops = sec.kind === 'repo' ? [...new Set(sec.list.map((s) => s.git.top))] : [];
-    const one = tops.length === 1 ? sec.list[0].git : null;
-    c.path.hidden = !one;
-    if (one) patch(c.path, JSON.stringify([one.worktree, one.branch, one.commit]), () =>
-      el('span', { class: 'br' + (one.worktree ? ' wt' : '') }, el('span', { text: (one.worktree ? `${one.worktree} · ` : '') + (one.branch ?? `detached ${one.commit ?? ''}`) })));
     setAttr(c.head, 'title', sec.kind === 'repo' ? tilde(sec.repo) : '');
     const bs = bulksOf(sec), armedB = bs.find((b) => armed?.key === b.key);
     const renameBtn = sec.kind === 'space' && renaming !== sec.space;
@@ -2275,12 +2242,8 @@ function renderBoard(g, vis) {
       armedB ? el('p', { class: 'more-note', text: `${hintOf(armedB.key)} Click it again to go ahead.` }) : null]);
     c.empty.hidden = (sec.kind !== 'waiting' && sec.kind !== 'space') || rows.length > 0 || Boolean(railQuery);
     setText(c.empty, sec.kind === 'space' ? 'No agents right now.' : 'Nothing needs you.');
-    // Two or more checkouts of one repository: a label before each checkout's sessions.
-    const labelled = tops.length > 1;
     const want = [];
-    let lastTop = null;
     for (const s of rows) {
-      if (labelled && s.git.top !== lastTop) { want.push(ckLabel(sec, s)); lastTop = s.git.top; }
       const row = tile(s), tl = tiles.get(s.sessionId);
       want.push(row, ...(tl.askRow ? [tl.askRow] : []), ...tl.subRows);
     }
@@ -2295,8 +2258,6 @@ function renderBoard(g, vis) {
   while (board.children.length > order.length) board.children[order.length].remove();
   const keepSecs = new Set(list.map((x) => x.key));
   for (const k of secs.keys()) if (!keepSecs.has(k)) secs.delete(k);
-  const keepCk = new Set(list.flatMap((x) => x.kind === 'repo' ? x.list.map((s) => `${x.repo}|${s.git.top}`) : []));
-  for (const k of ckEls.keys()) if (!keepCk.has(k)) ckEls.delete(k);
   const keep = new Set(vis.map((s) => s.sessionId));
   for (const [id, t] of tiles) if (!keep.has(id)) { t.wrap.remove(); t.ask?.remove(); tiles.delete(id); trees.delete(id); }
   const agents = new Set(vis.flatMap((s) => s.subagents.map((a) => a.agentId)));
