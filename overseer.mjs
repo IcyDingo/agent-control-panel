@@ -406,21 +406,34 @@ function cleanFollow(raw) {
 
 // ---------------------------------------------------------------- how much the agents work, by day and part of day
 
-const HEAT_DAYS = 8;          // days kept; seven are shown
-const HEAT_AGENTS = 60;       // agent ids kept per cell, for "by N agents"
+const HEAT_DAYS = 371;        // days kept: the year of weeks the page shows, as GitHub's contribution map does
+const HEAT_AGENTS = 60;       // agent ids kept per cell of today, for "by N agents"
 /** A day in local time, as YYYY-MM-DD. */
 export const dayKey = (t) => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 /** The part of the day: 0 night (00–06), 1 morning, 2 midday, 3 evening (18–24). */
 export const partOf = (t) => Math.floor(new Date(t).getHours() / 6);
 const emptyCell = () => ({ m: 0, t: 0, a: [] });
-/** The kept tally: day → four cells of { m: agent-minutes working, t: turns ended, a: the agents' ids }, the newest
- *  eight days. */
+const num = (x) => (Number.isFinite(x) && x >= 0 ? x : 0);
+/**
+ * The kept tally, the newest HEAT_DAYS days. The newest day is four cells of { m: agent-minutes working, t: turns
+ * ended, a: the agents' ids }, so an agent is counted once however often it is seen. A day that is over is kept small:
+ * { p: [[m, t] for each part], n: how many agents worked that day }, so a year stays a few kilobytes.
+ */
 function cleanHeat(raw) {
-  const ok = (c) => c && typeof c === 'object' && Number.isFinite(c.m) && c.m >= 0 && Number.isInteger(c.t) && c.t >= 0;
-  const days = Object.entries(raw && typeof raw === 'object' ? raw : {})
-    .filter(([k, v]) => /^\d{4}-\d\d-\d\d$/.test(k) && Array.isArray(v) && v.length === 4)
-    .map(([k, v]) => [k, v.map((c) => (ok(c) ? { m: c.m, t: c.t, a: (Array.isArray(c.a) ? c.a : []).filter((x) => typeof x === 'string').slice(0, HEAT_AGENTS) } : emptyCell()))]);
-  return Object.fromEntries(days.sort((a, b) => (a[0] < b[0] ? 1 : -1)).slice(0, HEAT_DAYS));
+  const days = Object.entries(raw && typeof raw === 'object' ? raw : {}).filter(([k]) => /^\d{4}-\d\d-\d\d$/.test(k))
+    .map(([k, v]) => {
+      if (Array.isArray(v) && v.length === 4) return [k, v.map((c) => ({ m: num(c?.m), t: Math.floor(num(c?.t)), a: (Array.isArray(c?.a) ? c.a : []).filter((x) => typeof x === 'string').slice(0, HEAT_AGENTS) }))];
+      if (v && Array.isArray(v.p) && v.p.length === 4) return [k, { p: v.p.map((x) => [num(x?.[0]), Math.floor(num(x?.[1]))]), n: Math.floor(num(v.n)) }];
+      return null;
+    }).filter(Boolean).sort((a, b) => (a[0] < b[0] ? 1 : -1)).slice(0, HEAT_DAYS);
+  // Every day but the newest is over: kept small.
+  return Object.fromEntries(days.map(([k, v], i) => [k, i === 0 || !Array.isArray(v) ? v : { p: v.map((c) => [c.m, c.t]), n: new Set(v.flatMap((c) => c.a)).size }]));
+}
+/** A kept day as the page shows it: its total, its agents and turns, and the minutes in each part of the day. */
+function dayOf(v) {
+  const parts = Array.isArray(v) ? v.map((c) => [c.m, c.t]) : v.p;
+  return { m: Math.round(parts.reduce((n, x) => n + x[0], 0)), turns: parts.reduce((n, x) => n + x[1], 0),
+           agents: Array.isArray(v) ? new Set(v.flatMap((c) => c.a)).size : v.n, parts: parts.map((x) => Math.round(x[0])) };
 }
 
 /** A kept file's conversations, cleaned. An action caught running by a restart is marked failed: whether it happened
@@ -782,10 +795,10 @@ export function createOverseer({
 
   // ---------------------------------------------------------------- the work heatmap
 
-  /** The cell for now, made when missing; old days drop off. */
+  /** The cell for now, made when missing: the days before it are over, and kept small; the oldest drop off. */
   function cellNow() {
     const p = prof(), t = now(), key = dayKey(t);
-    if (!p.heat[key]) { p.heat[key] = [emptyCell(), emptyCell(), emptyCell(), emptyCell()]; p.heat = cleanHeat(p.heat); }
+    if (!Array.isArray(p.heat[key])) { p.heat[key] = [emptyCell(), emptyCell(), emptyCell(), emptyCell()]; p.heat = cleanHeat(p.heat); }
     return p.heat[key][partOf(t)];
   }
   const seen = (cell, id) => { if (typeof id === 'string' && id && !cell.a.includes(id) && cell.a.length < HEAT_AGENTS) cell.a.push(id); };
@@ -806,21 +819,16 @@ export function createOverseer({
     seen(cell, sessionId);
     soon();
   }
-  /** The last seven days, oldest first, each with its four parts: agent-minutes, agents and turns. `now` marks the
-   *  part of the day it is now; parts still to come today are `ahead`. */
+  /** The last year, for a map like GitHub's: today's date, the first day anything was counted (`since`), and only the
+   *  days that had work, oldest first, each with its total, agents, turns and the minutes in each part of the day.
+   *  Days without work are left out, so the snapshot stays small; the page draws them empty. */
   function heatView() {
-    const p = prof(), t = now(), out = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(t);
-      d.setHours(12, 0, 0, 0);
-      d.setDate(d.getDate() - i);
-      const key = dayKey(d.getTime()), cells = p.heat[key];
-      out.push({ key, at: d.getTime(), cells: [0, 1, 2, 3].map((part) => {
-        const c = cells?.[part] ?? emptyCell();
-        return { m: Math.round(c.m), agents: c.a.length, turns: c.t, ...(i === 0 && part === partOf(t) ? { now: true } : i === 0 && part > partOf(t) ? { ahead: true } : {}) };
-      }) });
-    }
-    return out;
+    const p = prof(), t = now(), from = new Date(t);
+    from.setDate(from.getDate() - (HEAT_DAYS - 1));
+    const first = dayKey(from.getTime());
+    const keys = Object.keys(p.heat).filter((k) => k >= first).sort();
+    return { today: dayKey(t), since: keys[0] ?? null,
+             days: keys.map((key) => ({ key, ...dayOf(p.heat[key]) })).filter((d) => d.m || d.turns) };
   }
 
   // ---------------------------------------------------------------- what the page sees
