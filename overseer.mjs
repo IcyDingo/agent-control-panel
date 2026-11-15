@@ -417,8 +417,7 @@ function normalize(raw) {
       for (const a of t.actions) if (a.state === 'running') Object.assign(a, { state: 'failed', result: 'The panel restarted while this was running, so it may or may not have happened.' });
     }
     const feed = objects(p.feed).filter((e) => Number.isInteger(e.seq)).slice(-KEEP);
-    const fseq = Number.isInteger(p.fseq) ? p.fseq : feed.at(-1)?.seq ?? 0;
-    out.profiles[id] = { seq: Number.isInteger(p.seq) ? p.seq : turns.length, fseq, fstart: Number.isInteger(p.fstart) && p.fstart <= fseq ? p.fstart : 0, turns, feed, follow: cleanFollow(p.follow) };
+    out.profiles[id] = { seq: Number.isInteger(p.seq) ? p.seq : turns.length, fseq: Number.isInteger(p.fseq) ? p.fseq : feed.at(-1)?.seq ?? 0, turns, feed, follow: cleanFollow(p.follow) };
   }
   return out;
 }
@@ -516,7 +515,7 @@ export function createOverseer({
     try { onChange(); } catch (e) { log(`overseer: onChange failed: ${e?.message ?? e}`); }
   }
 
-  const prof = (id = profileId) => { const p = (data.profiles[id] ??= { seq: 0, fseq: 0, turns: [], feed: [] }); p.follow ??= {}; p.fstart ??= 0; return p; };
+  const prof = (id = profileId) => { const p = (data.profiles[id] ??= { seq: 0, fseq: 0, turns: [], feed: [] }); p.follow ??= {}; return p; };
   const push = (p, turn) => { p.turns.push(turn); if (p.turns.length > KEEP) p.turns.splice(0, p.turns.length - KEEP); };
   const expired = (t, a) => a.state === 'proposed' && now() - t.at > HOUR;
 
@@ -838,10 +837,9 @@ export function createOverseer({
       scheduleExpiry();
       return action;
     },
-    /** `feedStart` is the seq the feed was last cleared at: a page holding older events drops them when it changes.
-     *  @returns {{ busy: null|{since, phase: 'thinking'|'looking'}, rev, feedSeq, feedStart, proposed, follow, model, models }} */
+    /** @returns {{ busy: null|{since, phase: 'thinking'|'looking'}, rev, feedSeq, proposed, follow, model, models }} */
     status() {
-      return { busy: busy ? { since: busy.since, phase: busy.phase } : null, rev, feedSeq: prof().fseq, feedStart: prof().fstart, proposed: proposedCount(), follow: followUps(), model: data.model, models: models() };
+      return { busy: busy ? { since: busy.since, phase: busy.phase } : null, rev, feedSeq: prof().fseq, proposed: proposedCount(), follow: followUps(), model: data.model, models: models() };
     },
     check,
     follow,
@@ -934,17 +932,6 @@ export function createOverseer({
       data.model = model;
       changed();
       return { ok: true, model };
-    },
-
-    /** Empty this profile's feed: the page shows none of it, and the overseer no longer reads it. The conversation
-     *  stays, and new events count on from where the old ones stopped. */
-    clearFeed() {
-      const p = prof();
-      p.feed = [];
-      p.fstart = p.fseq;
-      recent.clear();
-      changed();
-      return { ok: true };
     },
 
     /** Empty this profile's conversation; the feed stays. An answer on its way is dropped. */

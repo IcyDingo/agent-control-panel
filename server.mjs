@@ -2717,7 +2717,6 @@ const OVERSEER = {
   '/api/overseer/stop': withOverseer((o) => o.stop()),
   '/api/overseer/model': withOverseer((o, b) => nudgeIfOk(o.setModel(b?.model))),
   '/api/overseer/clear': withOverseer((o) => o.clear()),
-  '/api/overseer/clear-feed': withOverseer((o) => o.clearFeed()),
   '/api/overseer/follow': withOverseer((o, b) => o.follow({ sessionId: b?.sessionId, decision: b?.decision, text: b?.text, how: b?.how })),
 };
 
