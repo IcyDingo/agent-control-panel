@@ -794,11 +794,11 @@ test('agent minutes and turns add up per day, split by part of the day, and only
   let heat = k.o.status().heat;
   assert.equal(heat.today, '2026-11-12');
   assert.equal(heat.since, '2026-11-12');
-  assert.deepEqual(heat.days, [{ key: '2026-11-12', m: 3, turns: 1, agents: 2, parts: [0, 0, 3, 0] }]);
+  assert.deepEqual(heat.days, [{ key: '2026-11-12', m: 3, turns: 1, agents: 2, parts: [0, 0, 3, 0], partTurns: [0, 0, 1, 0] }]);
   c.tick(9 * 3_600_000); // 23:00
   k.o.tally([C], 30);
   heat = k.o.status().heat;
-  assert.deepEqual(heat.days[0], { key: '2026-11-12', m: 33, turns: 1, agents: 3, parts: [0, 0, 3, 30] }, 'an agent is counted once a day');
+  assert.deepEqual(heat.days[0], { key: '2026-11-12', m: 33, turns: 1, agents: 3, parts: [0, 0, 3, 30], partTurns: [0, 0, 1, 0] }, 'an agent is counted once a day');
   assert.equal(k.o.status().rev, 0, 'a tally does not make the page fetch the conversation again');
   c.tick(2 * 3_600_000); // 01:00 the next day
   k.o.tally([A]);
@@ -809,7 +809,7 @@ test('agent minutes and turns add up per day, split by part of the day, and only
   const kept = JSON.parse(fs.readFileSync(file, 'utf8'));
   const day = Object.values(kept.profiles)[0].heat['2026-11-12'];
   assert.deepEqual(day, { p: [[0, 0], [0, 0], [3, 1], [30, 0]], n: 3 }, 'a day that is over is kept small, with no agent ids');
-  assert.deepEqual(mk({ file, clock: c }).o.status().heat.days[0], { key: '2026-11-12', m: 33, turns: 1, agents: 3, parts: [0, 0, 3, 30] }, 'kept in the file');
+  assert.deepEqual(mk({ file, clock: c }).o.status().heat.days[0], { key: '2026-11-12', m: 33, turns: 1, agents: 3, parts: [0, 0, 3, 30], partTurns: [0, 0, 1, 0] }, 'kept in the file');
 });
 
 test('a year of days is kept: the oldest drop off', () => {
@@ -830,6 +830,6 @@ test('a file from the seven-day heatmap is read: past days kept small, today as 
     '2026-11-12': [cell(0, []), cell(2, [C]), cell(0, []), cell(0, [])] } } } }));
   const k = mk({ file, clock: c });
   k.o.tally([C]); // midday today: C is already counted today
-  assert.deepEqual(k.o.status().heat.days, [{ key: '2026-11-11', m: 15, turns: 4, agents: 2, parts: [5, 0, 10, 0] },
-                                           { key: '2026-11-12', m: 3, turns: 4, agents: 1, parts: [0, 2, 1, 0] }]);
+  assert.deepEqual(k.o.status().heat.days, [{ key: '2026-11-11', m: 15, turns: 4, agents: 2, parts: [5, 0, 10, 0], partTurns: [1, 1, 1, 1] },
+                                           { key: '2026-11-12', m: 3, turns: 4, agents: 1, parts: [0, 2, 1, 0], partTurns: [1, 1, 1, 1] }]);
 });

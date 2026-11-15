@@ -429,11 +429,11 @@ function cleanHeat(raw) {
   // Every day but the newest is over: kept small.
   return Object.fromEntries(days.map(([k, v], i) => [k, i === 0 || !Array.isArray(v) ? v : { p: v.map((c) => [c.m, c.t]), n: new Set(v.flatMap((c) => c.a)).size }]));
 }
-/** A kept day as the page shows it: its total, its agents and turns, and the minutes in each part of the day. */
+/** A kept day as the page shows it: its total, its agents and turns, and the minutes and turns in each part of the day. */
 function dayOf(v) {
   const parts = Array.isArray(v) ? v.map((c) => [c.m, c.t]) : v.p;
   return { m: Math.round(parts.reduce((n, x) => n + x[0], 0)), turns: parts.reduce((n, x) => n + x[1], 0),
-           agents: Array.isArray(v) ? new Set(v.flatMap((c) => c.a)).size : v.n, parts: parts.map((x) => Math.round(x[0])) };
+           agents: Array.isArray(v) ? new Set(v.flatMap((c) => c.a)).size : v.n, parts: parts.map((x) => Math.round(x[0])), partTurns: parts.map((x) => x[1]) };
 }
 
 /** A kept file's conversations, cleaned. An action caught running by a restart is marked failed: whether it happened

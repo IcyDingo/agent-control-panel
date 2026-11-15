@@ -1049,6 +1049,7 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 .h-heat { position: relative; margin-bottom: 36px; }
 .h-heat .h-lane { flex-wrap: wrap; row-gap: 4px; }
 .h-heat .h-lane h3 { white-space: nowrap; }
+.h-heat .h-lane .vtabs { margin-left: 2px; }
 .h-heat .h-lane .h-n { min-width: 0; }
 @media (max-width: 640px) { .h-heat .h-lane .grow { flex-basis: 100%; height: 0; } }
 /* It scrolls sideways inside itself on a narrow screen (opened at today), never the page. */
@@ -3365,32 +3366,42 @@ function weekStart() {
   try { const l = new Intl.Locale(navigator.language), w = l.getWeekInfo?.() ?? l.weekInfo; if (w?.firstDay) return w.firstDay % 7; } catch {}
   return 1;
 }
-/** 53 weeks of days, weeks across and weekdays down, ending with this week; each square as dark as the agent-minutes
- *  worked that day, against the year's quartiles. A tip on hover or focus says the day's numbers and how they split
- *  across the parts of the day. One square takes Tab (today); the arrow keys move between days. Rebuilt only when the
- *  numbers change. */
+/** Which view of agent work shows: the year a day at a time, or the year by the time of day. Kept per viewer. */
+let heatTab = (() => { try { return localStorage.getItem('glue.heatTab') === 'time' ? 'time' : 'year'; } catch { return 'year'; } })();
+function setHeatTab(tab) {
+  heatTab = tab;
+  try { localStorage.setItem('glue.heatTab', tab); } catch {}
+  $('h-heat')._sig = null;
+  renderHeat();
+  $('h-heat').querySelector('.vtabs [aria-selected="true"]')?.focus();
+}
+/** One cell takes Tab; the arrow keys move by `down` cells up and down and `across` cells left and right. */
+function rove(grid, cells, down, across) {
+  grid.onkeydown = (e) => {
+    const at = cells.indexOf(document.activeElement);
+    if (at < 0) return;
+    const to = { ArrowUp: at - down, ArrowDown: at + down, ArrowLeft: at - across, ArrowRight: at + across, Home: 0, End: cells.length - 1 }[e.key];
+    if (to == null || !cells[to]) return;
+    e.preventDefault();
+    cells[at].tabIndex = -1;
+    cells[to].tabIndex = 0;
+    cells[to].focus();
+  };
+}
+/**
+ * Agent work over the last year, two ways, behind a switch, both drawn like GitHub's map with 53 weeks across: Year has
+ * a square a day, weekdays down; Time of day has night, morning, midday and evening down, a square a week. Each square
+ * is as dark as the agent-minutes in it; a tip on hover or focus says the numbers. Rebuilt only when the numbers or the
+ * view change.
+ */
 function renderHeat() {
   const box = $('h-heat'), heat = snap.overseer?.heat;
   if (!heat?.today || !Array.isArray(heat.days)) return;
-  const sig = JSON.stringify(heat);
+  const sig = JSON.stringify([heatTab, heat, heatTab === 'time' ? partOf(Date.now()) : 0]);
   if (box._sig === sig) return;
   box._sig = sig;
-  const byKey = new Map(heat.days.map((d) => [d.key, d]));
-  const total = heat.days.reduce((n, d) => n + d.m, 0);
-  // Levels by the year's quartiles of days with work, as GitHub does: one busy day doesn't wash out the rest.
-  const ms = heat.days.map((d) => d.m).filter(Boolean).sort((x, y) => x - y), q = (f) => ms[Math.min(ms.length - 1, Math.floor(f * ms.length))] ?? 0;
-  const cut = [q(0.25), q(0.5), q(0.75)];
-  const level = (m) => (!m ? 0 : m <= cut[0] ? 1 : m <= cut[1] ? 2 : m <= cut[2] ? 3 : 4);
-  const today = dayAt(heat.today), first = new Date(today);
-  first.setDate(first.getDate() - ((today.getDay() - weekStart() + 7) % 7) - 52 * 7); // the week a year back, from its first day
-  const longDay = (d, key) => (key === heat.today ? 'Today' : d.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'short', ...(d.getFullYear() !== today.getFullYear() ? { year: 'numeric' } : {}) }));
-  /** What a day says: [the day, how it splits across the parts of the day ('' when it had no work)]. */
-  const say = (d, key) => {
-    const x = byKey.get(key);
-    if (!x) return [`${longDay(d, key)}: ${heat.since && key >= heat.since ? 'no agent work' : 'Glue wasn’t counting yet'}`, ''];
-    return [`${longDay(d, key)}: ${hm(x.m)} of agent work${x.agents ? ` by ${plural(x.agents, 'agent')}` : ''}${x.turns ? `, ${plural(x.turns, 'turn')} ended` : ''}`,
-            x.parts.map((m, i) => (m ? `${PARTS[i][0]} ${hm(m)}` : null)).filter(Boolean).join(' · ')];
-  };
+  const byKey = new Map(heat.days.map((d) => [d.key, d])), today = dayAt(heat.today);
+  const counted = (key) => Boolean(heat.since && key >= heat.since);
   const tip = el('div', { class: 'hm-tip', role: 'tooltip', hidden: true });
   const show = (cell) => {
     tip.textContent = cell.dataset.tip;
@@ -3399,55 +3410,107 @@ function renderHeat() {
     tip.style.left = `${Math.max(0, Math.min(bx.width - w, r.left - bx.left + r.width / 2 - w / 2))}px`;
     tip.style.top = `${r.top - bx.top - tip.offsetHeight - 8}px`;
   };
-  const grid = el('div', { class: 'hm-year' });
-  // Weekday names on three rows, as GitHub shows Mon, Wed and Fri.
-  for (let row = 0; row < 7; row++) {
-    const d = new Date(first); d.setDate(d.getDate() + row);
-    grid.append(el('span', { class: 'hm-wd', style: `grid-row: ${row + 2}`, 'aria-hidden': 'true', text: [1, 3, 5].includes(d.getDay()) ? d.toLocaleDateString([], { weekday: 'short' }) : '' }));
-  }
-  const cells = [];
-  let lastMonth = -1, lastLabel = -9, busiest = null;
-  for (let i = 0, d = new Date(first); keyOf(d) <= heat.today; i++, d.setDate(d.getDate() + 1)) {
-    const col = Math.floor(i / 7), row = i % 7, key = keyOf(d), x = byKey.get(key);
-    // A month's name over the first week that starts in it, when there is room for it.
-    if (row === 0 && d.getMonth() !== lastMonth) {
-      if (col - lastLabel >= 3 && col <= 50) { grid.append(el('span', { class: 'hm-month', style: `grid-column: ${col + 2} / span 3`, 'aria-hidden': 'true', text: d.toLocaleDateString([], { month: 'short' }) })); lastLabel = col; }
-      lastMonth = d.getMonth();
-    }
-    if (x && (!busiest || x.m > busiest.m)) busiest = { m: x.m, d: new Date(d), key };
-    const [line, split] = say(d, key);
-    const cell = el('span', { class: 'hm-cell', tabindex: key === heat.today ? '0' : '-1', role: 'img', 'aria-label': split ? `${line} (${split})` : line, 'data-tip': split ? `${line}\n${split}` : line,
-      'data-l': String(level(x?.m ?? 0)), 'data-now': key === heat.today, style: `grid-column: ${col + 2}; grid-row: ${row + 2}` });
+  const cellOf = (text, tipText, attrs) => {
+    const cell = el('span', { class: 'hm-cell', tabindex: '-1', role: 'img', 'aria-label': text, 'data-tip': tipText, ...attrs });
     cell.onpointerenter = cell.onfocus = () => show(cell);
     cell.onpointerleave = cell.onblur = () => { tip.hidden = true; };
-    grid.append(cell);
-    cells.push(cell);
-  }
-  // Arrow keys: up and down a day, left and right a week; Home and End the first and last day.
-  grid.onkeydown = (e) => {
-    const at = cells.indexOf(document.activeElement);
-    if (at < 0) return;
-    const to = { ArrowUp: at - 1, ArrowDown: at + 1, ArrowLeft: at - 7, ArrowRight: at + 7, Home: 0, End: cells.length - 1 }[e.key];
-    if (to == null || !cells[to]) return;
-    e.preventDefault();
-    cells[at].tabIndex = -1;
-    cells[to].tabIndex = 0;
-    cells[to].focus();
+    return cell;
   };
-  const scroll = el('div', { class: 'hm-scroll' }, grid);
+  const view = heatTab === 'time' ? timeOfDay() : year();
+  const tabs = el('div', { class: 'vtabs', role: 'tablist', 'aria-label': 'How to show agent work' },
+    ...[['year', 'Year'], ['time', 'Time of day']].map(([id, text]) => el('button', { type: 'button', role: 'tab', 'aria-selected': String(heatTab === id),
+      onclick: () => { if (heatTab !== id) setHeatTab(id); } }, text)));
   const sinceText = heat.since ? dayAt(heat.since).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }) : null;
   const young = !heat.since || (today - dayAt(heat.since)) < 60 * 86_400_000;
   box.replaceChildren(
-    el('div', { class: 'h-lane' }, el('h3', { text: 'Agent work' }),
-      el('span', { class: 'h-n', text: total ? `last 12 months · ${hm(total)}${busiest ? ` · busiest ${busiest.key === heat.today ? 'today' : busiest.d.toLocaleDateString([], { day: 'numeric', month: 'short' })}` : ''}` : 'last 12 months' }),
-      el('span', { class: 'grow' }),
+    el('div', { class: 'h-lane' }, el('h3', { text: 'Agent work' }), tabs, el('span', { class: 'h-n', text: view.summary }), el('span', { class: 'grow' }),
       el('span', { class: 'hm-legend', 'aria-hidden': 'true' }, 'Less', ...[0, 1, 2, 3, 4].map((l) => el('i', { class: 'hm-sw', 'data-l': String(l) })), 'More')),
-    scroll, tip,
+    view.body, tip,
     ...(young ? [el('p', { class: 'hm-note', text: sinceText
       ? `Glue has counted since ${sinceText}: the minutes your agents spend working, added up across agents. Earlier days stay empty; the map fills in as the days pass.`
-      : 'Glue counts from now on: the minutes your agents spend working, added up across agents, a day at a time.' })] : []));
-  scroll.scrollLeft = scroll.scrollWidth; // a narrow screen opens at today, as GitHub's map does
+      : 'Glue counts from now on: the minutes your agents spend working, added up across agents.' })] : []));
+  view.after?.();
+
+  /**
+   * The year map both views share: 53 weeks across, ending with this week, a month's name over the first week that
+   * starts in it, and `rows` down. `square(week, row)` gives a square's { m, line, split, now } or null (not drawn: a
+   * day still to come). Levels by the year's quartiles of squares with work, as GitHub does, so one busy square doesn't
+   * wash out the rest.
+   */
+  function yearGrid(rows, square, label) {
+    const first = new Date(today);
+    first.setDate(first.getDate() - ((today.getDay() - weekStart() + 7) % 7) - 52 * 7); // the week a year back, from its first day
+    const weeks = Array.from({ length: 53 }, (_, w) => { const d = new Date(first); d.setDate(d.getDate() + 7 * w); return d; });
+    const squares = weeks.map((wk, w) => rows.map((_, r) => square(wk, r, w)));
+    const ms = squares.flat().filter(Boolean).map((x) => x.m).filter(Boolean).sort((x, y) => x - y);
+    const q = (f) => ms[Math.min(ms.length - 1, Math.floor(f * ms.length))] ?? 0, cut = [q(0.25), q(0.5), q(0.75)];
+    const level = (m) => (!m ? 0 : m <= cut[0] ? 1 : m <= cut[1] ? 2 : m <= cut[2] ? 3 : 4);
+    const grid = el('div', { class: 'hm-year' });
+    rows.forEach((name, r) => grid.append(el('span', { class: 'hm-wd', style: `grid-row: ${r + 2}`, 'aria-hidden': 'true', text: name })));
+    let lastMonth = -1, lastLabel = -9;
+    const cells = [];
+    weeks.forEach((wk, w) => {
+      if (wk.getMonth() !== lastMonth) {
+        if (w - lastLabel >= 3 && w <= 50) { grid.append(el('span', { class: 'hm-month', style: `grid-column: ${w + 2} / span 3`, 'aria-hidden': 'true', text: wk.toLocaleDateString([], { month: 'short' }) })); lastLabel = w; }
+        lastMonth = wk.getMonth();
+      }
+      squares[w].forEach((x, r) => {
+        if (!x) return;
+        const cell = cellOf(x.split ? `${x.line} (${x.split})` : x.line, x.split ? `${x.line}\n${x.split}` : x.line,
+          { 'data-l': String(level(x.m)), 'data-now': Boolean(x.now), style: `grid-column: ${w + 2}; grid-row: ${r + 2}` });
+        if (x.now) cell.tabIndex = 0;
+        grid.append(cell);
+        cells.push(cell);
+      });
+    });
+    rove(grid, cells, 1, rows.length);
+    const scroll = el('div', { class: 'hm-scroll', role: 'tabpanel', 'aria-label': label }, grid);
+    return { scroll, after: () => { scroll.scrollLeft = scroll.scrollWidth; } }; // a narrow screen opens at today, as GitHub's map does
+  }
+  function longDay(d, key) { return key === heat.today ? 'Today' : d.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'short', ...(d.getFullYear() !== today.getFullYear() ? { year: 'numeric' } : {}) }); }
+  /** The days of the week that starts on `wk`, up to today. */
+  function daysOf(wk) { return Array.from({ length: 7 }, (_, i) => { const d = new Date(wk); d.setDate(d.getDate() + i); return d; }).filter((d) => keyOf(d) <= heat.today); }
+
+  /** Year: a square a day, weekdays down (Mon, Wed and Fri named, as GitHub does). */
+  function year() {
+    const total = heat.days.reduce((n, d) => n + d.m, 0);
+    let busiest = null;
+    for (const d of heat.days) if (d.m && (!busiest || d.m > busiest.m)) busiest = d;
+    const names = Array.from({ length: 7 }, (_, r) => { const d = new Date(2026, 0, 4 + ((weekStart() + r) % 7), 12); return [1, 3, 5].includes(d.getDay()) ? d.toLocaleDateString([], { weekday: 'short' }) : ''; });
+    const g = yearGrid(names, (wk, r) => {
+      const d = new Date(wk); d.setDate(d.getDate() + r);
+      const key = keyOf(d), x = byKey.get(key);
+      if (key > heat.today) return null;
+      return { m: x?.m ?? 0, now: key === heat.today,
+               line: x ? `${longDay(d, key)}: ${hm(x.m)} of agent work${x.agents ? ` by ${plural(x.agents, 'agent')}` : ''}${x.turns ? `, ${plural(x.turns, 'turn')} ended` : ''}`
+                 : `${longDay(d, key)}: ${counted(key) ? 'no agent work' : 'Glue wasn’t counting yet'}`,
+               split: x ? x.parts.map((m, p) => (m ? `${PARTS[p][0]} ${hm(m)}` : null)).filter(Boolean).join(' · ') : '' };
+    }, 'The last year, a day at a time');
+    return { body: g.scroll, after: g.after,
+             summary: total ? `last 12 months · ${hm(total)}${busiest ? ` · busiest ${busiest.key === heat.today ? 'today' : dayAt(busiest.key).toLocaleDateString([], { day: 'numeric', month: 'short' })}` : ''}` : 'last 12 months' };
+  }
+
+  /** Time of day: the same year of weeks, with night, morning, midday and evening down: each square is that part of
+   *  the day across the week. */
+  function timeOfDay() {
+    const now = partOf(Date.now()), byPart = [0, 0, 0, 0];
+    for (const d of heat.days) d.parts.forEach((m, p) => { byPart[p] += m; });
+    const total = byPart.reduce((n, m) => n + m, 0), most = byPart.indexOf(Math.max(...byPart));
+    const g = yearGrid(PARTS.map(([name]) => name[0].toUpperCase() + name.slice(1)), (wk, p, w) => {
+      const days = daysOf(wk);
+      let m = 0, turns = 0;
+      for (const d of days) { const x = byKey.get(keyOf(d)); m += x?.parts[p] ?? 0; turns += x?.partTurns?.[p] ?? 0; }
+      const thisWeek = w === 52, last = keyOf(days.at(-1));
+      const when = thisWeek ? 'This week' : `Week of ${wk.toLocaleDateString([], { day: 'numeric', month: 'short', ...(wk.getFullYear() !== today.getFullYear() ? { year: 'numeric' } : {}) })}`;
+      return { m, now: thisWeek && p === now,
+               line: `${when}, ${PARTS[p][0]} (${PARTS[p][1]}): ${m ? `${hm(m)} of agent work${turns ? `, ${plural(turns, 'turn')} ended` : ''}` : counted(last) ? 'no agent work' : 'Glue wasn’t counting yet'}`, split: '' };
+    }, 'The last year by the time of day, a week at a time');
+    return { body: g.scroll, after: g.after,
+             summary: total ? `last 12 months · mostly ${PARTS[most][0]} (${Math.round((100 * byPart[most]) / total)}%)` : 'last 12 months' };
+  }
 }
+/** The part of the day an instant falls in, as the server counts it: 0 night … 3 evening. */
+const partOf = (t) => Math.floor(new Date(t).getHours() / 6);
 
 // ---------- the board: agents that stopped and wait on you (the overseer reads each turn's last message) ----------
 const fuEdits = new Map(); // sessionId → the reply as you changed it
