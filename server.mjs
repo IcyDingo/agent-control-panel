@@ -474,6 +474,7 @@ function onHookEvent(e) {
       if (!e.agent_id) {
         feed('finished', s, `${labelOf(s)} finished its turn${s.lastMessage ? `: ${String(s.lastMessage).replace(/\s+/g, ' ').slice(0, 140)}` : '.'}`);
         followUp(s);
+        overseerOf(s.ws)?.turnDone(s.sessionId);
       }
       break;
     }
@@ -2659,6 +2660,14 @@ function overseerOf(id) {
   overseers.set(id, o);
   return o;
 }
+/** Once a minute, each workspace's overseer counts the minute for every agent working now (not waiting on you): the
+ *  page's heatmap of agent work. */
+setInterval(() => {
+  for (const id of W.keys()) {
+    const working = [...sessions.values()].filter((s) => s.ws === id && boardState(s) === 'busy').map((s) => s.sessionId);
+    if (working.length) { try { overseerOf(id)?.tally(working); } catch (e) { console.error('overseer: tally:', e?.message ?? e); } }
+  }
+}, 60_000).unref();
 /** The overseer whose feed a line about session `sessionId` goes in: its workspace's. None when no workspace knows it. */
 const overseerOfSession = (sessionId) => { const w = typeof sessionId === 'string' ? wsIdOfSession(sessionId) : null; return w ? overseerOf(w) : null; };
 /** A turn ended: its workspace's overseer reads what it said last, for a follow-up card when it stopped before the work
@@ -2719,7 +2728,6 @@ const OVERSEER = {
   '/api/overseer/stop': withOverseer((o) => o.stop()),
   '/api/overseer/model': withOverseer((o, b) => nudgeIfOk(o.setModel(b?.model))),
   '/api/overseer/clear': withOverseer((o) => o.clear()),
-  '/api/overseer/clear-feed': withOverseer((o) => o.clearFeed()),
   '/api/overseer/follow': withOverseer((o, b) => o.follow({ sessionId: b?.sessionId, decision: b?.decision, text: b?.text, how: b?.how })),
 };
 
@@ -2897,7 +2905,10 @@ function ocApply(s) {
   if (was === s.status) return;
   if (s.status === 'waiting') feed('needs-you', s, failed && !perms && !forms ? `${labelOf(s)} stopped with an error: ${s.ocError.message}` : `${labelOf(s)} waits for you (${s.waitingFor}).`);
   else if (was === 'busy' && s.status === 'idle') ocRefresh(s); // an event missed while the stream was down
-  if (was === 'busy' && s.status === 'idle') feed('finished', s, `${labelOf(s)} finished its turn${s.lastMessage ? `: ${String(s.lastMessage).replace(/\s+/g, ' ').slice(0, 140)}` : '.'}`);
+  if (was === 'busy' && s.status === 'idle') {
+    feed('finished', s, `${labelOf(s)} finished its turn${s.lastMessage ? `: ${String(s.lastMessage).replace(/\s+/g, ' ').slice(0, 140)}` : '.'}`);
+    overseerOf(s.ws)?.turnDone(s.sessionId);
+  }
 }
 /** What it asks now → cards, keeping when each was first seen. */
 function ocSetAsks(id, perms, forms) {
