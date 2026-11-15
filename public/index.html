@@ -203,8 +203,6 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .col { flex: none; min-width: 0; display: flex; flex-direction: column; padding: 2px 0 10px; }
 .col.folded { padding-bottom: 2px; }
 .col.folded .col-body, .col.folded .col-path { display: none; }
-.col.folded .col-tools { opacity: 0; transition: opacity .12s; }
-.col.folded:hover .col-tools, .col.folded:focus-within .col-tools, .col.folded .col-tools:has(.armed) { opacity: 1; }
 .col-h { flex: none; display: flex; align-items: center; gap: 8px; min-height: 34px; padding-right: 10px; font-size: 12.5px; font-weight: 600; color: var(--fg-dim); }
 .col-h .n { font: 500 11.5px var(--mono); color: var(--fg-dim); }
 .col-h .btn.small { height: 24px; padding: 0 9px; font-size: 11.5px; }
@@ -214,8 +212,9 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .d-space-row { display: grid; gap: 6px; }
 .d-space-row .field, .l-space .field { height: 30px; }
 .l-space .lf-row .field { flex: 1; min-width: 0; }
-/* A space's Rename and Delete show on hover and focus, so its name keeps the room the rest of the time. */
-@media (hover: hover) { .col[data-col="space"]:not(:hover, :focus-within) .sp-tool:not(.armed) { display: none; } }
+/* A header's buttons (Rename, Interrupt all, End idle, Clear, Delete) show only while the mouse or the keyboard is in it:
+   at rest it is its name, its arrow and its +. One waiting for its confirm click stays. A touch screen shows them. */
+@media (hover: hover) { .col-h:not(:hover, :focus-within) .col-tools > :not(.armed) { display: none; } }
 .col-name { flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: 8px; padding: 0 0 0 16px; border: 0; background: none; font-weight: inherit; text-align: left; }
 .col-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .col:not([data-col="repo"], [data-col="space"]) .col-title { flex: none; }
@@ -227,9 +226,9 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .col:not(.folded) .peek { display: none; }
 .chev { flex: none; width: 16px; margin-left: auto; font-size: 16px; line-height: 1; text-align: center; color: var(--fg-dim); transition: transform .15s; }
 .col:not(.folded) .chev { transform: rotate(90deg); }
-.col-tools { display: flex; gap: 4px; }
+.col-tools { display: flex; gap: 4px; order: 1; } /* before the +, so the + holds still when they show */
 /* A space's or repository's +: New agent, already in it. Quiet until the section is hovered or focused. */
-.col-h .col-add { flex: none; width: 24px; height: 24px; margin-right: -4px; opacity: .55; }
+.col-h .col-add { flex: none; order: 2; width: 24px; height: 24px; margin-right: -4px; opacity: .55; }
 .col:hover .col-add, .col-add:focus-visible { opacity: 1; }
 .col.folded .col-add { opacity: 0; transition: opacity .12s; }
 .col.folded:hover .col-add, .col.folded:focus-within .col-add { opacity: 1; }
@@ -2244,9 +2243,9 @@ function renderBoard(g, vis) {
     const bs = bulksOf(sec), armedB = bs.find((b) => armed?.key === b.key);
     const renameBtn = sec.kind === 'space' && renaming !== sec.space;
     patch(c.tools, JSON.stringify([renameBtn, bs.map((b) => [b.key, b.text, b.armed, armed?.key === b.key])]), () => [
-      renameBtn ? el('button', { class: 'btn quiet small sp-tool', type: 'button', text: 'Rename', title: 'Rename this space', onclick: () => { renaming = sec.space; render(); } }) : null,
+      renameBtn ? el('button', { class: 'btn quiet small', type: 'button', text: 'Rename', title: 'Rename this space', onclick: () => { renaming = sec.space; render(); } }) : null,
       ...bs.map((b) => el('button', {
-        class: 'btn danger soft small' + (b.key.startsWith('spacedel:') ? ' sp-tool' : '') + (armed?.key === b.key ? ' armed' : ''), type: 'button', 'data-key': b.key, title: hintOf(b.key),
+        class: 'btn danger soft small' + (armed?.key === b.key ? ' armed' : ''), type: 'button', 'data-key': b.key, title: hintOf(b.key),
         text: armed?.key === b.key ? b.armed : b.text, onclick: () => confirmOr(b.key, b.run) }))]);
     c.hint.hidden = !armedB;
     if (armedB) setText(c.hint, hintOf(armedB.key));
