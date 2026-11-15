@@ -635,7 +635,7 @@ test('a session on the default branch, or detached, gets no pull request', async
   await h.tick();
   assert.deepEqual(h.gh.forSession(repo.common, 'fix/login'), {
     slug: 'someone/demo', url: 'https://github.com/someone/demo',
-    pr: { number: 7, url: 'https://github.com/someone/demo/pull/7', draft: false, checks: 'failing', failing: ['build'], mergeState: 'BLOCKED', review: 'REVIEW_REQUIRED' },
+    pr: { number: 7, url: 'https://github.com/someone/demo/pull/7', sha: 'aaa111', draft: false, checks: 'failing', failing: ['build'], mergeState: 'BLOCKED', review: 'REVIEW_REQUIRED' },
     main: 'failing',
     failed: { runId: 100, jobId: 200, workflow: 'build', url: 'https://github.com/someone/demo/actions/runs/100/job/200', on: 'pr' },
   });
@@ -702,6 +702,39 @@ test("a job's log asked for too early falls back to the run's, and a run still g
   h.w.hook = null;
   h.w.log = '';
   assert.match((await h.gh.failedLog({ slug: 'someone/demo', runId: 100 })).error, /names no failed step/);
+});
+
+test('a ready pull request is merged with the repository\'s default method, pinned to the head it was seen at', async () => {
+  const h = harness({ world: { open: [pr()] } });
+  await h.tick();
+  assert.equal(h.gh.forSession(h.repo.common, 'fix/login').pr.sha, 'aaa111');
+  h.w.hook = (args) => (args[0] === 'repo' && args.includes('viewerDefaultMergeMethod') ? ok({ viewerDefaultMergeMethod: 'SQUASH' })
+    : args[0] === 'pr' && args[1] === 'merge' ? { err: null, stdout: '', stderr: '' } : null);
+  const before = h.calls.length;
+  assert.deepEqual(await h.gh.merge({ slug: 'someone/demo', number: 7, sha: 'aaa111' }), { ok: true, method: 'squash' });
+  const asked = h.calls.slice(before).map((c) => c.args);
+  assert.deepEqual(asked[0], ['repo', 'view', 'github.com/someone/demo', '--json', 'viewerDefaultMergeMethod']);
+  assert.deepEqual(asked[1], ['pr', 'merge', '7', '-R', 'github.com/someone/demo', '--squash', '--match-head-commit', 'aaa111']);
+  assert.ok(!asked.flat().includes('--delete-branch'), 'GitHub\'s own setting decides about the branch');
+  assert.equal(h.calls[before + 1].opts.timeout, 60_000);
+});
+
+test('a pull request that is not ready, has moved on, or that GitHub refuses is not merged, and says why', async () => {
+  const repo = checkout(), targets = ['fix/login', 'b', 'c'].map((branch, i) => ({ sessionId: `S${i}`, common: repo.common, branch, at: 10 }));
+  const h = harness({ repo, targets, world: { open: [pr(), pr({ number: 8, headRefName: 'b', mergeStateStatus: 'DIRTY' }), pr({ number: 9, headRefName: 'c', isDraft: true })] } });
+  await h.tick();
+  const before = h.calls.length;
+  assert.match((await h.gh.merge({ slug: 'someone/demo', number: 8, sha: 'aaa111' })).error, /not ready to merge: it has conflicts/);
+  assert.match((await h.gh.merge({ slug: 'someone/demo', number: 9, sha: 'aaa111' })).error, /draft/);
+  assert.match((await h.gh.merge({ slug: 'someone/demo', number: 7, sha: 'bbb222' })).error, /new commits/);
+  assert.match((await h.gh.merge({ slug: 'someone/demo', number: 99, sha: 'aaa111' })).error, /not one the panel shows/);
+  assert.match((await h.gh.merge({ slug: 'someone/other', number: 7, sha: 'aaa111' })).error, /not one the panel shows/);
+  assert.equal(h.calls.length, before, 'gh was not asked');
+  h.w.hook = (args) => (args[0] === 'repo' && args.includes('viewerDefaultMergeMethod') ? ok({ viewerDefaultMergeMethod: null })
+    : args[1] === 'merge' ? fail(1, 'X Pull request someone/demo#7 is not mergeable: the base branch policy prohibits the merge.') : null);
+  const r = await h.gh.merge({ slug: 'someone/demo', number: 7, sha: 'aaa111' });
+  assert.match(r.error, /^GitHub did not merge #7: X Pull request someone\/demo#7 is not mergeable/);
+  assert.ok(h.calls.at(-1).args.includes('--merge'), 'no default method known: a merge commit');
 });
 
 test('signed out: one repository is tried every five minutes, and refresh tries now, at most every ten seconds', async () => {
