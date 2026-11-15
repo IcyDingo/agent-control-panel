@@ -37,11 +37,13 @@ fs.writeFileSync(path.join(home, '.claude', 'projects', 'p', `${SID}.jsonl`), [
 const bin = path.join(home, 'bin');
 fs.mkdirSync(bin);
 const roster = path.join(home, 'roster.json');
+const bgArgs = path.join(home, 'bg-args.txt'); // what the last `claude --bg` was started with
 fs.writeFileSync(roster, JSON.stringify([{ pid: null, id: 'ab12cd34', cwd: proj, kind: 'background', startedAt: 1, sessionId: SID, name: 'export', status: 'idle', state: 'done' }]));
 fs.writeFileSync(path.join(bin, 'claude'), `#!/bin/sh
 case "$1" in
   agents) cat "${roster}";;
   auth) echo "{}";;
+  --bg) printf '%s\n' "$@" > "${bgArgs}"; echo "backgrounded · beefcafe";;
   *) exit 1;;
 esac
 `, { mode: 0o755 });
@@ -268,6 +270,30 @@ test('a Claude session at its usage limit says so, and carries on in OpenCode wh
   const carried = after.sessions.find((y) => y.sessionId === r.sessionId);
   assert.equal(carried.continuedFrom, SID);
   assert.equal(carried.agent, 'opencode');
+});
+
+test('an OpenCode session hands its work back to Claude Code, from a brief, and stops', async () => {
+  const snap = await snapshot();
+  const from = snap.sessions.find((y) => y.continuedFrom === SID && y.agent === 'opencode');
+  assert.ok(from, 'the session the last test handed over');
+  assert.equal((await api('/api/handover', { sessionId: from.sessionId, to: 'opencode' })).ok, false, 'not to OpenCode again');
+  oc.active.delete(from.sessionId);
+  emit('session.status', { sessionID: from.sessionId, status: { type: 'idle' } });
+  await until((x) => x.sessions.find((y) => y.sessionId === from.sessionId)?.status === 'idle', 'it is idle');
+  const login = snap.logins[0].id;
+  assert.equal((await api('/api/handover', { sessionId: from.sessionId, to: login, model: 'nope' })).ok, false, 'a model of Claude\'s only');
+  const r = await api('/api/handover', { sessionId: from.sessionId, to: login, model: 'sonnet' });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.how, 'brief');
+  const args = fs.readFileSync(bgArgs, 'utf8');
+  assert.match(args, /^--bg\n--name\nexport \(\w+\)\n--model\nsonnet\n--permission-mode\ndefault\n--\n/);
+  assert.match(args, /another coding agent \(OpenCode\)/);
+  assert.match(args, /## What it was handed when it took the task over\nYou are taking over a task that another coding agent \(Claude Code\)[\s\S]*Build the export button/, 'the first brief comes along');
+  assert.doesNotMatch(args, /--resume/, 'no conversation of Claude\'s to resume');
+  const after = await until((x) => x.sessions.find((y) => y.sessionId === from.sessionId)?.continuedAs?.agent === 'claude', 'it says where its work went');
+  const was = after.sessions.find((y) => y.sessionId === from.sessionId);
+  assert.equal(was.continuedAs.id, 'beefcafe');
+  assert.equal(was.state, 'stopped', 'the OpenCode session stops');
 });
 
 test('the overseer offers OpenCode\'s models and answers through OpenCode on one, kept off the board', async () => {

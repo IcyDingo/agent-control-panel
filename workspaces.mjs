@@ -93,7 +93,7 @@ export function createStore({ file, home = '', profiles = [], codex = null } = {
       if (list.length) st.spaces[ws] = { list, members };
     }
     for (const [sid, m] of Object.entries(saved.placed && typeof saved.placed === 'object' ? saved.placed : {}))
-      if (m && st.workspaces[m.ws] && Number.isFinite(m.at)) st.placed[sid] = { ws: m.ws, at: m.at };
+      if (m && st.workspaces[m.ws] && Number.isFinite(m.at)) st.placed[sid] = { ws: m.ws, at: m.at, ...(typeof m.from === 'string' && m.from ? { from: m.from } : {}) };
     st.hidden = (Array.isArray(saved.hidden) ? saved.hidden : []).filter((d, i, a) => typeof d === 'string' && path.isAbsolute(d) && a.indexOf(d) === i);
   }
 
@@ -358,10 +358,23 @@ export function createStore({ file, home = '', profiles = [], codex = null } = {
     // ---- sessions Glue started: they stay in the workspace they were started in
     setPlaced(sessionId, ws, now = Date.now()) {
       if (!st.workspaces[ws] || typeof sessionId !== 'string' || !sessionId) return;
-      st.placed[sessionId] = { ws, at: now };
+      const from = st.placed[sessionId]?.from;
+      st.placed[sessionId] = { ws, at: now, ...(from ? { from } : {}) };
       save();
     },
     placedWs: (sessionId) => (st.workspaces[st.placed[sessionId]?.ws] ? st.placed[sessionId].ws : null),
+    // ---- a session handed over: the one it carries on, kept on its placed entry
+    setFrom(sessionId, ws, from, now = Date.now()) {
+      if (!st.workspaces[ws] || typeof sessionId !== 'string' || !sessionId || typeof from !== 'string' || !from) return;
+      st.placed[sessionId] = { ...st.placed[sessionId], ws, at: st.placed[sessionId]?.at ?? now, from };
+      save();
+    },
+    fromOf: (sessionId) => st.placed[sessionId]?.from ?? null,
+    /** The session that carries on `sessionId`'s work, if one does: { id, at }. */
+    handedTo(sessionId) {
+      for (const [sid, m] of Object.entries(st.placed)) if (m.from === sessionId) return { id: sid, at: m.at };
+      return null;
+    },
     /** Stamp the placed sessions still around (at most hourly) and drop those not seen for 14 days. */
     touchPlaced(liveIds = [], now = Date.now()) {
       const live = new Set(liveIds);
