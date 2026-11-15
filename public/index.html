@@ -314,15 +314,20 @@ button, input, textarea, select { font: inherit; color: inherit; }
   --i-branch: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6'%3E%3Ccircle cx='4.5' cy='3.5' r='1.7'/%3E%3Ccircle cx='4.5' cy='12.5' r='1.7'/%3E%3Ccircle cx='11.5' cy='4.5' r='1.7'/%3E%3Cpath d='M4.5 5.2v5.6M11.5 6.2c0 3.2-7 1.8-7 4.6'/%3E%3C/svg%3E");
   --i-tree: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linejoin='round'%3E%3Cpath d='M1.8 3.2h4.4l1.5 1.6h6.5v8H1.8z'/%3E%3C/svg%3E");
   --i-repo: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linejoin='round'%3E%3Cpath d='M3.5 2.5h9v9h-9a1.5 1.5 0 0 0 0 3h9M3.5 2.5v10.5'/%3E%3C/svg%3E");
+  --i-x: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='4.9'%3E%3Cpath d='M3.73 3.73L20.27 20.27M20.27 3.73L3.73 20.27'/%3E%3C/svg%3E");
 }
+/* A row's action sits on its right, centred on the row whatever the row's height (top and bottom 0, margin auto). */
 .qstop {
-  position: absolute; top: 4px; right: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  position: absolute; top: 0; bottom: 0; right: 6px; margin: auto 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   min-width: 22px; height: 22px; padding: 0 7px; border: 0; border-radius: var(--r-pill); background: var(--stop-fill);
   color: var(--stop); font-size: 12px; font-weight: 600; cursor: pointer; opacity: 0;
 }
-.qstop::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.qstop::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .qstop.x { color: var(--fg-dim); background: var(--fill-strong); }
-.qstop.x::before { content: "\00d7"; width: auto; height: auto; background: none; font-size: 15px; line-height: 1; }
+/* The × is drawn, not typed: a font's × glyph sits below the middle of its line box (1.5-2px low in Geist at 15px), so
+   the typed one was off-centre. This one is that glyph's size and stroke (6.7px across, in an 8px box: a whole number
+   of pixels, so the mask isn't rounded off to one side) in the text colour. */
+.qstop.x::before { width: 8px; height: 8px; border-radius: 0; -webkit-mask: var(--i-x) center / contain no-repeat; mask: var(--i-x) center / contain no-repeat; }
 .qstop.armed, .qstop.x.armed { background: var(--stop); color: var(--on-solid); opacity: 1; }
 .tile-wrap:hover .qstop, .tile-wrap:focus-within .qstop { opacity: 1; }
 .tile-wrap.can-act:hover .tage, .tile-wrap.can-act:focus-within .tage, .tile-wrap:has(.qstop.armed) .tage { visibility: hidden; }
