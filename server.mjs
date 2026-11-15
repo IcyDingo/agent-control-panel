@@ -927,6 +927,23 @@ function transcriptFile(sessionId, where = null) {
   }
   return null;
 }
+/** What a file gained since `at.offset`, as whole lines; a partial last line waits in `at.carry` for its newline. A file
+ *  that shrank (replaced or cut) is read again from its start. Reads only the new bytes, so it is cheap to call often. */
+function linesSince(file, at) {
+  let fd;
+  try { fd = fs.openSync(file, 'r'); } catch { return []; }
+  try {
+    const size = fs.fstatSync(fd).size;
+    if (size < at.offset) { at.offset = 0; at.carry = ''; }
+    if (size === at.offset) return [];
+    const buf = Buffer.alloc(size - at.offset);
+    fs.readSync(fd, buf, 0, buf.length, at.offset);
+    at.offset = size;
+    const lines = (at.carry + buf.toString('utf8')).split('\n');
+    at.carry = lines.pop();
+    return lines;
+  } finally { fs.closeSync(fd); }
+}
 function tailOf(file, bytes) {
   const fd = fs.openSync(file, 'r');
   try {
@@ -1119,13 +1136,18 @@ async function rosterSettles(login, sessionId, done, ms = 12_000) {
 // message is in the transcript.
 const SEND_MS = 25_000;
 const sendingTo = new Set();
+const hangingUp = new Map(); // sessionId → the client of a message just delivered, until it is hung up
 async function sendToBackground(s, text) {
+  await hangingUp.get(s.sessionId); // a message sent right after the last one waits for its client to go, not refused
   if (sendingTo.has(s.sessionId)) return { ok: false, error: 'Your last message or mode switch is still on its way.' };
   if (/^[/!]/.test(text)) return { ok: false, error: 'A message that starts with / or ! is not sent this way. Start it with a word.' };
   const file = transcriptFile(s.sessionId), login = loginOfS(s);
   if (!file) return { ok: false, error: 'It has no saved conversation yet.' };
   if (!login) return { ok: false, error: NO_WS };
   sendingTo.add(s.sessionId);
+  // Only what is written after this point can be the message: the look below reads just the new bytes.
+  const at = { offset: 0, carry: '' };
+  try { at.offset = fs.statSync(file).size; } catch {}
   const resume = ['--resume', s.sessionId, '--', text];
   const p = MAC
     ? spawn('script', ['-q', '/dev/null', 'claude', ...resume],
@@ -1142,14 +1164,21 @@ async function sendToBackground(s, text) {
   const has = (d) => (d.type === 'queue-operation' && d.content === text) || (d.type === 'user' && d.message?.content === text)
     || (d.type === 'attachment' && d.attachment?.type === 'queued_command' && d.attachment.prompt === text);
   let seen = false;
-  for (const end = Date.now() + SEND_MS; !seen && Date.now() < end; await new Promise((r) => setTimeout(r, 400))) {
-    for (const line of tailOf(file, 256_000)) { try { if (has(JSON.parse(line))) { seen = true; break; } } catch {} }
+  for (const end = Date.now() + SEND_MS; !seen && Date.now() < end; await new Promise((r) => setTimeout(r, 150))) {
+    for (const line of linesSince(file, at)) { try { if (has(JSON.parse(line))) { seen = true; break; } } catch {} }
     if (exited && !seen) break;
   }
-  await new Promise((r) => setTimeout(r, seen ? 800 : 0));
-  try { p.stdin?.end(); } catch {} // the bridge hangs its client up when its stdin closes
-  try { process.kill(-p.pid, 'SIGTERM'); } catch {}
-  sendingTo.delete(s.sessionId);
+  // The answer goes back the moment the message is in its transcript; the client gets a little longer before it is
+  // hung up, and a next message waits until it is (sendingTo).
+  const hangUp = () => {
+    try { p.stdin?.end(); } catch {} // the bridge hangs its client up when its stdin closes
+    try { process.kill(-p.pid, 'SIGTERM'); } catch {}
+    sendingTo.delete(s.sessionId);
+  };
+  if (seen) {
+    const gone = new Promise((r) => setTimeout(() => { hangUp(); if (hangingUp.get(s.sessionId) === gone) hangingUp.delete(s.sessionId); r(); }, 800));
+    hangingUp.set(s.sessionId, gone);
+  } else hangUp();
   if (!seen) return { ok: false, error: 'It did not take your message. ' + (out.replace(/\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07/g, '').replace(/\s+/g, ' ').trim().slice(-160) || 'Try claude attach.') };
   logSent(s, text, 'now');
   setTimeout(() => pollRoster(login), 600);

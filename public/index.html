@@ -341,7 +341,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 body.resizing { cursor: col-resize; user-select: none; }
 body.resizing .drawer { transition: none; }
 @keyframes slide { from { transform: translateX(14px); opacity: .5; } }
-.d-cols { flex: 1; min-height: 0; display: flex; }
+.d-cols { position: relative; flex: 1; min-height: 0; display: flex; }
 .d-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 /* One column at reading width, centred once the panel is wider than that. */
 .d-col { width: 100%; max-width: 760px; margin-inline: auto; padding-inline: 32px; }
@@ -382,10 +382,12 @@ body.resizing .drawer { transition: none; }
 .kv dd { margin: 0; min-width: 0; color: var(--fg); overflow-wrap: anywhere; }
 .kv dd.mono { font-size: 12px; color: var(--fg-dim); }
 .kv .btn { height: auto; min-height: 28px; padding: 4px 10px; justify-content: flex-start; font-size: 12px; text-align: left; white-space: normal; overflow-wrap: anywhere; }
-/* Under the conversation, on a narrow panel */
-.d-subs-in .d-side-body { padding: 0; overflow: visible; }
-.d-subs-in:empty { display: none; }
-.d-subs-in .side-acts { margin-top: 0; }
+/* On a narrow panel, the same column slides in over the chat from the Details button in its header. */
+.d-side.overlay { position: absolute; top: 0; right: 0; bottom: 0; z-index: 8; width: min(340px, 88%); background: var(--panel); box-shadow: -28px 0 48px -36px var(--shade); animation: slide .18s ease-out; }
+.d-side.overlay .s-grip { display: none; }
+.d-side.overlay .d-side-tab::after { content: "\00D7"; font-size: 18px; font-weight: 400; }
+.d-det-btn .n { margin-left: 6px; font: 500 11.5px var(--mono); color: var(--fg-faint); }
+.d-det-btn[aria-expanded="true"] { background: var(--fill-strong); color: var(--fg); }
 .side-acts .btn:only-of-type { grid-column: 1 / -1; }
 .d-side.folded { width: 40px; }
 .d-side.folded .d-side-body, .d-side.folded .s-grip { display: none; }
@@ -542,7 +544,6 @@ textarea.field { flex-basis: 100%; height: auto; min-height: 3.4em; padding: 6px
 .msg.you { justify-self: end; max-width: 88%; }
 .msg.you .m-body { padding: 12px 16px; border: 1px solid transparent; border-radius: var(--r-3); background: var(--fill); white-space: pre-wrap; }
 .msg.you.waiting .m-body { border: 1px dashed var(--line-strong); background: transparent; }
-.msg.you.sending .m-body { opacity: .65; }
 .msg.note { justify-self: center; font-size: 12px; color: var(--fg-faint); }
 .msg.you .m-who { justify-content: flex-end; margin: 4px 0 0; }
 .msg.out .m-body { max-height: 260px; overflow: auto; margin: 0; padding: 10px 14px; border-radius: var(--r-2); background: var(--code); font: 12.5px/1.5 var(--mono); white-space: pre-wrap; }
@@ -1288,7 +1289,6 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
             </section>
             <div class="chips" id="d-chips" hidden></div>
             <section class="sec needs" id="d-needs" hidden><h4 class="rule">Needs you <span class="n" id="d-needs-n"></span></h4><div class="cards" id="d-cards"></div></section>
-            <div class="d-subs-in" id="d-subs-in"></div>
           </div>
           <!-- Shown when rows came in below while you read further up. -->
           <div class="d-newer-at"><button class="d-newer" type="button" id="d-newer" hidden>↓ newer</button></div>
@@ -2096,6 +2096,7 @@ function focusSub(s, a) {
   open = s.sessionId;
   subFocus = a.agentId;
   if (sideFolded) { sideFolded = false; pref('acp.sideFolded', '0'); }
+  detailsOpen = true; detailsFor = s.sessionId; // on a narrow panel the column slides in; a wide one ignores it
   render();
   document.querySelector('#d-subs .branch.focus')?.scrollIntoView({ block: 'nearest' });
 }
@@ -2312,8 +2313,10 @@ function renderDrawer(vis) {
     d.classList.add('enter');
     pinEnd(); // a session opens at its newest message, like a chat
     drawerWas = s.sessionId;
+    detailsOpen = detailsFor === s.sessionId; // a subagent picked from the rail opens it with its details
     $('d-reply').value = drafts.get(s.sessionId) ?? '';
   }
+  detailsFor = null;
   const st = stateOf(s), live = st === 'busy' || st === 'waiting', ended = st === 'finished' || st === 'failed', bg = s.kind === 'background';
   const k = (p) => `${p}:${s.sessionId}`;
   const armedHere = armed && /^(int|end|close|rm|hide):/.test(armed.key) && armed.key.endsWith(':' + s.sessionId) ? armed.key : null;
@@ -2322,16 +2325,21 @@ function renderDrawer(vis) {
   const elsewhere = (s.elsewhere ?? []).map((g) => elsewhereOf(g, s.git)), here = s.workCwd ?? s.cwd;
   const stateWord = s.leftRosterAt ? 'Closed' : s.state === 'stopped' ? 'Ended' : LABEL[st];
   const termOn = Boolean(s.termable) && termWant.has(s.sessionId);
+  const roomy = wasRoomy = roomyNow();
+  if (roomy) detailsOpen = false;
   d.classList.toggle('term-on', termOn);
   $('d-term').hidden = !termOn;
   if (termOn) openTerm(s); else if (termView) closeTerm();
   patch($('d-head'), JSON.stringify([s.sessionId, st, label(s), s.cwd, here, s.kind, s.inRoster, Boolean(s.leftRosterAt), s.state, noteText, s.hostsPanel, s.mode, s.git, s.gh, s.mismatch, sharers, elsewhere, s.oldVersion, sessLogin(s)?.command, s.termable, termOn,
-    isOcS(s) ? s.model : null, atLimit(s) ? s.limit : null, s.continuedFrom ?? null]), () => [
+    isOcS(s) ? s.model : null, atLimit(s) ? s.limit : null, s.continuedFrom ?? null, roomy, !roomy && detailsOpen, roomy ? '' : subsLabel(s)]), () => [
     // Its name (cut short with … when long: the whole on hover), its state as the dot's colour, and its pull request's
     // checks beside it; Chat or Terminal and Close at the end.
     el('div', { class: 'd-top' }, el('span', { class: 'd-dot', role: 'img', 'aria-label': stateWord, title: stateWord }, glyph(st)),
       el('h2', { class: 'd-name', text: label(s), title: label(s) }), prChip(s),
       el('span', { class: 'd-end' },
+        roomy ? null : el('button', { class: 'btn quiet small d-det-btn', type: 'button', 'aria-controls': 'd-side', 'aria-expanded': String(detailsOpen),
+          title: detailsOpen ? 'Close its details (Esc)' : 'Its folder, branch, subagents and the buttons that stop it', onclick: () => setDetails(!detailsOpen) },
+          'Details', subsLabel(s) ? el('span', { class: 'n', text: subsLabel(s) }) : null),
         s.termable ? el('div', { class: 'vtabs', role: 'tablist', 'aria-label': 'How to show it' },
           el('button', { type: 'button', role: 'tab', 'aria-selected': String(!termOn), title: 'Its conversation, with the box to reply', onclick: () => { termWant.delete(s.sessionId); render(); } }, 'Chat'),
           el('button', { type: 'button', role: 'tab', 'aria-selected': String(termOn), title: 'Its own Claude Code screen: type into it as in claude attach', onclick: () => { termWant.add(s.sessionId); render(); } }, 'Terminal')) : null,
@@ -2402,7 +2410,7 @@ function renderDrawer(vis) {
     const node = subNows.get(a.agentId);
     if (node) patch(node, JSON.stringify([subState(s, a), a.lastTool?.text, a.result]), () => subNow(s, a));
   }
-  placeSide(s);
+  placeSide(s, roomy);
   patch($('d-advance'), JSON.stringify(advance?.from === s.sessionId ? advance.to : null), () => (advance?.from === s.sessionId
     ? el('div', { class: 'advance', role: 'status' }, `Done here. Next: ${label(sessionOf(advance.to))}`,
       el('button', { class: 'linkish', type: 'button', text: 'Stay here', onclick: () => { cancelAdvance(); render(); } }))
@@ -2738,7 +2746,7 @@ function applyThread(id, events) {
     if (e.who !== 'update') { putRow(t, bareItem(e)); continue; }
     const r = t.rows.get(e.key);
     if (!r) continue;
-    if (e.patch.removed) t.rows.delete(e.key); else Object.assign(r, e.patch);
+    if (e.patch.removed) t.rows.delete(e.key); else { Object.assign(r, e.patch); r._v = (r._v ?? 0) + 1; }
   }
   t.pending = false;
   t.version++;
@@ -2788,6 +2796,7 @@ async function earlier() {
   render();
 }
 function foldResult(row, res) {
+  row._v = (row._v ?? 0) + 1;
   if (row.state !== 'refused') row.state = res.ok ? 'done' : 'failed';
   row.preview = res.preview;
   row.endedAt = res.at;
@@ -2809,6 +2818,7 @@ $('d-scroll').addEventListener('scroll', () => { followEnd = atEnd($('d-scroll')
 new ResizeObserver(() => { if (following($('d-scroll'))) toEnd($('d-scroll')); }).observe($('d-scroll'));
 $('d-newer').onclick = () => toEnd($('d-scroll'));
 const norm = (t) => String(t ?? '').replace(/\s+/g, ' ').trim();
+let drawnKey = null, drawnCount = 0, clocks = []; // what the last full draw came from, its row count, and its running calls
 let drawn = null, uncapped = false, shownFrom = { key: null, hidden: 0 }, lastShown = null; // what the DOM holds, for the open session
 const localRows = new Map(); // `local:<at>` → its row, kept between redraws so its element is too
 const openTools = new Set(); // tool row keys whose output is unfolded
@@ -2884,8 +2894,16 @@ function localOf(s, rows) {
  *  rows of one message share one bubble (the first row's), the later ones adding a body to it. Returns the row count. */
 function renderThread(s) {
   const t = threads.get(s.sessionId), sc = $('d-scroll'), box = $('d-thread');
-  if (drawn !== s.sessionId) { drawn = s.sessionId; uncapped = false; shownFrom = { key: null, hidden: 0 }; lastShown = null; localRows.clear(); box.replaceChildren(); $('d-newer').hidden = true; }
+  if (drawn !== s.sessionId) { drawn = s.sessionId; drawnKey = null; uncapped = false; shownFrom = { key: null, hidden: 0 }; lastShown = null; localRows.clear(); box.replaceChildren(); $('d-newer').hidden = true; }
   const atBottom = following(sc); // measured before the rows change
+  // The 1 s tick and snapshots that change nothing here: when what the thread draws from is the same as last time (the
+  // same arrays, compared by identity), only running calls' clocks move.
+  const st = stateOf(s), ticking = st === 'busy' || st === 'waiting', box0 = outbox.get(s.sessionId);
+  const key = [s.sessionId, t, t?.version, s.sent, s.queued, s.queueError, box0, box0?.filter((m) => m.done).length, uncapped, keepBelow, atBottom, ticking];
+  if (drawnKey && key.length === drawnKey.length && key.every((v, i) => v === drawnKey[i])) {
+    for (const m of clocks) setDur(m, ticking);
+    return drawnCount;
+  }
   const thread = t ? rowsOf(t) : [], local = localOf(s, thread);
   for (const k of localRows.keys()) if (!local.some((m) => m.key === k)) localRows.delete(k);
   // A command's printout goes among the thread's rows by time; what is still on its way to the transcript (sending,
@@ -2903,15 +2921,19 @@ function renderThread(s) {
   }
   shownFrom = { key: all[from]?.key ?? null, hidden: from };
   const rows = all.slice(from);
-  // A call still running has a clock only while the session works: one that never got its result (a session killed
-  // mid-call, read back later) shows no time rather than one that grows forever.
-  const st = stateOf(s), ticking = st === 'busy' || st === 'waiting';
   const conts = rows.map((m, i) => { const before = rows[i - 1]; return m.who === 'claude' && before?.who === 'claude' && m.messageId != null && before.messageId === m.messageId; });
+  clocks = [];
   rows.forEach((m, i) => {
-    const sig = sigOf(m, conts[i], s);
-    if (!m.el || m._sig !== sig) { m.el = rowEl(m, conts[i], s); m._sig = sig; }
-    if (m.dur) setText(m.dur, m.who === 'tool' && m.state === 'running' ? (m.waiting ? 'waiting for you' : ticking ? took(Date.now() - m.at) : '')
-      : m.endedAt != null && m.at ? took(m.endedAt - m.at) : '');
+    // A row's signature is worked out again only when the row changed (its _v) or its place in a bubble did; what you
+    // sent from here is redrawn from fields that change without a version, so it is always checked.
+    const v = m._v ?? 0;
+    if (!m.el || m.who === 'local' || m._sv !== v || m._sc !== conts[i]) {
+      const sig = sigOf(m, conts[i], s);
+      if (!m.el || m._sig !== sig) { m.el = rowEl(m, conts[i], s); m._sig = sig; }
+      m._sv = v; m._sc = conts[i];
+    }
+    setDur(m, ticking);
+    if (m.dur && m.who === 'tool' && m.state === 'running') clocks.push(m);
   });
   // What is not in the window (rows scrolled past the cap, rebuilt rows' old elements) leaves first, so placing the
   // rows below moves only what is new: a row kept where it was is never taken out and put back (its selection, an
@@ -2942,7 +2964,16 @@ function renderThread(s) {
   if (keepBelow != null) { sc.scrollTop = sc.scrollHeight - keepBelow; keepBelow = null; }
   else if (atBottom) toEnd(sc);
   else if (grew) $('d-newer').hidden = false;
+  // What this draw came from, with keepBelow as it is now (spent) and whether the view is at the bottom after it.
+  drawnKey = [...key.slice(0, 8), uncapped, keepBelow, following(sc), ticking];
+  drawnCount = all.length;
   return all.length;
+}
+/** A call's clock: a call still running has one only while the session works (one that never got its result, a session
+ *  killed mid-call read back later, shows no time rather than one that grows forever); a finished one, how long it took. */
+function setDur(m, ticking) {
+  if (m.dur) setText(m.dur, m.who === 'tool' && m.state === 'running' ? (m.waiting ? 'waiting for you' : ticking ? took(Date.now() - m.at) : '')
+    : m.endedAt != null && m.at ? took(m.endedAt - m.at) : '');
 }
 /** What it said last: the newest reply in its thread (every block of it), unless the Stop hook brought a newer one (a
  *  session whose transcript is not followed yet). */
@@ -2982,20 +3013,42 @@ applyLayout();
 const wideEnough = matchMedia('(min-width: 861px)');
 const slimShown = () => railSlim && wideEnough.matches;
 wideEnough.addEventListener('change', () => render());
-/** A panel with room for a column beside the chat gets its details there; a narrower one keeps them under the conversation. */
-function placeSide(s) {
-  const roomy = $('drawer').clientWidth >= 900;
-  const home = roomy ? $('d-side') : $('d-subs-in');
-  if ($('d-side-body').parentElement !== home) home.append($('d-side-body'));
-  $('d-side').hidden = !roomy;
-  $('d-side').classList.toggle('folded', sideFolded);
-  $('d-side-tab').setAttribute('aria-expanded', String(!sideFolded));
-  $('d-side-tab').title = sideFolded ? 'Show its details' : 'Fold its details away';
-  const running = s.subagents.filter((a) => subState(s, a) === 'running').length;
-  setText($('d-side-n'), running ? `${running} sub${running > 1 ? 's' : ''}` : '');
+/** A panel with room for a column beside the chat gets its details there; a narrower one has a Details button in its
+ *  header that slides the same column in over the chat (detailsOpen), closed again by the button, its ✕, Esc, a click
+ *  outside it, another session, or the panel growing wide enough for the column. */
+let detailsOpen = false, detailsFor = null, wasRoomy = null;
+const roomyNow = () => $('drawer').clientWidth >= 900;
+const subsLabel = (s) => { const n = s.subagents.filter((a) => subState(s, a) === 'running').length; return n ? `${n} sub${n > 1 ? 's' : ''}` : ''; };
+function placeSide(s, roomy = roomyNow()) {
+  if (roomy) detailsOpen = false;
+  const side = $('d-side'), over = !roomy;
+  side.hidden = over && !detailsOpen;
+  side.classList.toggle('overlay', over);
+  side.classList.toggle('folded', roomy && sideFolded);
+  $('d-side-tab').setAttribute('aria-expanded', String(over || !sideFolded));
+  $('d-side-tab').title = over ? 'Close its details (Esc)' : sideFolded ? 'Show its details' : 'Fold its details away';
+  setText($('d-side-n'), subsLabel(s));
 }
-$('d-side-tab').onclick = () => { sideFolded = !sideFolded; pref('acp.sideFolded', sideFolded ? '1' : '0'); render(); };
-new ResizeObserver(() => { const s = open && sessionOf(open); if (s && !$('drawer').hidden) placeSide(s); }).observe($('drawer'));
+function setDetails(on) {
+  if (detailsOpen === on) return;
+  detailsOpen = on;
+  render();
+  if (on) $('d-side-tab').focus({ preventScroll: true });
+  else if ($('d-side').contains(document.activeElement) || document.activeElement === document.body) $('d-head').querySelector('.d-det-btn')?.focus({ preventScroll: true });
+}
+$('d-side-tab').onclick = () => {
+  if ($('d-side').classList.contains('overlay')) return setDetails(false);
+  sideFolded = !sideFolded; pref('acp.sideFolded', sideFolded ? '1' : '0'); render();
+};
+document.addEventListener('pointerdown', (e) => {
+  if (detailsOpen && !e.target.closest?.('#d-side, .d-det-btn, dialog, .toast')) setDetails(false);
+}, true);
+// The head's Details button comes and goes with the width: a change across 900 px draws the panel again.
+new ResizeObserver(() => {
+  const s = open && sessionOf(open);
+  if (!s || $('drawer').hidden) return;
+  if (roomyNow() !== wasRoomy) render(); else placeSide(s);
+}).observe($('drawer'));
 function renderCompose(s, st) {
   const live = bgLive(s), queue = willQueue(s, st), show = live || queue || canReply(s, st);
   $('d-chips').hidden = !show;
@@ -3039,7 +3092,7 @@ function renderCompose(s, st) {
   btn.dataset.key = key;
   btn.className = 'btn small ' + (on ? 'danger armed' : 'primary');
   const cmd = isCommand(), typing = live && cmd && !restart;
-  setText(btn, on ? (queue ? 'Confirm: close it once done' : 'Confirm: close it and send') : sending.has(s.sessionId) ? (typing ? 'Running…' : 'Sending…')
+  setText(btn, on ? (queue ? 'Confirm: close it once done' : 'Confirm: close it and send')
     : typing ? (queue ? 'Run when it is done' : 'Run') : queue ? 'Send when done' : restart ? 'Restart and send' : term && running ? 'Send, move to background' : 'Send');
   const back = comesBack(picked && picked !== s.mode ? picked : null, mPick, ePick), carry = back ? ` It comes back ${back}.` : '';
   const how = typing ? (queue ? 'Once it is done, this is typed at its prompt, as you would in claude attach.' : 'This is typed at its prompt, as you would in claude attach.')
@@ -3111,7 +3164,8 @@ async function unqueue(s, m) {
   if (!r.ok) toast(r.error || 'It could not be taken back.', true);
 }
 const sending = new Set();
-function syncSend() { const s = sessionOf(open); $('d-send').disabled = !$('d-reply').value.trim() || !s || sending.has(s.sessionId); }
+// What is on its way does not hold the box: the next message waits its turn behind it (toSend), so Send stays on.
+function syncSend() { $('d-send').disabled = !$('d-reply').value.trim() || !sessionOf(open); }
 $('d-reply').addEventListener('input', syncSend);
 // Enter sends; Shift+Enter starts a new line (and Enter that confirms an IME composition is left alone).
 $('d-reply').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); $('d-send').click(); } });
@@ -3122,30 +3176,48 @@ $('d-send').onclick = () => {
   if (s.kind === 'interactive' && s.inRoster && !isOver(s)) confirmOr(`reply:${s.sessionId}`, () => doReply(s));
   else doReply(s);
 };
-// Sending is optimistic: the message leaves the box and shows in the chat at once. If it doesn't go through, it goes back
-// into the box, ahead of anything typed since, so nothing is lost.
-async function doReply(s) {
-  const ta = $('d-reply'), text = ta.value.trim(), msg = { text, at: Date.now() };
-  outbox.set(s.sessionId, [...(outbox.get(s.sessionId) ?? []).filter((m) => !m.done || Date.now() - m.done < 10_000), msg]);
-  ta.value = ''; fit(ta); drafts.delete(s.sessionId);
+// Sending is optimistic: the message leaves the box and shows in the chat on the same frame, drawn on its own before the
+// rest of the page catches up. Messages sent while one is on its way wait their turn and go in order (toSend). If one
+// doesn't go through, it and those behind it go back into the box, ahead of anything typed since, so nothing is lost.
+const toSend = new Map(); // sessionId → messages not delivered yet, the first one on its way
+function doReply(s) {
+  const ta = $('d-reply'), text = ta.value.trim(), id = s.sessionId;
+  const msg = { text, at: Date.now(), s,
+    picks: { mode: bgLive(s) ? null : modePicks.get(id), model: modelPicks.get(id), effort: effortPicks.get(id) } };
+  outbox.set(id, [...(outbox.get(id) ?? []).filter((m) => !m.done || Date.now() - m.done < 10_000), msg]);
+  ta.value = ''; fit(ta); drafts.delete(id);
   pinEnd();
-  sending.add(s.sessionId);
-  render();
-  const mode = bgLive(s) ? null : modePicks.get(s.sessionId), model = modelPicks.get(s.sessionId), effort = effortPicks.get(s.sessionId);
-  const r = await api('/api/reply', { sessionId: s.sessionId, text, ...(mode ? { mode } : {}), ...(model ? { model } : {}), ...(effort ? { effort } : {}) });
-  sending.delete(s.sessionId);
-  if (!r.ok) {
-    outbox.set(s.sessionId, (outbox.get(s.sessionId) ?? []).filter((m) => m !== msg));
-    const back = (now) => (now.trim() ? `${text}\n${now}` : text);
-    if (open === s.sessionId) { ta.value = back(ta.value); fit(ta); ta.focus(); } else drafts.set(s.sessionId, back(drafts.get(s.sessionId) ?? ''));
-    toast((r.error || 'Your reply was not sent.') + ' It is back in the box.', true);
-    render();
-    return;
+  if (toSend.has(id)) toSend.get(id).push(msg); else toSend.set(id, [msg]); // the same array deliver() works through
+  if (open === id) renderCompose(s, stateOf(s)); // the bubble now; the rest of the page on the next frame
+  later();
+  if (!sending.has(id)) deliver(id);
+}
+async function deliver(id) {
+  sending.add(id);
+  for (let q; (q = toSend.get(id))?.length;) {
+    const msg = q[0], s = sessionOf(id) ?? msg.s, { mode, model, effort } = msg.picks;
+    const r = await api('/api/reply', { sessionId: id, text: msg.text, ...(mode ? { mode } : {}), ...(model ? { model } : {}), ...(effort ? { effort } : {}) });
+    if (!r.ok) {
+      const back = toSend.get(id) ?? [];
+      toSend.delete(id);
+      outbox.set(id, (outbox.get(id) ?? []).filter((m) => !back.includes(m)));
+      const text = back.map((m) => m.text).join('\n'), put = (now) => (now.trim() ? `${text}\n${now}` : text), ta = $('d-reply');
+      if (open === id) { ta.value = put(ta.value); fit(ta); ta.focus(); syncSend(); } else drafts.set(id, put(drafts.get(id) ?? ''));
+      toast((r.error || 'Your reply was not sent.') + (back.length > 1 ? ' They are back in the box.' : ' It is back in the box.'), true);
+      break;
+    }
+    q.shift();
+    msg.done = Date.now(); // shown as sent until the session's own record of it arrives
+    for (const [m, v] of [[modePicks, mode], [modelPicks, model], [effortPicks, effort]]) if (v && m.get(id) === v) m.delete(id);
+    sentNote(s, r);
   }
-  msg.done = Date.now(); // shown as sent until the session's own record of it arrives
-  for (const m of [modePicks, modelPicks, effortPicks]) m.delete(s.sessionId);
+  if (!toSend.get(id)?.length) toSend.delete(id);
+  sending.delete(id);
+  render();
+}
+function sentNote(s, r) {
   if (r.queued) return note(s.sessionId, 'Queued. It goes in once it is done.');
-  if (r.command) return;
+  if (r.command) return render();
   if (r.sent) return note(s.sessionId, s.working ? 'Sent. It reads it at its next step.' : 'Sent. It carries on with your message.');
   const on = r.restartedOn ? comesBack(null, r.restartedOn.model, r.restartedOn.effort) : '';
   // A copy is a new session: the panel opens it once the roster lists it.
@@ -5098,6 +5170,7 @@ async function connectThisProfile(b) {
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || modalOpen() || e.target.closest?.('textarea, input, select')) return;
   if (!$('d-pop').hidden) { showPop(false); return; }
+  if (detailsOpen) { setDetails(false); return; }
   if (open) { cancelAdvance(); open = null; render(); }
 });
 
