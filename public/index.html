@@ -1048,8 +1048,6 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
    agent-minutes in it (one hue, light to dark; in dark mode it brightens instead, from the same token). */
 .h-heat { position: relative; margin-bottom: 36px; }
 .h-heat .h-lane { flex-wrap: wrap; row-gap: 4px; }
-.h-heat .h-lane h3 { white-space: nowrap; }
-.h-heat .h-lane .vtabs { margin-left: 2px; }
 .h-heat .h-lane .h-n { min-width: 0; }
 @media (max-width: 640px) { .h-heat .h-lane .grow { flex-basis: 100%; height: 0; } }
 /* It scrolls sideways inside itself on a narrow screen (opened at today), never the page. */
@@ -3423,7 +3421,7 @@ function renderHeat() {
   const sinceText = heat.since ? dayAt(heat.since).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }) : null;
   const young = !heat.since || (today - dayAt(heat.since)) < 60 * 86_400_000;
   box.replaceChildren(
-    el('div', { class: 'h-lane' }, el('h3', { text: 'Agent work' }), tabs, el('span', { class: 'h-n', text: view.summary }), el('span', { class: 'grow' }),
+    el('div', { class: 'h-lane' }, tabs, el('span', { class: 'h-n', text: view.summary }), el('span', { class: 'grow' }),
       el('span', { class: 'hm-legend', 'aria-hidden': 'true' }, 'Less', ...[0, 1, 2, 3, 4].map((l) => el('i', { class: 'hm-sw', 'data-l': String(l) })), 'More')),
     view.body, tip,
     ...(young ? [el('p', { class: 'hm-note', text: sinceText
