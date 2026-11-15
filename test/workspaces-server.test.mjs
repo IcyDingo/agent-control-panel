@@ -655,10 +655,14 @@ test('a session hands its whole conversation over to another login of its worksp
   assert.equal((await api('/api/handover', { sessionId: SID_D, to: 'default' }, A.client)).error, 'It already runs on that login. Reply to it instead.');
   assert.equal((await api('/api/handover', { sessionId: SID_D, to: 'nobody' }, A.client)).ok, false);
   assert.equal((await api('/api/handover', { sessionId: SID_D, to: 'contract' }, B.client)).ok, false, 'not from a page shown another workspace');
+  // Its turn is done but its process is still up, at its prompt, as a real background job is between turns.
+  fs.writeFileSync(path.join(home, 'roster-default.json'), JSON.stringify([{ ...job(SID_D, 'default job', work), pid: 4242, state: 'done' }]));
+  assert.ok(await until(() => A.latest()?.sessions.find((y) => y.sessionId === SID_D)?.pid === 4242), 'the roster shows its process');
   const before = logged().length;
   const r = await api('/api/handover', { sessionId: SID_D, to: 'contract', model: 'haiku' }, A.client);
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(r.how, 'whole');
+  assert.ok(await until(() => logged().slice(before).some((x) => x.args[0] === 'stop' && x.args[1] === SID_D.slice(0, 8) && !x.env)), 'the old job is stopped, on its own login');
   const c = logged().slice(before).find((x) => x.args[0] === '--bg');
   assert.ok(c?.env?.endsWith('.claude-contract'), `ran under ${c?.env}`);
   assert.deepEqual(c.args.slice(0, 4), ['--bg', '--resume', SID_D, '--fork-session']);
@@ -672,4 +676,12 @@ test('a session hands its whole conversation over to another login of its worksp
   assert.ok(snap, `the fork shows on the page, linked: ${JSON.stringify(A.latest()?.sessions.map((y) => [y.sessionId, y.continuedFrom]))}`);
   assert.equal(snap.sessions.find((y) => y.sessionId === SID_F).continuedFrom, SID_D);
   assert.ok(await until(() => A.latest()?.sessions.find((y) => y.sessionId === SID_D)?.continuedAs?.id === SID_F), 'the old one names the fork');
+  // The copy it was resumed from stays until the fork has a transcript of its own, then goes: that login's resume list
+  // shows the fork only. The old session's own transcript is untouched.
+  const copy = path.join(home, '.claude-contract', 'projects', 'p', `${SID_D}.jsonl`);
+  await pause(1200);
+  assert.ok(fs.existsSync(copy), 'kept while the fork has no transcript yet');
+  fs.writeFileSync(path.join(home, '.claude-contract', 'projects', 'p', `${SID_F}.jsonl`), transcript('work in .claude', work));
+  assert.ok(await until(() => !fs.existsSync(copy)), 'the copy goes once the fork has its own');
+  assert.ok(fs.existsSync(path.join(home, '.claude', 'projects', 'p', `${SID_D}.jsonl`)), 'the old session keeps its transcript');
 });

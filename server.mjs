@@ -545,7 +545,9 @@ async function pollRoster(login) {
       store.setFrom(s.sessionId, handed.ws, handed.from);
       const was = sessions.get(handed.from);
       if (was?.continuedAs) was.continuedAs.id = s.sessionId;
+      if (handed.copy) handCopies.set(s.sessionId, handed.copy);
     }
+    if (handCopies.size) dropCopy(s.sessionId, login);
     place(s);
     Object.assign(s, { id: r.id ?? null, name: r.name ?? null, cwd: r.cwd ?? s.cwd, kind: r.kind ?? null,
                        status: r.status ?? null, state: r.state ?? null, waitingFor: r.waitingFor ?? null,
@@ -3453,9 +3455,21 @@ async function handStart(login, cwd, args) {
     : { ok: false, error: why || 'Claude Code did not start it.' };
 }
 
-/** Claude Code jobs a hand-over started, by background id → { from, ws }: the roster says their session id. */
+/** Claude Code jobs a hand-over started, by background id → { from, ws, copy }: the roster says their session id. */
 const pendingFrom = new Map();
-const CARRY_ON = 'Continue the task from where it stopped. Check the current state of the files first.';
+/** Forks a hand-over started, by session id → the copy of the old session's transcript they were resumed from, in the
+ *  new login's profile. It goes once the fork has a transcript of its own, so that login's resume list shows only the
+ *  fork, not the old conversation twice. */
+const handCopies = new Map();
+function dropCopy(sessionId, login) {
+  const file = handCopies.get(sessionId);
+  if (!file || !findTranscript(login, sessionId)) return;
+  handCopies.delete(sessionId);
+  try { fs.unlinkSync(file); } catch {}
+}
+// Reading only: Claude Code and OpenCode both read the folder's files without asking, where a shell command (git status,
+// ls) would stop for your approval in ask mode before the work had even started again.
+const CARRY_ON = 'Continue the task from where it stopped. First look at the current state of the files you will work on by reading them; don’t run shell commands such as git status or ls just to look around.';
 
 /**
  * Hand a session's work over, only when you ask: to another of the workspace's Claude logins, or between Claude Code
@@ -3491,7 +3505,7 @@ async function handOver(body) {
   // Named for where it went: one handed over again drops the last place from its name rather than stacking them.
   const base = s.continuedFrom ? labelOf(s).replace(/ \([^()]*\)$/, '') : labelOf(s);
   const name = trim(`${base} (${toOc ? 'OpenCode' : login.label})`.replace(/[\r\n]+/g, ' '), 60);
-  let r, how = 'brief', fallback = null;
+  let r, how = 'brief', fallback = null, copy = null;
 
   if (toOc) {
     r = await ocStart(ws, { prompt: CARRY_ON, cwd: s.cwd ?? dir, dir, name, model, mode, continuedFrom: s.sessionId, brief: await briefFor(s, dir, 'opencode') });
@@ -3504,28 +3518,33 @@ async function handOver(body) {
     if (src && lastTurn(s.sessionId).talked) {
       // Resumed from where the session resumes under its own login: its worktree, else the folder it started in.
       const at = worktreeOf(s) ?? s.cwd;
+      const into = path.join(login.profile.dir, 'projects', path.basename(path.dirname(src)));
+      copy = path.join(into, path.basename(src));
       try {
-        const into = path.join(login.profile.dir, 'projects', path.basename(path.dirname(src)));
         fs.mkdirSync(into, { recursive: true });
-        fs.copyFileSync(src, path.join(into, path.basename(src)));
+        fs.copyFileSync(src, copy);
         r = await handStart(login, at, ['--resume', s.sessionId, '--fork-session', ...opts, '--', `You now run under another login (${login.label}). ${CARRY_ON}`]);
         if (r.ok) how = 'whole';
-        else if (r.untrusted) return r;
         else fallback = r.error;
       } catch (e) { fallback = e.message; }
+      if (how !== 'whole') { try { fs.unlinkSync(copy); } catch {} copy = null; } // nothing was resumed from it
+      if (r?.untrusted) return r;
     }
     if (how !== 'whole') {
       r = await handStart(login, dir, [...opts, '--', `${await briefFor(s, dir, 'claude')}\n\n${CARRY_ON}`]);
       if (!r.ok) return r;
     }
     launchedIn.set(r.id, ws.id);
-    pendingFrom.set(r.id, { from: s.sessionId, ws: ws.id });
+    pendingFrom.set(r.id, { from: s.sessionId, ws: ws.id, copy });
     const sp = store.spaceOf(s.ws, s.sessionId);
     if (sp) pendingSpace.set(String(r.id), { ws: s.ws, space: sp, at: Date.now() });
     setTimeout(() => pollRoster(login), 400);
   }
   s.continuedAs = { id: r.sessionId ?? r.id, at: Date.now(), agent: toOc ? 'opencode' : 'claude', ...(login ? { login: login.label } : {}), how };
-  if (isOc(s) || (s.kind === 'background' && s.inRoster && !isEnded(s) && s.pid != null)) endSession(s).catch(() => {});
+  // The old one stops, so two agents never sit in one folder. A background job whose turn is done ('done') is still up
+  // at its prompt while it has a process, as reply() reads it; a terminal session is on someone's screen: left alone.
+  const bgUp = s.kind === 'background' && s.inRoster && BG_ID.test(s.id ?? '') && !['stopped', 'failed'].includes(s.state) && s.pid != null;
+  if (isOc(s) || bgUp) endSession(s).catch(() => {});
   const where = toOc ? `OpenCode${model ? ` on ${model}` : ''}` : `Claude Code on ${login.label}`;
   feed('continued', s, `${labelOf(s)} was handed over to ${where}${how === 'whole' ? ', with its whole conversation' : ''}.`);
   broadcast();
