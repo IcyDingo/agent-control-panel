@@ -112,15 +112,15 @@ const firstLine = (s) => String(s ?? '').split('\n').map((l) => l.trim()).find(B
  *  why there is none, in words for the conversation. */
 function readStructured({ err, stdout = '', stderr = '' } = {}, pick) {
   if (err?.code === 'ENOENT') return fail("The panel couldn't find Claude Code to ask.");
-  if (err?.killed) return fail("The overseer didn't answer in time.");
+  if (err?.killed) return fail("Glue didn't answer in time.");
   let out = null;
   try { out = JSON.parse(stdout); } catch { /* said below */ }
-  if (out?.is_error) return fail(`The overseer couldn't answer: ${firstLine(out.result) || 'it gave no reason'}`);
-  if (didMore(out)) return fail('The overseer tried to do more than answer, so its answer was thrown away.');
+  if (out?.is_error) return fail(`Glue couldn't answer: ${firstLine(out.result) || 'it gave no reason'}`);
+  if (didMore(out)) return fail('Glue tried to do more than answer, so its answer was thrown away.');
   const v = out?.structured_output;
-  if (v && typeof v === 'object') { const value = pick(v); return value ? { ok: true, value } : fail("The overseer's answer had no reply in it."); }
+  if (v && typeof v === 'object') { const value = pick(v); return value ? { ok: true, value } : fail("Glue's answer had no reply in it."); }
   const why = firstLine(`${stderr}\n${stdout}`) || firstLine(err?.message);
-  return fail(why ? `The overseer couldn't answer: ${why}` : "The overseer couldn't answer.");
+  return fail(why ? `Glue couldn't answer: ${why}` : "Glue couldn't answer.");
 }
 
 /** One round's answer from what `ask` gave back, or why there is none, in words for the conversation. */
@@ -136,10 +136,10 @@ ${JSON.stringify(TURN_SCHEMA)}`;
 export function readJsonTurn(text) {
   const t = String(text ?? '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
   const a = t.indexOf('{'), b = t.lastIndexOf('}');
-  if (a < 0 || b < a) return fail(t ? `The overseer didn't answer in the form asked for: ${firstLine(t)}` : 'The overseer gave no answer.');
+  if (a < 0 || b < a) return fail(t ? `Glue didn't answer in the form asked for: ${firstLine(t)}` : 'Glue gave no answer.');
   let v;
-  try { v = JSON.parse(t.slice(a, b + 1)); } catch { return fail("The overseer's answer wasn't valid JSON."); }
-  if (!v || typeof v !== 'object' || typeof v.reply !== 'string') return fail("The overseer's answer had no reply in it.");
+  try { v = JSON.parse(t.slice(a, b + 1)); } catch { return fail("Glue's answer wasn't valid JSON."); }
+  if (!v || typeof v !== 'object' || typeof v.reply !== 'string') return fail("Glue's answer had no reply in it.");
   return { ok: true, value: { reply: v.reply, actions: objects(v.actions), look: objects(v.look) } };
 }
 
@@ -599,7 +599,7 @@ export function createOverseer({
       if (!isTrusted(cwd)) return bad(untrusted(cwd));
       return a;
     }
-    return bad(`The panel doesn't do "${flat(type, 20) || 'nothing'}". The overseer can propose tell, launch or interrupt.`);
+    return bad(`The panel doesn't do "${flat(type, 20) || 'nothing'}". Glue can propose tell, launch or interrupt.`);
   }
 
   // ---------------------------------------------------------------- a turn
@@ -637,7 +637,7 @@ export function createOverseer({
     };
     for (let round = 0; ; round++) {
       const left = started + TURN_MS - now();
-      if (left <= 0) return finish({ error: "The overseer didn't answer in time." });
+      if (left <= 0) return finish({ error: "Glue didn't answer in time." });
       const looksLeft = MAX_LOOKS - round, b = readBoard(), sessions = objects(b.sessions);
       const follow = new Map(followUps(sessions).map((f) => [f.sessionId, f]));
       const prompt = promptOf({ digest: digest(b, readGithub(), { now: now(), follow }), feed: p.feed.slice(-FEED_IN_PROMPT), turns: earlier, text,
@@ -653,7 +653,7 @@ export function createOverseer({
           catch (e) { r = { error: String(e?.message ?? e) }; }
         }
         if (busy !== run) return;
-        res = r?.error ? fail(`The overseer couldn't ask OpenCode: ${firstLine(r.error)}`) : readJsonTurn(r?.text);
+        res = r?.error ? fail(`Glue couldn't ask OpenCode: ${firstLine(r.error)}`) : readJsonTurn(r?.text);
       } else {
         let r;
         try { r = await ask(overseerArgs({ id, model, system: SYSTEM, prompt }), { id, timeout: Math.min(ROUND_MS, left), signal: run.controller.signal }); } catch (e) {
@@ -665,7 +665,7 @@ export function createOverseer({
       if (!res.ok) return finish({ error: res.error });
       const { reply, actions: proposed, look } = res.value;
       if (look.length && looksLeft > 0) {
-        if (now() - started >= TURN_MS) return finish({ error: "The overseer didn't answer in time." });
+        if (now() - started >= TURN_MS) return finish({ error: "Glue didn't answer in time." });
         run.phase = 'looking';
         changed();
         for (const l of look.slice(0, MAX_LOOKS)) {
@@ -921,9 +921,9 @@ export function createOverseer({
     /** Your message. It returns at once; the answer arrives as a turn of its own. */
     say({ text } = {}) {
       const t = typeof text === 'string' ? text.trim() : '';
-      if (!t) return fail('Write a message for the overseer.');
-      if (t.length > MAX_TEXT) return fail('A message to the overseer can be 4,000 characters at most.');
-      if (busy) return { ok: false, busy: true, error: 'The overseer is still answering. Send your message when it is done.' };
+      if (!t) return fail('Write a message for Glue.');
+      if (t.length > MAX_TEXT) return fail('A message to Glue can be 4,000 characters at most.');
+      if (busy) return { ok: false, busy: true, error: 'Glue is still answering. Send your message when it is done.' };
       const p = prof(), earlier = p.turns.slice(-HISTORY_TURNS);
       const turn = { id: `t${++p.seq}`, at: now(), who: 'you', text: t };
       push(p, turn);
@@ -932,7 +932,7 @@ export function createOverseer({
       changed();
       const done = rounds(r, t, earlier).catch((e) => {
         log(`overseer: a turn failed: ${e?.stack ?? e}`);
-        if (busy === r) { busy = null; push(prof(r.profileId), { id: `t${++prof(r.profileId).seq}`, at: now(), who: 'overseer', text: '', model: data.model, ms: now() - r.since, looked: [], actions: [], error: "The overseer couldn't answer." }); changed(); }
+        if (busy === r) { busy = null; push(prof(r.profileId), { id: `t${++prof(r.profileId).seq}`, at: now(), who: 'overseer', text: '', model: data.model, ms: now() - r.since, looked: [], actions: [], error: "Glue couldn't answer." }); changed(); }
       }).finally(() => pending.delete(done));
       pending.add(done);
       return { ok: true, turnId: turn.id };

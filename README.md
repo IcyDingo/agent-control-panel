@@ -44,7 +44,7 @@ into `~/Applications`. Then:
    GitHub button turns amber and its panel has the same Terminal sign-in. The panel looks every few minutes while a page
    is open, when you come back to its window, while Settings is open, and at once when the overseer, a launch or a reply
    fails with a login error.
-3. The first **Done** starts a short tour: the rail, **Settings**, **New agent**, the overseer, GitHub and the
+3. The first **Done** starts a short tour: the rail, **Settings**, **New agent**, Ask Glue, GitHub and the
    keys, one at a time (→ or Enter next, ← back, Esc ends it). **Take the tour**, under Settings › Glue › Look & keys,
    runs it again.
 
@@ -318,8 +318,8 @@ the last tab while the page is open. It has six tabs, seven with two or more wor
   **Providers**; on a first run the Claude sign-in the workspace in view still needs shows here too.
 - **GitHub, alerts & Auto-fix.** The GitHub CLI sign-in (shared: one `gh` login), then **Auto-fix**, a switch per
   workspace. Each is the same switch as that workspace's GitHub panel's, and shows the same state.
-- **Overseer.** What the overseer does, then each workspace's overseer **model**, a row each (the same select as the
-  one under its box, showing the same state), and the **model a new workspace's overseer starts with** (kept with
+- **Assistant.** What Ask Glue does, the switch for checking agents when they stop, then each workspace's **model**, a row
+  each (the same select as the one under its box, showing the same state), and the **model a new workspace starts with** (kept with
   Glue's own settings in `prefs.json`).
 - **Providers.** Where logins are connected, one tab per provider, with a dot for how it stands (green: set up; amber:
   it needs you). Which workspaces use each login is ticked under **Workspaces**.
@@ -441,10 +441,12 @@ the stuck run.
 - **Auto-fix**, in the GitHub panel and in Settings › GitHub, alerts & Auto-fix (one switch, shown in both), turns it off and on, for the workspace in view only. What it asked is kept in
   `watcher.json` beside `prefs.json`, so a restart never asks twice, even for a repository two workspaces share.
 
-## The overseer
+## Home and Ask Glue
 
-With no session open, the panel shows the overseer: one chat that knows every session on the board.
-Ask what needs you, what everyone is doing, or what is failing, or say what you want done.
+With no session open, the panel shows **Home** (the row pinned at the top of the rail): what the agents worked this week,
+the agents that stopped and wait on you, and **Ask Glue**, one chat docked at the bottom that knows every session on the
+board. Ask what needs you, what everyone is doing, or what is failing, or say what you want done. (In the code and its
+files, the assistant is still called the overseer.)
 
 - Each message is one headless `claude -p` call on the profile's own Claude Code login, with no
   tools, from an empty folder of its own. It reads a digest of the board: each session's state,
@@ -456,7 +458,7 @@ Ask what needs you, what everyone is doing, or what is failing, or say what you 
   click it. It can't answer permission requests or approve plans, pick a model or a permission mode,
   or send a message that starts with `/` or `!`. A card says when sending would restart a session
   (for a terminal session, that closes Claude in its terminal). Proposals expire after an hour.
-- Its model is Sonnet unless you pick another under its box (or in Settings › Overseer, which also sets the one a new workspace starts with). There is one overseer per workspace, each on its own login, and it
+- Its model is Sonnet unless you pick another under its box (or in Settings › Assistant, which also sets the one a new workspace starts with). There is one per workspace, each on its own login, and it
   reads only that workspace's sessions. Its conversation and feed are kept per workspace, in `overseer-<workspace>.json`
   beside `prefs.json` (an `overseer.json` from before workspaces seeds each one once, and is left as it was).
 - **What leaves the Mac:** the digest and the excerpts it reads go to the profile's own Claude

@@ -1228,10 +1228,10 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
   <div class="r-grip" id="r-grip" role="separator" aria-orientation="vertical" aria-label="Queue width" tabindex="0" title="Drag to resize. Double-click for the default width."></div>
   <!-- With no session open: the overseer, one chat that knows every session and proposes what to do, with what GitHub
        shows for the agents' repositories beside it. -->
-  <section class="home" id="home" aria-label="Overseer" hidden>
+  <section class="home" id="home" aria-label="Home" hidden>
     <div class="h-main">
       <div class="d-top-band"><div class="d-col h-col h-head">
-        <span class="ov-mark" aria-hidden="true"></span><h2 class="d-name">Overseer</h2>
+        <span class="ov-mark" aria-hidden="true"></span><h2 class="d-name">Home</h2>
         <span class="d-meta" id="h-meta"></span>
         <button class="btn icon h-close" type="button" id="h-close" aria-label="Back to the sessions" title="Back to the sessions"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </div></div>
@@ -1260,9 +1260,9 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
         <div class="d-col h-dock-foot">
           <div class="d-now" id="h-busy" hidden></div>
           <div class="composer">
-            <textarea id="h-say" rows="1" placeholder="Ask about your agents, or say what you want done" aria-label="Your message to the overseer"></textarea>
+            <textarea id="h-say" rows="1" placeholder="Ask Glue about your agents, or say what you want done" aria-label="Your message to Glue"></textarea>
             <div class="c-bar">
-              <select class="c-mode" id="h-model" aria-label="The overseer's model" title="The model the overseer answers with"></select>
+              <select class="c-mode" id="h-model" aria-label="Glue's model" title="The model Glue answers with"></select>
               <span class="grow"></span>
               <button class="btn primary small" type="button" id="h-send" disabled title="It reads your sessions and answers. Anything it proposes waits for your click.">Send</button>
             </div>
@@ -1477,7 +1477,7 @@ const HINT = {
   idle: 'Ends every idle background session. Terminal sessions stay open: end those one at a time, in case you are typing in one.',
   clear: 'Removes every finished session from the list. Transcripts are kept, and a worktree with unsaved work keeps its session.',
   sub: 'It stops at its next tool call. Its session carries on without it.',
-  ovclear: 'Clears this conversation with the overseer. The events stay.',
+  ovclear: 'Clears this conversation with Glue.',
   spacedel: 'Deletes the space. Its agents go back to their repositories.',
 };
 const SETTLED = {
@@ -3290,9 +3290,9 @@ async function syncOverseer() {
     else ov.rev = st.rev;
   }
 }
-const ovRow = el('button', { class: 'srow ov', type: 'button', title: 'The overseer: ask about your agents, and confirm what it proposes',
+const ovRow = el('button', { class: 'srow ov', type: 'button', title: 'Home: what waits on you, and Glue to ask about your agents',
   onclick: () => { cancelAdvance(); selectNow(); subFocus = null; open = null; homeOpen = true; render(); $('h-say').focus({ preventScroll: true }); } },
-  el('span', { class: 'chev-slot', 'aria-hidden': 'true' }), el('span', { class: 'ov-mark', 'aria-hidden': 'true' }), el('span', { class: 'tname', text: 'Overseer' }), el('span', { class: 'tdetail' }));
+  el('span', { class: 'chev-slot', 'aria-hidden': 'true' }), el('span', { class: 'ov-mark', 'aria-hidden': 'true' }), el('span', { class: 'tname', text: 'Home' }), el('span', { class: 'tdetail' }));
 function renderOvRow() {
   const st = snap.overseer, n = st?.proposed ?? 0, fu = st?.follow?.length ?? 0;
   setAttr(ovRow, 'aria-current', String(open === null));
@@ -3515,10 +3515,10 @@ function setDock(on) {
 }
 /** The folded dock's line: what the overseer is doing, or the start of what it said last. */
 function dockLine(st) {
-  if (dockOpen && !st?.busy) return 'Chat with the overseer';
+  if (dockOpen && !st?.busy) return 'Chat with Glue';
   if (st?.busy) return st.busy.phase === 'looking' ? 'Reading transcripts…' : 'Thinking…';
   const t = ov.turns.findLast((x) => x.who === 'overseer');
-  if (!t) return 'Ask the overseer about your agents.';
+  if (!t) return 'Ask Glue about your agents.';
   const text = t.error || String(t.text ?? '').replace(/[*_`#>]/g, '').replace(/\s+/g, ' ').trim();
   return (text.match(/^.{1,160}?[.!?](\s|$)/)?.[0] ?? text.slice(0, 160)).trim() || 'It answered with a proposal.';
 }
@@ -3546,7 +3546,7 @@ function turnEl(t) {
   if (t.who === 'you') return el('div', { class: 'msg you', title: new Date(t.at).toLocaleString() }, el('div', { class: 'm-body', text: t.text }));
   const looked = t.looked?.length ? ` · read ${t.looked.map((l) => l.name).join(', ')}` : '';
   return el('div', { class: 'msg claude ov' + (t.error ? ' error' : ''), title: new Date(t.at).toLocaleString() },
-    el('div', { class: 'm-who' }, el('b', { text: 'Overseer' }), `${t.model ? ovModelName(t.model) : ''}${t.ms ? ` · ${(t.ms / 1000).toFixed(1)} s` : ''}${looked}`),
+    el('div', { class: 'm-who' }, el('b', { text: 'Glue' }), `${t.model ? ovModelName(t.model) : ''}${t.ms ? ` · ${(t.ms / 1000).toFixed(1)} s` : ''}${looked}`),
     el('div', { class: 'm-body' }, t.error ? t.error : md(t.text)),
     t.actions?.length ? el('div', { class: 'ov-acts' }, ...t.actions.map((a) => actCard(t, a))) : null);
 }
@@ -3642,7 +3642,7 @@ const TOUR = [
     text: 'Settings: logins, workspaces, answering, alerts' },
   { at: () => $('new-agent'), title: 'Start an agent',
     text: 'Give it a prompt and a folder and it runs in the background, with no terminal to keep open. Its own worktree keeps it off the branch you are on.' },
-  { at: () => $('h-say')?.closest('.composer'), title: 'Ask the overseer',
+  { at: () => $('h-say')?.closest('.composer'), title: 'Ask Glue',
     text: 'One chat that knows every session. Ask what needs you or what is failing, or say what you want done. It only proposes: nothing runs until you click.' },
   { at: () => $('gh-btn'), title: 'GitHub',
     text: 'Pull requests and CI for the repositories your agents work in. When a check fails, the panel can hand the failing log to the agent on that branch.' },
@@ -3748,7 +3748,7 @@ function renderHome(g) {
   renderWaiting();
   setAttr($('h-dock'), 'data-open', dockOpen ? '1' : '0');
   setAttr($('h-dock-tog'), 'aria-expanded', String(dockOpen));
-  setAttr($('h-dock-tog'), 'title', dockOpen ? 'Fold the chat' : 'Open the chat with the overseer');
+  setAttr($('h-dock-tog'), 'title', dockOpen ? 'Fold the chat' : 'Open the chat with Glue');
   $('h-dock-body').hidden = !dockOpen;
   setText($('h-last'), dockLine(st));
   setText($('h-dock-n'), proposed ? `${proposed} to confirm` : '');
@@ -3758,7 +3758,7 @@ function renderHome(g) {
   const intro = !ov.turns.length;
   patch($('h-intro'), String(intro), () => intro ? [
     el('h3', { text: 'Ask about everything at once.' }),
-    el('p', { text: 'The overseer reads every session on this board, its repository and branch, what it asks you, and what GitHub shows for its pull request. It can propose a message to an agent, a new session or an interrupt, and nothing runs until you click.' })] : null);
+    el('p', { text: 'Glue reads every session on this board, its repository and branch, what it asks you, and what GitHub shows for its pull request. It can propose a message to an agent, a new session or an interrupt, and nothing runs until you click.' })] : null);
   const starters = !ov.turns.length && !busy;
   patch($('h-chips'), String(starters), () => starters
     ? STARTERS.map((q) => el('button', { class: 'chip', type: 'button', text: q, onclick: () => sayOverseer(q) })) : null);
@@ -5009,7 +5009,7 @@ const SET_TABS = [
   { id: 'repos', name: 'Repositories', build: setReposTab, when: () => (snap?.workspaces?.length ?? 0) > 1 },
   { id: 'logins', name: 'Live updates', build: setLoginsTab },
   { id: 'github', name: 'GitHub, alerts & Auto-fix', build: setGithubTab },
-  { id: 'overseer', name: 'Overseer', build: setOverseerTab },
+  { id: 'overseer', name: 'Assistant', build: setOverseerTab },
   { id: 'providers', name: 'Providers', build: setProvidersTab },
   { id: 'glue', name: 'Glue', build: setGlueTab },
 ];
@@ -5145,7 +5145,7 @@ function setWorkspacesTab(panel) {
     el('div', { class: 'set-more' }, el('h4', { class: 'set-h4' }), el('div', { class: 'set-box' })));
   const [, lead, rowsBox, addBox, logs] = panel.children;
   const list = setData?.workspaces ?? [], several = list.length > 1;
-  setText(lead, 'A workspace is how you work: its repositories, agents and overseer. Name each one, pick its colour, and tick the logins it may use.'
+  setText(lead, 'A workspace is how you work: its repositories, agents and assistant. Name each one, pick its colour, and tick the logins it may use.'
     + (several ? ' The order is the switch’s, and ⌃1, ⌃2… follow it.' : ''));
   if (!setReady(rowsBox)) { addBox.hidden = logs.hidden = true; return; }
   addBox.hidden = logs.hidden = false;
@@ -5440,8 +5440,8 @@ function setGithubTab(panel) {
 // a workspace added from now on starts on Glue's default (prefs.json › glue.overseerModel).
 function setOverseerTab(panel) {
   if (!panel.firstChild) panel.append(
-    el('h3', { text: 'Overseer' }),
-    el('p', { class: 'set-lead', text: 'The overseer is one chat that reads every session on this board: its repository and branch, what it asks you, and what GitHub shows for its pull request. It can propose a message to an agent, a new session or an interrupt, and nothing runs until you click. Each workspace has its own overseer.' }),
+    el('h3', { text: 'Assistant' }),
+    el('p', { class: 'set-lead', text: 'Ask Glue, on Home, is one chat that reads every session on this board: its repository and branch, what it asks you, and what GitHub shows for its pull request. It can propose a message to an agent, a new session or an interrupt, and nothing runs until you click. Each workspace has its own.' }),
     el('div', { class: 'set-blocks' }));
   const box = panel.children[2];
   if (!setReady(box)) return;
@@ -5453,16 +5453,16 @@ function setOverseerTab(panel) {
   setPatch(box, JSON.stringify([models, list.map((w) => [w.id, w.name, w.overseerModel]), setData.glue?.overseerModel, setData.glue?.followUps]), () => [
     el('section', { class: 'set-block', 'aria-label': 'Follow up' }, setBlockHead(null, 'Follow up'),
       el('div', { class: 'set-opts' },
-        setOpt('Check agents when they stop', 'When an agent ends its turn, the overseer reads its last message with Haiku, on the workspace’s Claude login. One that asks you something or stopped before the work was done gets a card at the top of the overseer, with a reply drafted for you to send.',
+        setOpt('Check agents when they stop', 'When an agent ends its turn, Glue reads its last message with Haiku, on the workspace’s Claude login. One that asks you something or stopped before the work was done gets a card on Home, with a reply drafted for you to send.',
           setSwitch('follow-ups', 'Check agents when they stop', setData.glue?.followUps !== false, (on) => setGlue({ followUps: on }))))),
     // Each workspace's own overseer, a row each: the same choice sits under its composer.
     el('section', { class: 'set-block', 'aria-label': 'Model' }, setBlockHead(null, 'Model'),
-      el('p', { class: 'set-lead set-in', text: 'The model each workspace’s overseer answers with. The same choice sits under its composer.' }),
+      el('p', { class: 'set-lead set-in', text: 'The model Glue answers with in each workspace. The same choice sits under the chat on Home.' }),
       el('div', { class: 'set-opts' }, ...list.map((w) => setOpt(several ? w.name : 'Model', null,
         setSelect('ov-model-' + w.id, `The overseer’s model in ${w.name}`, options, w.overseerModel, (m) => setOverseerModel(w.id, m)))))),
     el('section', { class: 'set-block', 'aria-label': 'A new workspace' }, setBlockHead(null, 'A new workspace'),
       el('div', { class: 'set-opts' },
-        setOpt('Model for a new workspace', 'What the overseer of a workspace added from now on answers with. A workspace you have already keeps its own.',
+        setOpt('Model for a new workspace', 'What Glue answers with in a workspace added from now on. A workspace you have already keeps its own.',
           setSelect('ad-ov', 'Overseer model for a new workspace', options, setData.glue?.overseerModel, (v) => setGlue({ overseerModel: v }))))),
   ]);
 }
@@ -5726,7 +5726,7 @@ function provOpenCode(several) {
         step(0, 'Install OpenCode', installed ? `Installed${o.version ? `: version ${o.version}` : ''}.` : 'It runs on this computer. Install it in a Terminal window, then check again.',
           [el('button', { class: 'btn small primary', type: 'button', text: 'Install in Terminal…', 'data-f': 'oc-install', onclick: () => ocDo('/api/opencode/install') }),
            o.installCommand ? cmdChip(o.installCommand) : null, check].filter(Boolean)),
-        step(1, 'Start it', o.running ? 'Running in the background. Glue also starts it whenever an agent or the overseer needs it.' : 'It runs as a background service, which its own apps share too.',
+        step(1, 'Start it', o.running ? 'Running in the background. Glue also starts it whenever an agent or the assistant needs it.' : 'It runs as a background service, which its own apps share too.',
           [el('button', { class: 'btn small primary', type: 'button', text: 'Start OpenCode', 'data-f': 'oc-start', onclick: () => ocDo('/api/opencode/start') })]),
         step(2, 'Connect a provider', connected ? `Connected to ${byProvider.size || accounts.length} provider${(byProvider.size || accounts.length) === 1 ? '' : 's'}, with ${models.length} model${models.length === 1 ? '' : 's'} between them.`
           : 'Paste an API key, or sign in in the browser. OpenCode keeps it; Glue only passes it on.',

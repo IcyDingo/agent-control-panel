@@ -142,7 +142,7 @@ export function createWatcher({ file, github, session, send, suggest, failedLog,
       mem.fixes[at] = n;
       result = 'proposed, waiting for your click';
       tell(suggest, sid, text, why, `#${pr.number} in ${repo.slug}: ${WHAT[p.kind]}. ${s.name} runs in a terminal window, so sending this closes Claude there and carries it on in the background. Send it, change it, or decline.`);
-      tell(notify, 'Glue · fix to confirm', `#${pr.number} in ${repo.slug}: ${WHAT[p.kind]}. A fix request for ${s.name} waits for your click in the overseer.`, { sessionId: sid, slug: repo.slug, waits: true });
+      tell(notify, 'Glue · fix to confirm', `#${pr.number} in ${repo.slug}: ${WHAT[p.kind]}. A fix request for ${s.name} waits for your click in Glue.`, { sessionId: sid, slug: repo.slug, waits: true });
     } else {
       result = 'tell it yourself';
       tell(notify, 'Glue · PR needs a fix', `#${pr.number} in ${repo.slug}: ${WHAT[p.kind]}. ${s.name} runs where the panel can't message it: tell it in its terminal.`, { sessionId: sid, slug: repo.slug });
