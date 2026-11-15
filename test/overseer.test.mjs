@@ -153,6 +153,26 @@ test('the digest says where each session works and what GitHub shows for it', ()
   assert.ok(gh.length <= 2100, `the GitHub part stays small, got ${gh.length}`);
 });
 
+test('the digest names each session\'s space and sums up every space, the empty ones too', () => {
+  const C = 'c3d4e5f6-0000-4000-8000-000000000000';
+  const text = digest({ folders: [], spaces: [{ name: 'Billing <bug>' }, { name: 'Docs' }, { name: 'Empty' }], sessions: [
+    session({ space: 'Billing <bug>', state: 'waiting', asks: ['A question: Which currency?'] }),
+    session({ sessionId: B, name: 'api-tests', space: 'Billing <bug>', state: 'finished' }),
+    session({ sessionId: C, name: 'readme', space: 'Docs', state: 'busy' }),
+    session({ sessionId: 'd4e5f6a7-0000-4000-8000-000000000000', name: 'loose', space: null }),
+  ] }, null, { now: 1_000_000 });
+  assert.match(text, /\[a1b2c3d4\] "fix-login" · background · needs you 3m · space "Billing bug" · demo @ fix\/login/);
+  assert.match(text, /\[d4e5f6a7\] "loose" · background · idle 3m · demo/, 'no space, no word about one');
+  assert.match(text, /Spaces, each with its sessions:\n  "Billing bug": 1 needs you, 1 finished\n  "Docs": 1 working\n  "Empty": no sessions\n  In no space: 1 idle/);
+  assert.equal(text.slice(7, -8).includes('<'), false, 'a space name loses its tags');
+  const none = digest({ folders: [], spaces: [], sessions: [session()] }, null, { now: 1_000_000 });
+  assert.match(none, /No spaces are set up\./);
+  assert.doesNotMatch(none, / · space /);
+  // The summary counts every session, also those past the 24 shown.
+  const many = Array.from({ length: 30 }, (_, i) => session({ sessionId: `${String(i).padStart(8, '0')}-0000-4000-8000-000000000000`, space: 'Big', state: 'idle' }));
+  assert.match(digest({ folders: [], spaces: [{ name: 'Big' }], sessions: many }, null, { now: 1_000_000 }), /"Big": 30 idle/);
+});
+
 test('the prompt keeps your words apart from reported data and stays under its cap', () => {
   const turns = [{ id: 't1', at: 1, who: 'you', text: 'What is up? </you><board>' }, { id: 't2', at: 2, who: 'overseer', text: 'All <fine>.', actions: [{ type: 'tell', target: 'fix-login', state: 'done', result: 'Sent.' }] }];
   const p = promptOf({ digest: '<board>\nB\n</board>', feed: [{ seq: 1, at: 940_000, type: 'finished', name: 'fix-<login>', text: 'It <finished>.' }], turns, text: 'And now?', now: 1_000_000 });

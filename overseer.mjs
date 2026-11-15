@@ -67,7 +67,7 @@ export const TURN_SCHEMA = {
 export const SYSTEM = `You are the overseer in Glue, a local control panel for someone's Claude Code agents. You help the user keep track of their agents and decide what to do next. You have no tools: you never read or change code or files, and you never run anything yourself.
 
 What each message gives you:
-- <board> is the panel's report on every session right now: its 8-character id in square brackets, its name, whether it needs the user, is working or is idle, where it works, what it is doing, what it asks and what it last said, then the folders a new session can start in, then what GitHub shows for the agents' branches.
+- <board> is the panel's report on every session right now: its 8-character id in square brackets, its name, whether it needs the user, is working, is idle or has finished, the space it is in, where it works, what it is doing, what it asks and what it last said; then every space with its sessions counted by state (a space is a group the user made for one line of work, such as a feature); then the folders a new session can start in, then what GitHub shows for the agents' branches.
 - <feed> lists recent events, newest last.
 - <excerpt> holds the end of a session's transcript that you asked to look at.
 - Lines that start with "Overseer:" are your own earlier answers, each followed by what became of the actions you proposed.
@@ -216,7 +216,7 @@ export const readFollow = (r) => readStructured(r, (v) => (VERDICTS.includes(v.v
 
 const STATE_WORDS = { waiting: 'needs you', busy: 'working', idle: 'idle', finished: 'finished', failed: 'failed' };
 const RANK = { waiting: 0, busy: 1, idle: 2 };
-const MAX_SESSIONS = 24, SESSION_CHARS = 600, MAX_FOLDERS = 12, GITHUB_CHARS = 2000;
+const MAX_SESSIONS = 24, SESSION_CHARS = 600, MAX_FOLDERS = 12, GITHUB_CHARS = 2000, MAX_SPACES = 20;
 const REVIEW = { APPROVED: 'approved', CHANGES_REQUESTED: 'changes requested', REVIEW_REQUIRED: 'review required' };
 const MERGE = { BLOCKED: 'blocked', DIRTY: 'has conflicts', BEHIND: 'behind its base', CLEAN: 'ready to merge', UNSTABLE: 'mergeable with failing checks' };
 
@@ -239,7 +239,8 @@ function sessionBlock(s, now, f) {
     ? `${flat(s.repo, 60)}${s.branch ? ` @ ${flat(s.branch, 80)}` : ''}${s.worktree ? ` (worktree ${flat(s.worktree, 60)})` : ''}`
     : s.folder ? `${flat(tilde(String(s.folder)), 120)}${s.branch ? ` @ ${flat(s.branch, 80)}` : ''}` : '';
   const state = `${STATE_WORDS[s.state] ?? (flat(s.state, 20) || 'unknown')}${Number.isFinite(s.since) ? ` ${ago(now - s.since)}` : ''}`;
-  const head = [`[${id}] "${flat(s.name, 60) || id}"`, s.kind === 'interactive' ? 'terminal' : 'background', state, where,
+  const space = flat(s.space, 60).replace(/"/g, '');
+  const head = [`[${id}] "${flat(s.name, 60) || id}"`, s.kind === 'interactive' ? 'terminal' : 'background', state, space ? `space "${space}"` : '', where,
     ghWords(s.gh), s.mode ? `mode ${flat(s.mode, 30)}` : ''].filter(Boolean).join(' · ');
   const lines = [head];
   if (s.tool) lines.push(`  doing: ${flat(s.tool, 160)}`);
@@ -288,10 +289,29 @@ function githubPart(g) {
   return out.join('\n');
 }
 
+/** Every space in the workspace with its sessions counted by state (all of them, also those past the ones shown), the
+ *  empty ones too, then the sessions in no space. */
+function spacesPart(list, sessions) {
+  const name = (v) => flat(v, 60).replace(/"/g, '');
+  const counts = new Map();
+  for (const x of Array.isArray(list) ? list : []) { const n = name(x?.name); if (n && !counts.has(n) && counts.size < MAX_SPACES) counts.set(n, {}); }
+  if (!counts.size) return 'No spaces are set up.';
+  const loose = {};
+  for (const s of sessions) {
+    const c = counts.get(name(s.space)) ?? loose;
+    c[s.state] = (c[s.state] ?? 0) + 1;
+  }
+  const words = (c) => Object.keys(STATE_WORDS).filter((k) => c[k]).map((k) => `${c[k]} ${STATE_WORDS[k]}`).join(', ') || 'no sessions';
+  const lines = [...counts].map(([n, c]) => `  "${n}": ${words(c)}`);
+  if (Object.keys(loose).length) lines.push(`  In no space: ${words(loose)}`);
+  return `Spaces, each with its sessions:\n${lines.join('\n')}`;
+}
+
 /**
  * The board as plain text inside <board>: sessions that need you first, then working, idle and ended ones, newest first
- * within each; the folders a launch may use; and GitHub. Everything agents, CI and GitHub wrote has < and > taken out.
- * @param {{ sessions: object[], folders: string[] }} board
+ * within each, each with its space; every space and what is in it; the folders a launch may use; and GitHub. Everything
+ * agents, CI and GitHub wrote, and the names you gave spaces, have < and > taken out.
+ * @param {{ sessions: object[], folders: string[], spaces?: { name: string }[] }} board
  * @param {object|null} github the github module's state()
  * @param {object} [opts] `now`, and `follow`: sessionId → its open follow-up ({ verdict, ask })
  */
@@ -306,6 +326,7 @@ export function digest(board, github, { now = Date.now(), follow = new Map() } =
     if (sorted.length > shown.length) part += `\n\nand ${sorted.length - shown.length} more sessions, not shown.`;
     parts.push(part);
   }
+  parts.push(spacesPart(board?.spaces, all));
   const folders = [...new Set((Array.isArray(board?.folders) ? board.folders : []).filter((f) => typeof f === 'string' && f)
     .map((f) => flat(tilde(f), 200)))].slice(0, MAX_FOLDERS);
   parts.push(folders.length ? `Folders a new session can start in:\n${folders.map((f) => `  ${f}`).join('\n')}` : 'No folders are known yet, so no session can be started.');

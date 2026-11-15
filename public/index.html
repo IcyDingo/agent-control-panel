@@ -214,7 +214,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .l-space .lf-row .field { flex: 1; min-width: 0; }
 /* A header's buttons (Rename, Interrupt all, End idle, Clear, Delete) show only while the mouse or the keyboard is in it:
    at rest it is its name, its arrow and its +. One waiting for its confirm click stays. A touch screen shows them. */
-@media (hover: hover) { .col-h:not(:hover, :focus-within) .col-tools > :not(.armed) { display: none; } }
+@media (hover: hover) { .col-h:not(:hover, :focus-within) .col-more:not([open], :has(.armed)) { display: none; } }
 .col-name { flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: 8px; padding: 0 0 0 16px; border: 0; background: none; font-weight: inherit; text-align: left; }
 .col-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .col:not([data-col="repo"], [data-col="space"]) .col-title { flex: none; }
@@ -226,7 +226,12 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .col:not(.folded) .peek { display: none; }
 .chev { flex: none; width: 16px; margin-left: auto; font-size: 16px; line-height: 1; text-align: center; color: var(--fg-dim); transition: transform .15s; }
 .col:not(.folded) .chev { transform: rotate(90deg); }
-.col-tools { display: flex; gap: 4px; order: 1; } /* before the +, so the + holds still when they show */
+.col-tools { display: flex; gap: 4px; order: 1; } /* before the +, so the + holds still when the ⋯ shows */
+.col-tools[hidden] { display: none; }
+.col-more-b { width: 24px; height: 24px; font-size: 15px; line-height: 1; letter-spacing: 1px; }
+.col-more[open] > .col-more-b { background: var(--fill); color: var(--fg); }
+.col-more .more-m { min-width: 220px; max-width: 280px; font-weight: 500; }
+.more-note { margin: 4px 0 2px; padding: 6px 10px 4px; border-top: 1px solid var(--line); color: var(--fg-dim); font-size: 12px; font-weight: 400; line-height: 1.45; white-space: normal; }
 /* A space's or repository's +: New agent, already in it. Quiet until the section is hovered or focused. */
 .col-h .col-add { flex: none; order: 2; width: 24px; height: 24px; margin-right: -4px; opacity: .55; }
 .col:hover .col-add, .col-add:focus-visible { opacity: 1; }
@@ -235,7 +240,6 @@ button, input, textarea, select { font: inherit; color: inherit; }
 @media (hover: none) { .col-h .col-add, .col.folded .col-add { opacity: 1; } }
 .col-body { padding: 0 8px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; align-content: start; } /* rows fit the rail: a long name shrinks, never the time */
 .col-empty { margin: 2px 8px 4px; color: var(--fg-dim); font-size: 12.5px; }
-.col-hint { margin: 0 8px 4px; }
 .board-empty { margin: 10px 16px; color: var(--fg-dim); font-size: 13px; }
 
 .tile-wrap { position: relative; min-width: 0; }
@@ -1143,7 +1147,7 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 @media (min-width: 861px) {
   body.rail-slim .board { width: 44px; overflow-x: hidden; scrollbar-width: none; }
   body.rail-slim .board::-webkit-scrollbar { display: none; }
-  body.rail-slim :is(.r-grip, #rail-find, #rail-keys, .col-add, .col-hint, .col-empty, .board-empty, .sub, .rask, .qstop),
+  body.rail-slim :is(.r-grip, #rail-find, #rail-keys, .col-add, .col-empty, .board-empty, .sub, .rask, .qstop),
   body.rail-slim .col:is([data-col="waiting"], [data-col="space"]):not(:has(.tile-wrap)), body.rail-slim .col.folded:not(:has(.tile-wrap.rail-live)),
   body.rail-slim .col.folded .tile-wrap:not(.rail-live) { display: none; }
   body.rail-slim .col.folded .col-body { display: grid; }
@@ -1813,6 +1817,14 @@ function toggleFold(k) {
   writeGlue({ folded: foldList() }).then((r) => { if (!r.ok) toast(r.error || 'The fold did not save.', true); });
 }
 const tilde = (p) => (p ? p.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, '~') : '');
+// A header's ⋯ menu closes on a click outside it, and on Escape.
+// (By the click's path: an item clicked is often redrawn, gone from the page, before the click gets here.)
+document.addEventListener('click', (e) => { const path = e.composedPath(); for (const d of document.querySelectorAll('details.col-more[open]')) if (!path.includes(d)) d.open = false; });
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  const d = document.querySelector('details.col-more[open]');
+  if (d) { d.open = false; d.firstChild.focus(); e.stopPropagation(); }
+}, true);
 // The rail's sections, kept by key and reused, so a click never lands on a rebuilt one: Needs you, one per repository
 // (in name order, so they hold still while agents work), other folders, Finished.
 const secs = new Map(); // key → its section
@@ -1822,8 +1834,8 @@ function sectionEl(key, kind) {
   if (c) return c;
   const body = el('div', { class: 'col-body', id: 'q-' + ++secSeq });
   c = { key, kind, body, n: el('span', { class: 'n' }), title: el('span', { class: 'col-title' }), asks: el('span', { class: 'col-asks', hidden: true }),
-        tools: el('span', { class: 'col-tools' }),
-        hint: el('p', { class: 'hint col-hint', hidden: true }), empty: el('p', { class: 'col-empty' }) };
+        tools: el('span', { class: 'col-tools' }), menu: el('div', { class: 'more-m', role: 'menu' }),
+        empty: el('p', { class: 'col-empty' }) };
   if (kind === 'waiting') c.head = el('span', { class: 'col-name' }, c.title, c.n);
   else {
     c.peek = el('span', { class: 'peek' });
@@ -1834,6 +1846,10 @@ function sectionEl(key, kind) {
     onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); saveRename(c); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); endRename(); } },
     onblur: () => { if (renaming === c.key.slice(6)) saveRename(c); } });
   if (kind === 'space' || kind === 'repo') c.add = iconBtn(PLUS, { class: 'btn icon col-add', onclick: () => quickLaunch(key) });
+  // Its actions (Rename, Interrupt all, End idle, Clear, Delete) behind one ⋯, so they never squeeze its name. The menu
+  // is kept across redraws, so it stays open while an action waits for its confirm click.
+  c.more = el('details', { class: 'more col-more' }, el('summary', { class: 'btn icon col-more-b', title: 'More', text: '⋯' }), c.menu);
+  c.tools.append(c.more);
   c.sec = el('section', { class: 'col', 'data-col': kind }, el('div', { class: 'col-h' }, ...(c.rename ? [c.rename] : []), c.head, ...(c.add ? [c.add] : []), c.tools), body);
   secs.set(key, c);
   return c;
@@ -2214,16 +2230,19 @@ function renderBoard(g, vis) {
     setAttr(c.head, 'title', sec.kind === 'repo' ? tilde(sec.repo) : '');
     const bs = bulksOf(sec), armedB = bs.find((b) => armed?.key === b.key);
     const renameBtn = sec.kind === 'space' && renaming !== sec.space;
-    patch(c.tools, JSON.stringify([renameBtn, bs.map((b) => [b.key, b.text, b.armed, armed?.key === b.key])]), () => [
-      renameBtn ? el('button', { class: 'btn quiet small', type: 'button', text: 'Rename', title: 'Rename this space', onclick: () => { renaming = sec.space; render(); } }) : null,
+    c.tools.hidden = !renameBtn && !bs.length;
+    if (c.tools.hidden) c.more.open = false;
+    setAttr(c.more.firstChild, 'aria-label', `More for ${sec.title}`);
+    patch(c.menu, JSON.stringify([renameBtn, bs.map((b) => [b.key, b.text, b.armed, armed?.key === b.key])]), () => [
+      renameBtn ? el('button', { type: 'button', role: 'menuitem', text: 'Rename…', onclick: () => { c.more.open = false; renaming = sec.space; render(); } }) : null,
       ...bs.map((b) => el('button', {
-        class: 'btn danger soft small' + (armed?.key === b.key ? ' armed' : ''), type: 'button', 'data-key': b.key, title: hintOf(b.key),
-        text: armed?.key === b.key ? b.armed : b.text, onclick: () => confirmOr(b.key, b.run) }))]);
-    c.hint.hidden = !armedB;
-    if (armedB) setText(c.hint, hintOf(armedB.key));
+        class: 'danger' + (armed?.key === b.key ? ' armed' : ''), type: 'button', role: 'menuitem', 'data-key': b.key, title: hintOf(b.key),
+        text: armed?.key === b.key ? (b.armed.endsWith('?') ? b.armed : `${b.armed}?`) : b.text, onclick: () => confirmOr(b.key, () => { c.more.open = false; b.run(); }) })),
+      // What the armed one does, under it in the menu: click it again to go ahead.
+      armedB ? el('p', { class: 'more-note', text: `${hintOf(armedB.key)} Click it again to go ahead.` }) : null]);
     c.empty.hidden = (sec.kind !== 'waiting' && sec.kind !== 'space') || rows.length > 0 || Boolean(railQuery);
     setText(c.empty, sec.kind === 'space' ? 'No agents right now.' : 'Nothing needs you.');
-    const want = [c.hint];
+    const want = [];
     for (const s of rows) {
       const row = tile(s), tl = tiles.get(s.sessionId);
       want.push(row, ...(tl.askRow ? [tl.askRow] : []), ...tl.subRows);
@@ -5525,7 +5544,7 @@ function setGithubTab(panel) {
 function setOverseerTab(panel) {
   if (!panel.firstChild) panel.append(
     el('h3', { text: 'Assistant' }),
-    el('p', { class: 'set-lead', text: 'Ask Glue, on Home, is one chat that reads every session on this board: its repository and branch, what it asks you, and what GitHub shows for its pull request. It can propose a message to an agent, a new session or an interrupt, and nothing runs until you click. Each workspace has its own.' }),
+    el('p', { class: 'set-lead', text: 'Ask Glue, on Home, is one chat that reads every session on this board: its space, repository and branch, what it asks you, and what GitHub shows for its pull request. It can propose a message to an agent, a new session or an interrupt, and nothing runs until you click. Each workspace has its own.' }),
     el('div', { class: 'set-blocks' }));
   const box = panel.children[2];
   if (!setReady(box)) return;

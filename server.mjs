@@ -2550,26 +2550,34 @@ async function githubMerge(body, ctx) {
 // ---------------------------------------------------------------- the overseers: one chat per workspace, about its sessions
 
 const labelOf = (s) => s.name || (mismatched(s) ? '' : path.basename(s.cwd ?? '')) || s.sessionId.slice(0, 8); // never another workspace's folder name
-/** Its state in the page's words: waiting, busy, idle, finished or failed. */
-function boardState(s) {
+/** Its state in the page's words: waiting, busy, idle, finished or failed. `asking`: something it asks waits on you. */
+function boardState(s, asking = heldFor(s.sessionId).length > 0) {
   if (isEnded(s)) return s.state === 'failed' ? 'failed' : 'finished';
-  if (heldFor(s.sessionId).length || s.status === 'waiting') return 'waiting';
+  if (asking || s.status === 'waiting') return 'waiting';
   return isWorking(s) ? 'busy' : 'idle';
 }
-/** What a held request asks, in a line. */
+/** What a request asks, in a line: a held one, an open question or plan, or an OpenCode card. */
 function askOf(p) {
   const i = p.toolInput ?? {};
   if (p.toolName === 'ExitPlanMode') return 'A plan, ready for review';
   if (p.toolName === 'AskUserQuestion') return `A question: ${String(i.questions?.[0]?.question ?? '').slice(0, 200)}`;
-  return `${p.agentId ? 'Its subagent: ' : ''}${p.toolName}: ${String(i.command ?? i.file_path ?? i.url ?? i.pattern ?? i.description ?? '').replace(/\s+/g, ' ').slice(0, 200)}`;
+  const on = i.command ?? i.file_path ?? i.url ?? i.pattern ?? i.description ?? (Array.isArray(i.resources) ? i.resources.join(' ') : '');
+  return `${p.agentId ? 'Its subagent: ' : ''}${p.toolName}: ${String(on).replace(/\s+/g, ' ').slice(0, 200)}`;
 }
-/** The sessions workspace `wsId`'s board shows, as the page picks them: what its overseer reads. */
-const onBoard = (wsId) => { const now = Date.now(); return [...sessions.values()].filter((s) => s.ws === wsId && (s.inRoster || heldFor(s.sessionId).length
-  || (s.leftRosterAt ? now - s.leftRosterAt < 600_000 : now - s.lastEventAt < 3_600_000))); };
+/** Everything that waits on you in workspace `wsId`, as the page lists it: held requests, questions and plans still
+ *  open in a transcript, and OpenCode's cards. The page and the overseer read the same list. */
+const requestsOf = (wsId) => [...[...pending.values()].filter((p) => p.ws === wsId), ...openRequests(wsId), ...ocRequests(wsId)];
+/** The sessions workspace `wsId`'s board shows, as the page picks them (visible() there), given `asked`: the ids of the
+ *  sessions something in requestsOf is for. What its overseer reads. */
+const onBoard = (wsId, asked = new Set(requestsOf(wsId).map((p) => p.sessionId))) => {
+  const now = Date.now();
+  return [...sessions.values()].filter((s) => s.ws === wsId && (s.inRoster || asked.has(s.sessionId)
+    || (s.leftRosterAt ? now - s.leftRosterAt < 600_000 : now - s.lastEventAt < 3_600_000)));
+};
 /** The folders a proposed launch in workspace `wsId` may use: where its board's sessions work, and their repositories. */
-function overseerFolders(wsId) {
+function overseerFolders(wsId, board = onBoard(wsId)) {
   const out = new Set();
-  for (const s of onBoard(wsId)) {
+  for (const s of board) {
     if (mismatched(s)) continue; // another workspace's repository: never a place to start this one's work
     const p = placeOf(s), here = s.ranCwd ?? s.hereCwd ?? s.cwd;
     for (const d of [p?.repo, p?.top, here]) if (d && path.isAbsolute(d) && d !== os.homedir()) out.add(d);
@@ -2577,13 +2585,20 @@ function overseerFolders(wsId) {
   }
   return [...out].filter((d) => { try { return fs.statSync(d).isDirectory(); } catch { return false; } }).slice(0, 12);
 }
+/** What workspace `wsId`'s overseer reads: its board's sessions, each with what it asks and its space, its spaces, and
+ *  the folders a launch may use. Only this workspace's: its spaces' names never reach another workspace's overseer. */
 function overseerBoard(wsId) {
-  return { folders: overseerFolders(wsId), sessions: onBoard(wsId).map((s) => {
+  const reqs = requestsOf(wsId), asking = new Map();
+  for (const p of reqs) asking.set(p.sessionId, [...(asking.get(p.sessionId) ?? []), p]);
+  const spaces = store.spacesOf(wsId), spaceName = new Map(spaces.map((x) => [x.id, x.name]));
+  const board = onBoard(wsId, new Set(asking.keys()));
+  return { folders: overseerFolders(wsId, board), spaces: spaces.map((x) => ({ name: x.name })), sessions: board.map((s) => {
     // In another workspace's repository, it reads what the page shows: nothing of the repository.
-    const off = mismatched(s), p = off ? null : placeOf(s), held = heldFor(s.sessionId);
-    return { sessionId: s.sessionId, name: labelOf(s), kind: s.kind, state: boardState(s), since: s.startedAt ?? s.lastEventAt,
+    const off = mismatched(s), p = off ? null : placeOf(s), asks = asking.get(s.sessionId) ?? [];
+    return { sessionId: s.sessionId, name: labelOf(s), kind: s.kind, state: boardState(s, asks.length > 0), since: s.startedAt ?? s.lastEventAt,
+      space: spaceName.get(store.spaceOf(wsId, s.sessionId)) ?? null,
       repo: p ? path.basename(p.repo) : null, worktree: p?.worktree ?? null, branch: p?.branch ?? null, folder: off ? null : s.ranCwd ?? s.hereCwd ?? s.cwd ?? null,
-      mode: s.mode ?? null, tool: isWorking(s) && s.lastTool ? `${s.lastTool.tool}: ${s.lastTool.text}` : null, asks: held.map(askOf),
+      mode: s.mode ?? null, tool: isWorking(s) && s.lastTool ? `${s.lastTool.tool}: ${s.lastTool.text}` : null, asks: asks.map(askOf),
       subagents: [...s.subagents.values()].map((a) => ({ type: a.agentType ?? null, title: a.title ?? null, running: !a.stoppedAt })),
       said: s.lastMessage ?? null, gh: sessionGh(p, wsId) };
   }) };
@@ -3602,7 +3617,7 @@ function snapshot(wsId) {
     }; }),
     // A held request's folder stays here: the page never reads it, and for a session in another workspace's repository
     // it would be that repository's.
-    pending: [...[...pending.values()].filter((p) => p.ws === wsId).map(({ res, timer, cwd, ...p }) => p), ...openRequests(wsId), ...ocRequests(wsId)],
+    pending: requestsOf(wsId).map(({ res, timer, cwd, ...p }) => p),
     github: githubFor(wsId), overseer: overseerOf(wsId)?.status() ?? null, watcher: watcherOf(wsId),
     _ts: now,
   };
