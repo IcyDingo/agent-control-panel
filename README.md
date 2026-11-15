@@ -449,9 +449,12 @@ board. Ask what needs you, what everyone is doing, or what is failing, or say wh
 files, the assistant is still called the overseer.)
 
 - Each message is one headless `claude -p` call on the profile's own Claude Code login, with no
-  tools, from an empty folder of its own. It reads a digest of the board: each session's state,
-  repository, branch, current tool, what it asks you, its subagents, what it last said, its pull
-  request and checks, plus the folders a new session may start in and the feed of what happened. It
+  tools, from an empty folder of its own. It reads a digest of the board: each session the rail
+  lists (finished ones too, until you clear them) with its state, space, repository, branch, current
+  tool, what it asks you (held requests, questions and plans still open in its transcript, and
+  OpenCode's cards: everything under Needs you), its subagents, what it last said, its pull request
+  and checks; then every space with its sessions counted by state, the folders a new session may
+  start in and the feed of what happened. It
   may ask to read a session's recent conversation, twice at most per answer.
 - It only proposes. A proposal (tell a session something, start one in a known folder, interrupt
   one) shows as a card with its target and exact words, which you can change, and runs only when you
