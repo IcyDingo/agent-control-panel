@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
 import { TURN_SCHEMA, SYSTEM, MODELS, DEFAULT_MODEL, overseerArgs, readTurn, digest, promptOf, createOverseer, migrateFrom, OC_SYSTEM, readJsonTurn, isOverseerModel,
-  FOLLOW_SCHEMA, FOLLOW_SYSTEM, FOLLOW_MODEL, followPrompt, readFollow, saidKey } from '../overseer.mjs';
+  FOLLOW_SCHEMA, FOLLOW_SYSTEM, FOLLOW_MODEL, followPrompt, readFollow, saidKey, dayKey, partOf } from '../overseer.mjs';
 
 const HOME = os.homedir();
 const A = 'a1b2c3d4-0000-4000-8000-000000000001', B = 'b2c3d4e5-0000-4000-8000-000000000002', C = 'a1b2ffff-0000-4000-8000-000000000003';
@@ -743,4 +743,45 @@ test('follow-ups are kept in the file', async () => {
   again.fx.board = boardWith(QUESTION);
   assert.equal(again.o.status().follow[0]?.ask, 'Migrate?');
   assert.equal(again.o.check(A), false);
+});
+
+// ---------------------------------------------------------------- the work heatmap
+
+test('days and parts of the day are local: night, morning, midday, evening', () => {
+  assert.equal(dayKey(new Date(2026, 10, 12, 23, 59).getTime()), '2026-11-12');
+  assert.deepEqual([0, 5, 6, 11, 12, 17, 18, 23].map((h) => partOf(new Date(2026, 10, 12, h, 30).getTime())), [0, 0, 1, 1, 2, 2, 3, 3]);
+});
+
+test('agent minutes and turns add up per part of the day, over the last seven days', () => {
+  const file = tmp(), c = clock(new Date(2026, 10, 12, 14, 0).getTime()), k = mk({ file, clock: c });
+  k.o.tally([A, B]);
+  k.o.tally([A]);
+  k.o.turnDone(A);
+  k.o.tally([]); // nobody working: nothing
+  let days = k.o.status().heat;
+  assert.equal(days.length, 7);
+  assert.equal(days[6].key, '2026-11-12');
+  assert.equal(days[0].key, '2026-11-06');
+  assert.deepEqual(days[6].cells[2], { m: 3, agents: 2, turns: 1, now: true });
+  assert.deepEqual(days[6].cells[3], { m: 0, agents: 0, turns: 0, ahead: true }, 'the evening is still to come');
+  assert.deepEqual(days[6].cells[1], { m: 0, agents: 0, turns: 0 });
+  c.tick(9 * 3_600_000); // 23:00
+  k.o.tally([C], 30);
+  days = k.o.status().heat;
+  assert.equal(days[6].cells[3].m, 30);
+  assert.equal(k.o.status().rev, 0, 'a tally does not make the page fetch the conversation again');
+  c.tick(2 * 3_600_000); // 01:00 the next day
+  k.o.tally([A]);
+  days = k.o.status().heat;
+  assert.deepEqual([days[5].key, days[5].cells[2].m, days[6].key, days[6].cells[0].m], ['2026-11-12', 3, '2026-11-13', 1]);
+  k.o.flush();
+  assert.equal(mk({ file, clock: c }).o.status().heat[5].cells[2].m, 3, 'kept in the file');
+});
+
+test('only the newest eight days are kept', () => {
+  const c = clock(new Date(2026, 10, 1, 9, 0).getTime()), k = mk({ clock: c });
+  for (let d = 0; d < 12; d++) { k.o.tally([A]); c.tick(86_400_000); }
+  k.o.tally([A]);
+  const days = k.o.status().heat;
+  assert.ok(days.every((d) => d.cells[1].m === 1), 'each of the last seven mornings');
 });

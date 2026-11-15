@@ -403,6 +403,25 @@ function cleanFollow(raw) {
   return Object.fromEntries(list.sort((a, b) => b[1].at - a[1].at).slice(0, FOLLOW_KEEP));
 }
 
+// ---------------------------------------------------------------- how much the agents work, by day and part of day
+
+const HEAT_DAYS = 8;          // days kept; seven are shown
+const HEAT_AGENTS = 60;       // agent ids kept per cell, for "by N agents"
+/** A day in local time, as YYYY-MM-DD. */
+export const dayKey = (t) => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+/** The part of the day: 0 night (00–06), 1 morning, 2 midday, 3 evening (18–24). */
+export const partOf = (t) => Math.floor(new Date(t).getHours() / 6);
+const emptyCell = () => ({ m: 0, t: 0, a: [] });
+/** The kept tally: day → four cells of { m: agent-minutes working, t: turns ended, a: the agents' ids }, the newest
+ *  eight days. */
+function cleanHeat(raw) {
+  const ok = (c) => c && typeof c === 'object' && Number.isFinite(c.m) && c.m >= 0 && Number.isInteger(c.t) && c.t >= 0;
+  const days = Object.entries(raw && typeof raw === 'object' ? raw : {})
+    .filter(([k, v]) => /^\d{4}-\d\d-\d\d$/.test(k) && Array.isArray(v) && v.length === 4)
+    .map(([k, v]) => [k, v.map((c) => (ok(c) ? { m: c.m, t: c.t, a: (Array.isArray(c.a) ? c.a : []).filter((x) => typeof x === 'string').slice(0, HEAT_AGENTS) } : emptyCell()))]);
+  return Object.fromEntries(days.sort((a, b) => (a[0] < b[0] ? 1 : -1)).slice(0, HEAT_DAYS));
+}
+
 /** A kept file's conversations, cleaned. An action caught running by a restart is marked failed: whether it happened
  *  is not known, and it must not be offered again. */
 function normalize(raw) {
@@ -417,7 +436,7 @@ function normalize(raw) {
       for (const a of t.actions) if (a.state === 'running') Object.assign(a, { state: 'failed', result: 'The panel restarted while this was running, so it may or may not have happened.' });
     }
     const feed = objects(p.feed).filter((e) => Number.isInteger(e.seq)).slice(-KEEP);
-    out.profiles[id] = { seq: Number.isInteger(p.seq) ? p.seq : turns.length, fseq: Number.isInteger(p.fseq) ? p.fseq : feed.at(-1)?.seq ?? 0, turns, feed, follow: cleanFollow(p.follow) };
+    out.profiles[id] = { seq: Number.isInteger(p.seq) ? p.seq : turns.length, fseq: Number.isInteger(p.fseq) ? p.fseq : feed.at(-1)?.seq ?? 0, turns, feed, follow: cleanFollow(p.follow), heat: cleanHeat(p.heat) };
   }
   return out;
 }
@@ -506,16 +525,19 @@ export function createOverseer({
     save();
   }
   /** Something changed: the page is told, and the file is written a second later. */
+  /** The file is written a second from now (once, however often this is called). */
+  function soon() {
+    if (saveTimer != null) return;
+    saveTimer = timers.setTimeout(() => { saveTimer = null; save(); }, SAVE_MS);
+    saveTimer?.unref?.();
+  }
   function changed() {
     rev++;
-    if (saveTimer == null) {
-      saveTimer = timers.setTimeout(() => { saveTimer = null; save(); }, SAVE_MS);
-      saveTimer?.unref?.();
-    }
+    soon();
     try { onChange(); } catch (e) { log(`overseer: onChange failed: ${e?.message ?? e}`); }
   }
 
-  const prof = (id = profileId) => { const p = (data.profiles[id] ??= { seq: 0, fseq: 0, turns: [], feed: [] }); p.follow ??= {}; return p; };
+  const prof = (id = profileId) => { const p = (data.profiles[id] ??= { seq: 0, fseq: 0, turns: [], feed: [] }); p.follow ??= {}; p.heat ??= {}; return p; };
   const push = (p, turn) => { p.turns.push(turn); if (p.turns.length > KEEP) p.turns.splice(0, p.turns.length - KEEP); };
   const expired = (t, a) => a.state === 'proposed' && now() - t.at > HOUR;
 
@@ -751,6 +773,49 @@ export function createOverseer({
     return { ok: true, result: r.queued ? TELL_WORDS.queued : r.copy ? TELL_WORDS.copy : r.same ? TELL_WORDS.same : 'Sent.' };
   }
 
+  // ---------------------------------------------------------------- the work heatmap
+
+  /** The cell for now, made when missing; old days drop off. */
+  function cellNow() {
+    const p = prof(), t = now(), key = dayKey(t);
+    if (!p.heat[key]) { p.heat[key] = [emptyCell(), emptyCell(), emptyCell(), emptyCell()]; p.heat = cleanHeat(p.heat); }
+    return p.heat[key][partOf(t)];
+  }
+  const seen = (cell, id) => { if (typeof id === 'string' && id && !cell.a.includes(id) && cell.a.length < HEAT_AGENTS) cell.a.push(id); };
+  /** `minutes` of work by each of `working` (session ids busy now): the panel calls this once a minute. Kept quietly:
+   *  the page reads it with the next snapshot. */
+  function tally(working, minutes = 1) {
+    const ids = (Array.isArray(working) ? working : []).filter((x) => typeof x === 'string');
+    if (!ids.length) return;
+    const cell = cellNow();
+    cell.m += ids.length * minutes;
+    for (const id of ids) seen(cell, id);
+    soon();
+  }
+  /** An agent ended a turn. */
+  function turnDone(sessionId) {
+    const cell = cellNow();
+    cell.t++;
+    seen(cell, sessionId);
+    soon();
+  }
+  /** The last seven days, oldest first, each with its four parts: agent-minutes, agents and turns. `now` marks the
+   *  part of the day it is now; parts still to come today are `ahead`. */
+  function heatView() {
+    const p = prof(), t = now(), out = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(t);
+      d.setHours(12, 0, 0, 0);
+      d.setDate(d.getDate() - i);
+      const key = dayKey(d.getTime()), cells = p.heat[key];
+      out.push({ key, at: d.getTime(), cells: [0, 1, 2, 3].map((part) => {
+        const c = cells?.[part] ?? emptyCell();
+        return { m: Math.round(c.m), agents: c.a.length, turns: c.t, ...(i === 0 && part === partOf(t) ? { now: true } : i === 0 && part > partOf(t) ? { ahead: true } : {}) };
+      }) });
+    }
+    return out;
+  }
+
   // ---------------------------------------------------------------- what the page sees
 
   /** A turn as the page gets it: a copy, with whether each proposal is too old, and how a message would arrive now. */
@@ -837,12 +902,14 @@ export function createOverseer({
       scheduleExpiry();
       return action;
     },
-    /** @returns {{ busy: null|{since, phase: 'thinking'|'looking'}, rev, feedSeq, proposed, follow, model, models }} */
+    /** @returns {{ busy: null|{since, phase: 'thinking'|'looking'}, rev, feedSeq, proposed, follow, heat, model, models }} */
     status() {
-      return { busy: busy ? { since: busy.since, phase: busy.phase } : null, rev, feedSeq: prof().fseq, proposed: proposedCount(), follow: followUps(), model: data.model, models: models() };
+      return { busy: busy ? { since: busy.since, phase: busy.phase } : null, rev, feedSeq: prof().fseq, proposed: proposedCount(), follow: followUps(), heat: heatView(), model: data.model, models: models() };
     },
     check,
     follow,
+    tally,
+    turnDone,
 
     /** Your message. It returns at once; the answer arrives as a turn of its own. */
     say({ text } = {}) {

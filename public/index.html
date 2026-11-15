@@ -1044,6 +1044,32 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 .h-lane h3 { margin: 0; font-size: 11.5px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; color: var(--fg-dim); }
 .h-lane .h-n { font: 500 12px var(--mono); color: var(--fg-faint); }
 .h-lane .grow { flex: 1; }
+/* Agent work: seven days by four parts of the day, each cell as dark as the agent-minutes in it (one hue, light to dark;
+   in dark mode it brightens instead, from the same token). */
+.h-heat { position: relative; margin-bottom: 36px; }
+.h-heat .h-lane { flex-wrap: wrap; row-gap: 4px; }
+.h-heat .h-lane h3 { white-space: nowrap; }
+.h-heat .h-lane .h-n { min-width: 0; }
+@media (max-width: 640px) { .h-heat .h-lane .grow { flex-basis: 100%; height: 0; } }
+.hm-grid { display: grid; grid-template-columns: max-content repeat(7, minmax(0, 1fr)); gap: 4px; align-items: center; }
+.hm-day { padding-bottom: 2px; overflow: hidden; color: var(--fg-faint); font-size: 11.5px; text-align: center; white-space: nowrap; }
+.hm-day.today { color: var(--fg-dim); font-weight: 600; }
+.hm-part { padding-right: 12px; color: var(--fg-dim); font-size: 12px; }
+.hm-cell { height: 30px; border-radius: 4px; background: var(--fill); outline: none; }
+.hm-cell[data-l="1"], .hm-sw[data-l="1"] { background: color-mix(in oklab, var(--run) 26%, var(--panel)); }
+.hm-cell[data-l="2"], .hm-sw[data-l="2"] { background: color-mix(in oklab, var(--run) 48%, var(--panel)); }
+.hm-cell[data-l="3"], .hm-sw[data-l="3"] { background: color-mix(in oklab, var(--run) 72%, var(--panel)); }
+.hm-cell[data-l="4"], .hm-sw[data-l="4"] { background: var(--run); }
+.hm-cell[data-ahead] { background: transparent; box-shadow: inset 0 0 0 1px var(--line); }
+.hm-cell[data-now] { box-shadow: 0 0 0 2px var(--panel), 0 0 0 3px var(--fg-faint); }
+.hm-cell:hover, .hm-cell:focus-visible { box-shadow: 0 0 0 2px var(--panel), 0 0 0 3.5px var(--fg); }
+.hm-legend { display: flex; align-items: center; gap: 4px; color: var(--fg-faint); font-size: 11.5px; }
+.hm-sw { width: 11px; height: 11px; border-radius: 3px; background: var(--fill); }
+.hm-sw:first-of-type { margin-left: 4px; }
+.hm-sw:last-of-type { margin-right: 4px; }
+.hm-tip { position: absolute; z-index: 3; max-width: min(440px, 100%); padding: 6px 10px; border-radius: var(--r-1); background: var(--raise);
+  box-shadow: 0 0 0 1px var(--line-strong), 0 10px 28px -10px var(--shade); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.hm-note { margin: 10px 0 0; color: var(--fg-faint); font-size: 12.5px; }
 /* Waiting on you: a card per agent that finished with a question, or with work left. */
 .h-board { padding-bottom: 24px; }
 .h-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 12px; align-items: start; }
@@ -1207,9 +1233,10 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
         <span class="d-meta" id="h-meta"></span>
         <button class="btn icon h-close" type="button" id="h-close" aria-label="Back to the sessions" title="Back to the sessions"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </div></div>
-      <!-- The agents that stopped and wait on you: what the rail does not show. -->
+      <!-- How much the agents worked this week, and the agents that stopped and wait on you: what the rail does not show. -->
       <div class="d-scroll" id="h-scroll">
         <div class="d-col h-col">
+          <section class="h-heat" id="h-heat" aria-label="Agent work, the last seven days"></section>
           <section class="h-board" id="h-board" aria-label="Waiting on you"></section>
         </div>
       </div>
@@ -3323,6 +3350,57 @@ async function actOn(t, a, decision, btn) {
   ovEdits.delete(a.id);
   if (r.action?.type === 'launch' && r.action.state === 'done') { const id = /\((\w+)\)/.exec(r.action.result ?? '')?.[1]; if (id) launchedId = id; }
 }
+// ---------- the heatmap: how much the agents worked this past week, by day and part of the day ----------
+const PARTS = [['Night', '00–06'], ['Morning', '06–12'], ['Midday', '12–18'], ['Evening', '18–24']];
+/** Minutes as "40 m" or "6 h 40 m". */
+const hm = (m) => (m < 60 ? `${m} m` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} m` : ''}`);
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+/** Seven columns of days, four rows of the day's parts; each cell as dark as the agent-minutes worked in it, against
+ *  the busiest cell of the week. A tip on hover or focus says the numbers. Rebuilt when the numbers change. */
+function renderHeat() {
+  const box = $('h-heat'), days = snap.overseer?.heat ?? [];
+  const sig = JSON.stringify(days);
+  if (box._sig === sig || !days.length) return;
+  box._sig = sig;
+  const all = days.flatMap((d) => d.cells), max = Math.max(0, ...all.map((c) => c.m)), total = all.reduce((n, c) => n + c.m, 0);
+  const level = (m) => (!m ? 0 : m <= max * 0.25 ? 1 : m <= max * 0.5 ? 2 : m <= max * 0.75 ? 3 : 4);
+  const last = days.length - 1;
+  const dayName = (d, i) => (i === last ? 'Today' : new Date(d.at).toLocaleDateString([], { weekday: 'short' }));
+  const longDay = (d, i) => (i === last ? 'Today' : new Date(d.at).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' }));
+  const say = (d, i, part, c) => `${longDay(d, i)}, ${PARTS[part][0].toLowerCase()} (${PARTS[part][1]}): ${c.ahead ? 'still to come'
+    : c.m ? `${hm(c.m)} of agent work${c.agents ? ` by ${plural(c.agents, 'agent')}` : ''}${c.turns ? `, ${plural(c.turns, 'turn')} ended` : ''}` : 'no agent work'}`;
+  const tip = el('div', { class: 'hm-tip', role: 'tooltip', hidden: true });
+  const show = (cell, text) => {
+    tip.textContent = text;
+    tip.hidden = false;
+    const b = box.getBoundingClientRect(), r = cell.getBoundingClientRect(), w = tip.offsetWidth;
+    tip.style.left = `${Math.max(0, Math.min(b.width - w, r.left - b.left + r.width / 2 - w / 2))}px`;
+    tip.style.top = `${r.top - b.top - tip.offsetHeight - 8}px`;
+  };
+  const grid = el('div', { class: 'hm-grid' }, el('span', { 'aria-hidden': 'true' }),
+    ...days.map((d, i) => el('span', { class: 'hm-day' + (i === last ? ' today' : ''), text: dayName(d, i), title: longDay(d, i), 'aria-hidden': 'true' })));
+  PARTS.forEach(([name, span], part) => {
+    grid.append(el('span', { class: 'hm-part', text: name, title: span, 'aria-hidden': 'true' }));
+    days.forEach((d, i) => {
+      const c = d.cells[part], text = say(d, i, part, c);
+      const cell = el('span', { class: 'hm-cell', tabindex: '0', role: 'img', 'aria-label': text,
+        'data-l': c.ahead ? null : String(level(c.m)), 'data-now': Boolean(c.now), 'data-ahead': Boolean(c.ahead) });
+      cell.onpointerenter = cell.onfocus = () => show(cell, text);
+      cell.onpointerleave = cell.onblur = () => { tip.hidden = true; };
+      grid.append(cell);
+    });
+  });
+  // The busiest part of the week, named in the header.
+  let top = null;
+  days.forEach((d, i) => d.cells.forEach((c, part) => { if (c.m && (!top || c.m > top.m)) top = { m: c.m, at: `${i === last ? 'today' : dayName(d, i)} ${PARTS[part][0].toLowerCase()}` }; }));
+  box.replaceChildren(
+    el('div', { class: 'h-lane' }, el('h3', { text: 'Agent work' }),
+      el('span', { class: 'h-n', text: total ? `last 7 days · ${hm(total)}${top ? ` · busiest ${top.at}` : ''}` : 'last 7 days' }), el('span', { class: 'grow' }),
+      el('span', { class: 'hm-legend', 'aria-hidden': 'true' }, 'Less', ...[0, 1, 2, 3, 4].map((l) => el('i', { class: 'hm-sw', 'data-l': String(l) })), 'More')),
+    grid, tip,
+    ...(total ? [] : [el('p', { class: 'hm-note', text: 'Glue counts from now on: the minutes your agents spend working, added up across agents, a part of the day at a time.' })]));
+}
+
 // ---------- the board: agents that stopped and wait on you (the overseer reads each turn's last message) ----------
 const fuEdits = new Map(); // sessionId → the reply as you changed it
 const fuNodes = new Map(); // sessionId → { sig, node }
@@ -3645,6 +3723,7 @@ function renderHome(g) {
   if (ovProposedWas != null && proposed > ovProposedWas && !dockOpen) { ovProposedWas = proposed; setDock(true); return; }
   ovProposedWas = proposed;
   setText($('h-meta'), st ? `${ovModelName(st.model)} · proposes, you confirm` : '');
+  renderHeat();
   renderWaiting();
   setAttr($('h-dock'), 'data-open', dockOpen ? '1' : '0');
   setAttr($('h-dock-tog'), 'aria-expanded', String(dockOpen));
