@@ -1476,7 +1476,7 @@ const HINT = {
   hide: 'Hides it from the board. It already ended in its terminal.',
   all: 'Interrupts every working session at its next tool call. They stay open.',
   idle: 'Ends every idle background session. Terminal sessions stay open: end those one at a time, in case you are typing in one.',
-  clear: 'Removes every finished session from the list. Transcripts are kept, and a worktree with unsaved work keeps its session.',
+  clear: 'Removes these finished sessions from the list. Transcripts are kept, and a worktree with unsaved work keeps its session.',
   sub: 'It stops at its next tool call. Its session carries on without it.',
   ovclear: 'Clears this conversation with Glue.',
   spacedel: 'Deletes the space. Its agents go back to their repositories.',
@@ -1863,12 +1863,17 @@ async function saveRename(c) {
 const boardEmpty = el('p', { class: 'board-empty', text: 'No sessions yet. Press New agent, or run claude in a terminal, and it shows up here.' });
 /** Which checkout of its repository a session works in: '' for the main one, else its worktree's name. */
 const ckOf = (s) => s.git?.worktree ?? '';
-/** The rail's sections, each with the sessions it lists. A session that needs you is listed only under Needs you. */
+/** The rail's sections, each with the sessions it lists. A session that needs you is listed only under Needs you, in
+ *  one list across every space. A finished one stays in its space; one in no space goes under Finished. */
 function sections(g) {
   const out = [{ key: 'waiting', kind: 'waiting', title: 'Needs you', list: g.waiting }];
-  const repos = new Map(), loose = [], asks = new Map();
+  const repos = new Map(), loose = [], asks = new Map(), finished = [];
   // Spaces first, in the order they were made: a session in one is listed there instead of under its repository.
   const spaces = snap.spaces ?? [], inSpace = new Map(spaces.map((x) => [x.id, []])), spaceAsks = new Map();
+  for (const s of g.finished) {
+    const sp = spaceIn(s);
+    if (sp && inSpace.has(sp)) inSpace.get(sp).push(s); else finished.push(s);
+  }
   for (const s of [...g.busy, ...g.idle]) {
     const sp = spaceIn(s);
     if (sp) { inSpace.get(sp).push(s); continue; }
@@ -1884,8 +1889,11 @@ function sections(g) {
   }
   for (const r of asks.keys()) if (!repos.has(r)) repos.set(r, []);
   const working = (s) => (['busy', 'stopping'].includes(stateOf(s)) ? 0 : 1);
+  // In a space: working, then idle, newest first; then what finished there, the latest to finish first.
+  const done = (s) => (colOf(stateOf(s)) === 'finished' ? 1 : 0), ended = (s) => s.leftRosterAt ?? s.lastEventAt ?? 0;
   for (const x of spaces) out.push({ key: 'space:' + x.id, kind: 'space', space: x.id, title: x.name, asks: spaceAsks.get(x.id) ?? 0,
-    list: inSpace.get(x.id).sort((a, b) => working(a) - working(b) || (b.startedAt ?? 0) - (a.startedAt ?? 0) || a.sessionId.localeCompare(b.sessionId)) });
+    list: inSpace.get(x.id).sort((a, b) => done(a) - done(b) || (done(a) ? ended(b) - ended(a) : working(a) - working(b) || (b.startedAt ?? 0) - (a.startedAt ?? 0))
+      || a.sessionId.localeCompare(b.sessionId)) });
   for (const r of [...repos.keys()].sort((a, b) => base(a).localeCompare(base(b)) || a.localeCompare(b))) {
     // The main checkout first, then worktrees by name; in each, working before idle, newest first.
     const list = repos.get(r).sort((a, b) => (ckOf(a) ? 1 : 0) - (ckOf(b) ? 1 : 0) || ckOf(a).localeCompare(ckOf(b))
@@ -1893,7 +1901,7 @@ function sections(g) {
     out.push({ key: 'repo:' + r, kind: 'repo', repo: r, title: base(r), list, asks: asks.get(r) ?? 0 });
   }
   if (loose.length) out.push({ key: 'loose', kind: 'loose', title: 'Other folders', list: loose });
-  if (g.finished.length) out.push({ key: 'finished', kind: 'finished', title: 'Finished', list: g.finished });
+  if (finished.length) out.push({ key: 'finished', kind: 'finished', title: 'Finished', list: finished });
   return out;
 }
 const ckEls = new Map(); // repo|checkout → its label
@@ -2177,7 +2185,8 @@ async function sortRepo(key, ws) {
   if (!r.ok) toast(r.error || 'That did not save. Try again.', true);
 }
 let shownSecs = []; // the sections on the rail now, in order
-/** A section's bulk buttons: Interrupt all and End idle in a repository or other folders, Clear in Finished. */
+/** A section's bulk buttons: Interrupt all and End idle in a repository, other folders or a space, Clear in Finished,
+ *  and Clear (its finished sessions) in a space that has any. */
 function bulksOf(sec) {
   if (sec.kind === 'finished') return [{ key: 'clear:', text: 'Clear', armed: `Clear ${sec.list.length}`,
     run: () => bulk(sec.list, doRemove, (n) => `Cleared ${sessions(n)}. Transcripts are kept.`) }];
@@ -2190,6 +2199,11 @@ function bulksOf(sec) {
       run: () => bulk(working, (s) => api('/api/interrupt', { sessionId: s.sessionId }), (n) => `Interrupting ${sessions(n)} at the next tool call.`) },
     idleBg.length > 0 && { key: `idle:${sec.key}`, text: 'End idle', armed: `End ${idleBg.length} background`,
       run: () => bulk(idleBg, doEnd, (n) => `Ended ${sessions(n)}. Conversations are kept.`) },
+    sec.kind === 'space' && sec.list.some((s) => colOf(stateOf(s)) === 'finished') && (() => {
+      const done = sec.list.filter((s) => colOf(stateOf(s)) === 'finished');
+      return { key: `clear:${sec.key}`, text: 'Clear', armed: `Clear ${done.length} finished`,
+               run: () => bulk(done, doRemove, (n) => `Cleared ${sessions(n)}. Transcripts are kept.`) };
+    })(),
     sec.kind === 'space' && { key: `spacedel:${sec.space}`, text: 'Delete', armed: 'Delete?', run: async () => {
       const r = await api('/api/space/delete', { id: sec.space });
       if (!r.ok) toast(r.error || 'The space was not deleted.', true); } },
