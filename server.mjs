@@ -2520,6 +2520,21 @@ async function githubHand(body, ctx) {
   return { ...r, chars: text.length };
 }
 
+/** Merges the pull request of a session's branch, confirmed on its card: only one the last poll saw ready, and only at
+ *  the commit the card showed (`sha`), so nothing pushed since goes in unseen (github.merge). Its card then closes. */
+async function githubMerge(body, ctx) {
+  const s = sessions.get(body?.sessionId);
+  if (!s) return { ok: false, error: 'That session is gone.' };
+  if (!ownedBy(ctx?.focus, s.sessionId)) return { ok: false, error: REFUSE };
+  const gh = sessionGh(placeOf(s), ctx?.focus), pr = gh?.pr;
+  if (!pr) return { ok: false, error: 'This session has no pull request the panel shows.' };
+  if (!slugUsableIn(gh.slug, ctx?.focus)) return { ok: false, error: REFUSE };
+  if (Number(body?.number) !== pr.number) return { ok: false, error: 'Its pull request changed since you looked. Check it, then merge.' };
+  const r = await github.merge({ slug: gh.slug, number: pr.number, sha: typeof body?.sha === 'string' ? body.sha : '' });
+  if (r.ok) overseerOf(s.ws)?.follow({ sessionId: s.sessionId, decision: 'merged' });
+  return r;
+}
+
 // ---------------------------------------------------------------- the overseers: one chat per workspace, about its sessions
 
 const labelOf = (s) => s.name || (mismatched(s) ? '' : path.basename(s.cwd ?? '')) || s.sessionId.slice(0, 8); // never another workspace's folder name
@@ -3677,7 +3692,7 @@ async function handle(req, res) {
                       '/api/trust-terminal': openTrustTerminal,
                       '/api/setup/check': setupCheckNow, '/api/setup/done': setupDone, '/api/setup/login': openLoginTerminal,
                       '/api/github/refresh': (b, c) => { github.refresh(); return { ok: true, github: githubFor(c.focus) }; },
-                      '/api/github/log': githubLog, '/api/github/hand': githubHand, ...OVERSEER,
+                      '/api/github/log': githubLog, '/api/github/hand': githubHand, '/api/github/merge': githubMerge, ...OVERSEER,
                       '/api/watcher/enabled': (b, c) => nudgeIfOk(watcher.setEnabled(b?.on, c.focus)),
                       '/api/settings/restart': restartService, '/api/settings/reveal': revealIn,
                       '/api/opencode': ocStatus, '/api/opencode/start': ocEnsure, '/api/opencode/login': ocLogin, '/api/opencode/install': ocInstall,

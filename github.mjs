@@ -17,6 +17,13 @@ const OPEN_LIMIT = 50;
 const MAIN_EVENTS = new Set(['push', 'merge_group', 'schedule', 'workflow_dispatch', 'workflow_run', 'release', 'deployment', 'repository_dispatch']);
 /** The ones a merge causes: only these notify. */
 const NOTIFY_EVENTS = new Set(['push', 'merge_group']);
+/** The repository's default merge method (gh repo view --json viewerDefaultMergeMethod) as gh pr merge's flag. */
+const METHODS = { MERGE: 'merge', SQUASH: 'squash', REBASE: 'rebase' };
+/** Why a pull request isn't ready, by GitHub's merge state. */
+const UNREADY = { BLOCKED: 'a required check or review is missing', DIRTY: 'it has conflicts', BEHIND: 'it is behind its base branch',
+  UNSTABLE: 'a check is failing', DRAFT: 'it is a draft', UNKNOWN: 'GitHub is still working out whether it can be merged' };
+/** Merge states GitHub allows a merge in now (HAS_HOOKS: clean, with pre-receive hooks). */
+export const READY = new Set(['CLEAN', 'HAS_HOOKS']);
 const HINTS = {
   missing: 'Install the GitHub CLI (gh) to see pull requests and CI here.',
   'signed-out': 'Run gh auth login in a terminal to see pull requests and CI here.',
@@ -591,7 +598,7 @@ export function createGithub({
     const broke = check ? null : repo.runs.find((r) => r.state === 'failing' && branch && (branch === repo.defaultBranch || r.branch === branch));
     return {
       slug, url: repo.url,
-      pr: p && { number: p.number, url: p.url, draft: p.draft, checks: p.checks, failing: p.failing.slice(0, 3).map((f) => f.name), mergeState: p.mergeState, review: p.review },
+      pr: p && { number: p.number, url: p.url, sha: p.sha, draft: p.draft, checks: p.checks, failing: p.failing.slice(0, 3).map((f) => f.name), mergeState: p.mergeState, review: p.review },
       main: repo.main,
       failed: check ? { runId: check.runId, jobId: check.jobId, workflow: check.name, url: check.url, on: 'pr' }
         : broke ? { runId: broke.id, jobId: null, workflow: broke.workflow, url: broke.url, on: 'main' } : null,
@@ -631,11 +638,36 @@ export function createGithub({
     return { ok: true, text: cut.text, steps: cut.steps, truncated: cut.truncated, url, message };
   }
 
+  /**
+   * Merge pull request `number` of `slug` with the repository's own default method, only while the last poll saw it
+   * ready (not a draft; checks, review and conflicts clear) and its head is still `sha`, so nothing pushed since is
+   * merged unseen. Nothing here deletes a branch: GitHub's setting for the repository decides that.
+   * @returns {Promise<{ok: true, method} | {ok: false, error}>}
+   */
+  async function merge({ slug, number, sha } = {}) {
+    const p = off ? null : repos.get(slug)?.prs.find((x) => x.number === Number(number));
+    if (!p) return { ok: false, error: 'That pull request is not one the panel shows. Refresh and try again.' };
+    if (p.draft) return { ok: false, error: `#${p.number} is a draft.` };
+    if (!READY.has(p.mergeState)) return { ok: false, error: `#${p.number} is not ready to merge: ${UNREADY[p.mergeState] ?? 'GitHub does not say it can be merged yet'}.` };
+    if (typeof sha !== 'string' || !sha || p.sha !== sha) return { ok: false, error: `#${p.number} has new commits since you looked. Check them, then merge.` };
+    if (!bin) return { ok: false, error: HINTS.missing };
+    const R = `github.com/${slug}`;
+    const v = await ghJson(['repo', 'view', R, '--json', 'viewerDefaultMergeMethod']);
+    if (v.bad) return { ok: false, error: v.bad.text };
+    const method = METHODS[v.data?.viewerDefaultMergeMethod] ?? 'merge';
+    const r = await gh(['pr', 'merge', String(p.number), '-R', R, `--${method}`, '--match-head-commit', p.sha], { timeout: 60_000 });
+    const bad = classify(r, { cwd });
+    if (bad) return { ok: false, error: bad.kind === 'error' ? `GitHub did not merge #${p.number}: ${bad.text}` : bad.text };
+    refreshedAt = -Infinity;
+    refresh();
+    return { ok: true, method };
+  }
+
   /** How many repositories workspace `ws`'s sessions work in that are not watched: its own count, never another's. */
   const moreIn = (ws) => moreBy.get(typeof ws === 'string' ? ws : '') ?? 0;
 
   /** Stop polling and write what is unsaved. */
   function stop() { stopped = true; save(); }
 
-  return { tick, refresh, state, forSession, failedLog, knows, moreIn, stop };
+  return { tick, refresh, state, forSession, failedLog, knows, merge, moreIn, stop };
 }

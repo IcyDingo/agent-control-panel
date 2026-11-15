@@ -220,6 +220,18 @@ test('the failing check\'s log comes back trimmed, with a message that would han
   assert.equal(calls(ghCalls).length, n);
 });
 
+test('merging a pull request that is not ready is refused with why, and gh is never asked to merge', async () => {
+  const s = (await snapshot()).sessions.find((x) => x.sessionId === SID);
+  assert.equal(s.gh.pr.sha, 'abc1234', 'the card knows the commit it shows');
+  const r = await api('/api/github/merge', { sessionId: SID, number: 7, sha: 'abc1234' });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /#7 is not ready to merge: a check is failing/);
+  assert.match((await api('/api/github/merge', { sessionId: SID, number: 8, sha: 'abc1234' })).error, /changed since you looked/);
+  assert.match((await api('/api/github/merge', { sessionId: 'nope', number: 7 })).error, /gone/);
+  assert.equal((await post('/api/github/merge', { sessionId: SID, number: 7 }, '0'.repeat(48))).status, 403);
+  assert.ok(!calls(ghCalls).some((c) => c.args[0] === 'pr' && c.args[1] === 'merge'));
+});
+
 let firstTurn;
 test('a message to the overseer comes back as a turn proposing a tell, asked with no tools and its own schema', async () => {
   const turn = firstTurn = await say('What should I do about the failing build?');

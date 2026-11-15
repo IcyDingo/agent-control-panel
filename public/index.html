@@ -974,8 +974,7 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 .home { flex: 1; min-width: 0; display: flex; overflow: hidden; background: var(--panel); border-radius: var(--r-3); }
 .h-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .h-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.h-head #h-tools { display: flex; gap: 6px; margin-left: auto; }
-.h-close { display: none; }
+.h-close { display: none; margin-left: auto; }
 /* Its mark: four sessions under one eye. */
 .ov-mark { flex: none; position: relative; width: 22px; height: 22px; border-radius: 7px; background: var(--fg); }
 .ov-mark::after { content: ""; position: absolute; inset: 7px; border-radius: 50%; background: var(--panel); box-shadow: 0 0 0 2px var(--panel); }
@@ -1005,9 +1004,6 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 .tour-card p { margin: 0; color: var(--fg-dim); font-size: 13px; line-height: 1.55; }
 .tour-foot { display: flex; align-items: center; gap: 6px; margin-top: 14px; }
 .tour-n { margin-right: auto; color: var(--fg-faint); font-size: 12px; font-variant-numeric: tabular-nums; }
-#h-next:empty { display: none; }
-#h-next { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 24px; padding: 12px 16px; border-radius: var(--r-2); background: var(--amber-fill); color: var(--amber); font-size: 13px; font-weight: 550; }
-#h-next .btn { background: var(--amber-dim); color: var(--amber); }
 .msg.ov .m-who b { color: var(--fg); }
 .msg.ov.error .m-body { color: var(--stop); font-size: 13.5px; }
 /* A line from the feed: something that happened, quiet, between the turns. */
@@ -1025,15 +1021,6 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 .msg.feed[data-t="ci-recovered"] .fd, .msg.feed[data-t="main-recovered"] .fd, .msg.feed[data-t="pr-merged"] .fd, .msg.feed[data-t="done"] .fd, .msg.feed[data-t="finished"] .fd { background: var(--ok); }
 .msg.feed .ft { flex: none; margin-left: auto; font: 11.5px var(--mono); color: var(--fg-faint); }
 .msg.feed .fx { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* A run of quiet events folded into one line; it opens to list them. */
-.msg.feed + .feed-fold, .feed-fold + .msg.feed, .feed-fold + .msg.tool, .msg.tool + .feed-fold { margin-top: -20px; }
-.feed-fold > summary { list-style: none; cursor: pointer; }
-.feed-fold > summary::-webkit-details-marker { display: none; }
-.feed-fold > summary .fd { background: transparent; box-shadow: inset 0 0 0 1.5px var(--fg-faint); }
-.feed-fold > summary .fx::after { content: ""; display: inline-block; width: 5px; height: 5px; margin: 0 0 2px 8px; border: solid var(--fg-faint); border-width: 0 1.5px 1.5px 0; transform: rotate(-45deg); transition: transform .15s; }
-.feed-fold[open] > summary .fx::after { transform: rotate(45deg); }
-.feed-fold > summary:hover .fx { color: var(--fg); }
-.feed-fold .ff-list { display: grid; gap: 8px; margin: 8px 0 0 14px; }
 /* What it proposes: a card per action, the target and the exact words, which you can change before you run it. */
 .ov-acts { display: grid; gap: 10px; margin-top: 14px; }
 .ov-act { display: grid; gap: 8px; min-width: 0; padding: 14px 16px; border-radius: var(--r-2); background: var(--raise); box-shadow: 0 0 0 1px var(--line); }
@@ -1051,18 +1038,76 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 .ov-act .row { margin-top: 2px; }
 .ov-act .lf-inline { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--fg-dim); }
 .ov-act .lf-inline input[type="text"] { flex: 1; min-width: 0; height: 30px; padding: 0 10px; border: 1px solid transparent; border-radius: var(--r-1); background: var(--code); font: 12.5px var(--mono); }
-/* Follow up: agents that stopped before the work was done, each with what it asks and a drafted reply to send. */
-#h-follow:empty { display: none; }
-#h-follow { display: grid; gap: 10px; margin-bottom: 24px; }
-.fu-head { display: flex; align-items: baseline; gap: 8px; font-size: 13px; font-weight: 600; }
-.fu-head .fu-n { color: var(--fg-dim); font: 500 12px var(--mono); }
-.fu-card .a-head .tag { flex: none; }
-.fu-card .a-head .ft { flex: none; margin-left: auto; font: 11.5px var(--mono); color: var(--fg-faint); }
-.fu-card .fu-ask { margin: 0; font-size: 13.5px; line-height: 1.5; overflow-wrap: anywhere; }
-.fu-card details summary { cursor: pointer; color: var(--fg-faint); font-size: 12px; }
-.fu-card details .m-body { margin-top: 6px; max-height: 18em; overflow: auto; font-size: 13px; color: var(--fg-dim); }
-.fu-card[data-v="needs-answer"] { background: var(--amber-fill); }
-.fu-card[data-v="stopped-short"] { background: var(--run-fill); }
+/* The overseer's page: a timeline of events, the agents that wait on you, and the chat docked at the bottom. */
+.h-col { max-width: 1080px; }
+.h-lane { display: flex; align-items: center; gap: 10px; min-height: 26px; margin-bottom: 10px; }
+.h-lane h3 { margin: 0; font-size: 11.5px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; color: var(--fg-dim); }
+.h-lane .h-n { font: 500 12px var(--mono); color: var(--fg-faint); }
+.h-lane .grow { flex: 1; }
+/* The timeline: a dot per event on one line, the newest on the right, stacked in up to three rows where they crowd. */
+.h-time { margin-bottom: 36px; }
+.tl-track { position: relative; height: 52px; border-radius: var(--r-2); background: var(--raise); box-shadow: 0 0 0 1px var(--line); }
+.tl-track.empty .tl-line { display: none; }
+.tl-line { position: absolute; left: 14px; right: 14px; top: 50%; height: 1px; background: var(--line-strong); }
+.tl-in { position: absolute; inset: 0 14px; }
+.tl-dot { --d: 9px; --c: var(--fg-faint); position: absolute; top: 50%; width: var(--d); height: var(--d); margin: calc(var(--d) / -2) 0 0 calc(var(--d) / -2);
+  padding: 0; border: 0; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 2px var(--raise); transform: translateY(var(--y, 0px)); cursor: default; transition: transform .12s ease; }
+.tl-dot::before { content: ""; position: absolute; inset: -6px; border-radius: 50%; }
+.tl-dot[data-loud] { --d: 12px; }
+.tl-dot[data-go] { cursor: pointer; }
+.tl-dot:hover, .tl-dot:focus-visible { outline: none; transform: translateY(var(--y, 0px)) scale(1.4); box-shadow: 0 0 0 2px var(--raise), 0 0 0 3.5px var(--c); }
+.tl-dot[data-tone="bad"] { --c: var(--stop); }
+.tl-dot[data-tone="warn"] { --c: var(--amber); }
+.tl-dot[data-tone="ok"] { --c: var(--ok); }
+.tl-dot[data-tone="run"] { --c: var(--run); }
+.tl-tip { position: absolute; top: calc(100% + 6px); z-index: 3; max-width: min(420px, 100%); padding: 6px 10px; border-radius: var(--r-1); background: var(--raise);
+  box-shadow: 0 0 0 1px var(--line-strong), 0 10px 28px -10px var(--shade); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.tl-tip b { font: 500 11.5px var(--mono); color: var(--fg-dim); }
+.tl-none { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 0 16px; color: var(--fg-faint); font-size: 12.5px; text-align: center; }
+.tl-axis { display: flex; justify-content: space-between; margin-top: 6px; padding: 0 8px; font: 11px var(--mono); color: var(--fg-faint); }
+/* Waiting on you: a card per agent that finished with a question, or with work left. */
+.h-board { padding-bottom: 24px; }
+.h-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 12px; align-items: start; }
+.h-empty { grid-column: 1 / -1; margin: 0; padding: 22px 18px; border: 1px dashed var(--line-strong); border-radius: var(--r-2); color: var(--fg-dim); font-size: 13px; text-align: center; }
+.fu-card { position: relative; display: grid; gap: 10px; min-width: 0; padding: 14px 14px 12px 18px; border-radius: var(--r-2); background: var(--raise); box-shadow: 0 0 0 1px var(--line); }
+.fu-card::before { content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px; border-radius: 0 3px 3px 0; background: var(--amber); }
+.fu-card[data-v="stopped-short"]::before { background: var(--run); }
+.fu-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.fu-name { min-width: 0; padding: 0; border: 0; background: none; color: var(--fg); font-size: 14px; font-weight: 600; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.fu-name:hover { text-decoration: underline; text-underline-offset: 3px; }
+.fu-tag { flex: none; height: 20px; padding: 0 8px; border-radius: var(--r-pill); background: var(--amber-fill); color: var(--amber); font-size: 11.5px; font-weight: 600; line-height: 20px; }
+.fu-card[data-v="stopped-short"] .fu-tag { background: var(--run-fill); color: var(--run); }
+.fu-time { flex: none; margin-left: auto; font: 11.5px var(--mono); color: var(--fg-faint); }
+.fu-x { flex: none; width: 24px; height: 24px; margin: -4px -6px -4px -2px; }
+.fu-ask { margin: 0; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.fu-pr { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; font-size: 12px; color: var(--fg-dim); }
+.fu-said summary { width: fit-content; cursor: pointer; color: var(--fg-faint); font-size: 12px; }
+.fu-said summary:hover { color: var(--fg-dim); }
+.fu-said .m-body { margin-top: 6px; max-height: 16em; overflow: auto; font-size: 13px; line-height: 1.55; color: var(--fg-dim); }
+.fu-reply { display: block; width: 100%; min-height: 36px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-1); background: var(--panel); color: var(--fg); resize: none; font: 13px/1.5 var(--sans); }
+.fu-reply:focus { outline: none; border-color: var(--line-strong); }
+.fu-how { color: var(--amber); font-size: 12px; }
+.fu-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.fu-acts .grow { flex: 1; }
+.btn.primary.fu-merge { background: var(--ok); color: var(--on-solid); }
+.btn.primary.fu-merge.armed { box-shadow: 0 0 0 2px var(--raise), 0 0 0 3.5px var(--ok); }
+/* The chat, docked: one line folded; open, the conversation above the box you write in. */
+.h-dock { flex: none; display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--line); }
+.h-dock[data-open="1"] { height: min(64%, 680px); }
+.h-dock-head { display: flex; align-items: center; gap: 8px; padding-top: 10px; }
+.h-dock-sum { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 8px; border: 0; border-radius: var(--r-1); background: transparent; color: var(--fg-dim); font-size: 13px; text-align: left; cursor: pointer; }
+.h-dock-sum:hover { background: var(--fill); color: var(--fg); }
+.h-dock-sum .ov-mark { width: 16px; height: 16px; border-radius: 5px; }
+.h-dock-sum .ov-mark::after { inset: 5px; }
+#h-last { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#h-dock-n { flex: none; height: 22px; }
+#h-dock-n:empty { display: none; }
+.h-dock-sum .chev { flex: none; width: 7px; height: 7px; margin: 0 4px; border: solid currentColor; border-width: 1.5px 1.5px 0 0; transform: rotate(-45deg) translateY(2px); transition: transform .15s; }
+.h-dock[data-open="1"] .h-dock-sum .chev { transform: rotate(135deg) translateY(2px); }
+#h-tools { display: flex; gap: 6px; }
+#h-tools:empty { display: none; }
+.h-dock-body { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding-block: 18px 8px; }
+.h-dock-foot { padding-block: 8px 18px; }
 /* The GitHub panel's lists: each repository's pull requests and default-branch runs, with their states. */
 .gh-side .gh-hint { margin: 8px 0 0; color: var(--fg-dim); font-size: 12.5px; line-height: 1.5; }
 .gh-side .gh-hint p { margin: 0; }
@@ -1178,26 +1223,37 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
        shows for the agents' repositories beside it. -->
   <section class="home" id="home" aria-label="Overseer" hidden>
     <div class="h-main">
-      <div class="d-top-band"><div class="d-col h-head">
+      <div class="d-top-band"><div class="d-col h-col h-head">
         <span class="ov-mark" aria-hidden="true"></span><h2 class="d-name">Overseer</h2>
         <span class="d-meta" id="h-meta"></span>
-        <span id="h-tools"></span>
         <button class="btn icon h-close" type="button" id="h-close" aria-label="Back to the sessions" title="Back to the sessions"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </div></div>
+      <!-- What happened, as a timeline, and the agents that stopped and wait on you: what the rail does not show. -->
       <div class="d-scroll" id="h-scroll">
-        <div class="d-col">
-          <div id="h-follow"></div>
-          <div id="h-next"></div>
-          <div class="h-intro" id="h-intro"></div>
-          <div class="thread" id="h-thread"></div>
-          <div class="chips" id="h-chips"></div>
+        <div class="d-col h-col">
+          <section class="h-time" id="h-time" aria-label="Events"></section>
+          <section class="h-board" id="h-board" aria-label="Waiting on you"></section>
         </div>
       </div>
-      <div class="d-foot">
-        <div class="d-col">
+      <!-- The chat with the overseer, docked at the bottom: one line folded, the conversation when open. -->
+      <div class="h-dock" id="h-dock" data-open="0">
+        <div class="d-col h-dock-head">
+          <button class="h-dock-sum" type="button" id="h-dock-tog" aria-expanded="false" aria-controls="h-dock-body">
+            <span class="ov-mark" aria-hidden="true"></span><span id="h-last"></span><span class="tag" data-s="busy" id="h-dock-n"></span><i class="chev" aria-hidden="true"></i>
+          </button>
+          <span id="h-tools"></span>
+        </div>
+        <div class="h-dock-body" id="h-dock-body" hidden>
+          <div class="d-col">
+            <div class="h-intro" id="h-intro"></div>
+            <div class="thread" id="h-thread"></div>
+            <div class="chips" id="h-chips"></div>
+          </div>
+        </div>
+        <div class="d-col h-dock-foot">
           <div class="d-now" id="h-busy" hidden></div>
           <div class="composer">
-            <textarea id="h-say" rows="2" placeholder="Ask about your agents, or say what you want done" aria-label="Your message to the overseer"></textarea>
+            <textarea id="h-say" rows="1" placeholder="Ask about your agents, or say what you want done" aria-label="Your message to the overseer"></textarea>
             <div class="c-bar">
               <select class="c-mode" id="h-model" aria-label="The overseer's model" title="The model the overseer answers with"></select>
               <span class="grow"></span>
@@ -3207,14 +3263,13 @@ function renderGh(s) {
 
 // ---------- the overseer: the home view, one chat over every session, its proposals confirmed one click at a time ----------
 const ov = { rev: -1, feedSeq: -1, feedStart: null, turns: [], feed: [], more: false, tBusy: false, fBusy: false, profile: null };
-const ovOpenFolds = new Set(); // the folded runs of events you opened, by key
 let homeOpen = false; // a narrow window shows the home view only when asked for
 const ovEdits = new Map(); // action id → what you changed in its card before running it
 /** Fetch the turns and the feed when the snapshot says they changed. They stay out of the snapshot, which is resent whole. */
 async function syncOverseer() {
   const st = snap?.overseer;
   if (!st) return;
-  if (ov.profile !== snap.workspace?.id) { Object.assign(ov, { rev: -1, feedSeq: -1, feedStart: null, turns: [], feed: [], profile: snap.workspace?.id }); ovEdits.clear(); ovOpenFolds.clear(); }
+  if (ov.profile !== snap.workspace?.id) { Object.assign(ov, { rev: -1, feedSeq: -1, feedStart: null, turns: [], feed: [], profile: snap.workspace?.id }); ovEdits.clear(); }
   // The events were cleared (here or in another window): what this page holds goes, and it reads on from there.
   if (st.feedStart !== ov.feedStart) { Object.assign(ov, { feed: [], feedSeq: st.feedStart ?? 0, feedStart: st.feedStart }); render(); }
   if (st.rev !== ov.rev && !ov.tBusy) {
@@ -3295,49 +3350,124 @@ async function actOn(t, a, decision, btn) {
   ovEdits.delete(a.id);
   if (r.action?.type === 'launch' && r.action.state === 'done') { const id = /\((\w+)\)/.exec(r.action.result ?? '')?.[1]; if (id) launchedId = id; }
 }
-// ---------- follow up: agents that stopped before the work was done (the overseer checks each turn's last message) ----------
+// ---------- the timeline: what happened, a dot per event, the newest on the right ----------
+/** Events that matter most: something failed or needs you. Their dots are bigger. */
+const LOUD = new Set(['needs-you', 'failed', 'ci-failed', 'main-failed', 'fix-failed', 'fix-capped', 'fix-alert']);
+const TL_MIN = 3_600_000, TL_MAX = 24 * 3_600_000; // the span shown: from the oldest event of the last day, an hour at least
+/** An event's colour, by its type: bad, warn, ok, run, or quiet. */
+function toneOf(type) {
+  if (/fail|capped/.test(type)) return 'bad';
+  if (type === 'needs-you' || type === 'fix-alert') return 'warn';
+  if (/recovered|merged|^done$|finished/.test(type)) return 'ok';
+  if (/started|launched|opened|sent/.test(type)) return 'run';
+  return 'quiet';
+}
+/** The events of the last day on one line, with a tip on hover or focus. A dot about a session opens it. Rebuilt when
+ *  an event comes or goes, and once a minute as time moves on. */
+function renderTimeline() {
+  const box = $('h-time'), now = snap.now, evs = ov.feed.filter((f) => now - f.at <= TL_MAX);
+  const sig = JSON.stringify([evs.map((f) => f.seq), Math.floor(now / 60_000), armed?.key === 'ovfeed:']);
+  if (box._sig === sig) return;
+  box._sig = sig;
+  const span = Math.max(TL_MIN, evs.length ? now - evs[0].at : 0) * 1.03, from = now - span;
+  const tip = el('div', { class: 'tl-tip', role: 'tooltip', hidden: true });
+  const show = (b, f) => {
+    tip.replaceChildren(el('b', { text: clock(f.at) }), ' ', f.text);
+    tip.hidden = false;
+    const t = b.parentNode.getBoundingClientRect(), w = tip.offsetWidth, x = b.getBoundingClientRect().left + 5 - t.left;
+    tip.style.left = `${Math.max(0, Math.min(t.width - w, x - w / 2))}px`;
+  };
+  const hide = () => { tip.hidden = true; };
+  const last = [-Infinity, -Infinity, -Infinity]; // where each of the three rows last put a dot, in %
+  const dots = evs.map((f) => {
+    const x = ((f.at - from) / span) * 100;
+    let row = last.findIndex((at) => x - at >= 1.4);
+    if (row < 0) row = last.indexOf(Math.min(...last));
+    last[row] = x;
+    const s = f.sessionId ? sessionByShort(f.sessionId) : null;
+    const b = el('button', { class: 'tl-dot', type: 'button', 'data-tone': toneOf(f.type), 'data-loud': LOUD.has(f.type), 'data-go': Boolean(s),
+      style: `left:${x.toFixed(2)}%;--y:${[0, -13, 13][row]}px`, 'aria-label': `${clock(f.at)}: ${f.text}${s ? '. Opens the session.' : ''}`,
+      onclick: s ? () => { cancelAdvance(); open = s.sessionId; render(); } : null });
+    b.onpointerenter = b.onfocus = () => show(b, f);
+    b.onpointerleave = b.onblur = hide;
+    return b;
+  });
+  const loud = evs.filter((f) => LOUD.has(f.type)).length;
+  box.replaceChildren(
+    el('div', { class: 'h-lane' }, el('h3', { text: 'Events' }),
+      el('span', { class: 'h-n', text: evs.length ? `${evs.length}${loud ? ` · ${loud} to look at` : ''}` : '' }), el('span', { class: 'grow' }),
+      ov.feed.length ? armBtn('ovfeed:', 'Clear', 'Confirm clear', async () => {
+        const r = await api('/api/overseer/clear-feed', {}); if (!r.ok) toast(r.error || 'They were not cleared.', true); }, 'soft small') : null),
+    el('div', { class: 'tl-track' + (evs.length ? '' : ' empty') }, el('i', { class: 'tl-line', 'aria-hidden': 'true' }), el('div', { class: 'tl-in' }, ...dots, tip),
+      evs.length ? null : el('span', { class: 'tl-none', text: 'No events yet. Agents finishing, CI and merges show here.' })),
+    el('div', { class: 'tl-axis', 'aria-hidden': 'true' }, el('span', { text: clock(from) }), el('span', { text: clock(from + span / 2) }), el('span', { text: 'now' })));
+}
+
+// ---------- the board: agents that stopped and wait on you (the overseer reads each turn's last message) ----------
 const fuEdits = new Map(); // sessionId → the reply as you changed it
 const fuNodes = new Map(); // sessionId → { sig, node }
 const fuSure = new Set();  // sessionIds whose send was held for a restart: the next click sends anyway
-const FU_WORDS = { 'needs-answer': 'Asks you', 'stopped-short': 'Stopped short' };
-/** The cards, newest first. Each is rebuilt only when it changes, so a reply you are editing survives a broadcast. */
-function renderFollow() {
-  const list = snap.overseer?.follow ?? [], box = $('h-follow');
-  if (!list.length) { box.replaceChildren(); fuNodes.clear(); return; }
-  const want = [box.firstChild?.classList?.contains('fu-head') ? box.firstChild : el('div', { class: 'fu-head' }, el('span', { text: 'Follow up' }), el('span', { class: 'fu-n' }))];
-  setText(want[0].lastChild, String(list.length));
-  for (const f of list) {
-    const s = sessionByShort(f.sessionId), sig = JSON.stringify([f, s && label(s), s?.lastMessage, fuSure.has(f.sessionId)]);
+const FU_WORDS = { 'needs-answer': 'Asks you', 'stopped-short': 'Unfinished' };
+const REVIEW_WORDS = { APPROVED: 'approved', CHANGES_REQUESTED: 'changes requested', REVIEW_REQUIRED: 'review required' };
+const UNREADY_WORDS = { BLOCKED: 'blocked', DIRTY: 'has conflicts', BEHIND: 'behind its base', UNSTABLE: 'a check fails', UNKNOWN: 'checking' };
+/** Its pull request can be merged now, as the last poll saw it: not a draft, and GitHub calls it clean. */
+const mergeable = (pr) => Boolean(pr && !pr.draft && pr.sha && (pr.mergeState === 'CLEAN' || pr.mergeState === 'HAS_HOOKS'));
+let fuEmpty = null;
+/** "Waiting on you": a card per agent that finished with a question or with work left, newest first. Each card is
+ *  rebuilt only when it changes, so a reply you are editing survives a broadcast. */
+function renderWaiting() {
+  const list = snap.overseer?.follow ?? [], box = $('h-board');
+  if (!box.firstChild) box.append(el('div', { class: 'h-lane' }, el('h3', { text: 'Waiting on you' }), el('span', { class: 'h-n' })), el('div', { class: 'h-cards' }));
+  setText(box.firstChild.lastChild, list.length ? String(list.length) : '');
+  const grid = box.lastChild;
+  const want = list.map((f) => {
+    const s = sessionByShort(f.sessionId);
+    const sig = JSON.stringify([f, s && label(s), s?.lastMessage, s?.gh?.pr, fuSure.has(f.sessionId), armed?.key === 'merge:' + f.sessionId]);
     let n = fuNodes.get(f.sessionId);
     if (!n || n.sig !== sig) { n = { sig, node: fuCard(f, s) }; fuNodes.set(f.sessionId, n); }
-    want.push(n.node);
-  }
+    return n.node;
+  });
   const keep = new Set(list.map((f) => f.sessionId));
   for (const k of fuNodes.keys()) if (!keep.has(k)) { fuNodes.delete(k); fuEdits.delete(k); fuSure.delete(k); }
-  want.forEach((n, i) => { if (box.children[i] !== n) box.insertBefore(n, box.children[i] ?? null); });
-  while (box.children.length > want.length) box.lastChild.remove();
+  if (!want.length) want.push(fuEmpty ??= el('p', { class: 'h-empty', text: 'Nothing waits on you. Agents that finish with a question, or with work left, show up here.' }));
+  want.forEach((n, i) => { if (grid.children[i] !== n) grid.insertBefore(n, grid.children[i] ?? null); });
+  while (grid.children.length > want.length) grid.lastChild.remove();
+  // A reply drawn while the page was hidden never got its height: it gets it once it shows.
+  for (const ta of grid.querySelectorAll('.fu-reply')) if (!ta.style.height) fit(ta);
 }
-/** One agent to follow up: what it asks or left, what it said, a drafted reply you can change, and Send, Open, Dismiss. */
+window.addEventListener('resize', () => { for (const ta of document.querySelectorAll('.fu-reply')) fit(ta); });
+/** One agent waiting on you: what it asks or left, its pull request, what it said, a drafted reply you can change, and
+ *  Merge (when its pull request is green), Send or Keep going, and Open. */
 function fuCard(f, s) {
-  const name = s ? label(s) : f.sessionId.slice(0, 8), how = howWords(f.how, s);
-  const ta = el('textarea', { class: 'cmd', rows: 2, 'aria-label': `Your reply to ${name}`, spellcheck: 'true' });
+  const name = s ? label(s) : f.sessionId.slice(0, 8), how = howWords(f.how, s) ?? [''], pr = s?.gh?.pr, green = mergeable(pr);
+  const unfinished = f.verdict === 'stopped-short', openIt = () => { cancelAdvance(); open = f.sessionId; render(); };
+  const ta = el('textarea', { class: 'fu-reply', rows: 1, 'aria-label': `Your reply to ${name}`, spellcheck: 'true' });
   ta.value = fuEdits.get(f.sessionId) ?? f.reply;
   ta.classList.toggle('edited', ta.value !== f.reply);
   ta.oninput = () => { fuEdits.set(f.sessionId, ta.value); ta.classList.toggle('edited', ta.value !== f.reply); fit(ta); };
   ta.onkeydown = (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send.click(); } };
   requestAnimationFrame(() => fit(ta));
-  const send = el('button', { class: 'btn primary small', type: 'button', text: fuSure.has(f.sessionId) ? 'Send anyway' : 'Send',
-    title: 'Send this to the agent (⌘↩)', onclick: (e) => fuAct(f, 'send', e.currentTarget, ta.value) });
-  return el('div', { class: 'ov-act fu-card', 'data-state': 'proposed', 'data-v': f.verdict },
-    el('div', { class: 'a-head' }, el('span', { class: 'a-what', text: name }), el('span', { class: 'tag', text: FU_WORDS[f.verdict] ?? f.verdict }),
-      el('span', { class: 'ft', text: clock(f.at), title: new Date(f.at).toLocaleString() })),
+  const send = el('button', { class: 'btn small' + (green ? ' soft' : ' primary'), type: 'button',
+    text: fuSure.has(f.sessionId) ? 'Send anyway' : unfinished ? 'Keep going' : 'Send',
+    title: `${unfinished ? 'Send this so it carries on' : 'Send this to the agent'} (⌘↩)`, onclick: (e) => fuAct(f, 'send', e.currentTarget, ta.value) });
+  const key = 'merge:' + f.sessionId, sure = armed?.key === key;
+  const merge = green ? el('button', { class: 'btn small primary fu-merge' + (sure ? ' armed' : ''), type: 'button', text: sure ? `Confirm merge #${pr.number}` : `Merge #${pr.number}`,
+    title: `Merge pull request #${pr.number} with the repository’s default method. Click again to confirm.`, onclick: () => confirmOr(key, () => fuMerge(f, pr)) }) : null;
+  const prState = pr ? [REVIEW_WORDS[pr.review], !green && !pr.draft ? UNREADY_WORDS[pr.mergeState] : null, pr.draft ? 'draft' : null].filter(Boolean).join(' · ') : '';
+  return el('article', { class: 'fu-card', 'data-v': f.verdict, 'aria-label': `${name}, ${FU_WORDS[f.verdict] ?? f.verdict}` },
+    el('header', { class: 'fu-top' },
+      el('button', { class: 'fu-name', type: 'button', text: name, title: 'Open this session', onclick: openIt }),
+      el('span', { class: 'fu-tag', text: FU_WORDS[f.verdict] ?? f.verdict }),
+      el('span', { class: 'fu-time', text: clock(f.at), title: new Date(f.at).toLocaleString() }),
+      el('button', { class: 'btn icon fu-x', type: 'button', 'aria-label': `Dismiss ${name}`, title: 'Nothing to do here: hide this card',
+        onclick: (e) => fuAct(f, 'dismiss', e.currentTarget) }, svgIcon('M6 6l12 12M18 6L6 18'))),
     f.ask ? el('p', { class: 'fu-ask', text: f.ask }) : null,
-    s?.lastMessage ? el('details', {}, el('summary', { text: 'What it said' }), el('div', { class: 'm-body' }, md(s.lastMessage))) : null,
+    pr ? el('div', { class: 'fu-pr' }, prChip(s), prState ? el('span', { text: prState }) : null) : null,
+    s?.lastMessage ? el('details', { class: 'fu-said' }, el('summary', { text: 'What it said' }), el('div', { class: 'm-body' }, md(s.lastMessage))) : null,
     ta,
-    how ? el('div', { class: 'a-how' + (how[1] ? ' warn' : ''), text: how[0] }) : null,
-    el('div', { class: 'row' }, send,
-      el('button', { class: 'btn quiet small', type: 'button', text: 'Open', onclick: () => { cancelAdvance(); open = f.sessionId; render(); } }),
-      el('button', { class: 'btn quiet small', type: 'button', text: 'Dismiss', title: 'Nothing to follow up: hide this card', onclick: (e) => fuAct(f, 'dismiss', e.currentTarget) })));
+    // Said only when sending would close Claude in its terminal: a background job just carries on.
+    f.how === 'restart' && s?.kind === 'interactive' && s.inRoster ? el('div', { class: 'fu-how', text: how[0] }) : null,
+    el('div', { class: 'fu-acts' }, merge, send, el('span', { class: 'grow' }), el('button', { class: 'btn quiet small', type: 'button', text: 'Open', onclick: openIt })));
 }
 async function fuAct(f, decision, btn, text) {
   btn.disabled = true;
@@ -3348,63 +3478,49 @@ async function fuAct(f, decision, btn, text) {
   fuEdits.delete(f.sessionId); fuSure.delete(f.sessionId);
   if (r.result && r.result !== 'Sent.') toast(r.result);
 }
+async function fuMerge(f, pr) {
+  const r = await api('/api/github/merge', { sessionId: f.sessionId, number: pr.number, sha: pr.sha });
+  if (!r.ok) { toast(r.error || 'It was not merged.', true); return; }
+  toast(`Merged #${pr.number}.`);
+}
+
+// ---------- the chat, docked at the bottom: one line folded, the conversation when open ----------
+let dockOpen = pref('acp.ovDock') === '1';
+let ovProposedWas = null; // proposals waiting at the last render: a new one opens the dock
+function setDock(on) {
+  if (dockOpen === on) return;
+  dockOpen = on;
+  pref('acp.ovDock', on ? '1' : '0');
+  if (on) ovPin = true;
+  render();
+}
+/** The folded dock's line: what the overseer is doing, or the start of what it said last. */
+function dockLine(st) {
+  if (dockOpen && !st?.busy) return 'Chat with the overseer';
+  if (st?.busy) return st.busy.phase === 'looking' ? 'Reading transcripts…' : 'Thinking…';
+  const t = ov.turns.findLast((x) => x.who === 'overseer');
+  if (!t) return 'Ask the overseer about your agents.';
+  const text = t.error || String(t.text ?? '').replace(/[*_`#>]/g, '').replace(/\s+/g, ' ').trim();
+  return (text.match(/^.{1,160}?[.!?](\s|$)/)?.[0] ?? text.slice(0, 160)).trim() || 'It answered with a proposal.';
+}
 const ovNodes = new Map(); // thread key → { sig, node }
-/** Events that stay in view on their own: something failed or needs you. The rest fold, a run at a time. */
-const LOUD = new Set(['needs-you', 'failed', 'ci-failed', 'main-failed', 'fix-failed', 'fix-capped', 'fix-alert']);
-/** The thread's items, in time order: your messages, its answers, and the events between them. Of each run of events
- *  between two messages, the loud ones show and the rest fold into one line (a lone one shows as it is). */
-function ovItems() {
-  const first = ov.turns[0]?.at ?? 0;
-  const seq = [...ov.turns.map((t) => ({ at: t.at, key: t.id, t })),
-    ...ov.feed.filter((f) => f.at >= first || !ov.turns.length).slice(-200).map((f) => ({ at: f.at, key: 'f' + f.seq, f }))]
-    .sort((a, b) => a.at - b.at || (a.key < b.key ? -1 : 1));
-  const items = [];
-  let run = [];
-  const flush = () => {
-    const quiet = run.filter((f) => !LOUD.has(f.type));
-    for (const f of run) if (LOUD.has(f.type) || quiet.length < 2) items.push({ key: 'f' + f.seq, sig: f.text, build: () => feedEl(f) });
-    if (quiet.length >= 2) {
-      const key = 'fold' + quiet[0].seq, more = quiet.length < run.length;
-      items.push({ key, sig: `${quiet.at(-1).seq}:${quiet.length}:${more}`, build: () => foldEl(key, quiet, more) });
-    }
-    run = [];
-  };
-  for (const it of seq) {
-    if (it.f) { run.push(it.f); continue; }
-    flush();
-    items.push({ key: it.key, sig: JSON.stringify(it.t), build: () => turnEl(it.t) });
-  }
-  flush();
-  return items;
-}
-/** A run of quiet events as one line, "12 events · 14:02–14:30", that opens to show them. */
-function foldEl(key, evs, more) {
-  const span = clock(evs[0].at) === clock(evs.at(-1).at) ? clock(evs[0].at) : `${clock(evs[0].at)}–${clock(evs.at(-1).at)}`;
-  const d = el('details', { class: 'msg feed-fold' },
-    el('summary', { class: 'msg feed' }, el('span', { class: 'fd', 'aria-hidden': 'true' }),
-      el('span', { class: 'fx', text: `${evs.length}${more ? ' more' : ''} events` }), el('span', { class: 'ft', text: span })),
-    el('div', { class: 'ff-list' }, ...evs.map(feedEl)));
-  d.open = ovOpenFolds.has(key);
-  d.ontoggle = () => { if (d.open) ovOpenFolds.add(key); else ovOpenFolds.delete(key); };
-  return d;
-}
-/** The thread: your messages, its answers with their proposals, and the events between them. Each item is rebuilt
- *  only when it changes, so a card you are editing survives a new event. */
+/** The conversation: your messages and its answers with their proposals. Each item is rebuilt only when it changes,
+ *  so a card you are editing survives a broadcast. */
 function renderOvThread() {
-  const items = ovItems();
-  const box = $('h-thread'), want = [];
-  for (const it of items) {
-    let n = ovNodes.get(it.key);
-    if (!n || n.sig !== it.sig) { n = { sig: it.sig, node: it.build() }; ovNodes.set(it.key, n); }
+  const box = $('h-thread'), scroller = $('h-dock-body'), want = [];
+  for (const t of ov.turns) {
+    const sig = JSON.stringify(t);
+    let n = ovNodes.get(t.id);
+    if (!n || n.sig !== sig) { n = { sig, node: turnEl(t) }; ovNodes.set(t.id, n); }
     want.push(n.node);
   }
-  const keep = new Set(items.map((i) => i.key));
+  const keep = new Set(ov.turns.map((t) => t.id));
   for (const k of ovNodes.keys()) if (!keep.has(k)) ovNodes.delete(k);
-  const atEnd = $('h-scroll').scrollHeight - $('h-scroll').scrollTop - $('h-scroll').clientHeight < 40;
+  const atEnd = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 40;
   want.forEach((n, i) => { if (box.children[i] !== n) box.insertBefore(n, box.children[i] ?? null); });
   while (box.children.length > want.length) box.lastChild.remove();
   // The conversation keeps to its newest line.
-  if (atEnd || ovPin) { $('h-scroll').scrollTop = $('h-scroll').scrollHeight; ovPin = false; }
+  if (dockOpen && (atEnd || ovPin)) { scroller.scrollTop = scroller.scrollHeight; ovPin = false; }
 }
 let ovPin = true;
 function turnEl(t) {
@@ -3415,10 +3531,6 @@ function turnEl(t) {
     el('div', { class: 'm-body' }, t.error ? t.error : md(t.text)),
     t.actions?.length ? el('div', { class: 'ov-acts' }, ...t.actions.map((a) => actCard(t, a))) : null);
 }
-function feedEl(f) {
-  return el('div', { class: 'msg feed', 'data-t': f.type, title: new Date(f.at).toLocaleString() },
-    el('span', { class: 'fd', 'aria-hidden': 'true' }), el('span', { class: 'fx', text: f.text }), el('span', { class: 'ft', text: clock(f.at) }));
-}
 const STARTERS = ['What needs me right now?', 'What is everyone doing?', 'Is anything failing on GitHub?'];
 async function sayOverseer(text) {
   text = text.trim();
@@ -3426,6 +3538,7 @@ async function sayOverseer(text) {
   const ta = $('h-say');
   ta.value = ''; fit(ta); syncSay();
   ovPin = true;
+  setDock(true);
   const r = await api('/api/overseer/say', { text });
   if (!r.ok) { ta.value = ta.value ? `${text}\n${ta.value}` : text; fit(ta); syncSay(); toast(r.error || 'It did not go through.', true); }
 }
@@ -3435,6 +3548,7 @@ $('h-say').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shif
 $('h-send').onclick = () => sayOverseer($('h-say').value);
 $('h-model').onchange = async () => { const r = await api('/api/overseer/model', { model: $('h-model').value }); if (!r.ok) toast(r.error || 'The model did not change.', true); };
 $('h-close').onclick = () => { homeOpen = false; render(); };
+$('h-dock-tog').onclick = () => setDock(!dockOpen);
 const MODEL_NAMES = { haiku: 'Haiku', sonnet: 'Sonnet', opus: 'Opus', fable: 'Fable' };
 /** The overseer's model in words: Claude's by name, an OpenCode one (opencode:provider/model) as OpenCode's. */
 const ovModelName = (m) => MODEL_NAMES[m] ?? (String(m).startsWith('opencode:') ? `${m.slice(9)} (OpenCode)` : m);
@@ -3606,17 +3720,21 @@ function renderHome(g) {
   renderOvRow();
   if (home.hidden) return;
   syncOverseer();
-  // Someone waits: the one that has waited longest, one click away.
-  const next = g.waiting[0], n = g.waiting.length;
-  patch($('h-next'), next ? `${next.sessionId}:${n}:${label(next)}` : '', () => next ? [
-    el('span', { text: `${n === 1 ? 'One session needs' : n + ' sessions need'} you.` }),
-    el('button', { class: 'btn small', type: 'button', onclick: () => { cancelAdvance(); open = next.sessionId; render(); } }, 'Open ' + label(next))] : null);
-  const busy = st?.busy;
+  const busy = st?.busy, proposed = st?.proposed ?? 0;
+  // A proposal that just arrived opens the chat, so it is seen.
+  if (ovProposedWas != null && proposed > ovProposedWas && !dockOpen) { ovProposedWas = proposed; setDock(true); return; }
+  ovProposedWas = proposed;
   setText($('h-meta'), st ? `${ovModelName(st.model)} · proposes, you confirm` : '');
-  patch($('h-tools'), JSON.stringify([ov.turns.length > 0, ov.feed.length > 0, armed?.key]), () => [
-    ov.feed.length ? armBtn('ovfeed:', 'Clear events', 'Confirm clear events', async () => {
-      const r = await api('/api/overseer/clear-feed', {}); if (!r.ok) toast(r.error || 'They were not cleared.', true); }, 'soft small') : null,
-    ov.turns.length ? armBtn('ovclear:', 'Clear chat', 'Confirm clear chat', async () => {
+  renderTimeline();
+  renderWaiting();
+  setAttr($('h-dock'), 'data-open', dockOpen ? '1' : '0');
+  setAttr($('h-dock-tog'), 'aria-expanded', String(dockOpen));
+  setAttr($('h-dock-tog'), 'title', dockOpen ? 'Fold the chat' : 'Open the chat with the overseer');
+  $('h-dock-body').hidden = !dockOpen;
+  setText($('h-last'), dockLine(st));
+  setText($('h-dock-n'), proposed ? `${proposed} to confirm` : '');
+  patch($('h-tools'), JSON.stringify([dockOpen && ov.turns.length > 0, armed?.key === 'ovclear:']), () => [
+    dockOpen && ov.turns.length ? armBtn('ovclear:', 'Clear chat', 'Confirm clear chat', async () => {
       const r = await api('/api/overseer/clear', {}); if (!r.ok) toast(r.error || 'It was not cleared.', true); ovNodes.clear(); }, 'soft small') : null]);
   const intro = !ov.turns.length;
   patch($('h-intro'), String(intro), () => intro ? [
@@ -3625,10 +3743,9 @@ function renderHome(g) {
   const starters = !ov.turns.length && !busy;
   patch($('h-chips'), String(starters), () => starters
     ? STARTERS.map((q) => el('button', { class: 'chip', type: 'button', text: q, onclick: () => sayOverseer(q) })) : null);
-  renderFollow();
   renderOvThread();
-  $('h-busy').hidden = !busy;
-  if (busy) patch($('h-busy'), JSON.stringify([busy.phase, Math.floor((snap.now - busy.since) / 1000)]), () => [
+  $('h-busy').hidden = !busy || !dockOpen;
+  if (busy && dockOpen) patch($('h-busy'), JSON.stringify([busy.phase, Math.floor((snap.now - busy.since) / 1000)]), () => [
     el('span', { class: 'tag', 'data-s': 'busy' }, glyph('busy'), busy.phase === 'looking' ? 'Reading transcripts' : 'Thinking'),
     el('span', { class: 'quiet', text: ago(snap.now - busy.since) }), el('span', { class: 'grow' }),
     el('button', { class: 'btn quiet small', type: 'button', text: 'Stop', onclick: () => api('/api/overseer/stop', {}) })]);

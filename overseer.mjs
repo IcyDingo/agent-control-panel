@@ -731,13 +731,14 @@ export function createOverseer({
     }).sort((a, b) => b.at - a.at);
   }
 
-  /** Your answer to a card: send its reply (as you edited it, checked as any message to an agent is) or dismiss it.
+  /** Your answer to a card: send its reply (as you edited it, checked as any message to an agent is) or dismiss it
+   *  ('merged': its pull request was merged from the card, so it is closed too).
    *  `how` is what the card said a message would do; one that would now restart it waits for a second click. */
   async function follow({ sessionId, decision, text, how } = {}) {
     const f = followUps().find((x) => x.sessionId === sessionId);
     if (!f) return fail('That follow-up is not open any more.');
     const entry = prof().follow[sessionId];
-    if (decision === 'dismiss') { entry.closed = 'dismissed'; changed(); return { ok: true }; }
+    if (decision === 'dismiss' || decision === 'merged') { entry.closed = decision; changed(); return { ok: true }; }
     if (decision !== 'send') return fail('Choose send or dismiss.');
     const t = typeof text === 'string' ? text.trim() : f.reply;
     const problem = textProblem(t);
