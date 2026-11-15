@@ -1328,15 +1328,18 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
     <div class="row"><button class="btn" type="button" id="l-cancel">Cancel</button><button class="btn primary" type="submit" id="l-go">Launch agent</button></div>
   </form>
 </dialog>
-<!-- A Claude session at its usage limit, carried on in OpenCode: only when you ask, on the model you pick. -->
+<!-- Hand a session's work over: to another Claude login of this workspace, or between Claude Code and OpenCode. Only
+     when you ask, to where and on the model you pick. -->
 <dialog class="launcher" id="cont" aria-labelledby="cont-title">
   <form id="cont-form">
-    <h2 id="cont-title">Continue in OpenCode</h2>
+    <h2 id="cont-title">Hand over</h2>
     <p class="lead" id="cont-lead"></p>
-    <div class="lf l-oc"><span id="cont-model-t">Model</span><select class="field" id="cont-model" aria-labelledby="cont-model-t"></select>
+    <label class="lf"><span>To</span><select class="field" id="cont-to"></select></label>
+    <div class="lf"><span id="cont-model-t">Model</span><select class="field" id="cont-model" aria-labelledby="cont-model-t"></select>
       <p class="l-note" id="cont-note" hidden></p></div>
+    <p class="l-note" id="cont-how"></p>
     <p class="err" id="cont-err" hidden></p>
-    <div class="row"><button class="btn" type="button" id="cont-cancel">Cancel</button><button class="btn primary" type="submit" id="cont-go">Continue in OpenCode</button></div>
+    <div class="row"><button class="btn" type="button" id="cont-cancel">Cancel</button><button class="btn primary" type="submit" id="cont-go">Hand over</button></div>
   </form>
 </dialog>
 <!-- Connecting OpenCode to a provider, from here: a key, or a sign-in in the browser. OpenCode keeps it; Glue keeps
@@ -2274,11 +2277,11 @@ function renderDrawer(vis) {
         el('button', { class: 'btn icon', type: 'button', 'aria-label': 'Close', title: 'Close (Esc)', onclick: () => { cancelAdvance(); open = null; render(); } }, svgIcon('M6 6l12 12M18 6L6 18')))),
     whereLine(s, here),
     noteText ? el('p', { class: 'note', text: noteText }) : null,
-    // At its usage limit: carrying the work on in OpenCode is offered (where the workspace uses OpenCode), never done for you.
-    atLimit(s) && snap.opencode !== false ? el('div', { class: 'note old', role: 'status' }, el('span', { class: 'lead', text: limitLine(s) }),
-      el('span', { text: 'It can carry on in OpenCode, on another model, in the same folder. This session stays as it is, to come back to after the reset.' }),
-      el('button', { class: 'btn small', type: 'button', text: 'Continue in OpenCode…', onclick: () => openContinue(s) })) : null,
-    s.continuedFrom ? el('p', { class: 'note', text: `It carries on the work of ${sessionOf(s.continuedFrom) ? label(sessionOf(s.continuedFrom)) : 'a Claude session'}, from a brief of that conversation.` }) : null,
+    // At its usage limit: handing the work over (to another login, or to OpenCode) is offered, never done for you.
+    atLimit(s) && targetsOf(s).length ? el('div', { class: 'note old', role: 'status' }, el('span', { class: 'lead', text: limitLine(s) }),
+      el('span', { text: `It can carry on ${targetsOf(s).some((t) => t.login) ? 'under another login, or in OpenCode,' : 'in OpenCode, on another model,'} in the same folder. This session stays on the board, to come back to after the reset.` }),
+      el('button', { class: 'btn small', type: 'button', text: 'Hand over…', onclick: () => openHandover(s) })) : null,
+    s.continuedFrom ? el('p', { class: 'note', text: `It carries on the work of ${sessionOf(s.continuedFrom) ? label(sessionOf(s.continuedFrom)) : 'another session'}, handed over to it.` }) : null,
     s.oldVersion && !ended ? el('div', { class: 'note old', role: 'status' }, el('span', { class: 'lead', text: 'Restart this session.' }),
       el('span', { text: oldWhy(s.oldVersion) }), ...restartHow({ ...s, shown: true, profile: sessLogin(s) })) : null,
   ]);
@@ -2319,7 +2322,9 @@ function renderDrawer(vis) {
     elsewhere.length ? [el('dt', { text: 'Also edits' }), el('dd', { text: listOf(elsewhere) })] : null,
     bg && s.id ? [el('dt', { text: 'Reopen' }), el('dd', {}, copyBtn('claude attach ' + s.id))]
       : s.kind === 'interactive' && s.leftRosterAt ? [el('dt', { text: 'Reopen' }), el('dd', {}, copyBtn('claude --resume ' + s.sessionId))] : null));
-  patch($('d-acts'), JSON.stringify([s.sessionId, live, ended, canEnd(s), canRm(s), bg, armedHere, s.bgTasks]), () => [
+  patch($('d-acts'), JSON.stringify([s.sessionId, live, ended, canEnd(s), canRm(s), bg, armedHere, s.bgTasks, targetsOf(s).length, s.working]), () => [
+    targetsOf(s).length ? el('button', { class: 'btn', type: 'button', text: 'Hand over…', disabled: Boolean(s.working),
+      title: s.working ? 'It is working. Interrupt it first.' : 'Carry its work on under another login, or in another agent', onclick: () => openHandover(s) }) : null,
     live ? armBtn(k('int'), 'Interrupt', 'Confirm interrupt', () => doInterrupt(s), 'soft') : null,
     !ended && canEnd(s) ? armBtn(k(bg ? 'end' : 'close'), 'End session', 'Confirm end', () => doEnd(s), 'soft') : null,
     ended ? armBtn(k(canRm(s) ? 'rm' : 'hide'), canRm(s) ? 'Remove' : 'Hide', canRm(s) ? 'Confirm remove' : 'Confirm hide', () => doRemove(s), 'soft') : null,
@@ -2394,6 +2399,7 @@ function nowLine(s, st, rs) {
   if (s.leftRosterAt) return quiet(s.kind === 'interactive' ? `Closed. Its conversation is kept: claude --resume ${s.sessionId} reopens it.` : 'Closed');
   const went = s.continuedAs ? snap?.sessions.find((x) => x.id === s.continuedAs.id || x.sessionId === s.continuedAs.id) : null;
   if (s.continuedAs?.agent === 'opencode') return quiet(`Its work carries on in OpenCode, as ${went ? label(went) : 'a session there'}. This session is kept as it was.`);
+  if (s.continuedAs?.agent === 'claude') return quiet(`Handed over to Claude Code${s.continuedAs.login ? ` on ${s.continuedAs.login}` : ''}, as ${went ? label(went) : 'a new session'}. This session is kept as it was: a message here starts it again.`);
   if (s.continuedAs) return quiet(`Ended. Its conversation carries on as ${went?.name || s.continuedAs.id}. This record keeps its worktree.`);
   if (s.state === 'stopped' && isOcS(s)) return quiet('Ended. OpenCode keeps its conversation, and a message here starts it again.');
   if (s.state === 'stopped') return quiet(`Ended. Its conversation is kept${s.id ? `: claude attach ${s.id} reopens it` : ''}.`);
@@ -4218,7 +4224,7 @@ $('launch-form').addEventListener('submit', async (e) => {
   toast(ocKind ? `Launched ${name || 'it'} in OpenCode. It opens here in a moment.` : `Launched ${name || r.id}. It opens here in a moment.`);
 });
 
-// ---------- continue in OpenCode: a Claude session at its usage limit ----------
+// ---------- hand over: carry a session's work on under another login, or in the other agent ----------
 let contFor = null;
 /** The model options OpenCode offers: its default, the one wanted if it isn't listed, then each provider's. */
 function ocOptions(info, want) {
@@ -4228,16 +4234,43 @@ function ocOptions(info, want) {
     ...(want && !(info?.models ?? []).some((m) => m.ref === want) ? [el('option', { value: want, text: want })] : []),
     ...[...groups].map(([p, list]) => el('optgroup', { label: p }, ...list.map((m) => el('option', { value: m.ref, text: m.name }))))];
 }
-async function openContinue(s) {
+const CLAUDE_MODEL_OPTS = [['', 'Claude Code’s default'], ['opus', 'Opus'], ['opus[1m]', 'Opus 1M'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku'], ['fable', 'Fable']];
+/** Where a session's work can go: each Claude login of the workspace but its own, and OpenCode where the workspace uses
+ *  it (not for an OpenCode session). Only a session with a conversation to hand over. */
+function targetsOf(s) {
+  if (!s || (!isOcS(s) && s.kind !== 'background' && s.kind !== 'interactive')) return [];
+  const logins = (snap.logins ?? []).filter((l) => isOcS(s) || l.id !== s.login).map((l) => ({ to: l.id, login: l, text: `Claude Code · ${l.label}` }));
+  return [...logins, ...(!isOcS(s) && snap.opencode ? [{ to: 'opencode', text: 'OpenCode' }] : [])];
+}
+async function openHandover(s) {
   contFor = s.sessionId;
-  setText($('cont-lead'), `${label(s)} stopped at Claude's usage limit. A new OpenCode session carries its work on in the same folder, starting from a brief of its conversation and the state of its files. This session stays as it is.`);
+  const ts = targetsOf(s), was = $('cont-to').value;
+  $('cont-to').replaceChildren(...ts.map((t) => el('option', { value: t.to, text: t.text })));
+  // The one picked before, else another Claude login (the whole conversation moves), else OpenCode.
+  $('cont-to').value = ts.some((t) => t.to === was) ? was : ts[0]?.to ?? '';
+  setText($('cont-lead'), `${label(s)}${atLimit(s) ? ' stopped at Claude’s usage limit.' : '.'} A new session carries its work on in the same folder. This one stops and stays on the board, to come back to.`);
   $('cont-err').hidden = true;
+  if (!$('cont').open) $('cont').showModal();
+  await handoverTarget();
+}
+/** The model list and the note for the place picked: Claude's models, or OpenCode's once it has been asked. */
+async function handoverTarget() {
+  const s = sessionOf(contFor), to = $('cont-to').value, oc = to === 'opencode';
+  if (!s) return;
   $('cont-note').hidden = true;
+  setText($('cont-how'), !oc && !isOcS(s) ? 'Its whole conversation moves to the other login, and carries on from there.'
+    : `It starts from a brief: the task, the conversation so far, and the state of the files.`);
+  $('cont-go').disabled = !to;
+  if (!oc) {
+    const want = glue?.agentDefaults?.model ?? '';
+    $('cont-model').replaceChildren(...CLAUDE_MODEL_OPTS.map(([v, t]) => el('option', { value: v, text: t })));
+    $('cont-model').value = CLAUDE_MODEL_OPTS.some(([v]) => v === want) ? want : '';
+    return;
+  }
   $('cont-go').disabled = true;
   $('cont-model').replaceChildren(el('option', { value: '', text: 'Looking for OpenCode…' }));
-  if (!$('cont').open) $('cont').showModal();
   const r = await api('/api/opencode', { cwd: s.workCwd ?? s.cwd ?? undefined });
-  if (contFor !== s.sessionId) return;
+  if (contFor !== s.sessionId || $('cont-to').value !== 'opencode') return;
   const want = glue?.fallbackModel || glue?.agentDefaults?.opencodeModel || '';
   $('cont-model').replaceChildren(...ocOptions(r, want));
   $('cont-model').value = want;
@@ -4246,24 +4279,36 @@ async function openContinue(s) {
     : !r.installed && !r.running ? ['OpenCode is not installed. ', c('brew install anomalyco/tap/opencode-v2'), ', then try again.']
     : r.running && !r.models.length ? ['OpenCode has no models yet: sign it in to a provider. It can\'t use your Claude subscription. ',
         el('button', { class: 'linkish', type: 'button', text: 'Connect a provider…', onclick: () => openProviders() })]
-    : !r.running ? ['OpenCode is not running. Glue starts it when you continue.'] : null;
+    : !r.running ? ['OpenCode is not running. Glue starts it when you hand over.'] : null;
   if (note) { $('cont-note').replaceChildren(...note); $('cont-note').hidden = false; }
   $('cont-go').disabled = !r.ok || (!r.installed && !r.running) || (r.running && !r.models.length);
 }
+$('cont-to').onchange = () => { $('cont-err').hidden = true; handoverTarget(); };
 $('cont-cancel').onclick = () => $('cont').close();
 $('cont-form').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const go = $('cont-go'), model = $('cont-model').value, s = sessionOf(contFor);
+  const go = $('cont-go'), to = $('cont-to').value, model = $('cont-model').value, s = sessionOf(contFor);
+  const where = $('cont-to').selectedOptions[0]?.textContent ?? to;
   go.disabled = true;
   go.textContent = 'Handing it over…';
-  const r = await api('/api/opencode/continue', { sessionId: contFor, model });
+  const r = await api('/api/handover', { sessionId: contFor, to, model });
   go.disabled = false;
-  go.textContent = 'Continue in OpenCode';
-  if (!r.ok) { $('cont-err').textContent = r.error || 'It did not start.'; $('cont-err').hidden = false; return; }
+  go.textContent = 'Hand over';
+  if (!r.ok) {
+    // A login that hasn't trusted the folder yet: Claude Code asks once per folder, in a terminal.
+    const trust = r.untrusted && s ? el('button', { class: 'linkish', type: 'button', text: ' Trust it in Terminal…', onclick: async () => {
+      const t = await api('/api/trust-terminal', { path: s.workCwd ?? s.cwd, login: to });
+      if (!t.ok) toast(t.error || 'Terminal did not open.', true);
+    } }) : null;
+    $('cont-err').replaceChildren(r.error || 'It did not start.', ...(trust ? [trust] : []));
+    $('cont-err').hidden = false;
+    return;
+  }
   $('cont').close();
-  if (model !== (glue?.fallbackModel ?? '')) api('/api/settings/glue', { patch: { fallbackModel: model } }); // the next one starts from it
-  launchedId = r.sessionId;
-  toast(`${s ? label(s) : 'It'} carries on in OpenCode. It opens here in a moment.`);
+  if (to === 'opencode' && model !== (glue?.fallbackModel ?? '')) api('/api/settings/glue', { patch: { fallbackModel: model } }); // the next one starts from it
+  launchedId = r.sessionId ?? r.id;
+  toast(r.fallback ? `${s ? label(s) : 'It'} carries on in ${where}, from a brief: its whole conversation could not move (${r.fallback}).`
+    : `${s ? label(s) : 'It'} carries on in ${where}${r.how === 'whole' ? ', with its whole conversation' : ''}. It opens here in a moment.`);
 });
 
 // ---------- OpenCode providers: connect one with a key or a browser sign-in, or take an account off ----------
@@ -4289,7 +4334,7 @@ function providersChanged(msg) {
   ocInfo = null; setOcAsked = false;
   if (setDlg.open) renderSettings();
   if (dlg.open && picked('l-kind') === 'opencode') loadOc();
-  if ($('cont').open && sessionOf(contFor)) openContinue(sessionOf(contFor));
+  if ($('cont').open && $('cont-to').value === 'opencode' && sessionOf(contFor)) handoverTarget();
   loadProviders();
 }
 function stopAttempt() { clearTimeout(ocp.timer); ocp.timer = null; ocp.attempt = null; }

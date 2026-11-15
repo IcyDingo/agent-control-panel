@@ -57,7 +57,7 @@ if (a[0] === 'agents') {
 fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ args: a, env: cfg }) + '\\n');
 // Signed in on contract only, as someone a page shown the plain profile must not learn of.
 if (a[0] === 'auth') { console.log(cfg && path.basename(cfg) === '.claude-contract' ? JSON.stringify({ loggedIn: true, email: ${JSON.stringify(EMAIL_C)}, orgName: 'Contract Org' }) : '{}'); process.exit(0); }
-if (a[0] === '--bg') { const i = a.indexOf('--resume'); console.log('backgrounded · ' + (i >= 0 ? a[i + 1].slice(0, 8) : 'deadbeef')); process.exit(0); }
+if (a[0] === '--bg') { const i = a.indexOf('--resume'); console.log('backgrounded · ' + (a.includes('--fork-session') ? 'f0f0f0f0' : i >= 0 ? a[i + 1].slice(0, 8) : 'deadbeef')); process.exit(0); }
 if (a[0] === '-p') {
   // The overseer's call (its prompt is the last argument, logged above): it answers after a moment, saying whose login it ran on.
   const v = { reply: 'Answered on ' + (cfg ? path.basename(cfg) : 'default') + '.', actions: [], look: [] };
@@ -646,4 +646,30 @@ test('an invalid name or colour is refused with the store\'s error', async () =>
   assert.equal((await bad({ name: 7 })).ok, false);
   assert.deepEqual(await bad({ color: 'amber' }), { status: 422, ok: false, error: 'Unknown colour.' });
   assert.equal((await api('/api/workspace/update', { id: 'nope', name: 'x' }, B.client)).ok, false);
+});
+
+test('a session hands its whole conversation over to another login of its workspace, as a fork', async () => {
+  const SID_F = 'ffffffff-5555-4555-8555-555555555555';
+  assert.equal((await api('/api/login/attach', { ws: 'default', id: 'contract' }, A.client)).ok, true);
+  assert.equal((await api('/api/workspace/focus', { ws: 'default' }, A.client)).ok, true);
+  assert.equal((await api('/api/handover', { sessionId: SID_D, to: 'default' }, A.client)).error, 'It already runs on that login. Reply to it instead.');
+  assert.equal((await api('/api/handover', { sessionId: SID_D, to: 'nobody' }, A.client)).ok, false);
+  assert.equal((await api('/api/handover', { sessionId: SID_D, to: 'contract' }, B.client)).ok, false, 'not from a page shown another workspace');
+  const before = logged().length;
+  const r = await api('/api/handover', { sessionId: SID_D, to: 'contract', model: 'haiku' }, A.client);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.how, 'whole');
+  const c = logged().slice(before).find((x) => x.args[0] === '--bg');
+  assert.ok(c?.env?.endsWith('.claude-contract'), `ran under ${c?.env}`);
+  assert.deepEqual(c.args.slice(0, 4), ['--bg', '--resume', SID_D, '--fork-session']);
+  assert.ok(c.args.includes('haiku'));
+  assert.equal(fs.readFileSync(path.join(home, '.claude-contract', 'projects', 'p', `${SID_D}.jsonl`), 'utf8'),
+    fs.readFileSync(path.join(home, '.claude', 'projects', 'p', `${SID_D}.jsonl`), 'utf8'), 'its transcript is in the other profile');
+  // The fork shows up in that login's list: it carries on SID_D, and SID_D says where its work went.
+  const rosterC = path.join(home, 'roster-.claude-contract.json');
+  fs.writeFileSync(rosterC, JSON.stringify([...JSON.parse(fs.readFileSync(rosterC, 'utf8')), { ...job(SID_F, 'default job (contract)', work), id: 'f0f0f0f0' }]));
+  const snap = await until(() => { const x = A.latest(); return x?.sessions.find((y) => y.sessionId === SID_F)?.continuedFrom ? x : null; });
+  assert.ok(snap, `the fork shows on the page, linked: ${JSON.stringify(A.latest()?.sessions.map((y) => [y.sessionId, y.continuedFrom]))}`);
+  assert.equal(snap.sessions.find((y) => y.sessionId === SID_F).continuedFrom, SID_D);
+  assert.ok(await until(() => A.latest()?.sessions.find((y) => y.sessionId === SID_D)?.continuedAs?.id === SID_F), 'the old one names the fork');
 });

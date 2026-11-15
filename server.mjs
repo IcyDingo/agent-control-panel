@@ -538,6 +538,14 @@ async function pollRoster(login) {
     // Started from Glue: it is in the workspace it was started in, whatever an early hook event guessed.
     const started = r.id && launchedIn.get(r.id);
     if (started) { launchedIn.delete(r.id); if (W.has(started)) { setWs(s, started); store.setPlaced(s.sessionId, started); } }
+    // Started by a hand-over: it carries on that session's work, and that session says where its work went.
+    const handed = r.id && pendingFrom.get(r.id);
+    if (handed) {
+      pendingFrom.delete(r.id);
+      store.setFrom(s.sessionId, handed.ws, handed.from);
+      const was = sessions.get(handed.from);
+      if (was?.continuedAs) was.continuedAs.id = s.sessionId;
+    }
     place(s);
     Object.assign(s, { id: r.id ?? null, name: r.name ?? null, cwd: r.cwd ?? s.cwd, kind: r.kind ?? null,
                        status: r.status ?? null, state: r.state ?? null, waitingFor: r.waitingFor ?? null,
@@ -561,7 +569,8 @@ async function pollRoster(login) {
     Object.assign(s, { model: on.model ?? null, effort: on.effort ?? null, editTops: on.edits ?? [], ranCwd: on.cwd ?? s.ranCwd ?? null });
     loadSubagents(s);
     s.limit = limitHit(s.sessionId);
-    s.continuedAs ??= ocContinued(s.sessionId);
+    s.continuedAs ??= successorOf(s.sessionId);
+    s.continuedFrom ??= store.fromOf(s.sessionId);
     if (over) { settleSubagents(s); clearStops(s.sessionId); }
     // An interrupted session that has gone idle is done stopping. (A continue:false ends the turn without a Stop event.)
     const st = stops.get(stopKey(s.sessionId, null));
@@ -2841,6 +2850,8 @@ const isOc = (s) => s?.agent === 'opencode';
 const ocDir = (id) => ocRecords[id]?.dir ?? ocRecords[id]?.cwd ?? null;
 /** The Claude session an OpenCode one carries on, by its id: what it says on the Claude record after a restart. */
 const ocContinued = (claudeId) => { for (const [id, r] of Object.entries(ocRecords)) if (r.continuedFrom === claudeId) return { id, at: r.startedAt ?? 0, agent: 'opencode' }; return null; };
+/** The session that carries on uid=501(rasmusjensen) gid=20(staff) groups=20(staff),12(everyone),61(localaccounts),79(_appserverusr),80(admin),81(_appserveradm),701(com.apple.sharepoint.group.1),33(_appstore),98(_lpadmin),100(_lpoperator),204(_developer),250(_analyticsusers),395(com.apple.access_ftp),398(com.apple.access_screensharing),399(com.apple.access_ssh),400(com.apple.access_remote_ae)'s work, if one does: an OpenCode one, or a Claude Code one a hand-over started. */
+const successorOf = (id) => { const h = store.handedTo(id); return ocContinued(id) ?? (h ? { id: h.id, at: h.at, agent: 'claude' } : null); };
 
 /** Its record on the board, made from what Glue kept. */
 function ocSession(id) {
@@ -2849,7 +2860,7 @@ function ocSession(id) {
   const s = session(id, rec.ws);
   if (!s.agent) Object.assign(s, { agent: 'opencode', kind: 'opencode', id: null, name: rec.name ?? null, cwd: rec.cwd ?? null, ranCwd: rec.dir ?? null,
                                    startedAt: rec.startedAt ?? null, model: rec.model ?? null, mode: rec.mode ?? null, inRoster: true,
-                                   continuedFrom: rec.continuedFrom ?? null, prompt: rec.prompt ?? null });
+                                   continuedFrom: rec.continuedFrom ?? null, continuedAs: successorOf(id), prompt: rec.prompt ?? null });
   if (rec.ended && !s.ended) Object.assign(s, { ended: true, state: 'stopped', status: null, waitingFor: null });
   return s;
 }
@@ -3402,38 +3413,108 @@ function limitHit(sessionId) {
   return limit;
 }
 
-/** Carry a Claude session's work on in OpenCode, in the same folder: a new session there that starts from a brief of
- *  this one (its task, its conversation, the state of its files). Only when you ask. The Claude session stays as it is,
- *  to come back to once its limit resets. */
-async function continueInOpenCode(body, ctx) {
-  const s = liveSession(body);
-  const fail = (error) => ({ ok: false, error });
-  if (!s || isOc(s)) return fail('Only a Claude Code session carries on in OpenCode.');
-  const ws = wsById(s.ws);
-  if (!ws) return fail(NO_WS);
-  if (!usesOpenCode(ws.id)) return fail(NO_OPENCODE);
-  if (isWorking(s)) return fail('It is still working. Interrupt it first, or wait for it to stop.');
-  const model = typeof body?.model === 'string' ? body.model : '';
-  if (model && !modelRef(model)) return fail('Pick a model from the list.');
-  const dir = s.ranCwd ?? s.hereCwd ?? s.cwd;
-  if (!dir || !fs.existsSync(dir)) return fail(`Its folder is gone (${dir}), so there is nowhere to carry on.`);
-  const file = transcriptFile(s.sessionId);
-  const chat = file ? await readChat(file, { limit: 200 }) : { items: [] };
-  const first = chat.items.find((m) => m.who === 'you')?.text ?? null;
+/** What a session hands over when the work moves by brief: its task, its conversation, the state of its files, and
+ *  which rules files the project keeps. Read from its transcript (Claude Code) or from OpenCode. */
+async function briefFor(s, dir, to) {
+  let items = [], earlier = null;
+  if (isOc(s)) {
+    // The brief it was itself started from, when it carries on another's work: so a chain of hand-overs loses nothing.
+    try { const msgs = await oc.messages(s.sessionId); items = itemsOf(msgs); earlier = msgs.find((m) => m?.type === 'synthetic')?.text ?? null; } catch {}
+  } else { const file = transcriptFile(s.sessionId); if (file) items = (await readChat(file, { limit: 200 })).items; }
   const git = async (args) => (await run('git', ['-c', 'core.fsmonitor=false', ...args], { cwd: dir, env: baseEnv, timeout: 10_000 })).stdout.trim().slice(0, 4000);
   const top = gitPlace(dir)?.top ?? dir, has = (n) => fs.existsSync(path.join(dir, n)) || fs.existsSync(path.join(top, n));
-  const brief = briefOf({ prompt: first, items: chat.items, status: await git(['status', '--short']), diffStat: await git(['diff', '--stat']),
-                          claudeMd: has('CLAUDE.md'), agentsMd: has('AGENTS.md'), limit: s.limit ?? limitHit(s.sessionId) });
-  const mode = OC_MODES.has(s.mode) && s.mode ? s.mode : 'default';
-  const r = await ocStart(ws, { prompt: 'Continue the task from where it stopped. Check the current state of the files first.', cwd: s.cwd ?? dir, dir,
-                                name: trim(`${labelOf(s)} (OpenCode)`, 60), model, mode, continuedFrom: s.sessionId, brief });
-  if (!r.ok) return r;
-  s.continuedAs = { id: r.sessionId, at: Date.now(), agent: 'opencode' };
-  const sp = store.spaceOf(s.ws, s.sessionId); // it carries on in the same space; the Claude one stays in it too
-  if (sp) store.setSpace(s.ws, r.sessionId, sp);
-  feed('continued', s, `${labelOf(s)} carries on in OpenCode${model ? ` on ${model}` : ''}.`);
+  return briefOf({ from: isOc(s) ? 'OpenCode' : 'Claude Code', to, prompt: earlier ? null : items.find((m) => m.who === 'you')?.text ?? s.prompt ?? null, items, earlier,
+                   status: await git(['status', '--short']), diffStat: await git(['diff', '--stat']), claudeMd: has('CLAUDE.md'), agentsMd: has('AGENTS.md'),
+                   limit: isOc(s) ? null : s.limit ?? limitHit(s.sessionId) });
+}
+
+/** Start a Claude Code background job for a hand-over, under `login`, in `cwd`: `claude --bg` with argv only. */
+async function handStart(login, cwd, args) {
+  const r = await run('claude', ['--bg', ...args], { cwd, timeout: 30_000, env: envOf(login) });
+  const id = `${r.stdout}\n${r.stderr}`.match(/backgrounded · (\w+)/)?.[1];
+  if (id) return { ok: true, id };
+  const why = firstLine(r);
+  return UNTRUSTED.test(why) ? { ok: false, untrusted: true, error: `${login.label} hasn't trusted ${tilde(trustKey(cwd, gitPlace(cwd)?.top))} yet. Claude Code asks once per folder.` }
+    : { ok: false, error: why || 'Claude Code did not start it.' };
+}
+
+/** Claude Code jobs a hand-over started, by background id → { from, ws }: the roster says their session id. */
+const pendingFrom = new Map();
+const CARRY_ON = 'Continue the task from where it stopped. Check the current state of the files first.';
+
+/**
+ * Hand a session's work over, only when you ask: to another of the workspace's Claude logins, or between Claude Code
+ * and OpenCode, in the same folder or worktree. Claude Code to Claude Code takes the whole conversation along (its
+ * transcript copied into the other login's profile and resumed there as a fork, so the two profiles never hold one
+ * session id); every other pair, or a conversation that would not move, starts from a brief. The old session is
+ * stopped (a background job, an OpenCode session; a terminal is on someone's screen and is left alone) and stays on
+ * the board, saying where its work went. Replying to it later brings it back.
+ */
+async function handOver(body) {
+  const s = liveSession(body);
+  const fail = (error) => ({ ok: false, error });
+  if (!s) return fail('That session is gone.');
+  const ws = wsById(s.ws);
+  if (!ws) return fail(NO_WS);
+  if (isWorking(s)) return fail('It is still working. Interrupt it first, or wait for it to stop.');
+  const to = typeof body?.to === 'string' ? body.to : OPENCODE, toOc = to === OPENCODE;
+  const model = typeof body?.model === 'string' ? body.model : '';
+  let login = null;
+  if (toOc) {
+    if (isOc(s)) return fail('It already runs in OpenCode. Reply to it instead.');
+    if (!usesOpenCode(ws.id)) return fail(NO_OPENCODE);
+    if (model && !modelRef(model)) return fail('Pick a model from the list.');
+  } else {
+    login = store.loginsOf(ws.id).includes(to) ? L.get(to) ?? null : null;
+    if (!login) return fail('Pick a login this workspace uses.');
+    if (!MODELS.has(model)) return fail('Pick a model from the list.');
+    if (!isOc(s) && loginOfS(s)?.id === login.id) return fail('It already runs on that login. Reply to it instead.');
+  }
+  const dir = s.ranCwd ?? s.hereCwd ?? s.cwd;
+  if (!dir || !fs.existsSync(dir)) return fail(`Its folder is gone (${dir}), so there is nowhere to carry on.`);
+  const mode = MODES.has(s.mode) && s.mode ? s.mode : 'default';
+  // Named for where it went: one handed over again drops the last place from its name rather than stacking them.
+  const base = s.continuedFrom ? labelOf(s).replace(/ \([^()]*\)$/, '') : labelOf(s);
+  const name = trim(`${base} (${toOc ? 'OpenCode' : login.label})`.replace(/[\r\n]+/g, ' '), 60);
+  let r, how = 'brief', fallback = null;
+
+  if (toOc) {
+    r = await ocStart(ws, { prompt: CARRY_ON, cwd: s.cwd ?? dir, dir, name, model, mode, continuedFrom: s.sessionId, brief: await briefFor(s, dir, 'opencode') });
+    if (!r.ok) return r;
+    const sp = store.spaceOf(s.ws, s.sessionId); // it carries on in the same space; the old one stays in it too
+    if (sp) store.setSpace(s.ws, r.sessionId, sp);
+  } else {
+    const opts = ['--name', name, ...(model ? ['--model', model] : []), '--permission-mode', mode];
+    const src = isOc(s) ? null : transcriptFile(s.sessionId);
+    if (src && lastTurn(s.sessionId).talked) {
+      // Resumed from where the session resumes under its own login: its worktree, else the folder it started in.
+      const at = worktreeOf(s) ?? s.cwd;
+      try {
+        const into = path.join(login.profile.dir, 'projects', path.basename(path.dirname(src)));
+        fs.mkdirSync(into, { recursive: true });
+        fs.copyFileSync(src, path.join(into, path.basename(src)));
+        r = await handStart(login, at, ['--resume', s.sessionId, '--fork-session', ...opts, '--', `You now run under another login (${login.label}). ${CARRY_ON}`]);
+        if (r.ok) how = 'whole';
+        else if (r.untrusted) return r;
+        else fallback = r.error;
+      } catch (e) { fallback = e.message; }
+    }
+    if (how !== 'whole') {
+      r = await handStart(login, dir, [...opts, '--', `${await briefFor(s, dir, 'claude')}\n\n${CARRY_ON}`]);
+      if (!r.ok) return r;
+    }
+    launchedIn.set(r.id, ws.id);
+    pendingFrom.set(r.id, { from: s.sessionId, ws: ws.id });
+    const sp = store.spaceOf(s.ws, s.sessionId);
+    if (sp) pendingSpace.set(String(r.id), { ws: s.ws, space: sp, at: Date.now() });
+    setTimeout(() => pollRoster(login), 400);
+  }
+  s.continuedAs = { id: r.sessionId ?? r.id, at: Date.now(), agent: toOc ? 'opencode' : 'claude', ...(login ? { login: login.label } : {}), how };
+  if (isOc(s) || (s.kind === 'background' && s.inRoster && !isEnded(s) && s.pid != null)) endSession(s).catch(() => {});
+  const where = toOc ? `OpenCode${model ? ` on ${model}` : ''}` : `Claude Code on ${login.label}`;
+  feed('continued', s, `${labelOf(s)} was handed over to ${where}${how === 'whole' ? ', with its whole conversation' : ''}.`);
   broadcast();
-  return r;
+  return { ok: true, id: r.id, sessionId: r.sessionId ?? null, how, ...(fallback ? { fallback } : {}) };
 }
 
 // ---------------------------------------------------------------- snapshot + SSE
@@ -3681,7 +3762,7 @@ async function handle(req, res) {
                       '/api/watcher/enabled': (b, c) => nudgeIfOk(watcher.setEnabled(b?.on, c.focus)),
                       '/api/settings/restart': restartService, '/api/settings/reveal': revealIn,
                       '/api/opencode': ocStatus, '/api/opencode/start': ocEnsure, '/api/opencode/login': ocLogin, '/api/opencode/install': ocInstall,
-                      '/api/opencode/continue': continueInOpenCode,
+                      '/api/opencode/continue': handOver, '/api/handover': handOver,
                       '/api/opencode/providers': ocProviders, '/api/opencode/connect': ocConnect, '/api/opencode/disconnect': ocDisconnect,
                       '/api/term/open': termOpen, '/api/term/input': termInput, '/api/term/resize': termResize, '/api/term/close': termClose,
                       // Settings: a sign-in in the panel's own terminal, workspaces and their logins, and Codex.

@@ -149,6 +149,12 @@ test('the brief: the task, the talk (newest kept), the files, and CLAUDE.md when
   assert.match(long, /earlier conversation left out/);
   assert.match(long, /message 499/);
   assert.doesNotMatch(long, /message 0 /);
+  // From OpenCode to Claude Code: named as such, and pointed at AGENTS.md only when there is no CLAUDE.md.
+  const back = briefOf({ from: 'OpenCode', to: 'claude', items: [{ who: 'claude', text: 'Done half.' }], claudeMd: false, agentsMd: true });
+  assert.match(back, /another coding agent \(OpenCode\)/);
+  assert.match(back, /Agent: Done half\./);
+  assert.match(back, /AGENTS\.md/);
+  assert.doesNotMatch(briefOf({ to: 'claude', items, claudeMd: true, agentsMd: true }), /AGENTS\.md|CLAUDE\.md/);
 });
 
 // The bug: a turn a provider refused (OpenCode Go/Zen out of credit) ended with no text, and Glue showed it idle with

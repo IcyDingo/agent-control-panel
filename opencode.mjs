@@ -431,28 +431,34 @@ export function statusOf(e) {
 /** Whether an OpenCode error is a provider's limit: what makes the next handover worth asking about. */
 export const isLimit = (err) => Boolean(err) && (err.reason === 'rate_limit' || err.status === 429 || /rate.?limit|quota|usage limit/i.test(String(err.message ?? '')));
 
-// ---------------------------------------------------------------- handing a Claude session over
+// ---------------------------------------------------------------- handing a session over
 
 const BRIEF_MAX = 30_000;
-/** The brief an OpenCode session starts from when it carries on a Claude session's work: the task, the conversation so
- *  far (newest kept when it is long), the state of the files, and where the project's rules are. */
-export function briefOf({ prompt, items = [], status = '', diffStat = '', claudeMd = false, agentsMd = false, limit = null, max = BRIEF_MAX }) {
+/** The brief a session starts from when it carries on another agent's work: the task, the conversation so far (newest
+ *  kept when it is long), the state of the files, and where the project's rules are for the agent that reads it.
+ *  `from` is the agent that worked on it ('Claude Code' or 'OpenCode'); `to` the one taking over ('claude'|'opencode');
+ *  `earlier` the brief `from` itself started from, when it carried on yet another session's work. */
+export function briefOf({ from = 'Claude Code', to = 'opencode', prompt, earlier = null, items = [], status = '', diffStat = '', claudeMd = false, agentsMd = false, limit = null, max = BRIEF_MAX }) {
+  const them = from === 'OpenCode' ? 'Agent' : 'Claude';
   const lines = [];
   for (const m of items) {
     if (m.who === 'you') lines.push(`User: ${m.text}`);
-    else if (m.who === 'claude') lines.push(`Claude: ${m.text}`);
+    else if (m.who === 'claude') lines.push(`${them}: ${m.text}`);
     else if (m.who === 'tool') lines.push(`  (tool) ${m.summary?.tool ?? m.name}: ${m.summary?.text ?? ''}`.trimEnd());
     else if (m.who === 'note') lines.push(`(${m.text})`);
   }
   let talk = lines.join('\n');
   if (talk.length > max) talk = '[…earlier conversation left out…]\n' + talk.slice(-max);
+  // Claude Code reads CLAUDE.md and OpenCode AGENTS.md on their own: point at the other only when theirs is missing.
+  const rules = to === 'claude' ? (agentsMd && !claudeMd ? 'AGENTS.md' : null) : (claudeMd && !agentsMd ? 'CLAUDE.md' : null);
   return [
-    'You are taking over a task that another coding agent (Claude Code) was working on in this folder.',
+    `You are taking over a task that another coding agent (${from}) was working on in this folder.`,
     limit ? `It stopped because it reached its usage limit${limit.resetsAt ? ` (it resets ${new Date(limit.resetsAt).toISOString()})` : ''}.` : null,
     prompt ? `\n## The task it was given\n${prompt}` : null,
+    earlier ? `\n## What it was handed when it took the task over\n${earlier.length > max / 2 ? '[…]\n' + earlier.slice(-max / 2) : earlier}` : null,
     `\n## The conversation so far\n${talk || '(nothing saved)'}`,
     status || diffStat ? `\n## The files now\n${[status && `git status --short:\n${status}`, diffStat && `git diff --stat:\n${diffStat}`].filter(Boolean).join('\n\n')}` : null,
-    claudeMd && !agentsMd ? '\nThis project keeps its rules for agents in CLAUDE.md. Read it before you change anything.' : null,
+    rules ? `\nThis project keeps its rules for agents in ${rules}. Read it before you change anything.` : null,
     '\nCarry on from where it stopped. Check the current state of the files before you change them.',
   ].filter((x) => x != null).join('\n');
 }

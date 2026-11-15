@@ -140,6 +140,17 @@ test('a session’s workspace is kept, and forgotten 14 days after it was last s
   assert.equal(s.placedWs(SID), null);
 });
 
+test('a session handed over keeps the one it carries on, through a save and a later setPlaced', () => {
+  const file = tmp(), FROM = '99999999-8888-4777-8666-555555555555';
+  const s = createStore({ file, home: '/h', profiles: PROFILES });
+  s.setFrom(SID, 'contract', FROM);
+  s.setPlaced(SID, 'contract');
+  const again = createStore({ file, home: '/h', profiles: PROFILES });
+  assert.equal(again.fromOf(SID), FROM);
+  assert.equal(again.handedTo(FROM).id, SID);
+  assert.equal(again.handedTo(SID), null);
+});
+
 test('a missing, empty or corrupt file gives the defaults', () => {
   for (const body of [undefined, '', '{nope']) {
     const file = tmp();
