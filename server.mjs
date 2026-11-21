@@ -33,7 +33,7 @@ import * as daemon from './daemon.mjs';
 import { terminalCommand } from './terminal.mjs';
 import { findCodexHomes, codexEnv, codexLoginCommand, findCodex, parseCodexVersion, parseCodexStatus, codexInstallCommand, cleanKey } from './codex.mjs';
 import { createClient as createOcClient, findService, findBinary as findOcBinary, OC_ID, OC_MODES, permissionRules, agentFor, modelRef, refText,
-         pickable, itemsOf, lastSaidOf, modelOfMessages, requestOf, questionOf, formAnswer, statusOf, briefOf, providersOf, turnErrorOf, lastToolOf } from './opencode.mjs';
+         pickable, itemsOf, lastSaidOf, lastSaidAtOf, modelOfMessages, requestOf, questionOf, formAnswer, statusOf, briefOf, providersOf, turnErrorOf, lastToolOf } from './opencode.mjs';
 import { logDir as linuxLogDir } from './paths.mjs';
 
 // `node server.mjs <command>` runs the CLI (cli.mjs) and never starts the server.
@@ -2629,7 +2629,8 @@ function overseerBoard(wsId) {
       repo: p ? path.basename(p.repo) : null, worktree: p?.worktree ?? null, branch: p?.branch ?? null, folder: off ? null : s.ranCwd ?? s.hereCwd ?? s.cwd ?? null,
       mode: s.mode ?? null, tool: isWorking(s) && s.lastTool ? `${s.lastTool.tool}: ${s.lastTool.text}` : null, asks: asks.map(askOf),
       subagents: [...s.subagents.values()].map((a) => ({ type: a.agentType ?? null, title: a.title ?? null, running: !a.stoppedAt })),
-      said: s.lastMessage ?? null, saidAt: s.lastMessageAt ?? null, gh: sessionGh(p, wsId) };
+      // An OpenCode session's last message is read as it works; Claude Code's is the one its last turn ended with.
+      said: s.lastMessage ?? null, saidAt: s.lastMessageAt ?? null, saidLive: isOc(s), gh: sessionGh(p, wsId) };
   }) };
 }
 /** What a message to it does now: goes in at once, waits until it is done, or restarts it in the background (which,
@@ -2697,8 +2698,10 @@ async function overseerChanges(wsId, sessionId) {
   const git = (...a) => run('git', [...GIT_LOOK, ...a], { cwd: dir, env: baseEnv, timeout: 8000, maxBuffer: 1_000_000 });
   const [status, diff, log] = await Promise.all([git('status', '--short', '--branch'), git('diff', '--stat', '--no-ext-diff', 'HEAD'),
     git('log', '-n', '8', '--no-show-signature', '--format=%h %cr %s')]);
-  if (status.err && !status.stdout) return { ok: false, error: firstLine(status) };
-  return { ok: true, status: status.stdout.slice(0, 4000), diff: diff.stdout.slice(0, 4000), log: log.stdout.slice(0, 4000) };
+  if (status.err && !status.stdout) return { ok: false, error: status.err.code === 'ENOENT' ? 'Its folder is gone, or git is not installed.' : firstLine(status) };
+  // A part git could not give (it took too long, or there is no commit yet) is null, so it is never read as "nothing".
+  const part = (r) => (r.err && !r.stdout ? null : r.stdout.slice(0, 4000));
+  return { ok: true, status: status.stdout.slice(0, 4000), diff: part(diff), log: part(log) };
 }
 /** The shared file every profile's overseer was kept in before each workspace had its own. Read once per workspace, to
  *  seed its own file when that is missing; never written or removed. */
@@ -3068,7 +3071,7 @@ function onOcEvent(e) {
 function ocFailed(s, err) {
   s.ocError = { message: err.message, type: err.type ?? null, status: err.status ?? null, at: s.ocError?.message === err.message ? s.ocError.at : Date.now() };
   s.lastMessage = `OpenCode stopped with an error: ${err.message}`;
-  s.lastMessageAt = Date.now();
+  s.lastMessageAt = s.ocError.at; // when it first failed this way, not each time that is read again
 }
 /** Read its messages again, a moment after the last event that asked: what it said last, its model, and the Chat of
  *  any page that has it open. */
@@ -3086,7 +3089,12 @@ function ocRefresh(s, ms = 250) {
       return;
     }
     const said = lastSaidOf(msgs), err = turnErrorOf(msgs), tool = lastToolOf(msgs);
-    if (said) { s.lastMessage = trimMid(said, 3000); s.lastMessageAt = Date.now(); }
+    if (said) {
+      // When it said it is the reply's own time: reading it again (after a start, or on every tool event) is not news.
+      const next = trimMid(said, 3000);
+      s.lastMessageAt = lastSaidAtOf(msgs) ?? (next !== s.lastMessage ? Date.now() : s.lastMessageAt ?? null);
+      s.lastMessage = next;
+    }
     // The tool it runs, by name (the event that announced it named none).
     if (tool && s.ocStatus === 'busy') s.lastTool = summarize(tool.name, tool.input);
     // Its messages say how its latest turn ended, also for one that failed before Glue was watching (or started).

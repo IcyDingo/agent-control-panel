@@ -62,7 +62,9 @@ if (a[0] === 'auth') { console.log(cfg && path.basename(cfg) === '.claude-contra
 if (a[0] === '--bg') { const i = a.indexOf('--resume'); console.log('backgrounded · ' + (a.includes('--fork-session') ? 'f0f0f0f0' : i >= 0 ? a[i + 1].slice(0, 8) : 'deadbeef')); process.exit(0); }
 if (a[0] === '-p') {
   // The overseer's call (its prompt, read from stdin, is logged above): it answers after a moment, saying whose login it ran on.
-  const v = { reply: 'Answered on ' + (cfg ? path.basename(cfg) : 'default') + '.', actions: [], look: [] };
+  let v = { reply: 'Answered on ' + (cfg ? path.basename(cfg) : 'default') + '.', actions: [], look: [] };
+  // A test may queue answers of its own (next-answers.json): the next call takes the first.
+  try { const f = path.join(${JSON.stringify(home)}, 'next-answers.json'), q = JSON.parse(fs.readFileSync(f, 'utf8')); if (q.length) { v = q.shift(); fs.writeFileSync(f, JSON.stringify(q)); } } catch {}
   setTimeout(() => { console.log(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, num_turns: 2, result: JSON.stringify(v), structured_output: v })); process.exit(0); }, 400);
 } else process.exit(1);
 `, { mode: 0o755 });
@@ -516,6 +518,17 @@ test('a session in another workspace\'s repository shows nothing of it', async (
   assert.match(block, new RegExp(`^\\[${id8}\\] "${id8}"`), 'named by its id, not its folder');
   for (const bit of ['feat/x', repoN, '~/code/n', ' n @ ']) assert.equal(block.includes(bit), false, `its board block carries ${bit}: ${block}`);
   assert.equal(folders.includes('~/code/n'), false, folders);
+  // Asked to look into it, the panel reads nothing of that repository for the overseer: no git there, and no CI log.
+  fs.writeFileSync(path.join(home, 'next-answers.json'), JSON.stringify([{ reply: '', actions: [], look: [{ session: id8, what: 'changes' }, { session: id8, what: 'log' }] }]));
+  const n = logged().length;
+  assert.equal((await api('/api/overseer/say', { text: 'What did it change?' }, A.client)).ok, true);
+  assert.ok(await answered(A), 'it answered: ' + log);
+  const asks = logged().slice(n).filter((x) => x.args[0] === '-p');
+  assert.equal(asks.length, 2, 'it looked, and was asked again');
+  assert.match(asks[1].stdin, /what="changes">\nWhat it changed could not be read: That belongs to another workspace\. Switch to it to do this\.\n<\/excerpt>/);
+  assert.match(asks[1].stdin, /what="log">\nIts CI log could not be read: That belongs to another workspace\. Switch to it to do this\.\n<\/excerpt>/);
+  for (const bit of ['feat/x', repoN, '~/code/n']) assert.equal(asks[1].stdin.slice(asks[1].stdin.indexOf('<excerpt')).includes(bit), false, `an excerpt carries ${bit}`);
+  assert.deepEqual((await api('/api/overseer/turns', {}, A.client)).turns.at(-1).looked, [], 'and nothing is said to have been read');
 });
 
 test('a held request on that session carries nothing of the repository either', async () => {

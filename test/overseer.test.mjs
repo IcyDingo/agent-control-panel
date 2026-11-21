@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
-import { TURN_SCHEMA, SYSTEM, MODELS, DEFAULT_MODEL, overseerArgs, readTurn, digest, promptOf, chatLines, newSince, createOverseer, migrateFrom, OC_SYSTEM, readJsonTurn, isOverseerModel,
+import { TURN_SCHEMA, SYSTEM, MODELS, DEFAULT_MODEL, overseerArgs, readTurn, digest, boardOf, promptOf, chatLines, createOverseer, migrateFrom, OC_SYSTEM, readJsonTurn, isOverseerModel,
   FOLLOW_SCHEMA, FOLLOW_SYSTEM, FOLLOW_MODEL, followPrompt, readFollow, saidKey, dayKey, partOf } from '../overseer.mjs';
 
 const HOME = os.homedir();
@@ -969,7 +969,43 @@ test('a session that spoke or had an event since the last answer is marked new, 
   assert.doesNotMatch(p, /\[a1b2ffff\] "docs"[^\n]* · new/);
   assert.ok(p.split('"fix-login"')[1].split('\n  said')[1].split('\n')[0].length > 1400, 'what is new gets a long note');
   assert.match(p, /Since your last answer, 2m ago: 1 event, and 2 sessions marked "new" on the board\./);
-  assert.equal(newSince({ sessions: [session({ saidAt: 5 }), session({ sessionId: B, saidAt: 1 })] }, { sinceAt: 3 }), 1);
+  assert.equal(boardOf({ sessions: [session({ saidAt: 5 }), session({ sessionId: B, saidAt: 1 })] }, null, { sinceAt: 3, now: 10 }).marked, 1);
+  // Only what the board shows is counted: a session past the blocks is marked on its line, one past the lines is not counted.
+  const many = Array.from({ length: 70 }, (_, i) => session({ sessionId: sid(i), name: `s${i}`, state: 'idle', saidAt: 1000 - i }));
+  const fresh = new Set([sid(3), sid(30), sid(65)]);
+  const b = boardOf({ sessions: many, folders: [] }, null, { now: 2000, sinceAt: 1500, fresh });
+  assert.equal(b.marked, 2, 'the one past the sixty shown is not counted');
+  assert.match(b.text, /\[00000003\] "s3"[^\n]* · new\n/);
+  assert.match(b.text, /\n\[00000030\] "s30" · idle · demo @ fix\/login · new\n/, 'a session in a line is marked too');
+  assert.equal(b.text.includes('[00000065]'), false);
+});
+
+test('what happened while it was answering is still new the next time it is asked', async () => {
+  const k = mk();
+  k.fx.board = () => ({ folders: [REPO], sessions: [session({ saidAt: 1 })] });
+  // Twenty seconds into a forty-five second answer, fix-login finishes its turn: that answer's board never showed it.
+  k.answers.push(() => {
+    k.c.tick(20_000);
+    k.o.note('finished', { sessionId: A, name: 'fix-login', text: 'fix-login finished its turn.' });
+    const spokeAt = k.c.now();
+    k.fx.board = () => ({ folders: [REPO], sessions: [session({ said: 'All done now.', saidAt: spokeAt })] });
+    k.c.tick(25_000);
+    return Promise.resolve(answer('fix-login is still working.'));
+  });
+  await ask1(k, 'How is fix-login?');
+  k.c.tick(60_000);
+  await ask1(k, 'And now?', answer('It finished.'));
+  const p = k.asks[1].prompt;
+  assert.match(p, /\[a1b2c3d4\] "fix-login"[^\n]* · new\n/, 'it is marked new');
+  assert.match(p, /\(your last answer was here, 1m ago; what follows is new\)\n- 1m ago · finished · "fix-login"/, 'and its event comes after the marker');
+  assert.match(p, /Since your last answer, 1m ago: 1 event, and 1 session marked "new" on the board\./);
+  assert.equal(k.o.turns().turns[1].saw, 1_000_000, 'the answer keeps when its board was read');
+});
+
+test('a working session\'s last message is from the turn before, unless the panel reads it as it works', () => {
+  const text = (over) => digest({ sessions: [session({ state: 'busy', saidAt: 1_000_000 - 60_000, ...over })], folders: [] }, null, { now: 1_000_000 });
+  assert.match(text({}), /said before this turn, 1m ago: /);
+  assert.match(text({ saidLive: true }), /\n {2}said 1m ago: /);
 });
 
 // ---------------------------------------------------------------- looks
@@ -1027,6 +1063,13 @@ test('a look the panel refuses, or that takes too long, is said so and the answe
   assert.match(k.asks[1].prompt, /what="log">\nIts CI log could not be read: The panel shows no failed run for it\.\n<\/excerpt>/);
   assert.match(k.asks[1].prompt, /what="changes">\nWhat it changed could not be read: It does not work in a git repository\.\n<\/excerpt>/);
   assert.equal(t.text, 'I could not see its log.');
+  assert.deepEqual(t.looked, [], 'a look that read nothing is not said to have been read');
+  // A part git could not give is said so, never shown as empty.
+  const part = mk();
+  part.fx.changes = { ok: true, status: '## main', diff: null, log: '' };
+  const t3 = await ask1(part, 'What changed?', answer('', [], [{ session: 'a1b2c3d4', what: 'changes' }]), answer('ok'));
+  assert.match(part.asks[1].prompt, /not committed yet, against its last commit:\n\(could not be read\)\n\nits last commits:\n\(none\)/);
+  assert.deepEqual(t3.looked, [{ sessionId: A, name: 'fix-login', what: 'changes' }]);
 
   const slow = mk();
   slow.fx.history = () => new Promise(() => {}); // never answers

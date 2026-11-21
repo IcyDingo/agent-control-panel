@@ -336,6 +336,16 @@ export function lastSaidOf(messages) {
   }
   return null;
 }
+/** When it said that: the time on that reply itself (when it was done, else when it began), or null when it has none. */
+export function lastSaidAtOf(messages) {
+  const list = (Array.isArray(messages) ? messages : []).slice().sort((a, b) => timeOf(a) - timeOf(b));
+  for (let i = list.length - 1; i >= 0; i--) {
+    const m = list[i];
+    if (m?.type !== 'assistant' || !Array.isArray(m.content) || !m.content.some((b) => b?.type === 'text' && b.text?.trim())) continue;
+    return Number(m.time?.completed) || Number(m.time?.created) || null;
+  }
+  return null;
+}
 /** The model of its newest reply, as 'provider/model'. */
 export function modelOfMessages(messages) {
   const list = Array.isArray(messages) ? messages : [];
