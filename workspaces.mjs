@@ -52,11 +52,17 @@ export function slugId(name, taken) {
 const MAIN_PENDING_MS = 10 * 60_000; // a main agent started this long ago that never showed up gives its slot back
 const str = (v, max = 200) => (typeof v === 'string' && v.length <= max ? v : '');
 /** A kept main-agent slot, cleaned, or null. */
+// For the workers it may start: `keyHash` (the SHA-256 of the key its tools show Glue; the key itself is never kept
+// here), `login` (the login it and its workers run on), `spawn` (false once you switch its starting workers off) and
+// `started` (how many it has started in all).
 const mainIn = (m) => (m && typeof m === 'object' && Number.isFinite(m.at) && (str(m.sessionId, 64) || str(m.launchId, 64))
   ? { sessionId: str(m.sessionId, 64) || null, launchId: str(m.launchId, 64) || null, model: str(m.model, 40),
-      repo: typeof m.repo === 'string' && path.isAbsolute(m.repo) ? m.repo : null, at: m.at } : null);
-/** A kept member's role: a worker, and the model it was started on. Nothing for an ordinary member. */
-const roleIn = (m) => (m?.worker === true ? { worker: true, ...(str(m.model, 40) ? { model: str(m.model, 40) } : {}) } : {});
+      repo: typeof m.repo === 'string' && path.isAbsolute(m.repo) ? m.repo : null, at: m.at,
+      ...(/^[0-9a-f]{64}$/.test(m.keyHash ?? '') ? { keyHash: m.keyHash } : {}), ...(str(m.login, 64) ? { login: str(m.login, 64) } : {}),
+      ...(m.spawn === false ? { spawn: false } : {}), started: Number.isInteger(m.started) && m.started > 0 ? m.started : 0 } : null);
+/** A kept member's role: a worker, the model it was started on, and (`told`) the fingerprint of the last message of
+ *  its that its main agent was told of. Nothing for an ordinary member. */
+const roleIn = (m) => (m?.worker === true ? { worker: true, ...(str(m.model, 40) ? { model: str(m.model, 40) } : {}), ...(str(m.told, 64) ? { told: str(m.told, 64) } : {}) } : {});
 
 // A profile folder's label: its name without the leading dot (`.claude-contract` is `claude-contract`).
 const folderLabel = (dir) => path.basename(dir).replace(/^\./, '');
@@ -410,11 +416,11 @@ export function createStore({ file, home = '', profiles = [], codex = null } = {
      * Give a space its main agent: `{ sessionId }` for a session already in the space, or `{ launchId }` for one just
      * started, which takes the slot until it shows up (claimMain). One per space: whoever held the slot loses it.
      */
-    setMain(ws, id, { sessionId = null, launchId = null, model = '', repo = null } = {}, now = Date.now()) {
+    setMain(ws, id, { sessionId = null, launchId = null, model = '', repo = null, keyHash = null, login = null } = {}, now = Date.now()) {
       if (!st.workspaces[ws]) return NOWS;
       const x = st.spaces[ws]?.list.find((y) => y.id === id);
       if (!x) return NOSPACE;
-      const main = mainIn({ sessionId, launchId, model, repo, at: now });
+      const main = mainIn({ sessionId, launchId, model, repo, keyHash, login, at: now });
       if (!main) return { ok: false, error: 'No such session.' };
       if (main.sessionId && st.spaces[ws].members[main.sessionId]?.space !== id) return { ok: false, error: 'A main agent is a session of its own space.' };
       x.main = main;
@@ -455,6 +461,38 @@ export function createStore({ file, home = '', profiles = [], codex = null } = {
     },
     /** The model a worker was started on, or ''. */
     workerModel: (ws, sessionId) => st.spaces[ws]?.members[sessionId]?.model ?? '',
+    /** The space whose main agent holds the key with this hash: { ws, space }, or null. A key is one space's. */
+    mainByKey(keyHash) {
+      if (!/^[0-9a-f]{64}$/.test(keyHash ?? '')) return null;
+      for (const [ws, v] of Object.entries(st.spaces)) for (const x of v.list) if (x.main?.keyHash === keyHash) return { ws, space: x.id };
+      return null;
+    },
+    /** A main agent started one more worker: counted for good, so workers that ended do not give room back. */
+    noteStarted(ws, id) {
+      const x = st.spaces[ws]?.list.find((y) => y.id === id);
+      if (!x?.main) return 0;
+      x.main.started = (x.main.started ?? 0) + 1;
+      save();
+      return x.main.started;
+    },
+    /** Whether this main agent may start workers: yours to switch off for one, whatever Glue's own setting says. */
+    setMainSpawn(ws, id, on) {
+      const x = st.spaces[ws]?.list.find((y) => y.id === id);
+      if (!x?.main) return { ok: false, error: 'That space has no main agent.' };
+      if (on) delete x.main.spawn; else x.main.spawn = false;
+      save();
+      return { ok: true, spawn: Boolean(on) };
+    },
+    /** The fingerprint of the last message of a worker's that its main agent was told of ('' when none). */
+    toldOf: (ws, sessionId) => st.spaces[ws]?.members[sessionId]?.told ?? '',
+    setTold(ws, sessionId, key) {
+      const m = st.spaces[ws]?.members[sessionId];
+      if (!m?.worker || typeof key !== 'string' || !key || m.told === key) return;
+      m.told = key.slice(0, 64);
+      save();
+    },
+    /** The workers of a space: the ids of its members a main agent started. */
+    workersOf: (ws, id) => Object.entries(st.spaces[ws]?.members ?? {}).filter(([, m]) => m.space === id && m.worker).map(([sid]) => sid),
     createSpace(ws, name) {
       if (!st.workspaces[ws]) return NOWS;
       const n = spaceName(ws, name);
