@@ -1118,6 +1118,12 @@ test('main agents lead the board, each with its workers under it; a worker that 
   // A main agent that has ended no longer answers for its workers: they are sessions like any other.
   const ended = digest(board(lead({ state: 'finished' })), null, { now: 1_000_000 });
   assert.equal(ended.split('[00000002]').length - 1, 2);
+  // Between turns the panel lists a main agent as finished, with its process up: it still answers for its workers.
+  const resting = digest(board(lead({ state: 'finished', up: true })), null, { now: 1_000_000 });
+  assert.equal(resting.split('[00000002]').length - 1, 1, 'its workers stay under it');
+  assert.match(resting, /\[00000001\] "checkout-lead" · background · waiting for its workers · /);
+  assert.match(digest({ sessions: [lead({ state: 'finished', up: true })], folders: [] }, null, { now: 1_000_000 }), /"checkout-lead" · background · between turns · /);
+  assert.equal(digest(board(lead({ state: 'finished', up: false })), null, { now: 1_000_000 }).split('[00000002]').length - 1, 2, 'one that is stopped does not');
   // A main agent with no workers says so; a board without one says nothing of main agents.
   assert.match(digest({ sessions: [lead()], folders: [] }, null, { now: 1_000_000 }), /\n {2}it has no workers\./);
   assert.doesNotMatch(digest({ sessions: [loose, ...workers.map((w) => ({ ...w, role: null }))], folders: [] }, null, { now: 1_000_000 }), /Main agents|its workers/);

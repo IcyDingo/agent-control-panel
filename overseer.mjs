@@ -243,6 +243,8 @@ export const readFollow = (r) => readStructured(r, (v) => (VERDICTS.includes(v.v
 // ---------------------------------------------------------------- the digest
 
 const STATE_WORDS = { waiting: 'needs you', busy: 'working', idle: 'idle', finished: 'finished', failed: 'failed' };
+/** What a main agent that finished its turn is doing, in words: it rests until it is told its workers stopped. */
+const RESTING = { workers: 'waiting for its workers', none: 'between turns' };
 const RANK = { waiting: 0, busy: 3, idle: 4, finished: 5 }; // 1 is one you named; 2 one with a follow-up, or one that failed
 const MAX_SESSIONS = 24, MAX_LISTED = 36, SESSION_CHARS = 600, MAX_FOLDERS = 12, GITHUB_CHARS = 2000, MAX_SPACES = 20;
 // How much of what a session said last is shown: the first eight that matter now get a long note, the next eight
@@ -268,7 +270,7 @@ function ghWords(gh) {
 const whereOf = (s) => (s.repo
   ? `${flat(s.repo, 60)}${s.branch ? ` @ ${flat(s.branch, 80)}` : ''}${s.worktree ? ` (worktree ${flat(s.worktree, 60)})` : ''}`
   : s.folder ? `${flat(tilde(String(s.folder)), 120)}${s.branch ? ` @ ${flat(s.branch, 80)}` : ''}` : '');
-const stateOf = (s) => STATE_WORDS[s.state] ?? (flat(s.state, 20) || 'unknown');
+const stateOf = (s) => (Object.values(RESTING).includes(s.stateWords) ? s.stateWords : STATE_WORDS[s.state] ?? (flat(s.state, 20) || 'unknown'));
 
 /**
  * One session as a block: everything but what it said in at most 600 characters, then what it said last, cut to `note`
@@ -402,7 +404,9 @@ export function boardOf(board, github, { now = Date.now(), follow = new Map(), t
   const mains = [];
   for (const m of ranked) if (m.role === 'main' && m.space && mains.length < MAX_MAINS && !mains.some((x) => x.main.space === m.space)) mains.push({ main: m, workers: ranked.filter((w) => w.role === 'worker' && w.space === m.space) });
   const leading = new Set(mains.map((x) => x.main)), tucked = new Set();
-  for (const { main, workers } of mains) if (!ENDED.has(main.state)) for (const w of workers) if (w.state !== 'waiting' && !follow.has(w.sessionId)) tucked.add(w);
+  // A main agent that finished its turn is still up, resting until it is told its workers stopped (`up`, from the panel).
+  const leads = (m) => (typeof m.up === 'boolean' ? m.up : !ENDED.has(m.state));
+  for (const { main, workers } of mains) if (leads(main)) for (const w of workers) if (w.state !== 'waiting' && !follow.has(w.sessionId)) tucked.add(w);
   const sorted = ranked.filter((s) => !leading.has(s) && !tucked.has(s));
   const parts = [];
   let marked = mains.filter((x) => isNew(x.main)).length;
@@ -414,7 +418,9 @@ export function boardOf(board, github, { now = Date.now(), follow = new Map(), t
       const sum = Object.keys(STATE_WORDS).filter((k) => counts[k]).map((k) => `${counts[k]} ${STATE_WORDS[k]}`).join(', ');
       const lines = workers.slice(0, MAX_WORKERS).map((w) => `    ${workerLine(w, now)}`);
       if (workers.length > MAX_WORKERS) lines.push(`    and ${workers.length - MAX_WORKERS} more workers.`);
-      return `${sessionBlock(main, now, { follow: follow.get(main.sessionId), note: NOTE_LONG, fresh: isNew(main) })}\n  ${workers.length ? `its workers: ${sum}\n${lines.join('\n')}` : 'it has no workers.'}`;
+      // Between turns it reads as finished to the panel; it is resting, and carries on when its workers report.
+      const shown = leads(main) && main.state === 'finished' ? { ...main, stateWords: workers.some((w) => w.state === 'busy' || w.state === 'waiting') ? RESTING.workers : RESTING.none } : main;
+      return `${sessionBlock(shown, now, { follow: follow.get(main.sessionId), note: NOTE_LONG, fresh: isNew(main) })}\n  ${workers.length ? `its workers: ${sum}\n${lines.join('\n')}` : 'it has no workers.'}`;
     }).join('\n\n')}`);
   }
   if (sorted.length) {

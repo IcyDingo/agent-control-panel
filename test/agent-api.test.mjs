@@ -132,8 +132,11 @@ test('a main agent starts with tools of its own: a key for its space in a privat
   assert.ok(!a.includes(key), 'the key is never in argv');
   // It shows up, takes its slot, and the page learns its role but never the key or its hash.
   transcript(MAIN, 'I will split this up.');
-  setRoster((ro) => ro.push(job('b0000001', 'checkout-lead')));
+  // As Claude Code lists a background job between turns: done, idle, its process still up.
+  setRoster((ro) => ro.push(job('b0000001', 'checkout-lead', { state: 'done' })));
   assert.ok(await until(async () => (await sessionOf(MAIN))?.role === 'main'), 'the main agent leads its space');
+  assert.equal((await sessionOf(MAIN)).up, true, 'done between turns is still up');
+  assert.equal((await api('/api/launch', { prompt: 'x', cwd: repo, model: '', mode: 'default', space, main: true })).error, 'Checkout already has a main agent: checkout-lead.', 'so the space has its main agent');
   const page = JSON.stringify(await snapshot());
   assert.equal(page.includes(key), false);
   assert.equal(/keyHash/.test(page), false);
