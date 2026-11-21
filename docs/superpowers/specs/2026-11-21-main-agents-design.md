@@ -118,6 +118,15 @@ Checkout redesign
   with only the options given). One that carries on as a copy in its worktree hands the copy its slot, with its key,
   login, switch and count.
 
+### What a review of the workers part changed
+- The key file is one per launch, named on the slot, never one per space: a main agent that was replaced is still
+  started with the path of its old file, and must find nothing there.
+- The tools that do something (start, tell, interrupt) work only while the space's main agent is up or just started.
+- A place is taken before a launch is waited for, so calls made at once cannot all take the last one.
+- `tell_worker` needs a free place to wake a worker that finished its turn, and never restarts one that was stopped.
+- A worker's fingerprint for notices is how it stopped plus what it said, so one that fails with nothing new is told of.
+- A task may not start with `/` or `!`, as a message may not.
+
 ## Honest limits
 A worker's report reaches an agent that has tools. The tags, the fixed notice line and the bounded tools lower the
 risk of a worker steering its main agent; they do not remove it. A main agent in `auto` mode is the owner's risk to take.
