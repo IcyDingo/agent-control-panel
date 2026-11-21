@@ -59,6 +59,7 @@ const mainIn = (m) => (m && typeof m === 'object' && Number.isFinite(m.at) && (s
   ? { sessionId: str(m.sessionId, 64) || null, launchId: str(m.launchId, 64) || null, model: str(m.model, 40),
       repo: typeof m.repo === 'string' && path.isAbsolute(m.repo) ? m.repo : null, at: m.at,
       ...(/^[0-9a-f]{64}$/.test(m.keyHash ?? '') ? { keyHash: m.keyHash } : {}), ...(str(m.login, 64) ? { login: str(m.login, 64) } : {}),
+      ...(/^[\w.-]{1,120}\.json$/.test(m.file ?? '') ? { file: m.file } : {}), // the name of the file its key is in: a name only, never a path
       ...(m.spawn === false ? { spawn: false } : {}), started: Number.isInteger(m.started) && m.started > 0 ? m.started : 0 } : null);
 /** A kept member's role: a worker, the model it was started on, and (`told`) the fingerprint of the last message of
  *  its that its main agent was told of. Nothing for an ordinary member. */
@@ -416,11 +417,11 @@ export function createStore({ file, home = '', profiles = [], codex = null } = {
      * Give a space its main agent: `{ sessionId }` for a session already in the space, or `{ launchId }` for one just
      * started, which takes the slot until it shows up (claimMain). One per space: whoever held the slot loses it.
      */
-    setMain(ws, id, { sessionId = null, launchId = null, model = '', repo = null, keyHash = null, login = null } = {}, now = Date.now()) {
+    setMain(ws, id, { sessionId = null, launchId = null, model = '', repo = null, keyHash = null, login = null, file = null } = {}, now = Date.now()) {
       if (!st.workspaces[ws]) return NOWS;
       const x = st.spaces[ws]?.list.find((y) => y.id === id);
       if (!x) return NOSPACE;
-      const main = mainIn({ sessionId, launchId, model, repo, keyHash, login, at: now });
+      const main = mainIn({ sessionId, launchId, model, repo, keyHash, login, file, at: now });
       if (!main) return { ok: false, error: 'No such session.' };
       if (main.sessionId && st.spaces[ws].members[main.sessionId]?.space !== id) return { ok: false, error: 'A main agent is a session of its own space.' };
       x.main = main;

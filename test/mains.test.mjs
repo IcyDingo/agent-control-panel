@@ -159,3 +159,26 @@ test('a notice that could not be handed over is tried again, slower each time, a
   await bad.tick(QUIET_MS);
   assert.deepEqual(bad.m.status(), { sent: 0, waiting: 1 });
 });
+
+test('a worker that fails is told of even with nothing new to say; one that only just started is not', async () => {
+  // Its main agent was told of its last message; then it was set working again and failed without another word.
+  const k = mk();
+  k.fx.workers = [worker(1, { told: 'stopped:k1', key: 'failed:k1', state: 'failed' })];
+  await k.tick();
+  await k.tick(QUIET_MS);
+  assert.equal(k.sends.length, 1, 'how it stopped is part of what is new');
+  assert.match(k.sends[0].text, /^Glue: one of your workers failed\./);
+  assert.deepEqual(k.told, [['default', k.fx.workers[0].sessionId, 'failed:k1']]);
+  // One that failed before it said anything.
+  const silent = mk();
+  silent.fx.workers = [worker(2, { state: 'failed', said: '', key: 'failed:' })];
+  await silent.tick();
+  await silent.tick(QUIET_MS);
+  assert.match(silent.sends[0].text, /state="failed"[^>]*>\n\(it said nothing\)\n<\/worker>/);
+  // One that is idle and has said nothing has only just started: nothing to tell.
+  const fresh = mk();
+  fresh.fx.workers = [worker(3, { state: 'idle', said: '', key: 'stopped:' })];
+  await fresh.tick();
+  await fresh.tick(QUIET_MS + MAX_WAIT_MS);
+  assert.equal(fresh.sends.length, 0);
+});
