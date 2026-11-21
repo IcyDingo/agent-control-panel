@@ -14,7 +14,7 @@ function mk(answers = {}) {
   return { ask, out, calls };
 }
 
-test('it says hello with the brief Glue gives it, and lists four tools: none that ends, answers or configures anything', async () => {
+test('it says hello with the brief Glue gives it, and lists five tools: none that ends, answers or configures anything', async () => {
   const k = mk({ hello: { ok: true, instructions: 'You are the main agent of the space "Checkout".' } });
   const init = await k.ask({ id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25' } });
   assert.equal(init.id, 1);
@@ -22,7 +22,7 @@ test('it says hello with the brief Glue gives it, and lists four tools: none tha
   assert.deepEqual(init.result.capabilities, { tools: {} });
   assert.equal(init.result.instructions, 'You are the main agent of the space "Checkout".');
   const list = await k.ask({ id: 2, method: 'tools/list' });
-  assert.deepEqual(list.result.tools.map((t) => t.name), ['start_worker', 'list_workers', 'read_worker', 'tell_worker']);
+  assert.deepEqual(list.result.tools.map((t) => t.name), ['start_worker', 'list_workers', 'read_worker', 'tell_worker', 'interrupt_worker']);
   assert.deepEqual(list.result.tools.filter((t) => t.annotations?.readOnlyHint).map((t) => t.name), ['list_workers', 'read_worker']);
   for (const t of list.result.tools) assert.equal(t.inputSchema.type, 'object', t.name);
   // What starting a worker takes: never a folder, a permission mode or a login.

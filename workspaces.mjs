@@ -410,18 +410,19 @@ export function createStore({ file, home = '', profiles = [], codex = null } = {
 
     // ---- spaces
     /** A workspace's spaces, in the order they were made; one with a main agent says which session and its model. */
-    spacesOf: (ws) => (st.spaces[ws]?.list ?? []).map((x) => (x.main ? { id: x.id, name: x.name, main: { sessionId: x.main.sessionId, model: x.main.model } } : { id: x.id, name: x.name })),
+    spacesOf: (ws) => (st.spaces[ws]?.list ?? []).map((x) => (x.main ? { id: x.id, name: x.name, main: { sessionId: x.main.sessionId, model: x.main.model, spawn: x.main.spawn !== false, started: x.main.started ?? 0 } }
+      : { id: x.id, name: x.name })),
     /** A space's main-agent slot ({ sessionId, launchId, model, repo, at }), or null. */
     mainOf: (ws, id) => { const m = st.spaces[ws]?.list.find((y) => y.id === id)?.main; return m ? { ...m } : null; },
     /**
      * Give a space its main agent: `{ sessionId }` for a session already in the space, or `{ launchId }` for one just
      * started, which takes the slot until it shows up (claimMain). One per space: whoever held the slot loses it.
      */
-    setMain(ws, id, { sessionId = null, launchId = null, model = '', repo = null, keyHash = null, login = null, file = null } = {}, now = Date.now()) {
+    setMain(ws, id, { sessionId = null, launchId = null, model = '', repo = null, keyHash = null, login = null, file = null, spawn = true, started = 0 } = {}, now = Date.now()) {
       if (!st.workspaces[ws]) return NOWS;
       const x = st.spaces[ws]?.list.find((y) => y.id === id);
       if (!x) return NOSPACE;
-      const main = mainIn({ sessionId, launchId, model, repo, keyHash, login, file, at: now });
+      const main = mainIn({ sessionId, launchId, model, repo, keyHash, login, file, spawn, started, at: now });
       if (!main) return { ok: false, error: 'No such session.' };
       if (main.sessionId && st.spaces[ws].members[main.sessionId]?.space !== id) return { ok: false, error: 'A main agent is a session of its own space.' };
       x.main = main;

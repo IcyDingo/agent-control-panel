@@ -160,6 +160,52 @@ test('a notice that could not be handed over is tried again, slower each time, a
   assert.deepEqual(bad.m.status(), { sent: 0, waiting: 1 });
 });
 
+test('after many notices with no word from the owner they are held, until the owner speaks to it or says to carry on', async () => {
+  const k = mk({ maxNotices: 3 });
+  k.fx.workers = [worker(1)];
+  const again = async (n) => { Object.assign(k.fx.workers[0], { state: 'idle', said: `Report ${n}.`, key: `r${n}` }); await k.tick(); await k.tick(QUIET_MS); };
+  for (let n = 1; n <= 3; n++) await again(n);
+  assert.equal(k.sends.length, 3);
+  assert.deepEqual(k.m.view('default'), {});
+  await again(4);
+  assert.equal(k.sends.length, 3, 'the fourth is held');
+  assert.deepEqual(k.m.view('default'), { sp1: { waiting: 1, paused: true, down: false } });
+  assert.deepEqual(k.m.view('other'), {}, 'another workspace is shown nothing of it');
+  // The owner speaks to the main agent: counted afresh, and what was held goes.
+  k.m.ownerSpoke('default', 'sp1');
+  await k.tick(1000);
+  assert.equal(k.sends.length, 4);
+  assert.match(k.sends[3].text, /Report 4\./);
+  assert.deepEqual(k.m.view('default'), {});
+});
+
+test('a stopped main agent is woken with what waits only when the owner says so', async () => {
+  const k = mk();
+  k.fx.workers = [worker(1), worker(2, { state: 'busy' })];
+  k.fx.up = false;
+  assert.equal(await (async () => { await k.tick(); return k.m.tick(); })(), false, 'nothing changed between two looks');
+  await k.tick(QUIET_MS + MAX_WAIT_MS);
+  assert.equal(k.sends.length, 0);
+  assert.deepEqual(k.m.view('default'), { sp1: { waiting: 1, paused: false, down: true } });
+  const r = await k.m.wake('default', 'sp1');
+  assert.deepEqual(r, { ok: true, told: 1 });
+  assert.equal(k.sends.length, 1);
+  assert.match(k.sends[0].text, /^Glue: one of your workers stopped\./);
+  assert.match(k.sends[0].text, /Still working: w2\./);
+  assert.deepEqual(k.told.map((x) => x[2]), ['k1']);
+  assert.deepEqual(k.m.view('default'), {}, 'nothing waits now');
+  // Nothing to wake it with, a space with no main agent, a send that fails.
+  assert.deepEqual(await k.m.wake('default', 'sp1'), { ok: false, error: 'Nothing waits for it.' });
+  assert.deepEqual(await k.m.wake('default', 'nope'), { ok: false, error: 'That space has no main agent.' });
+  const bad = mk();
+  bad.fx.workers = [worker(1)];
+  bad.fx.up = false;
+  bad.fx.result = { ok: false, error: 'Its folder is gone.' };
+  await bad.tick();
+  assert.deepEqual(await bad.m.wake('default', 'sp1'), { ok: false, error: 'Its folder is gone.' });
+  assert.deepEqual(bad.told, []);
+});
+
 test('a worker that fails is told of even with nothing new to say; one that only just started is not', async () => {
   // Its main agent was told of its last message; then it was set working again and failed without another word.
   const k = mk();
