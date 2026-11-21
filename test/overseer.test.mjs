@@ -1118,8 +1118,32 @@ test('main agents lead the board, each with its workers under it; a worker that 
   // A main agent that has ended no longer answers for its workers: they are sessions like any other.
   const ended = digest(board(lead({ state: 'finished' })), null, { now: 1_000_000 });
   assert.equal(ended.split('[00000002]').length - 1, 2);
+  // Between turns the panel lists a main agent as finished, with its process up: it still answers for its workers.
+  const resting = digest(board(lead({ state: 'finished', up: true })), null, { now: 1_000_000 });
+  assert.equal(resting.split('[00000002]').length - 1, 1, 'its workers stay under it');
+  assert.match(resting, /\[00000001\] "checkout-lead" · background · waiting for its workers · /);
+  assert.match(digest({ sessions: [lead({ state: 'finished', up: true })], folders: [] }, null, { now: 1_000_000 }), /"checkout-lead" · background · between turns · /);
+  assert.equal(digest(board(lead({ state: 'finished', up: false })), null, { now: 1_000_000 }).split('[00000002]').length - 1, 2, 'one that is stopped does not');
   // A main agent with no workers says so; a board without one says nothing of main agents.
   assert.match(digest({ sessions: [lead()], folders: [] }, null, { now: 1_000_000 }), /\n {2}it has no workers\./);
   assert.doesNotMatch(digest({ sessions: [loose, ...workers.map((w) => ({ ...w, role: null }))], folders: [] }, null, { now: 1_000_000 }), /Main agents|its workers/);
   assert.match(SYSTEM, /propose telling its main agent, not its workers/);
+});
+
+test('the check is told when the agent is a main agent with workers still working: waiting for them is done', async () => {
+  assert.equal(followPrompt({ name: 'lead', repo: 'shop', branch: 'main', said: 'Started three workers. Waiting.', role: 'main', working: 3 }),
+    '<agent name="lead" where="shop @ main" role="main agent" workers-still-working="3">\nStarted three workers. Waiting.\n</agent>');
+  assert.equal(followPrompt({ name: 'w', repo: 'shop', said: 'Done.', role: 'worker', working: 3 }), '<agent name="w" where="shop">\nDone.\n</agent>', 'said only of a main agent');
+  assert.match(FOLLOW_SYSTEM, /role="main agent"[^.]*leads other agents/);
+  assert.match(FOLLOW_SYSTEM, /while workers-still-working is above 0, is done/);
+  // The overseer counts the workers of that main agent's space that work now.
+  const k = mk();
+  k.fx.board = () => ({ folders: [REPO], sessions: [session({ role: 'main', space: 'Checkout', said: 'Started two workers. I wait for them.' }),
+    session({ sessionId: B, name: 'cart-api', role: 'worker', space: 'Checkout', state: 'busy' }), session({ sessionId: C, name: 'cart-ui', role: 'worker', space: 'Checkout', state: 'idle' }),
+    session({ sessionId: 'd4e5f6a7-0000-4000-8000-000000000000', name: 'elsewhere', role: 'worker', space: 'Billing', state: 'busy' })] });
+  k.answers.push(env({ verdict: 'done', ask: '', reply: '' }));
+  assert.equal(k.o.check(A), true);
+  await k.o.settled();
+  assert.match(k.asks[0].prompt, /role="main agent" workers-still-working="1"/);
+  assert.deepEqual(k.o.status().follow, []);
 });
