@@ -456,18 +456,30 @@ files, the assistant is still called the overseer.)
   tool, what it asks you (held requests, questions and plans still open in its transcript, and
   OpenCode's cards: everything under Needs you), its subagents, what it last said, its pull request
   and checks; then every space with its sessions counted by state, the folders a new session may
-  start in and the feed of what happened. It
-  may ask to read a session's recent conversation, twice at most per answer.
+  start in and the feed of what happened.
+- How much it reads of what a session said last depends on the session: one that needs you, failed,
+  has a follow-up or failing checks, did something since its last answer, or that you named in your
+  message gets a long note; a quiet one a short note. The first twenty-four sessions get a block,
+  the next thirty-six a line with their id. What is new since its last answer is marked, on the
+  board and in the feed, so it can say what changed instead of saying everything again.
+- It has no tools, so when the board is not enough it asks the panel to look for it, up to four
+  things at once and twice at most per answer: the end of a session's **conversation** (what you and
+  the agent said, each command it ran or file it touched in one line, and what failed), the failing
+  part of its **CI log**, or its **changes** (what `git status`, `git diff --stat` and the last
+  commits show in its folder). The panel reads those and asks again; under each answer it says what
+  was read.
 - It only proposes. A proposal (tell a session something, start one in a known folder, interrupt
   one) shows as a card with its target and exact words, which you can change, and runs only when you
   click it. It can't answer permission requests or approve plans, pick a model or a permission mode,
   or send a message that starts with `/` or `!`. A card says when sending would restart a session
   (for a terminal session, that closes Claude in its terminal). Proposals expire after an hour.
-- Its model is Sonnet unless you pick another under its box (or in Settings › Assistant, which also sets the one a new workspace starts with). There is one per workspace, each on its own login, and it
+- A new workspace's starts on Opus; one you already have keeps the model it has. Pick another under its box (or in Settings › Assistant, which also sets the one a new workspace starts with). There is one per workspace, each on its own login, and it
   reads only that workspace's sessions. Its conversation and feed are kept per workspace, in `overseer-<workspace>.json`
   beside `prefs.json` (an `overseer.json` from before workspaces seeds each one once, and is left as it was).
 - **What leaves the Mac:** the digest and the excerpts it reads go to the profile's own Claude
-  account, as any Claude Code session's prompts do. Nothing goes anywhere else.
+  account, as any Claude Code session's prompts do. With the looks, that includes the commands an
+  agent ran, failing CI logs, file names and commit subjects of the sessions it looked at. Nothing
+  goes anywhere else.
 
 ## Wire the hooks (once)
 
@@ -717,6 +729,10 @@ An endpoint that approves commands is worth protecting, even on localhost:
   to take as instructions, with `<` and `>` taken out; what it proposes still needs your click, and
   the server checks every proposal again when you click (the session is live, the folder is one it
   knows and this profile trusts, the text is not a command).
+- When the overseer asks to look, it names only a session of its own workspace. The panel then reads
+  that session's transcript, fetches the log of the run its last GitHub poll showed as failed, or
+  runs three fixed read-only `git` commands in the session's folder (with `--no-optional-locks`, so
+  an agent working there is not held up). The model never gives a path, a repository or a command.
 - A remote URL can carry a token: the panel keeps only the owner and repository name it parsed.
 ## Uninstall
 

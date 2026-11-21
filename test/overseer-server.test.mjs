@@ -52,7 +52,8 @@ fs.writeFileSync(path.join(bin, 'claude'), `#!${process.execPath}
 const fs = require('fs');
 const a = process.argv.slice(2);
 if (a[0] === 'agents') { process.stdout.write(fs.readFileSync(${JSON.stringify(roster)}, 'utf8')); process.exit(0); }
-fs.appendFileSync(${JSON.stringify(claudeCalls)}, JSON.stringify({ cwd: process.cwd(), args: a }) + '\\n');
+const stdin = a[0] === '-p' ? fs.readFileSync(0, 'utf8') : undefined;
+fs.appendFileSync(${JSON.stringify(claudeCalls)}, JSON.stringify({ cwd: process.cwd(), args: a, stdin }) + '\\n');
 if (a[0] === 'auth') { console.log('{}'); process.exit(0); }
 if (a[0] === '-p') {
   let n = 0;
@@ -89,6 +90,19 @@ if (a[0] === 'run' && a[1] === 'list') out([]);
 if (a[0] === 'run' && a[1] === 'view' && has('--log-failed')) out(${JSON.stringify(failedLog)});
 process.stderr.write('unexpected gh call: ' + a.join(' ') + '\\n');
 process.exit(1);
+`, { mode: 0o755 });
+
+// A stand-in git, for what the overseer may look at in a session's folder: it logs its folder and argv, and answers
+// the three things the panel asks.
+const gitCalls = path.join(home, 'git-calls.log');
+fs.writeFileSync(path.join(bin, 'git'), `#!${process.execPath}
+const fs = require('fs');
+const a = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(gitCalls)}, JSON.stringify({ cwd: process.cwd(), args: a }) + '\\n');
+if (a.includes('status')) console.log('## feat/x...origin/feat/x\\n M src/add.js');
+else if (a.includes('diff')) console.log(' src/add.js | 6 +++---\\n 1 file changed');
+else if (a.includes('log')) console.log('abc1234 2 hours ago Add <x>');
+process.exit(0);
 `, { mode: 0o755 });
 
 const prefs = path.join(home, 'panel', 'prefs.json');
@@ -262,8 +276,8 @@ test('a message to the overseer comes back as a turn proposing a tell, asked wit
   assert.equal(at('--session-id').length, 36);
   assert.equal(fs.realpathSync(p[0].cwd), fs.realpathSync(path.join(home, 'panel', 'overseer', 'cwd')), 'from an empty folder of its own');
   // The board it was shown: the session by its short id, on its branch, with GitHub's pull request.
-  const prompt = args.at(-1);
-  assert.equal(args.at(-2), '--');
+  const prompt = p[0].stdin;
+  assert.ok(!args.includes('--') && !args.includes(prompt), 'what it is asked goes in on stdin, never in argv');
   assert.match(prompt, /<board>/);
   assert.ok(prompt.includes(`[${ID8}] "feature x"`), prompt);
   assert.ok(prompt.includes('PR #7 checks failing (build)'), prompt);
@@ -289,7 +303,7 @@ test('a declined proposal is marked declined; a confirmed one resumes the job in
   const a2 = turn.actions[0];
   assert.equal(a2.state, 'proposed');
   // The second ask shows the first proposal's outcome.
-  const prompt = calls(claudeCalls).filter((c) => c.args[0] === '-p').at(-1).args.at(-1);
+  const prompt = calls(claudeCalls).filter((c) => c.args[0] === '-p').at(-1).stdin;
   assert.ok(prompt.includes('proposed tell to "feature x": declined'), prompt);
 
   const r = await api('/api/overseer/act', { turnId: turn.id, actionId: a2.id, decision: 'run' });
@@ -344,7 +358,7 @@ test('an agent that ends its turn with a question gets a follow-up card from one
   const call = calls(claudeCalls).filter((c) => c.args[0] === '-p').at(-1);
   assert.equal(call.args[call.args.indexOf('--model') + 1], 'haiku');
   assert.equal(call.args[call.args.indexOf('--tools') + 1], '');
-  assert.match(call.args.at(-1), /Should I also update the docs\?/);
+  assert.match(call.stdin, /Should I also update the docs\?/);
   assert.deepEqual(await api('/api/overseer/follow', { sessionId: SID, decision: 'dismiss' }), { ok: true });
   assert.deepEqual((await snapshot()).overseer.follow, []);
 });
@@ -361,6 +375,34 @@ test('a proposed tell that starts with / is kept as invalid, and cannot be run',
   assert.match(r.error, /^The panel won't run this one\./);
   assert.equal(calls(claudeCalls).filter((c) => c.args[0] === '--bg').length, 1, 'nothing more was sent');
   assert.equal(fs.readFileSync(counter, 'utf8'), '4', 'four asks in all: three messages and a follow-up check');
+});
+
+test('before answering, the overseer can have the panel read the failing CI log, what git shows, and the conversation', async () => {
+  const lookAnswer = { reply: '', actions: [], look: [{ session: ID8, what: 'log' }, { session: ID8, what: 'changes' }, { session: ID8, what: 'chat', turns: 2 }] };
+  const found = { reply: 'Its test "adds" fails in src/add.js, which is not committed yet.', actions: [], look: [] };
+  fs.writeFileSync(answers, JSON.stringify([tellAnswer, tellAnswer, tellAnswer, slashAnswer, lookAnswer, found]));
+  const turn = await say('Why does feature x fail?');
+  assert.equal(turn.error, undefined, JSON.stringify(turn));
+  assert.equal(turn.text, found.reply);
+  assert.deepEqual(turn.looked, [{ sessionId: SID, name: 'feature x', what: 'log' }, { sessionId: SID, name: 'feature x', what: 'changes' }, { sessionId: SID, name: 'feature x', turns: 2 }]);
+  const asked = calls(claudeCalls).filter((c) => c.args[0] === '-p').at(-1).stdin;
+  const part = (what) => asked.split(`<excerpt session="${ID8}" name="feature x"${what ? ` what="${what}"` : ''}>\n`)[1]?.split('\n</excerpt>')[0] ?? '';
+  assert.match(part('log'), /^build failed:\n/);
+  assert.match(part('log'), /not ok 1 - adds/, 'the failing log is in, as data');
+  assert.match(part('changes'), /git status:\n## feat\/x\.\.\.origin\/feat\/x\n M src\/add\.js/);
+  assert.match(part('changes'), /its last commits:\nabc1234 2 hours ago Add x/, 'tags are taken out of what git printed');
+  // The conversation's excerpt is there too (what goes in it is test/overseer.test.mjs's to check).
+  assert.ok(asked.includes(`<excerpt session="${ID8}" name="feature x">\n`), asked);
+  // Git was asked three fixed things, in the session's own folder, without taking the index lock.
+  const git = calls(gitCalls);
+  assert.equal(git.length, 3, JSON.stringify(git));
+  for (const c of git) {
+    assert.equal(fs.realpathSync(c.cwd), fs.realpathSync(repo));
+    assert.deepEqual(c.args.slice(0, 3), ['--no-optional-locks', '-c', 'core.fsmonitor=false']);
+  }
+  assert.deepEqual(git.map((c) => c.args[3]).sort(), ['diff', 'log', 'status']);
+  // It named only the session: the run is the one the panel shows as failed.
+  assert.ok(calls(ghCalls).filter((c) => c.args.includes('--log-failed')).every((c) => c.args.includes('456') || c.args.includes('123')));
 });
 
 test('the PR watcher, turned on, asks the job on the failing branch to fix it, with the failing log', async () => {

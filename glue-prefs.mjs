@@ -28,7 +28,7 @@ export const GLUE_DEFAULTS = Object.freeze({
   notify: Object.freeze({ requests: true, ci: true, watcher: true }),
   titleCount: true,
   agentDefaults: Object.freeze({ model: '', effort: '', mode: 'default', worktree: false, agent: 'claude', opencodeModel: '' }),
-  overseerModel: 'sonnet',
+  overseerModel: 'opus', // what a new workspace's overseer answers with; one that exists keeps the model it has
   followUps: true, // the overseer reads each agent's last message when its turn ends (a Haiku call), for follow-up cards
   fallbackModel: '', // the OpenCode model a Claude session at its usage limit carries on with; empty: OpenCode's default
 
