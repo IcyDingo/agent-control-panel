@@ -245,7 +245,7 @@ test('a space gets its main agent from a launch: on the main agents\' model, one
   const sid = 'deadbeef-9999-4999-8999-999999999999';
   assert.ok(await until(() => A.latest().spaces.find((x) => x.id === id)?.main?.sessionId === sid && sessionIn(A, sid)?.role === 'main' && sessionIn(A, sid)?.space === id, 15_000),
     JSON.stringify([A.latest().spaces, sessionIn(A, sid)?.role]));
-  assert.deepEqual(A.latest().spaces.find((x) => x.id === id), { id, name: 'Checkout', main: { sessionId: sid, model: 'opus' } });
+  assert.deepEqual(A.latest().spaces.find((x) => x.id === id), { id, name: 'Checkout', main: { sessionId: sid, model: 'opus', spawn: true, started: 0 } });
   assert.equal(sessionIn(A, SID_D).role, null, 'an ordinary session has no role');
 
   // One per space, while it is up.

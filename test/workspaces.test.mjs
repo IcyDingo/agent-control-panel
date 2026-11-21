@@ -361,7 +361,7 @@ test('a space has at most one main agent: a session of its own, kept across a re
   s.setSpace('default', SID, id);
   assert.equal(s.setMain('default', id, { sessionId: SID, model: 'opus', repo: '/work/shop' }).ok, true);
   assert.equal(s.roleOf('default', SID), 'main');
-  assert.deepEqual(s.spacesOf('default'), [{ id, name: 'Checkout', main: { sessionId: SID, model: 'opus' } }, { id: other, name: 'Billing' }]);
+  assert.deepEqual(s.spacesOf('default'), [{ id, name: 'Checkout', main: { sessionId: SID, model: 'opus', spawn: true, started: 0 } }, { id: other, name: 'Billing' }]);
   assert.equal(s.mainOf('default', id).repo, '/work/shop');
   assert.equal(s.mainOf('default', other), null);
   assert.equal(s.mainOf('contract', id), null, 'another workspace knows nothing of it');
@@ -373,7 +373,7 @@ test('a space has at most one main agent: a session of its own, kept across a re
   assert.equal(s.roleOf('default', SID2), 'main');
   const again = createStore({ file, profiles: PROFILES });
   assert.equal(again.roleOf('default', SID2), 'main', 'kept across a restart');
-  assert.deepEqual(again.spacesOf('default')[0].main, { sessionId: SID2, model: 'fable' });
+  assert.deepEqual(again.spacesOf('default')[0].main, { sessionId: SID2, model: 'fable', spawn: true, started: 0 });
 });
 
 test('a main agent that leaves its space, or whose space is deleted, is its main agent no more', () => {
@@ -405,7 +405,7 @@ test('a main agent just started holds its slot until its session shows up, for t
   const { id } = s.createSpace('default', 'Checkout');
   const t0 = Date.now();
   assert.equal(s.setMain('default', id, { launchId: 'ab12cd34', model: 'opus', repo: '/work/shop' }, t0).ok, true);
-  assert.deepEqual(s.spacesOf('default')[0].main, { sessionId: null, model: 'opus' });
+  assert.deepEqual(s.spacesOf('default')[0].main, { sessionId: null, model: 'opus', spawn: true, started: 0 });
   assert.deepEqual(s.awaitedMains('default', t0 + 1000), [{ space: id, launchId: 'ab12cd34', at: t0 }]);
   assert.deepEqual(createStore({ file, profiles: PROFILES }).awaitedMains('default', t0 + 1000), [{ space: id, launchId: 'ab12cd34', at: t0 }], 'a restart does not lose it');
   assert.equal(s.claimMain('default', id, SID).ok, true);
@@ -442,4 +442,41 @@ test('a member a main agent started is its worker, with the model it runs on', (
   assert.equal(t.mainOf('default', id), null);
   assert.equal(t.roleOf('default', SID), null);
   assert.equal(t.spaceOf('default', SID), other);
+});
+
+test('a main agent\'s key, switch and count are kept with its slot, and its key finds only its own space', () => {
+  const file = tmp(), s = createStore({ file, profiles: PROFILES });
+  const a = s.createSpace('default', 'Checkout').id, b = s.createSpace('contract', 'Checkout').id;
+  const h1 = 'a'.repeat(64), h2 = 'b'.repeat(64);
+  s.setSpace('default', SID, a);
+  assert.equal(s.setMain('default', a, { sessionId: SID, model: 'opus', repo: '/work/shop', keyHash: h1, login: 'default' }).ok, true);
+  s.setMain('contract', b, { launchId: 'ab12cd34', model: 'opus', keyHash: h2 });
+  assert.deepEqual(s.mainByKey(h1), { ws: 'default', space: a });
+  assert.deepEqual(s.mainByKey(h2), { ws: 'contract', space: b });
+  for (const bad of ['c'.repeat(64), '', null, undefined, 'a'.repeat(63), '__proto__']) assert.equal(s.mainByKey(bad), null, String(bad));
+  assert.equal(JSON.stringify(s.spacesOf('default')).includes(h1), false, 'the page is never given the hash');
+  assert.equal(s.noteStarted('default', a), 1);
+  assert.equal(s.noteStarted('default', a), 2);
+  assert.equal(s.setMainSpawn('default', a, false).ok, true);
+  const again = createStore({ file, profiles: PROFILES });
+  assert.deepEqual(again.spacesOf('default')[0].main, { sessionId: SID, model: 'opus', spawn: false, started: 2 }, 'kept across a restart');
+  assert.deepEqual(again.mainByKey(h1), { ws: 'default', space: a });
+  assert.equal(again.mainOf('default', a).login, 'default');
+  assert.equal(again.setMainSpawn('default', a, true).spawn, true);
+  assert.equal(again.setMainSpawn('default', 'nope', true).ok, false);
+  // What its main agent was told of a worker, and its workers.
+  const W1 = 'b2c3d4e5-0000-4000-8000-000000000002';
+  again.setSpace('default', W1, a, Date.now(), { worker: true, model: 'haiku' });
+  assert.deepEqual(again.workersOf('default', a), [W1]);
+  assert.equal(again.toldOf('default', W1), '');
+  again.setTold('default', W1, 'k1');
+  again.setTold('default', SID, 'k9'); // not a worker: nothing is kept
+  assert.equal(createStore({ file, profiles: PROFILES }).toldOf('default', W1), 'k1');
+  assert.equal(again.toldOf('default', SID), '');
+  // A new main agent takes the slot with a new key: the old key finds nothing.
+  again.setMain('default', a, { sessionId: SID, model: 'opus', keyHash: 'c'.repeat(64) });
+  assert.equal(again.mainByKey(h1), null);
+  // Deleting the space takes the key with it.
+  again.deleteSpace('default', a);
+  assert.equal(again.mainByKey('c'.repeat(64)), null);
 });
