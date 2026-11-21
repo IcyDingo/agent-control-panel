@@ -2629,7 +2629,7 @@ function overseerBoard(wsId) {
       repo: p ? path.basename(p.repo) : null, worktree: p?.worktree ?? null, branch: p?.branch ?? null, folder: off ? null : s.ranCwd ?? s.hereCwd ?? s.cwd ?? null,
       mode: s.mode ?? null, tool: isWorking(s) && s.lastTool ? `${s.lastTool.tool}: ${s.lastTool.text}` : null, asks: asks.map(askOf),
       subagents: [...s.subagents.values()].map((a) => ({ type: a.agentType ?? null, title: a.title ?? null, running: !a.stoppedAt })),
-      said: s.lastMessage ?? null, gh: sessionGh(p, wsId) };
+      said: s.lastMessage ?? null, saidAt: s.lastMessageAt ?? null, gh: sessionGh(p, wsId) };
   }) };
 }
 /** What a message to it does now: goes in at once, waits until it is done, or restarts it in the background (which,
@@ -2651,8 +2651,9 @@ const isOverseerCall = (cwd) => typeof cwd === 'string' && (cwd === overseerCwd 
   || (overseerReal != null && (cwd === overseerReal || cwd.startsWith(overseerReal + path.sep))));
 let overseerReal = null;
 try { fs.mkdirSync(overseerCwd, { recursive: true, mode: 0o700 }); overseerReal = fs.realpathSync(overseerCwd); } catch {}
-/** `env` is the workspace's whose overseer asks (envOf): its own login. Without one it is not run. */
-function askModel(args, { timeout = 90_000, signal, env } = {}) {
+/** `env` is the workspace's whose overseer asks (envOf): its own login. Without one it is not run. `input` is what it
+ *  is asked, written to its stdin: a long prompt does not fit in argv everywhere. */
+function askModel(args, { timeout = 120_000, signal, env, input = '' } = {}) {
   if (!env) { console.error('overseer: no environment given, not run'); return Promise.resolve({ err: new Error('no environment given'), stdout: '', stderr: '' }); }
   try { fs.mkdirSync(overseerCwd, { recursive: true, mode: 0o700 }); } catch {}
   return new Promise((resolve) => {
@@ -2663,9 +2664,41 @@ function askModel(args, { timeout = 90_000, signal, env } = {}) {
           if (err || /"is_error":\s*true/.test(out.stdout)) loginFailed(`${out.stderr}\n${out.stdout.slice(0, 4000)}`);
           resolve(out);
         });
-      child.stdin?.end();
+      // One that exits before it has read everything raises EPIPE on its stdin: that must not take the panel down.
+      child.stdin?.on('error', () => {});
+      child.stdin?.end(typeof input === 'string' ? input : '');
     } catch (err) { resolve({ err, stdout: '', stderr: '' }); }
   });
+}
+/** A session workspace `wsId`'s overseer may read more about: one of its own, in a repository this workspace sees. */
+function overseerSession(wsId, sessionId) {
+  const s = sessions.get(sessionId);
+  return s && s.ws === wsId && ownedBy(wsId, sessionId) && !mismatched(s) ? s : null;
+}
+/** The failing part of the CI log for a session's pull request or branch, for its workspace's overseer. It names only
+ *  the session: which run that is comes from what the last GitHub poll showed, never from the model. */
+async function overseerLog(wsId, sessionId) {
+  const s = overseerSession(wsId, sessionId);
+  if (!s) return { ok: false, error: REFUSE };
+  const gh = sessionGh(placeOf(s), wsId), f = gh?.failed;
+  if (!f?.runId) return { ok: false, error: 'The panel shows no failed run for it.' };
+  if (!slugUsableIn(gh.slug, wsId) || !github.knows(gh.slug, String(f.runId))) return { ok: false, error: 'That run is not one the panel shows any more.' };
+  const r = await github.failedLog({ slug: gh.slug, runId: String(f.runId), jobId: f.jobId != null ? String(f.jobId) : undefined });
+  return r.ok ? { ok: true, text: `${f.workflow ?? 'A check'} failed${f.on === 'main' ? ' on the default branch' : ''}${r.truncated ? ' (log shortened)' : ''}:\n${r.text}` } : { ok: false, error: r.error };
+}
+/** What git shows in a session's folder, for its workspace's overseer: what is not committed, how big that is, and its
+ *  last commits. Three fixed commands, argv only, that never take the index lock an agent working there may need. */
+const GIT_LOOK = ['--no-optional-locks', '-c', 'core.fsmonitor=false'];
+async function overseerChanges(wsId, sessionId) {
+  const s = overseerSession(wsId, sessionId);
+  if (!s) return { ok: false, error: REFUSE };
+  const dir = s.ranCwd ?? s.hereCwd ?? s.cwd;
+  if (typeof dir !== 'string' || !path.isAbsolute(dir) || dir === os.homedir() || !placeOf(s)) return { ok: false, error: 'It does not work in a git repository.' };
+  const git = (...a) => run('git', [...GIT_LOOK, ...a], { cwd: dir, env: baseEnv, timeout: 8000, maxBuffer: 1_000_000 });
+  const [status, diff, log] = await Promise.all([git('status', '--short', '--branch'), git('diff', '--stat', '--no-ext-diff', 'HEAD'),
+    git('log', '-n', '8', '--no-show-signature', '--format=%h %cr %s')]);
+  if (status.err && !status.stdout) return { ok: false, error: firstLine(status) };
+  return { ok: true, status: status.stdout.slice(0, 4000), diff: diff.stdout.slice(0, 4000), log: log.stdout.slice(0, 4000) };
 }
 /** The shared file every profile's overseer was kept in before each workspace had its own. Read once per workspace, to
  *  seed its own file when that is missing; never written or removed. */
@@ -2685,6 +2718,7 @@ function overseerOf(id) {
     // It runs on its workspace's default Claude login.
     ask: (args, opts) => askModel(args, { ...opts, env: envOf(defaultLogin(id)) }), board: () => overseerBoard(id), github: () => githubFor(id),
     askOpenCode: askOverseerOc, models: overseerModels,
+    ciLog: (sessionId) => overseerLog(id, sessionId), changes: (sessionId) => overseerChanges(id, sessionId),
     history: (sessionId, limit) => (ownedBy(id, sessionId) ? history({ sessionId, limit }, { ws: ws() }) : { ok: false, error: REFUSE }),
     actions: {
       reply: (body) => (ownedBy(id, body?.sessionId) ? reply(body) : { ok: false, error: REFUSE }),

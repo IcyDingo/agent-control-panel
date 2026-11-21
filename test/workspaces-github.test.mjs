@@ -59,7 +59,9 @@ if (a[0] === 'agents') {
   try { process.stdout.write(fs.readFileSync(f, 'utf8')); } catch { process.stdout.write('[]'); }
   process.exit(0);
 }
-fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ args: a, env: cfg }) + '\\n');
+// What the overseer is asked arrives on its stdin, and is logged with the call.
+const stdin = a[0] === '-p' ? fs.readFileSync(0, 'utf8') : undefined;
+fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ args: a, env: cfg, stdin }) + '\\n');
 if (a[0] === 'auth') { console.log('{}'); process.exit(0); }
 if (a[0] === '--bg') { const i = a.indexOf('--resume'); console.log('backgrounded · ' + (i >= 0 ? a[i + 1].slice(0, 8) : 'deadbeef')); process.exit(0); }
 if (a[0] === '-p') {
@@ -254,7 +256,7 @@ test('each overseer reads only its own workspace\'s GitHub', async () => {
   const ask = await until(() => lines(calls).slice(before).find((c) => c.args[0] === '-p'));
   assert.ok(ask, 'it asked: ' + log);
   assert.equal(ask.env, null, 'on the default login');
-  const prompt = ask.args.at(-1);
+  const prompt = ask.stdin;
   assert.ok(prompt.includes('o/p'), prompt);
   for (const bit of ['o/n', 'o/q', 'o/x', 'Contract feature', 'Stray change']) assert.equal(prompt.includes(bit), false, `the default overseer's prompt carries ${bit}`);
 });

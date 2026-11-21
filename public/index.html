@@ -3719,7 +3719,9 @@ function renderOvThread() {
 let ovPin = true;
 function turnEl(t) {
   if (t.who === 'you') return el('div', { class: 'msg you', title: new Date(t.at).toLocaleString() }, el('div', { class: 'm-body', text: t.text }));
-  const looked = t.looked?.length ? ` · read ${t.looked.map((l) => l.name).join(', ')}` : '';
+  // What it asked the panel to read before answering: a conversation, a CI log, or what git shows.
+  const lookName = (l) => (l.what === 'log' ? `${l.name}’s CI log` : l.what === 'changes' ? `${l.name}’s changes` : l.name);
+  const looked = t.looked?.length ? ` · read ${t.looked.map(lookName).join(', ')}` : '';
   return el('div', { class: 'msg claude ov' + (t.error ? ' error' : ''), title: new Date(t.at).toLocaleString() },
     el('div', { class: 'm-who' }, el('b', { text: 'Glue' }), `${t.model ? ovModelName(t.model) : ''}${t.ms ? ` · ${(t.ms / 1000).toFixed(1)} s` : ''}${looked}`),
     el('div', { class: 'm-body' }, t.error ? t.error : md(t.text)),
