@@ -398,6 +398,21 @@ new session (in OpenCode, or a copy in its worktree) keeps its space. Hover a sp
 and **Delete**; deleting sends its agents back to their repositories. A space stays until you delete it,
 empty or not, so the next agent can start in it.
 
+### Main agents
+
+A space can have one **main agent**: the session that leads the space's work. Start one from **New agent**
+by picking a space and turning on **Main agent of this space**, or from **Start main agent…** in the space's
+⋯ menu. It runs on Claude Code, in a git repository, on the model set for main agents in Settings (Opus
+unless you change it; the form lets you pick another for this one).
+
+- **Home** shows a card per main agent, above everything else: its space, its name and model, what it is
+  doing, its workers counted by state, and the first sentence of what it said last. A click opens it.
+- In the rail it comes first in its space, with a ★, tagged `main · Opus`. Workers are tagged `worker · Sonnet`.
+- **Ask Glue** reads main agents first, each with its workers under it, and speaks of a space through its
+  main agent. To change what a space does it proposes telling the main agent, not the workers.
+- One per space, while it is up. Moving it out of its space, or deleting the space, makes it an ordinary
+  session again. Another workspace's page sees nothing of a space or its main agent.
+
 ## GitHub
 
 The panel watches the GitHub repositories agents work in, through your own `gh` CLI. It stores no
