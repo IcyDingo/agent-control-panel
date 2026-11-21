@@ -105,8 +105,27 @@ Checkout redesign
   be pushed first or kept by the main agent itself.
 
 ### Hardening (part C)
-`interrupt_worker`; a pause after forty notices with no word from the owner; waking a stopped main agent with what
-waited; carrying the role (and the tools) across a copy of the conversation.
+- `interrupt_worker`: stop one of its own workers at its next tool call.
+- After forty notices to one main agent with no word from the owner in between, its notices are held. Any message from
+  the owner to it (the page's reply, or a proposal of Ask Glue's the owner confirmed), or "Carry on" on its card, counts
+  afresh. The count is in memory: a restart of the panel starts it again.
+- A notice never restarts a main agent that is not up. Its card says how many updates wait; "Wake it" sends them, which
+  restarts it in the background with the options it was started with (Claude Code gives a woken job those back).
+- A job that finished its turn and was then stopped stays listed as `done`, with no process: up means done *with* a
+  process. Seen when a stopped main agent still read "between turns".
+- A per-main-agent "May start workers" switch, and its count, in its details.
+- A main agent restarted with a model, effort or mode the owner picked is passed its tools again (Claude Code starts it
+  with only the options given). One that carries on as a copy in its worktree hands the copy its slot, with its key,
+  login, switch and count.
+
+### What a review of the workers part changed
+- The key file is one per launch, named on the slot, never one per space: a main agent that was replaced is still
+  started with the path of its old file, and must find nothing there.
+- The tools that do something (start, tell, interrupt) work only while the space's main agent is up or just started.
+- A place is taken before a launch is waited for, so calls made at once cannot all take the last one.
+- `tell_worker` needs a free place to wake a worker that finished its turn, and never restarts one that was stopped.
+- A worker's fingerprint for notices is how it stopped plus what it said, so one that fails with nothing new is told of.
+- A task may not start with `/` or `!`, as a message may not.
 
 ## Honest limits
 A worker's report reaches an agent that has tools. The tags, the fixed notice line and the bounded tools lower the

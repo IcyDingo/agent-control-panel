@@ -1368,6 +1368,10 @@ async function reply(body) {
     const switched = bgUp && s.switchedTo?.at > (turn.modeAt ?? 0) ? s.switchedTo.mode : null;
     const mode = [modePick, switched, turn.mode].find((m) => RESUME_MODES.has(m));
     if (mode) args.push('--permission-mode', mode);
+    // A main agent started with options of its own would come back without its tools: they are passed again. (Woken
+    // with none, Claude Code gives it back the ones it was started with.)
+    const keyFile = ledBy(s) ? mainFile(store.mainOf(s.ws, ledBy(s))) : null;
+    if (keyFile && fs.existsSync(keyFile)) args.push(...MAIN_FLAGS(keyFile));
   }
   args.push('--', text);
   const r = await run('claude', args, { cwd, timeout: 30_000, env: envOf(login) });
@@ -1377,9 +1381,12 @@ async function reply(body) {
   if (copy) {
     s.continuedAs = { id, at: Date.now() }; // the record stays on the board, ended, and says where it went
     const sp = store.spaceOf(s.ws, s.sessionId); // the copy joins its space; the record keeps it too
-    // A worker's copy is a worker still, on the same model.
+    // A worker's copy is a worker still, on the same model. A main agent's copy leads the space in its place, with the
+    // key, the login, the switch and the count it had.
     const role = store.roleOf(s.ws, s.sessionId) === 'worker' ? { worker: true, model: store.workerModel(s.ws, s.sessionId) } : null;
-    if (sp) pendingSpace.set(String(id), { ws: s.ws, space: sp, at: Date.now(), ...(role ? { role } : {}) });
+    const slot = sp && store.roleOf(s.ws, s.sessionId) === 'main' ? store.mainOf(s.ws, sp) : null;
+    if (slot) store.setMain(s.ws, sp, { launchId: String(id), model: want.model ?? slot.model, repo: slot.repo, keyHash: slot.keyHash ?? null, file: slot.file ?? null, login: slot.login ?? null, spawn: slot.spawn !== false, started: slot.started ?? 0 });
+    else if (sp) pendingSpace.set(String(id), { ws: s.ws, space: sp, at: Date.now(), ...(role ? { role } : {}) });
   }
   else { dismissed.delete(s.sessionId); Object.assign(s, { ended: false, closedByPanel: false, note: null }); }
   setTimeout(() => pollRoster(login), 400);
@@ -1925,7 +1932,14 @@ async function agentTell(at, body) {
   if (!r?.ok) return no(`It could not be sent: ${r?.error ?? 'no reason given'}`);
   return { ok: true, text: r.queued ? `${labelOf(s)} is working: it reads your message when its turn is done.` : `Sent to ${labelOf(s)}.` };
 }
-const AGENT = { hello: agentHello, start: agentStart, list: agentList, read: agentRead, tell: agentTell };
+/** `{ worker }`: stop one of its workers at its next tool call. It stays open. */
+async function agentInterrupt(at, body) {
+  const s = workerOf(at, body?.worker);
+  if (!s) return no(NO_WORKER);
+  const r = await Promise.resolve(interrupt({ sessionId: s.sessionId })).catch((e) => ({ ok: false, error: String(e?.message ?? e) }));
+  return r?.ok ? { ok: true, text: `${labelOf(s)} stops at its next tool call. Tell it what to do instead with tell_worker.` } : no(`It could not be interrupted: ${r?.error ?? 'no reason given'}`);
+}
+const AGENT = { hello: agentHello, start: agentStart, list: agentList, read: agentRead, tell: agentTell, interrupt: agentInterrupt };
 /** The tools that do something. They work only while the space's main agent is up, or just started and not on the
  *  board yet: the key of one that was stopped starts and wakes nothing. */
 const AGENT_ACTS = new Set(['start', 'tell', 'interrupt']);
@@ -1946,6 +1960,28 @@ function mainSpaces() {
         key: `${boardState(s) === 'failed' ? 'failed' : 'stopped'}:${s.lastMessage ? saidKey(s.lastMessage) : ''}`, told: store.toldOf(wsId, s.sessionId) })) });
   }
   return out;
+}
+/** `{ space, on }`: whether this space's main agent may start workers, whatever Glue's own setting says. */
+function mainSpawn(body, ctx) {
+  const r = store.setMainSpawn(ctx.focus, String(body?.space ?? ''), body?.on === true);
+  if (r.ok) broadcast();
+  return r;
+}
+/** `{ space }`: send the space's main agent what waits for it now. One that was stopped is restarted with it, one whose
+ *  notices were held gets them again. */
+async function mainWake(body, ctx) {
+  const space = String(body?.space ?? '');
+  if (!store.mainOf(ctx.focus, space)?.sessionId) return { ok: false, error: 'That space has no main agent.' };
+  const r = await mains.wake(ctx.focus, space);
+  broadcast();
+  return r;
+}
+/** The space a session leads, or null: for knowing that the owner spoke to a main agent. */
+const ledBy = (s) => (s?.ws && store.roleOf(s.ws, s.sessionId) === 'main' ? store.spaceOf(s.ws, s.sessionId) : null);
+/** You wrote to a session: if it is a main agent, its notices are counted afresh (mains.mjs). */
+function ownerWrote(sessionId) {
+  const s = sessions.get(String(sessionId ?? '')), space = ledBy(s);
+  if (space) mains.ownerSpoke(s.ws, space);
 }
 /** A main agent hears of its workers through the same reply() the page uses, and only when that would not restart it. */
 const mains = createMains({ spaces: mainSpaces, canSend: (id) => tellEffect(id) === 'send', send: (id, text) => reply({ sessionId: id, text }),
@@ -2935,7 +2971,8 @@ function overseerOf(id) {
     ciLog: (sessionId) => overseerLog(id, sessionId), changes: (sessionId) => overseerChanges(id, sessionId),
     history: (sessionId, limit) => (ownedBy(id, sessionId) ? history({ sessionId, limit }, { ws: ws() }) : { ok: false, error: REFUSE }),
     actions: {
-      reply: (body) => (ownedBy(id, body?.sessionId) ? reply(body) : { ok: false, error: REFUSE }),
+      // A proposal you confirmed is your word to that session.
+      reply: (body) => { if (!ownedBy(id, body?.sessionId)) return { ok: false, error: REFUSE }; ownerWrote(body?.sessionId); return reply(body); },
       // Its launches go where the page's would; a repository in no workspace yet is the page's to ask about.
       launch: async (body) => {
         if (!ws()) return { ok: false, error: 'That workspace is gone.' };
@@ -3903,6 +3940,7 @@ function snapshot(wsId) {
     // it would be that repository's.
     pending: requestsOf(wsId).map(({ res, timer, cwd, ...p }) => p),
     github: githubFor(wsId), overseer: overseerOf(wsId)?.status() ?? null, watcher: watcherOf(wsId),
+    mains: mains.view(wsId), // per space: what waits for its main agent while it is stopped or its notices are held
     _ts: now,
   };
 }
@@ -4112,7 +4150,8 @@ async function handle(req, res) {
       if (r.ok && sessions.has(body?.sessionId)) feed('interrupted', sessions.get(body.sessionId), `You interrupted ${labelOf(sessions.get(body.sessionId))}.`);
       return send(res, r.ok ? 200 : 422, r);
     }
-    const ACTIONS = { '/api/end': end, '/api/remove': remove, '/api/reply': reply, '/api/unqueue': unqueue, '/api/mode': switchMode,
+    const ACTIONS = { '/api/end': end, '/api/remove': remove, '/api/reply': (b) => { ownerWrote(b?.sessionId); return reply(b); },
+                      '/api/main/spawn': mainSpawn, '/api/main/wake': mainWake, '/api/unqueue': unqueue, '/api/mode': switchMode,
                       '/api/folders': listFolders, '/api/folder': folderInfo, '/api/pick-folder': pickFolder,
                       '/api/workspace/focus': focusWorkspace, '/api/workspace/assign': assignRepo, '/api/workspace/update': updateWorkspace,
                       '/api/workspace/reorder': reorderWorkspaces, '/api/settings/assign': settingsAssign,
@@ -4190,7 +4229,7 @@ server.listen(PORT, '127.0.0.1', () => {
   setInterval(() => { prune(); broadcast(); }, 10_000);
   // GitHub: one beat every 15 s, each repository on its own pace; the first a little after start, once the roster is in.
   setTimeout(() => { github.tick({ watched: clients.size > 0 }); setInterval(() => github.tick({ watched: clients.size > 0 }), 15_000); }, 20_000);
-  setInterval(() => mains.tick(), Number(process.env.ACP_NOTICE_TICK_MS ?? 5000)); // a main agent hears of the workers that stopped
+  setInterval(() => { if (mains.tick()) broadcast(); }, Number(process.env.ACP_NOTICE_TICK_MS ?? 5000)); // a main agent hears of the workers that stopped
   setInterval(() => watcherCheck(), 60_000); // checks that stick become a problem with time, with nothing new from GitHub
   setInterval(() => { if (clients.size > 0) checkSetup(false); }, 3 * 60_000); // a login that lapses later shows as the banner
 });

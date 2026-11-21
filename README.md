@@ -416,8 +416,8 @@ unless you change it; the form lets you pick another for this one).
 **Workers.** A main agent starts its own workers, without a click from you: separate background sessions in
 its space, listed under it in the rail.
 
-- It gets four tools from Glue for this, and only these: start a worker (a name, a task, a model), list its
-  workers, read the end of one's conversation, and send one a message. It cannot end a session, answer a
+- It gets five tools from Glue for this, and only these: start a worker (a name, a task, a model), list its
+  workers, read the end of one's conversation, send one a message, and interrupt one. It cannot end a session, answer a
   permission request, pick a permission mode, or reach anything outside its own space.
 - Glue decides the rest. A worker starts in the main agent's repository, in a **worktree of its own**
   (`.claude/worktrees/<name>`, branch `worktree-<name>`), with the permissions a new agent starts with
@@ -435,7 +435,17 @@ its space, listed under it in the rail.
 - Between turns Claude Code lists a background agent as done, with its process still up. A main agent in
   that state still leads its space: its card says "waiting for its workers" or "between turns".
 - If the main agent is stopped, its workers carry on and nothing more can be started; they are ordinary
-  sessions again, with follow-up cards of their own. Deleting the space ends the main agent's key at once.
+  sessions again, with follow-up cards of their own. A notice never restarts it: its card says how many
+  updates wait, and **Wake it** restarts it in the background with them. Deleting the space ends the main
+  agent's key at once.
+- After forty notices with no word from you, a main agent's notices are held, so a main agent and workers
+  that keep each other going come back to a person. Its card says so; **Carry on**, or any message from
+  you to the main agent, lets them through again.
+- It can also stop one of its workers at its next tool call (`interrupt_worker`), as **Interrupt** does.
+- A main agent's details have a **May start workers** switch for that one agent, and how many it has
+  started.
+- Restarted with a model, effort or mode you picked, a main agent keeps its tools; if it carries on as a
+  copy in its worktree, the copy leads the space in its place.
 
 ## GitHub
 

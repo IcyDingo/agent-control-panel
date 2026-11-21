@@ -29,6 +29,9 @@ export const TOOLS = [
     description: 'Send one of your workers a message: an answer to its question, a correction, or what to do next. It reads it as its next instruction (after its current turn, when it is working).',
     inputSchema: { type: 'object', additionalProperties: false, required: ['worker', 'text'], properties: {
       worker: str('Its id, as list_workers gives it.'), text: str('The message, complete on its own. It must not start with / or !.', { maxLength: 4000 }) } } },
+  { name: 'interrupt_worker', verb: 'interrupt',
+    description: 'Stop one of your workers at its next tool call, as Esc would: for one that is on the wrong track. It stays open, and you can tell it what to do instead with tell_worker.',
+    inputSchema: { type: 'object', additionalProperties: false, required: ['worker'], properties: { worker: str('Its id, as list_workers gives it.') } } },
 ];
 
 const NO_GLUE = 'Glue did not answer, so nothing was done. It may be restarting: try again in a moment, and if it stays this way, tell the owner.';
