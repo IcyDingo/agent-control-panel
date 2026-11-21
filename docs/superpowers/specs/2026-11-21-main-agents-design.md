@@ -58,6 +58,14 @@ Checkout redesign
   main repository, on branch `worktree-<name>`, from the **remote default branch**: not from the main agent's branch.
   It does not see the main agent's unpushed commits.
 - Claude Code first asks the server `server/discover`; answering "method not found" makes it fall back to `initialize`.
+- A background job that finished its turn is listed as `state: done, status: idle` with its process still up. The
+  panel calls `done` finished everywhere else, so a main agent resting while its workers work looked "not up": a real
+  main agent was not told its worker had stopped until this was seen. For a main agent, up means on the roster and not
+  stopped or failed. Its card and Ask Glue's board say "waiting for its workers" or "between turns".
+- The whole loop was run for real on a spare port: a main agent on Haiku started one worker through its tools, Glue
+  started it in a worktree of its own, and when it finished the main agent got Glue's notice and reported.
+- With live updates off for a login no Stop hook arrives, so the panel reads what a worker said from its transcript
+  when the roster shows it stopped working.
 
 ## Design
 

@@ -413,6 +413,30 @@ unless you change it; the form lets you pick another for this one).
 - One per space, while it is up. Moving it out of its space, or deleting the space, makes it an ordinary
   session again. Another workspace's page sees nothing of a space or its main agent.
 
+**Workers.** A main agent starts its own workers, without a click from you: separate background sessions in
+its space, listed under it in the rail.
+
+- It gets four tools from Glue for this, and only these: start a worker (a name, a task, a model), list its
+  workers, read the end of one's conversation, and send one a message. It cannot end a session, answer a
+  permission request, pick a permission mode, or reach anything outside its own space.
+- Glue decides the rest. A worker starts in the main agent's repository, in a **worktree of its own**
+  (`.claude/worktrees/<name>`, branch `worktree-<name>`), with the permissions a new agent starts with
+  (Settings › Glue), on the main agent's login. Its worktree starts from the repository's default branch as
+  it is on the remote, so it does not see commits that are only on the main agent's branch.
+- **Limits**, in Settings › Glue › Main agents: whether main agents may start workers at all, the models a
+  worker may get (Sonnet or Haiku unless you change it), how many of one main agent's workers may work at
+  once (4) and how many it may start in all (12). A request past a limit is refused in words the main agent
+  reads. Workers cannot start workers.
+- **Hearing back.** The main agent ends its turn after starting workers and does not poll. When workers
+  stop, fail or ask something, Glue sends it one message, a few seconds after the last of them, so five that
+  finish together are one message. A worker of a main agent that is up gets no "Waiting on you" card: its
+  question goes to the main agent, which asks you only what it cannot decide. A worker's permission
+  requests still come to you, under Needs you.
+- Between turns Claude Code lists a background agent as done, with its process still up. A main agent in
+  that state still leads its space: its card says "waiting for its workers" or "between turns".
+- If the main agent is stopped, its workers carry on and nothing more can be started; they are ordinary
+  sessions again, with follow-up cards of their own. Deleting the space ends the main agent's key at once.
+
 ## GitHub
 
 The panel watches the GitHub repositories agents work in, through your own `gh` CLI. It stores no
@@ -748,6 +772,16 @@ An endpoint that approves commands is worth protecting, even on localhost:
   that session's transcript, fetches the log of the run its last GitHub poll showed as failed, or
   runs three fixed read-only `git` commands in the session's folder (with `--no-optional-locks`, so
   an agent working there is not held up). The model never gives a path, a repository or a command.
+- A main agent's tools reach the panel on `/agent/…` with a key that belongs to one space. The key is 32
+  random bytes, written only to a file of its own (0600, under `mains/` beside `prefs.json`) that Claude
+  Code is handed by path; the panel keeps its SHA-256. The routes refuse a browser (any `Origin`), and the
+  page's token opens nothing there, as the key opens nothing on the page's routes. Which space a call is
+  about comes from the key alone; a worker it names is looked up among that space's workers only, and
+  anything else answers "No such worker." The key is least privilege, not a wall: as said above, any agent
+  with a shell can fetch the page and its token.
+- What a worker wrote reaches its main agent as data inside `<worker>` tags with `<` and `>` taken out,
+  under a line that says the message is the panel's and not yours. That lowers the risk of a worker
+  steering an agent that has tools; it does not remove it. A main agent in auto mode is your risk to take.
 - A remote URL can carry a token: the panel keeps only the owner and repository name it parsed.
 ## Uninstall
 

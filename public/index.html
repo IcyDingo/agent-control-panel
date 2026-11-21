@@ -3659,11 +3659,14 @@ function workersLine(workers) {
 /** One space's main agent: the space, its name and model, what it is doing, its workers by state, and the first
  *  sentence of what it said last. A click opens it. */
 function maCard(x, s, workers, asks) {
-  const st = stateOf(s), model = modelWord(s.model) ?? modelWord(x.main.model);
+  const model = modelWord(s.model) ?? modelWord(x.main.model);
+  // Between turns the panel lists it as finished; it is resting until its workers report, and says so.
+  const resting = s.up && stateOf(s) === 'finished', busy = workers.some((w) => ['busy', 'waiting'].includes(colOf(stateOf(w))));
+  const st = resting ? 'idle' : stateOf(s), word = resting ? (busy ? 'waiting for its workers' : 'between turns') : MA_STATE[st] ?? st;
   const card = el('button', { class: 'ma-card', type: 'button', 'data-s': st, title: `Open ${label(s)}`, onclick: () => { cancelAdvance(); open = s.sessionId; render(); } },
     el('span', { class: 'ma-space', text: x.name }),
     el('span', { class: 'ma-head' }, el('span', { class: 'ma-name', text: label(s) }), model ? el('span', { class: 'ma-model', text: model }) : null,
-      asks ? el('span', { class: 'ma-tag', text: 'Asks you' }) : null, el('span', { class: 'ma-state', text: MA_STATE[st] ?? st })),
+      asks ? el('span', { class: 'ma-tag', text: 'Asks you' }) : null, el('span', { class: 'ma-state', text: word })),
     workersLine(workers),
     el('p', { class: 'ma-said', text: firstSentence(s.lastMessage) }));
   if (asks) card.setAttribute('data-asks', '');
@@ -3680,7 +3683,7 @@ function renderMains() {
   const grid = box.lastChild;
   const want = rows.map(({ x, s }) => {
     const workers = snap.sessions.filter((w) => w.space === x.id && w.role === 'worker'), asks = follow.has(s.sessionId);
-    const sig = JSON.stringify([x, label(s), stateOf(s), s.model, s.lastMessage, asks, workers.map((w) => [w.sessionId, stateOf(w)])]);
+    const sig = JSON.stringify([x, label(s), stateOf(s), s.up, s.model, s.lastMessage, asks, workers.map((w) => [w.sessionId, stateOf(w)])]);
     let n = maNodes.get(x.id);
     if (!n || n.sig !== sig) { n = { sig, node: maCard(x, s, workers, asks) }; maNodes.set(x.id, n); }
     return n.node;
@@ -4596,7 +4599,7 @@ $('l-space').addEventListener('change', () => {
 /** The session leading a space now: its main agent, while it is on the board and not over. */
 function liveMainOf(spaceId) {
   const id = mainOfSpace(spaceId)?.sessionId, s = id ? snap?.sessions.find((x) => x.sessionId === id) : null;
-  return s && !isOver(s) ? s : null;
+  return s?.up ? s : null; // `up`: a main agent that finished its turn rests with its process up, and still leads
 }
 /** "Main agent of this space": offered for a Claude Code agent once a space is picked, and not where one leads already.
  *  Turned on, it picks the main agents' model (yours to change below); turned off, the model you had comes back. */
@@ -6134,8 +6137,23 @@ function setGlueAgents(box, g) {
   const a = g.agentDefaults;
   askSetOc();
   const oc = setOc;
-  setPatch(box, JSON.stringify([a, g.fallbackModel, oc]), () => {
+  setPatch(box, JSON.stringify([a, g.fallbackModel, oc, g.mainAgents]), () => {
     const opencode = a.agent === 'opencode';
+    // Main agents and the workers they start by themselves: the model a main agent starts on, and the workers' limits.
+    const m = g.mainAgents ?? { model: 'opus', spawn: true, workerModels: ['sonnet', 'haiku'], maxAlive: 4, maxTotal: 12 }, setMain = (patch) => setGlue({ mainAgents: patch });
+    const WORKER_SETS = [['sonnet,haiku', 'Sonnet or Haiku'], ['haiku', 'Haiku only'], ['sonnet', 'Sonnet only'], ['opus,sonnet,haiku', 'Opus, Sonnet or Haiku']];
+    const workerSet = m.workerModels.join(','), sets = WORKER_SETS.some(([v]) => v === workerSet) ? WORKER_SETS : [...WORKER_SETS, [workerSet, m.workerModels.map(modelWord).join(', ')]];
+    const counts = (list, n) => [...new Set([...list, n])].sort((x, y) => x - y).map((v) => [String(v), String(v)]);
+    const mainAgents = [
+      el('h4', { class: 'rule', text: 'Main agents' }),
+      el('p', { class: 'set-quiet set-sub', text: 'A space’s main agent leads its work and starts workers by itself, each in a worktree of its own. A worker gets the permissions a new agent starts with (above); a main agent never picks them.' }),
+      setOpt('Main agent’s model', 'What a main agent starts on, unless you pick another when you start it.',
+        setSelect('ma-model', 'Model a main agent starts on', [['opus', 'Opus'], ['opus[1m]', 'Opus 1M'], ['fable', 'Fable'], ['sonnet', 'Sonnet']], m.model, (v) => setMain({ model: v }))),
+      setOpt('Start workers', 'Off, a main agent does all its work itself.', setSwitch('ma-spawn', 'Main agents may start workers', m.spawn, (on) => setMain({ spawn: on }))),
+      setOpt('Workers’ models', 'The models a main agent may give a worker.', setSelect('ma-models', 'Models a worker may run on', sets, workerSet, (v) => setMain({ workerModels: v.split(',') }))),
+      setOpt('Workers at once', 'How many of one main agent’s workers may work at the same time.', setSelect('ma-alive', 'Workers at once', counts([1, 2, 3, 4, 6, 8], m.maxAlive), String(m.maxAlive), (v) => setMain({ maxAlive: Number(v) }))),
+      setOpt('Workers in all', 'How many one main agent may start, all told.', setSelect('ma-total', 'Workers in all', counts([4, 8, 12, 20, 40], m.maxTotal), String(m.maxTotal), (v) => setMain({ maxTotal: Number(v) }))),
+    ];
     const which = el('div', { class: 'seg set-seg', role: 'radiogroup', 'aria-label': 'Which agent a new agent runs on' },
       ...[['claude', 'Claude Code'], ['opencode', 'OpenCode']].map(([v, name]) => el('label', {},
         el('input', { type: 'radio', name: 'set-agent', value: v, 'data-f': 'ad-agent-' + v, checked: a.agent === v,
@@ -6154,6 +6172,7 @@ function setGlueAgents(box, g) {
       setOpt('Its own worktree', 'A new branch in a folder of its own, off the one you are on.', setSwitch('ad-wt', 'Its own worktree', a.worktree, (on) => setGlue({ agentDefaults: { worktree: on } }))),
       setOpt('At its usage limit', 'The OpenCode model a Claude Code session carries on with when it runs out of its subscription.',
         ocModelSelect('ad-fallback', 'The model a Claude session carries on with', oc, g.fallbackModel, (v) => setGlue({ fallbackModel: v }))),
+      ...mainAgents,
     ];
   });
 }
