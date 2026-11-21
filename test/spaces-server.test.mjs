@@ -226,6 +226,50 @@ test('deleting a space sends its sessions back', async () => {
   assert.ok(await until(() => sessionIn(A, SID_D)?.space === null && !A.latest().spaces.some((x) => x.id === id)));
 });
 
+test('a space gets its main agent from a launch: on the main agents\' model, one per space, in a git repository, in its own workspace only', async () => {
+  const c = await api('/api/space/create', { name: 'Checkout' }, A.client), id = c.id;
+  assert.equal(c.ok, true, JSON.stringify(c));
+  const before = logged().length;
+  // What can't be a main agent is refused before anything runs.
+  assert.match((await launchIn(repoS, A.client, { main: true })).error, /leads a space/);
+  assert.match((await launchIn(work, A.client, { main: true, space: id })).error, /works in a git repository/);
+  assert.match((await launchIn(repoS, A.client, { main: true, space: id, agentKind: 'opencode' })).error, /runs on Claude Code/);
+  assert.equal(launchedBy(A.client, before).length, 0, 'nothing ran');
+
+  const r = await launchIn(repoS, A.client, { main: true, space: id });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  const call = launchedBy(A.client, before)[0];
+  assert.equal(call.args[call.args.indexOf('--model') + 1], 'opus', 'with no model picked, it starts on the main agents\' model');
+  // The stand-in says `backgrounded · deadbeef`: the job the roster lists under that id is the main agent. It joins
+  // the space and takes its slot.
+  const sid = 'deadbeef-9999-4999-8999-999999999999';
+  assert.ok(await until(() => A.latest().spaces.find((x) => x.id === id)?.main?.sessionId === sid && sessionIn(A, sid)?.role === 'main' && sessionIn(A, sid)?.space === id, 15_000),
+    JSON.stringify([A.latest().spaces, sessionIn(A, sid)?.role]));
+  assert.deepEqual(A.latest().spaces.find((x) => x.id === id), { id, name: 'Checkout', main: { sessionId: sid, model: 'opus' } });
+  assert.equal(sessionIn(A, SID_D).role, null, 'an ordinary session has no role');
+
+  // One per space, while it is up.
+  const again = await launchIn(repoS, A.client, { main: true, space: id, model: 'fable' });
+  assert.equal(again.ok, false);
+  assert.equal(again.error, 'Checkout already has a main agent: launched.');
+  assert.equal(launchedBy(A.client, before).length, 1, 'no second one was started');
+
+  // The other workspace's page learns nothing of the space or its main agent.
+  assert.equal(JSON.stringify(B.latest()).includes('Checkout'), false);
+  assert.equal(JSON.stringify(B.latest()).includes(sid), false);
+  assert.equal((await launchIn(repoS, B.client, { main: true, space: id })).error, 'That space is gone. Pick another.', 'nor can it start one there');
+
+  // Taken out of its space, it leads it no more, and the space can have another: on the model you pick.
+  assert.equal((await api('/api/space/move', { sessionId: sid, space: null }, A.client)).ok, true);
+  assert.ok(await until(() => sessionIn(A, sid)?.role === null && !A.latest().spaces.find((x) => x.id === id).main));
+  const next = await launchIn(repoS, A.client, { main: true, space: id, model: 'fable' });
+  assert.equal(next.ok, true, JSON.stringify(next));
+  const second = launchedBy(A.client, before)[1];
+  assert.equal(second.args[second.args.indexOf('--model') + 1], 'fable');
+  assert.ok(await until(() => sessionIn(A, sid)?.role === 'main'), 'the stand-in gives the same id again, so the same job leads it');
+  assert.match((await launchIn(repoS, A.client, { main: true, space: id })).error, /already has a main agent/);
+});
+
 test('Ask Glue reads each session\'s space and an open question the rail shows, and never another workspace\'s spaces', async () => {
   const c = await api('/api/space/create', { name: 'Billing' }, A.client);
   assert.equal(c.ok, true, JSON.stringify(c));

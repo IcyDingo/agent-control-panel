@@ -514,7 +514,10 @@ async function pollAll() {
   await Promise.all([...L.values()].map((login) => pollRoster(login)));
   const live = [...sessions.values()].filter((s) => s.inRoster && !isEnded(s));
   store.touchPlaced(live.map((s) => s.sessionId));
-  for (const id of W.keys()) store.touchSpaces(id, live.filter((s) => s.ws === id).map((s) => s.sessionId));
+  for (const id of W.keys()) {
+    claimSpaces(id); // also with no page open: a session takes its space, and a main agent its slot, when it shows up
+    store.touchSpaces(id, live.filter((s) => s.ws === id).map((s) => s.sessionId));
+  }
 }
 /** The first roster error of the logins a workspace uses, or null. */
 const rosterErrorOf = (wsId) => store.loginsOf(wsId).map((id) => L.get(id)?.rosterError).find(Boolean) ?? null;
@@ -1728,7 +1731,14 @@ function moveToSpace(body, ctx) {
 /** The space chosen at launch (or kept on continuation) waits here for its session to show, by the id the launch gave. */
 const pendingSpace = new Map(); // launch id → { ws, space, at }
 const PENDING_MS = 10 * 60_000;
+/** Whether a session is the one a launch that gave id `k` started. */
+const launchedAs = (s, k) => Boolean(k) && (s.sessionId === k || s.sessionId.startsWith(k) || s.id === k);
 function claimSpaces(wsId) {
+  // A main agent just started takes the slot its space kept for it, and joins the space.
+  for (const a of store.awaitedMains(wsId)) {
+    const s = [...sessions.values()].find((x) => x.ws === wsId && launchedAs(x, a.launchId));
+    if (s && store.claimMain(wsId, a.space, s.sessionId).ok) broadcast();
+  }
   if (!pendingSpace.size) return;
   const now = Date.now();
   for (const [k, p] of pendingSpace) {
@@ -1736,9 +1746,35 @@ function claimSpaces(wsId) {
     if (p.ws !== wsId) continue;
     for (const s of sessions.values()) {
       if (s.ws !== wsId || store.spaceOf(wsId, s.sessionId)) continue;
-      if (s.sessionId === k || s.sessionId.startsWith(k) || s.id === k) { store.setSpace(wsId, s.sessionId, p.space); pendingSpace.delete(k); break; }
+      if (launchedAs(s, k)) { store.setSpace(wsId, s.sessionId, p.space); pendingSpace.delete(k); break; }
     }
   }
+}
+
+// ---------------------------------------------------------------- main agents
+// A space may have one main agent: a Claude Code session that leads it, started on a top model with the space's goal.
+// Home shows the main agents; the rail lists each first in its space. Only you make one, from New agent.
+/** Whether a session is up: on the roster and not ended. */
+const isUp = (s) => Boolean(s && s.inRoster && !isEnded(s));
+/** The session leading a space now, or null: its main agent, while that session is up. */
+function liveMain(wsId, spaceId) {
+  const m = store.mainOf(wsId, spaceId), s = m?.sessionId ? sessions.get(m.sessionId) : null;
+  return s && s.ws === wsId && isUp(s) ? s : null;
+}
+/** What starting a main agent in a space needs, checked before anything is started: { model, repo }, or { error }. */
+function mainCheck(body, wsId, spaceId) {
+  const space = store.spacesOf(wsId).find((x) => x.id === spaceId);
+  if (!space) return { error: 'A main agent leads a space. Pick the space it leads.' };
+  if (body?.agentKind === 'opencode') return { error: 'A main agent runs on Claude Code.' };
+  const up = liveMain(wsId, spaceId);
+  if (up) return { error: `${space.name} already has a main agent: ${labelOf(up)}.` };
+  if (store.awaitedMains(wsId).some((a) => a.space === spaceId)) return { error: `A main agent was just started in ${space.name}. It shows up in a moment.` };
+  let cwd = typeof body?.cwd === 'string' ? body.cwd.trim() : '';
+  if (cwd === '~' || cwd.startsWith('~/')) cwd = path.join(os.homedir(), cwd.slice(1));
+  const place = cwd ? gitPlace(path.resolve(cwd)) : null;
+  if (!place) return { error: 'A main agent works in a git repository: its workers each get a worktree of it. Pick a folder in one.' };
+  const model = typeof body?.model === 'string' && body.model && MODELS.has(body.model) ? body.model : glue().mainAgents.model;
+  return { model, repo: place.repo };
 }
 
 /** The launcher's look at a folder: is it there, and is it in a git repository. */
@@ -2625,7 +2661,7 @@ function overseerBoard(wsId) {
     // In another workspace's repository, it reads what the page shows: nothing of the repository.
     const off = mismatched(s), p = off ? null : placeOf(s), asks = asking.get(s.sessionId) ?? [];
     return { sessionId: s.sessionId, name: labelOf(s), kind: s.kind, state: boardState(s, asks.length > 0), since: s.startedAt ?? s.lastEventAt,
-      space: spaceName.get(store.spaceOf(wsId, s.sessionId)) ?? null,
+      space: spaceName.get(store.spaceOf(wsId, s.sessionId)) ?? null, role: store.roleOf(wsId, s.sessionId), model: s.model ?? null,
       repo: p ? path.basename(p.repo) : null, worktree: p?.worktree ?? null, branch: p?.branch ?? null, folder: off ? null : s.ranCwd ?? s.hereCwd ?? s.cwd ?? null,
       mode: s.mode ?? null, tool: isWorking(s) && s.lastTool ? `${s.lastTool.tool}: ${s.lastTool.text}` : null, asks: asks.map(askOf),
       subagents: [...s.subagents.values()].map((a) => ({ type: a.agentType ?? null, title: a.title ?? null, running: !a.stoppedAt })),
@@ -3681,7 +3717,7 @@ function snapshot(wsId) {
       const repoSide = mismatch ? { git: null, workCwd: null, cwd: null, gh: null, elsewhere: null }
         : { git, workCwd: here, gh: sessionGh(place, wsId), elsewhere: (editTops ?? []).filter((t) => t !== git?.top && !othersOnly(t, wsId)).slice(0, 3).map((t) => placeOut(gitPlace(t))).filter(Boolean) };
       return {
-      ...s, ...repoSide, repoAsk: ask, mismatch, space: store.spaceOf(wsId, s.sessionId),
+      ...s, ...repoSide, repoAsk: ask, mismatch, space: store.spaceOf(wsId, s.sessionId), role: store.roleOf(wsId, s.sessionId),
       stopping: stops.has(stopKey(s.sessionId, null)), hostsPanel: hostPids.has(s.pid), termable: !termable(s),
       queued: inbox.get(s.sessionId) ?? [], working: isWorking(s),
       subagents: [...s.subagents.values()].map((a) => ({ ...a, stopping: !a.stoppedAt && stops.has(stopKey(s.sessionId, a.agentId)) })),
@@ -3862,8 +3898,12 @@ async function handle(req, res) {
     if (url.pathname === '/api/launch') {
       const space = body?.space ?? null;
       if (space !== null && !store.spacesOf(focus).some((x) => x.id === space)) return send(res, 422, { ok: false, error: 'That space is gone. Pick another.' });
-      const r = await launch(body, ctx.ws);
-      if (r.ok && space && r.id) pendingSpace.set(String(r.id), { ws: focus, space, at: Date.now() });
+      // A main agent: checked first, started on the main agents' model unless you picked one, and given its space's slot.
+      const main = body?.main === true ? mainCheck(body, focus, space) : null;
+      if (main?.error) return send(res, 422, { ok: false, error: main.error });
+      const r = await launch(main ? { ...body, model: main.model } : body, ctx.ws);
+      if (r.ok && main && r.id) { store.setMain(focus, space, { launchId: String(r.id), model: main.model, repo: main.repo }); broadcast(); }
+      else if (r.ok && space && r.id) pendingSpace.set(String(r.id), { ws: focus, space, at: Date.now() });
       if (!r.ok) loginFailed(r.error);
       if (r.ok) feed('launched', null, `You started a session in ${tilde(r.cwd ?? '')}.`, focus);
       return send(res, r.ok ? 200 : 422, r);

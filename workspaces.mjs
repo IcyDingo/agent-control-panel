@@ -46,6 +46,18 @@ export function slugId(name, taken) {
   return id;
 }
 
+// A space may have one main agent: the session that leads it. Its slot is kept on the space: the session (null from the
+// moment it is started until it shows up, when it is known by the id its launch gave), the model it was started on, the
+// repository it leads (where its workers start), and when. A member a main agent started is its worker.
+const MAIN_PENDING_MS = 10 * 60_000; // a main agent started this long ago that never showed up gives its slot back
+const str = (v, max = 200) => (typeof v === 'string' && v.length <= max ? v : '');
+/** A kept main-agent slot, cleaned, or null. */
+const mainIn = (m) => (m && typeof m === 'object' && Number.isFinite(m.at) && (str(m.sessionId, 64) || str(m.launchId, 64))
+  ? { sessionId: str(m.sessionId, 64) || null, launchId: str(m.launchId, 64) || null, model: str(m.model, 40),
+      repo: typeof m.repo === 'string' && path.isAbsolute(m.repo) ? m.repo : null, at: m.at } : null);
+/** A kept member's role: a worker, and the model it was started on. Nothing for an ordinary member. */
+const roleIn = (m) => (m?.worker === true ? { worker: true, ...(str(m.model, 40) ? { model: str(m.model, 40) } : {}) } : {});
+
 // A profile folder's label: its name without the leading dot (`.claude-contract` is `claude-contract`).
 const folderLabel = (dir) => path.basename(dir).replace(/^\./, '');
 
@@ -86,10 +98,13 @@ export function createStore({ file, home = '', profiles = [], codex = null } = {
     for (const [ws, v] of Object.entries(saved.spaces && typeof saved.spaces === 'object' ? saved.spaces : {})) {
       if (!st.workspaces[ws] || !v || typeof v !== 'object') continue;
       const list = (Array.isArray(v.list) ? v.list : []).filter((x, i, a) => x && typeof x.id === 'string' && x.id
-        && typeof x.name === 'string' && x.name && a.findIndex((y) => y?.id === x.id) === i).map((x) => ({ id: x.id, name: x.name }));
+        && typeof x.name === 'string' && x.name && a.findIndex((y) => y?.id === x.id) === i)
+        .map((x) => { const main = mainIn(x.main); return main ? { id: x.id, name: x.name, main } : { id: x.id, name: x.name }; });
       const members = blank();
       for (const [sid, m] of Object.entries(v.members && typeof v.members === 'object' ? v.members : {}))
-        if (m && list.some((x) => x.id === m.space) && Number.isFinite(m.at)) members[sid] = { space: m.space, at: m.at };
+        if (m && list.some((x) => x.id === m.space) && Number.isFinite(m.at)) members[sid] = { space: m.space, at: m.at, ...roleIn(m) };
+      // A main agent is a member of its own space: a slot naming a session that is not there is dropped.
+      for (const x of list) if (x.main?.sessionId && members[x.main.sessionId]?.space !== x.id) delete x.main;
       if (list.length) st.spaces[ws] = { list, members };
     }
     for (const [sid, m] of Object.entries(saved.placed && typeof saved.placed === 'object' ? saved.placed : {}))
@@ -387,8 +402,59 @@ export function createStore({ file, home = '', profiles = [], codex = null } = {
     },
 
     // ---- spaces
-    /** A workspace's spaces, in the order they were made. */
-    spacesOf: (ws) => (st.spaces[ws]?.list ?? []).map((x) => ({ ...x })),
+    /** A workspace's spaces, in the order they were made; one with a main agent says which session and its model. */
+    spacesOf: (ws) => (st.spaces[ws]?.list ?? []).map((x) => (x.main ? { id: x.id, name: x.name, main: { sessionId: x.main.sessionId, model: x.main.model } } : { id: x.id, name: x.name })),
+    /** A space's main-agent slot ({ sessionId, launchId, model, repo, at }), or null. */
+    mainOf: (ws, id) => { const m = st.spaces[ws]?.list.find((y) => y.id === id)?.main; return m ? { ...m } : null; },
+    /**
+     * Give a space its main agent: `{ sessionId }` for a session already in the space, or `{ launchId }` for one just
+     * started, which takes the slot until it shows up (claimMain). One per space: whoever held the slot loses it.
+     */
+    setMain(ws, id, { sessionId = null, launchId = null, model = '', repo = null } = {}, now = Date.now()) {
+      if (!st.workspaces[ws]) return NOWS;
+      const x = st.spaces[ws]?.list.find((y) => y.id === id);
+      if (!x) return NOSPACE;
+      const main = mainIn({ sessionId, launchId, model, repo, at: now });
+      if (!main) return { ok: false, error: 'No such session.' };
+      if (main.sessionId && st.spaces[ws].members[main.sessionId]?.space !== id) return { ok: false, error: 'A main agent is a session of its own space.' };
+      x.main = main;
+      save();
+      return { ok: true };
+    },
+    /** The session a just-started main agent turned out to be: it joins its space and takes the slot kept for it. */
+    claimMain(ws, id, sessionId, now = Date.now()) {
+      const x = st.spaces[ws]?.list.find((y) => y.id === id);
+      if (!x?.main || x.main.sessionId || typeof sessionId !== 'string' || !sessionId) return { ok: false, error: 'No main agent is awaited there.' };
+      st.spaces[ws].members[sessionId] = { space: id, at: now };
+      x.main = { ...x.main, sessionId };
+      save();
+      return { ok: true };
+    },
+    clearMain(ws, id) {
+      const x = st.spaces[ws]?.list.find((y) => y.id === id);
+      if (x?.main) { delete x.main; save(); }
+      return { ok: true };
+    },
+    /** The slots still waiting for their session: [{ space, launchId, at }]. One that waited over ten minutes is dropped. */
+    awaitedMains(ws, now = Date.now()) {
+      const out = [];
+      let changed = false;
+      for (const x of st.spaces[ws]?.list ?? []) {
+        if (!x.main || x.main.sessionId) continue;
+        if (now - x.main.at > MAIN_PENDING_MS) { delete x.main; changed = true; } else out.push({ space: x.id, launchId: x.main.launchId, at: x.main.at });
+      }
+      if (changed) save();
+      return out;
+    },
+    /** What a session is in its space: its `main` agent, a `worker` one started, or nothing (null). */
+    roleOf(ws, sessionId) {
+      const m = st.spaces[ws]?.members[sessionId];
+      if (!m) return null;
+      if (st.spaces[ws].list.find((y) => y.id === m.space)?.main?.sessionId === sessionId) return 'main';
+      return m.worker ? 'worker' : null;
+    },
+    /** The model a worker was started on, or ''. */
+    workerModel: (ws, sessionId) => st.spaces[ws]?.members[sessionId]?.model ?? '',
     createSpace(ws, name) {
       if (!st.workspaces[ws]) return NOWS;
       const n = spaceName(ws, name);
@@ -422,16 +488,21 @@ export function createStore({ file, home = '', profiles = [], codex = null } = {
     },
     /** The space a session is in, or null. */
     spaceOf: (ws, sessionId) => st.spaces[ws]?.members[sessionId]?.space ?? null,
-    /** Put a session in a space; null takes it out. */
-    setSpace(ws, sessionId, id, now = Date.now()) {
+    /** Put a session in a space; null takes it out. A main agent that leaves its space is its main agent no more, and
+     *  a worker that leaves is no one's worker. `role` ({ worker: true, model }) is for a session a main agent started. */
+    setSpace(ws, sessionId, id, now = Date.now(), role = null) {
       if (!st.workspaces[ws]) return NOWS;
       if (typeof sessionId !== 'string' || !sessionId) return { ok: false, error: 'No such session.' };
+      const was = st.spaces[ws]?.members[sessionId];
+      const leave = () => { const x = was && st.spaces[ws].list.find((y) => y.id === was.space); if (x?.main?.sessionId === sessionId) delete x.main; };
       if (id === null) {
-        if (st.spaces[ws]?.members[sessionId]) { delete st.spaces[ws].members[sessionId]; save(); }
+        if (was) { leave(); delete st.spaces[ws].members[sessionId]; save(); }
         return { ok: true };
       }
       if (!st.spaces[ws]?.list.some((y) => y.id === id)) return NOSPACE;
-      st.spaces[ws].members[sessionId] = { space: id, at: now };
+      if (was?.space === id) { was.at = now; if (role) Object.assign(was, roleIn(role)); save(); return { ok: true }; } // already there: what it is stays
+      leave();
+      st.spaces[ws].members[sessionId] = { space: id, at: now, ...roleIn(role) };
       save();
       return { ok: true };
     },
@@ -443,7 +514,12 @@ export function createStore({ file, home = '', profiles = [], codex = null } = {
       let changed = false;
       for (const [sid, m] of Object.entries(at.members)) {
         if (live.has(sid)) { if (now - m.at > HOUR) { m.at = now; changed = true; } }
-        else if (now - m.at > KEEP_MS) { delete at.members[sid]; changed = true; }
+        else if (now - m.at > KEEP_MS) {
+          const x = at.list.find((y) => y.id === m.space);
+          if (x?.main?.sessionId === sid) delete x.main; // its main agent is long gone: the space can have another
+          delete at.members[sid];
+          changed = true;
+        }
       }
       if (changed) save();
     },

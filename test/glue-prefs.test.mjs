@@ -27,7 +27,22 @@ test('defaults for missing, null, corrupt', () => {
 test('the defaults match the page and the server', () => {
   assert.deepEqual(GLUE_DEFAULTS, { theme: 'dark', folded: ['finished'], notify: { requests: true, ci: true, watcher: true },
     titleCount: true, agentDefaults: { model: '', effort: '', mode: 'default', worktree: false, agent: 'claude', opencodeModel: '' },
-    overseerModel: 'opus', followUps: true, fallbackModel: '', seeded: false });
+    overseerModel: 'opus', followUps: true, fallbackModel: '',
+    mainAgents: { model: 'opus', spawn: true, workerModels: ['sonnet', 'haiku'], maxAlive: 4, maxTotal: 12 }, seeded: false });
+});
+
+test('main agents: a model, whether they may start workers, which models workers get, and how many', () => {
+  const g = sanitizeGlue({ mainAgents: { model: 'fable', spawn: false, workerModels: ['haiku'], maxAlive: 2, maxTotal: 5 } });
+  assert.deepEqual(g.mainAgents, { model: 'fable', spawn: false, workerModels: ['haiku'], maxAlive: 2, maxTotal: 5 });
+  // A bad value falls back to its default, the others stay.
+  const bad = sanitizeGlue({ mainAgents: { model: 'haiku', spawn: 'yes', workerModels: [], maxAlive: 0, maxTotal: 41 } });
+  assert.deepEqual(bad.mainAgents, GLUE_DEFAULTS.mainAgents);
+  assert.deepEqual(sanitizeGlue({ mainAgents: { workerModels: ['sonnet', 'sonnet'] } }).mainAgents.workerModels, ['sonnet', 'haiku'], 'a model is listed once');
+  assert.deepEqual(sanitizeGlue({ mainAgents: { workerModels: ['', 'sonnet'] } }).mainAgents.workerModels, ['sonnet', 'haiku'], 'never "whatever the default is": a worker\'s model is always said');
+  assert.equal(mergeGlue(GLUE_DEFAULTS, { mainAgents: { maxAlive: 8 } }).glue.mainAgents.maxAlive, 8);
+  assert.match(mergeGlue(GLUE_DEFAULTS, { mainAgents: { maxAlive: 9 } }).error, /mainAgents\.maxAlive/);
+  assert.match(mergeGlue(GLUE_DEFAULTS, { mainAgents: { workerModels: ['gpt'] } }).error, /mainAgents\.workerModels/);
+  assert.match(mergeGlue(GLUE_DEFAULTS, { mainAgents: { permissionMode: 'auto' } }).error, /mainAgents\.permissionMode is not a Glue setting/);
 });
 
 test('the OpenCode defaults: which agent, and models by their provider/model shape', () => {

@@ -1093,3 +1093,33 @@ test('the brief names the three looks, asks for the concrete thing, and says not
   assert.match(SYSTEM, /You have no tools/);
   assert.ok(OC_SYSTEM.startsWith(SYSTEM), 'an OpenCode model gets the same brief');
 });
+
+// ---------------------------------------------------------------- main agents on the board
+
+test('main agents lead the board, each with its workers under it; a worker that needs you is among the sessions too', () => {
+  const lead = (over = {}) => session({ sessionId: sid(1), name: 'checkout-lead', role: 'main', space: 'Checkout', state: 'idle', model: 'opus', said: 'API is done, UI half way.', ...over });
+  const workers = [
+    session({ sessionId: sid(2), name: 'cart-api', role: 'worker', space: 'Checkout', state: 'busy', model: 'sonnet', branch: 'worktree-cart-api', said: 'Working on <it>.', saidAt: 1_000_000 - 120_000 }),
+    session({ sessionId: sid(3), name: 'cart-ui', role: 'worker', space: 'Checkout', state: 'waiting', model: 'haiku', asks: ['Bash: npm i'], said: null }),
+  ];
+  const loose = session({ sessionId: sid(4), name: 'loose', state: 'idle' });
+  const board = (main) => ({ sessions: [loose, ...workers, main], folders: [], spaces: [{ name: 'Checkout' }] });
+  const text = digest(board(lead()), null, { now: 1_000_000 });
+  const at = (s) => text.indexOf(s);
+  assert.ok(at('Main agents, each leading a space') > 0 && at('Main agents, each leading a space') < at('Sessions, the ones that need you first'), 'main agents come first');
+  assert.match(text, /\[00000001\] "checkout-lead" · background · idle[^\n]*space "Checkout"[^\n]*\n {2}said: "API is done, UI half way\."\n {2}its workers: 1 needs you, 1 working\n {4}\[0000000[23]\]/);
+  assert.match(text, /\n {4}\[00000002\] "cart-api" · sonnet · working · on worktree-cart-api · said 2m ago: "Working on it\."/);
+  assert.match(text, /\n {4}\[00000003\] "cart-ui" · haiku · needs you · on fix\/login/);
+  assert.equal(text.split('[00000002]').length - 1, 1, 'a worker of a main agent that is up is listed only under it');
+  assert.equal(text.split('[00000003]').length - 1, 2, 'one that needs you is among the sessions too');
+  assert.equal(text.split('[00000001]').length - 1, 1, 'the main agent is not listed twice');
+  assert.match(text, /\[00000004\] "loose"/);
+  assert.equal(text.slice(7, -8).includes('<'), false, 'no tags inside the board');
+  // A main agent that has ended no longer answers for its workers: they are sessions like any other.
+  const ended = digest(board(lead({ state: 'finished' })), null, { now: 1_000_000 });
+  assert.equal(ended.split('[00000002]').length - 1, 2);
+  // A main agent with no workers says so; a board without one says nothing of main agents.
+  assert.match(digest({ sessions: [lead()], folders: [] }, null, { now: 1_000_000 }), /\n {2}it has no workers\./);
+  assert.doesNotMatch(digest({ sessions: [loose, ...workers.map((w) => ({ ...w, role: null }))], folders: [] }, null, { now: 1_000_000 }), /Main agents|its workers/);
+  assert.match(SYSTEM, /propose telling its main agent, not its workers/);
+});

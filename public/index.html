@@ -655,6 +655,10 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .ticks button[aria-current="true"] { color: var(--fg); font-weight: 550; }
 .wt-pick { display: flex; align-items: center; gap: 12px; min-height: 28px; margin-top: -4px; }
 .wt-pick .switch { flex: none; color: var(--fg); }
+/* "Main agent of this space", under the Space field: the switch, and a line on what it means. */
+.l-main { display: grid; gap: 6px; margin-top: -4px; }
+.l-main .switch { color: var(--fg); min-height: 28px; }
+.l-main .l-note { margin: 0; }
 .switch:has(input:disabled) { color: var(--fg-faint); cursor: default; }
 .switch input:disabled + i { opacity: .45; }
 .wt-name { flex: 1; min-width: 0; height: 32px; padding: 0 12px; border: 1px solid transparent; border-radius: var(--r-1); background: var(--fill); font: 12.5px var(--mono); }
@@ -1066,6 +1070,28 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 .hm-tip { position: absolute; z-index: 3; max-width: min(520px, 100%); padding: 6px 10px; border-radius: var(--r-1); background: var(--raise);
   box-shadow: 0 0 0 1px var(--line-strong), 0 10px 28px -10px var(--shade); font-size: 12.5px; white-space: pre; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
 .hm-note { margin: 10px 0 0; color: var(--fg-faint); font-size: 12.5px; }
+/* Main agents: a card per space that has one. What its space is doing, at a glance; a click opens the main agent. */
+.h-mains { margin-bottom: 32px; }
+.ma-card { position: relative; display: grid; gap: 8px; min-width: 0; padding: 14px 14px 13px 18px; border: 0; border-radius: var(--r-2); background: var(--raise);
+  box-shadow: 0 0 0 1px var(--line); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.ma-card:hover { background: var(--hover); }
+.ma-card:focus-visible { outline: 2px solid var(--run); outline-offset: 2px; }
+.ma-card::before { content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px; border-radius: 0 3px 3px 0; background: var(--line-strong); }
+.ma-card[data-s="busy"]::before { background: var(--run); }
+.ma-card[data-s="waiting"]::before, .ma-card[data-asks]::before { background: var(--amber); }
+.ma-card[data-s="failed"]::before { background: var(--stop); }
+.ma-space { font-size: 11.5px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ma-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.ma-name { min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ma-name::before { content: '★ '; color: var(--amber); font-weight: 400; }
+.ma-model, .ma-state { flex: none; color: var(--fg-dim); font-size: 12.5px; }
+.ma-state { margin-left: auto; }
+.ma-card[data-s="waiting"] .ma-state, .ma-tag { color: var(--amber); }
+.ma-tag { flex: none; padding: 1px 7px; border-radius: 999px; background: var(--amber-fill); font-size: 11.5px; font-weight: 600; }
+.ma-workers { font-size: 13px; color: var(--fg-dim); }
+.ma-workers b { color: var(--amber); font-weight: 600; }
+.ma-said { margin: 0; font-size: 13px; color: var(--fg); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.ma-said:empty { display: none; }
 /* Waiting on you: a card per agent that finished with a question, or with work left. */
 .h-board { padding-bottom: 24px; }
 .h-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 12px; align-items: start; }
@@ -1139,6 +1165,9 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 .srow.ov:hover .ov-mark::after { background: var(--hover); box-shadow: 0 0 0 1.5px var(--hover); }
 .srow.ov[aria-current="true"] .ov-mark::after { background: var(--fill-strong); box-shadow: 0 0 0 1.5px var(--fill-strong); }
 .srow.ov .tname { font-weight: 600; }
+/* A space's main agent: a star before its name, and its name a little heavier. */
+.srow[data-role="main"] .tname { font-weight: 600; }
+.srow[data-role="main"] .tname::before { content: '★ '; color: var(--amber, currentColor); font-weight: 400; }
 .srow.ov[data-busy="1"] .tdetail { color: var(--run); }
 .srow.ov[data-proposed="1"] .tdetail { color: var(--run); font-weight: 600; }
 
@@ -1234,6 +1263,7 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
       <!-- How much the agents worked this week, and the agents that stopped and wait on you: what the rail does not show. -->
       <div class="d-scroll" id="h-scroll">
         <div class="d-col h-col">
+          <section class="h-mains" id="h-mains" aria-label="Main agents" hidden></section>
           <section class="h-heat" id="h-heat" aria-label="Agent work this year"></section>
           <section class="h-board" id="h-board" aria-label="Waiting on you"></section>
         </div>
@@ -1352,6 +1382,10 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
     <p class="l-note" id="l-wt-note" hidden></p>
     <div class="lf l-ws" role="radiogroup" aria-labelledby="l-ws-t" id="l-ws" hidden><span id="l-ws-t"></span><div class="seg" id="l-ws-seg"></div></div>
     <div class="lf l-space"><span id="l-space-t">Space</span><span class="lf-row"><select class="field" id="l-space" aria-labelledby="l-space-t"></select><input class="field" id="l-space-new" maxlength="40" placeholder="Name the space" spellcheck="false" autocomplete="off" aria-label="New space name" hidden></span></div>
+    <div class="l-main l-claude" id="l-main-row" hidden>
+      <label class="switch"><input type="checkbox" id="l-main"><i></i>Main agent of this space</label>
+      <p class="l-note" id="l-main-note" hidden></p>
+    </div>
     <div class="pair">
       <label class="lf"><span>Name <small>(optional)</small></span><input id="l-name" maxlength="60" placeholder="fix-timesheet-tests" spellcheck="false"></label>
       <label class="lf l-claude"><span>Agent type <small>(optional)</small></span><input id="l-agent" list="l-agents" placeholder="e.g. code-reviewer" spellcheck="false"><datalist id="l-agents"></datalist></label>
@@ -1856,6 +1890,17 @@ function sectionEl(key, kind) {
 }
 /** The space a session is in, if that space is still listed for this workspace; else null. */
 const spaceIn = (s) => (s?.space && snap?.spaces?.some((x) => x.id === s.space) ? s.space : null);
+// A model in one word: "Opus" for claude-opus-5-5 or opus[1m].
+const modelWord = (m) => { const w = /(opus|sonnet|haiku|fable)/i.exec(m ?? '')?.[1]; return w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : null; };
+/** The main agent a space has, as the snapshot gives it ({ sessionId, model }), or null. */
+const mainOfSpace = (id) => snap?.spaces?.find((x) => x.id === id)?.main ?? null;
+/** "main · Opus" or "worker · Sonnet" for a session with a role in its space, else ''. Its model is the one it runs
+ *  on, or until it has answered once, the one it was started on. */
+function roleTag(s) {
+  if (!s.role || !spaceIn(s)) return '';
+  const model = modelWord(s.model) ?? modelWord(s.role === 'main' ? mainOfSpace(s.space)?.model : s.startModel);
+  return [s.role, model].filter(Boolean).join(' · ');
+}
 let renaming = null; // the space whose name is being edited in its header
 function endRename() { renaming = null; render(); }
 async function saveRename(c) {
@@ -1895,8 +1940,10 @@ function sections(g) {
   const working = (s) => (['busy', 'stopping'].includes(stateOf(s)) ? 0 : 1);
   // In a space: working, then idle, newest first; then what finished there, the latest to finish first.
   const done = (s) => (colOf(stateOf(s)) === 'finished' ? 1 : 0), ended = (s) => s.leftRosterAt ?? s.lastEventAt ?? 0;
+  // Its main agent leads the section, whatever it is doing.
+  const led = (s) => (s.role === 'main' ? 0 : 1);
   for (const x of spaces) out.push({ key: 'space:' + x.id, kind: 'space', space: x.id, title: x.name, asks: spaceAsks.get(x.id) ?? 0,
-    list: inSpace.get(x.id).sort((a, b) => done(a) - done(b) || (done(a) ? ended(b) - ended(a) : working(a) - working(b) || (b.startedAt ?? 0) - (a.startedAt ?? 0))
+    list: inSpace.get(x.id).sort((a, b) => led(a) - led(b) || done(a) - done(b) || (done(a) ? ended(b) - ended(a) : working(a) - working(b) || (b.startedAt ?? 0) - (a.startedAt ?? 0))
       || a.sessionId.localeCompare(b.sessionId)) });
   for (const r of [...repos.keys()].sort((a, b) => base(a).localeCompare(base(b)) || a.localeCompare(b))) {
     // As in a space: working before idle, newest first. A row in a worktree names it.
@@ -2130,7 +2177,9 @@ function tile(s) {
   // Under Needs you or in a space a row is away from its repository's section, so it names the repository; in that
   // section it names its worktree (nothing for the main checkout), as a space's row names its repository.
   const away = (st === 'waiting' || spaceIn(s)) && repoOf(s.git), home = !away && colOf(st) !== 'finished' && s.git?.worktree;
-  const tag = s.mismatch ? `from ${s.mismatch.name}` : away || home;
+  // A space's main agent and its workers say what they are and the model they run on, in place of the repository.
+  const tag = s.mismatch ? `from ${s.mismatch.name}` : roleTag(s) || away || home;
+  setAttr(t.btn, 'data-role', spaceIn(s) && s.role ? s.role : '');
   setText(t.repo, tag || '');
   t.repo.classList.toggle('mismatch', Boolean(s.mismatch));
   const ci = ciOf(s);
@@ -2231,11 +2280,15 @@ function renderBoard(g, vis) {
     setAttr(c.head, 'title', sec.kind === 'repo' ? tilde(sec.repo) : '');
     const bs = bulksOf(sec), armedB = bs.find((b) => armed?.key === b.key);
     const renameBtn = sec.kind === 'space' && renaming !== sec.space;
-    c.tools.hidden = !renameBtn && !bs.length;
+    // A space with no main agent leading it offers to start one.
+    const slot = sec.kind === 'space' ? mainOfSpace(sec.space) : null;
+    const mainBtn = sec.kind === 'space' && !liveMainOf(sec.space) && !(slot && !slot.sessionId); // none up, and none just started
+    c.tools.hidden = !renameBtn && !mainBtn && !bs.length;
     if (c.tools.hidden) c.more.open = false;
     setAttr(c.more.firstChild, 'aria-label', `More for ${sec.title}`);
-    patch(c.menu, JSON.stringify([renameBtn, bs.map((b) => [b.key, b.text, b.armed, armed?.key === b.key])]), () => [
+    patch(c.menu, JSON.stringify([renameBtn, mainBtn, bs.map((b) => [b.key, b.text, b.armed, armed?.key === b.key])]), () => [
       renameBtn ? el('button', { type: 'button', role: 'menuitem', text: 'Rename…', onclick: () => { c.more.open = false; renaming = sec.space; render(); } }) : null,
+      mainBtn ? el('button', { type: 'button', role: 'menuitem', text: 'Start main agent…', onclick: () => { c.more.open = false; quickLaunch(sec.key, { main: true }); } }) : null,
       ...bs.map((b) => el('button', {
         class: 'danger' + (armed?.key === b.key ? ' armed' : ''), type: 'button', role: 'menuitem', 'data-key': b.key, title: hintOf(b.key),
         text: armed?.key === b.key ? (b.armed.endsWith('?') ? b.armed : `${b.armed}?`) : b.text, onclick: () => confirmOr(b.key, () => { c.more.open = false; b.run(); }) })),
@@ -3588,6 +3641,55 @@ const REVIEW_WORDS = { APPROVED: 'approved', CHANGES_REQUESTED: 'changes request
 const UNREADY_WORDS = { BLOCKED: 'blocked', DIRTY: 'has conflicts', BEHIND: 'behind its base', UNSTABLE: 'a check fails', UNKNOWN: 'checking' };
 /** Its pull request can be merged now, as the last poll saw it: not a draft, and GitHub calls it clean. */
 const mergeable = (pr) => Boolean(pr && !pr.draft && pr.sha && (pr.mergeState === 'CLEAN' || pr.mergeState === 'HAS_HOOKS'));
+// ---------- main agents: a card per space that has one ----------
+const MA_STATE = { waiting: 'needs you', busy: 'working', stopping: 'stopping', idle: 'idle', finished: 'finished', failed: 'failed' };
+const maNodes = new Map(); // space id → { sig, node }
+/** The first sentence of what it said last, for a card. */
+const firstSentence = (text) => { const t = String(text ?? '').replace(/[#*`_>]/g, '').replace(/\s+/g, ' ').trim(); return (t.match(/^.{1,220}?[.!?](\s|$)/)?.[0] ?? t.slice(0, 220)).trim(); };
+/** "5 workers: 3 working, 1 needs you, 1 finished", the part that needs you set apart. */
+function workersLine(workers) {
+  if (!workers.length) return el('span', { class: 'ma-workers', text: 'No workers yet' });
+  const n = {};
+  for (const w of workers) { const st = colOf(stateOf(w)); n[st] = (n[st] ?? 0) + 1; }
+  const bits = ['busy', 'waiting', 'idle', 'finished'].filter((k) => n[k]).map((k) => (k === 'waiting' ? el('b', { text: `${n[k]} ${n[k] === 1 ? 'needs' : 'need'} you` }) : `${n[k]} ${MA_STATE[k]}`));
+  const out = el('span', { class: 'ma-workers' }, `${workers.length} ${workers.length === 1 ? 'worker' : 'workers'}: `);
+  bits.forEach((b, i) => out.append(i ? ', ' : '', b));
+  return out;
+}
+/** One space's main agent: the space, its name and model, what it is doing, its workers by state, and the first
+ *  sentence of what it said last. A click opens it. */
+function maCard(x, s, workers, asks) {
+  const st = stateOf(s), model = modelWord(s.model) ?? modelWord(x.main.model);
+  const card = el('button', { class: 'ma-card', type: 'button', 'data-s': st, title: `Open ${label(s)}`, onclick: () => { cancelAdvance(); open = s.sessionId; render(); } },
+    el('span', { class: 'ma-space', text: x.name }),
+    el('span', { class: 'ma-head' }, el('span', { class: 'ma-name', text: label(s) }), model ? el('span', { class: 'ma-model', text: model }) : null,
+      asks ? el('span', { class: 'ma-tag', text: 'Asks you' }) : null, el('span', { class: 'ma-state', text: MA_STATE[st] ?? st })),
+    workersLine(workers),
+    el('p', { class: 'ma-said', text: firstSentence(s.lastMessage) }));
+  if (asks) card.setAttribute('data-asks', '');
+  return card;
+}
+/** Main agents, above everything else on Home: hidden while no space has one that is on the board. */
+function renderMains() {
+  const box = $('h-mains'), follow = new Set((snap.overseer?.follow ?? []).map((f) => f.sessionId));
+  const rows = (snap.spaces ?? []).map((x) => ({ x, s: x.main?.sessionId ? snap.sessions.find((y) => y.sessionId === x.main.sessionId) : null })).filter((r) => r.s);
+  box.hidden = !rows.length;
+  if (!rows.length) { maNodes.clear(); box.replaceChildren(); return; }
+  if (!box.firstChild) box.append(el('div', { class: 'h-lane' }, el('h3', { text: 'Main agents' }), el('span', { class: 'h-n' })), el('div', { class: 'h-cards' }));
+  setText(box.firstChild.lastChild, String(rows.length));
+  const grid = box.lastChild;
+  const want = rows.map(({ x, s }) => {
+    const workers = snap.sessions.filter((w) => w.space === x.id && w.role === 'worker'), asks = follow.has(s.sessionId);
+    const sig = JSON.stringify([x, label(s), stateOf(s), s.model, s.lastMessage, asks, workers.map((w) => [w.sessionId, stateOf(w)])]);
+    let n = maNodes.get(x.id);
+    if (!n || n.sig !== sig) { n = { sig, node: maCard(x, s, workers, asks) }; maNodes.set(x.id, n); }
+    return n.node;
+  });
+  for (const k of maNodes.keys()) if (!rows.some((r) => r.x.id === k)) maNodes.delete(k);
+  want.forEach((n, i) => { if (grid.children[i] !== n) grid.insertBefore(n, grid.children[i] ?? null); });
+  while (grid.children.length > want.length) grid.lastChild.remove();
+}
+
 let fuEmpty = null;
 /** "Waiting on you": a card per agent that finished with a question or with work left, newest first. Each card is
  *  rebuilt only when it changes, so a reply you are editing survives a broadcast. */
@@ -3921,6 +4023,7 @@ function renderHome(g) {
   if (ovProposedWas != null && proposed > ovProposedWas && !dockOpen) { ovProposedWas = proposed; setDock(true); return; }
   ovProposedWas = proposed;
   setText($('h-meta'), st ? `${ovModelName(st.model)} · proposes, you confirm` : '');
+  renderMains();
   renderHeat();
   renderWaiting();
   setAttr($('h-dock'), 'data-open', dockOpen ? '1' : '0');
@@ -4284,12 +4387,12 @@ function loginOptions() {
 $('l-login').addEventListener('change', () => { syncLauncher(); checkFolder(); });
 /** A space's or repository's +: New agent in it, in the short form. A space starts in the folder its newest agent
  *  works in (any agent of it: waiting, working or finished), else where New agent would. */
-function quickLaunch(key) {
+function quickLaunch(key, { main = false } = {}) {
   const sec = sections(groups(visible())).find((x) => x.key === key);
   if (!sec || modalOpen()) return;
   if (sec.kind === 'repo') return openLauncher({ space: '', cwd: sec.repo, where: tilde(sec.repo) });
   const newest = (snap?.sessions ?? []).filter((x) => spaceIn(x) === sec.space).sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))[0];
-  openLauncher({ space: sec.space, cwd: newest ? folderOf(newest) : null, where: sec.title });
+  openLauncher({ space: sec.space, cwd: newest ? folderOf(newest) : null, where: sec.title, main }); // `main`: as the space's main agent
 }
 /** The folder a session suggests for another agent: a worktree Claude Code made for it suggests its repository. */
 const folderOf = (s) => (s.git?.worktree && s.git.top.includes('/.claude/worktrees/') ? s.git.repo : s.cwd);
@@ -4301,7 +4404,7 @@ function showQuick() {
   const spanOf = (name) => document.querySelector(`input[name="${name}"]:checked + span`)?.textContent ?? '';
   const oc = picked('l-kind') === 'opencode', folder = $('l-cwd').value.trim(), inSpace = $('l-space').value && $('l-space').value !== '+new';
   const model = oc ? $('l-oc-model').selectedOptions[0]?.textContent ?? '' : spanOf('l-model') === 'Default' ? 'default model' : spanOf('l-model');
-  const bits = [inSpace ? tilde(folder || '~') : null, oc ? `OpenCode, ${model}` : `Claude Code, ${model}`, spanOf('l-mode'),
+  const bits = [inSpace ? tilde(folder || '~') : null, !oc && $('l-main').checked ? 'its main agent' : null, oc ? `OpenCode, ${model}` : `Claude Code, ${model}`, spanOf('l-mode'),
     $('l-wt').checked && !$('l-wt').disabled ? 'its own worktree' : null].filter(Boolean);
   $('l-quick-t').replaceChildren(el('b', { text: `In ${inSpace ? quickWhere : tilde(folder || '~')}` }), ` · ${bits.join(' · ')}`);
 }
@@ -4343,6 +4446,9 @@ function openLauncher(preset = null) {
   spaceOptions($('l-space'), space);
   $('l-space-new').hidden = $('l-space').value !== '+new';
   quickWhere = preset?.where ?? null;
+  modelBeforeMain = null; // the defaults above set the model afresh
+  $('l-main').checked = Boolean(preset?.main);
+  syncMain();
   setQuick(Boolean(preset));
   lErr.hidden = true;
   setWsAsk(null); // asked again for this page's workspace, once the folder is looked at
@@ -4485,7 +4591,33 @@ $('l-space').addEventListener('change', () => {
   const fresh = $('l-space').value === '+new';
   $('l-space-new').hidden = !fresh;
   if (fresh) $('l-space-new').focus();
+  syncMain();
 });
+/** The session leading a space now: its main agent, while it is on the board and not over. */
+function liveMainOf(spaceId) {
+  const id = mainOfSpace(spaceId)?.sessionId, s = id ? snap?.sessions.find((x) => x.sessionId === id) : null;
+  return s && !isOver(s) ? s : null;
+}
+/** "Main agent of this space": offered for a Claude Code agent once a space is picked, and not where one leads already.
+ *  Turned on, it picks the main agents' model (yours to change below); turned off, the model you had comes back. */
+let modelBeforeMain = null;
+function syncMain() {
+  const v = $('l-space').value, oc = picked('l-kind') === 'opencode', box = $('l-main'), note = $('l-main-note');
+  const known = v && v !== '+new', up = known ? liveMainOf(v) : null, awaited = known && mainOfSpace(v) && !mainOfSpace(v).sessionId;
+  $('l-main-row').hidden = !v || oc;
+  box.disabled = Boolean(up || awaited);
+  if (box.disabled || $('l-main-row').hidden) box.checked = false;
+  const pick = (m) => { const r = document.querySelector(`input[name="l-model"][value="${CSS.escape(m)}"]`); if (r) r.checked = true; };
+  if (box.checked && modelBeforeMain === null) { modelBeforeMain = picked('l-model') ?? ''; pick(glue?.mainAgents?.model ?? 'opus'); }
+  else if (!box.checked && modelBeforeMain !== null) { pick(modelBeforeMain); modelBeforeMain = null; }
+  const space = snap?.spaces?.find((x) => x.id === v)?.name ?? 'This space';
+  setText(note, up ? `${space} already has a main agent: ${label(up)}.` : awaited ? `A main agent was just started in ${space}.`
+    : box.checked ? 'It leads the space: Home shows it, and it comes first in its section. Pick its model below.' : '');
+  note.hidden = !note.textContent;
+  showQuick();
+}
+$('l-main').addEventListener('change', syncMain);
+for (const r of document.querySelectorAll('input[name="l-kind"]')) r.addEventListener('change', syncMain);
 $('launch-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const go = $('l-go');
@@ -4509,6 +4641,7 @@ $('launch-form').addEventListener('submit', async (e) => {
     prompt: $('l-prompt').value, cwd: $('l-cwd').value, name, agentKind: ocKind ? 'opencode' : 'claude',
     ...(ocKind ? { model: $('l-oc-model').value } : { agent: $('l-agent').value.trim(), model: picked('l-model'), effort: EFFORT_STOPS[$('l-effort').value][0], login: $('l-login').value || undefined }),
     mode: picked('l-mode'), worktree, worktreeName, assign, space,
+    ...(!ocKind && space && $('l-main').checked && !$('l-main').disabled ? { main: true } : {}),
   });
   go.disabled = false;
   go.textContent = 'Launch agent';
