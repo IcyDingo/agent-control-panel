@@ -54,13 +54,17 @@ if (a[0] === 'agents') {
   try { process.stdout.write(fs.readFileSync(f, 'utf8')); } catch { process.stdout.write('[]'); }
   process.exit(0);
 }
-fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ args: a, env: cfg }) + '\\n');
+// What the overseer is asked arrives on its stdin, and is logged with the call.
+const stdin = a[0] === '-p' ? fs.readFileSync(0, 'utf8') : undefined;
+fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ args: a, env: cfg, stdin }) + '\\n');
 // Signed in on contract only, as someone a page shown the plain profile must not learn of.
 if (a[0] === 'auth') { console.log(cfg && path.basename(cfg) === '.claude-contract' ? JSON.stringify({ loggedIn: true, email: ${JSON.stringify(EMAIL_C)}, orgName: 'Contract Org' }) : '{}'); process.exit(0); }
 if (a[0] === '--bg') { const i = a.indexOf('--resume'); console.log('backgrounded · ' + (a.includes('--fork-session') ? 'f0f0f0f0' : i >= 0 ? a[i + 1].slice(0, 8) : 'deadbeef')); process.exit(0); }
 if (a[0] === '-p') {
-  // The overseer's call (its prompt is the last argument, logged above): it answers after a moment, saying whose login it ran on.
-  const v = { reply: 'Answered on ' + (cfg ? path.basename(cfg) : 'default') + '.', actions: [], look: [] };
+  // The overseer's call (its prompt, read from stdin, is logged above): it answers after a moment, saying whose login it ran on.
+  let v = { reply: 'Answered on ' + (cfg ? path.basename(cfg) : 'default') + '.', actions: [], look: [] };
+  // A test may queue answers of its own (next-answers.json): the next call takes the first.
+  try { const f = path.join(${JSON.stringify(home)}, 'next-answers.json'), q = JSON.parse(fs.readFileSync(f, 'utf8')); if (q.length) { v = q.shift(); fs.writeFileSync(f, JSON.stringify(q)); } } catch {}
   setTimeout(() => { console.log(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, num_turns: 2, result: JSON.stringify(v), structured_output: v })); process.exit(0); }, 400);
 } else process.exit(1);
 `, { mode: 0o755 });
@@ -303,7 +307,7 @@ test('each overseer reads only its own workspace', async () => {
   const asks = logged().slice(before).filter((x) => x.args[0] === '-p');
   assert.equal(asks.length, 1, JSON.stringify(asks));
   assert.equal(asks[0].env, null, 'on the plain profile\'s login');
-  const prompt = asks[0].args.at(-1);
+  const prompt = asks[0].stdin;
   assert.ok(prompt.includes(SID_D.slice(0, 8)) || prompt.includes('default job'), 'its own session is on its board');
   for (const bit of [SID_C.slice(0, 8), 'contract job', workC, 'kept from before'])
     assert.equal(prompt.includes(bit), false, `the default overseer's prompt carries ${bit}`);
@@ -323,11 +327,11 @@ test('both overseers can answer at once', async () => {
   assert.deepEqual([ta.at(-2).text, ta.at(-1).text, ta.at(-1).error], ['Anything for default?', 'Answered on default.', undefined]);
   assert.deepEqual([tb.at(-2).text, tb.at(-1).text, tb.at(-1).error], ['Anything for contract?', 'Answered on .claude-contract.', undefined]);
   const asks = logged().slice(before).filter((x) => x.args[0] === '-p');
-  assert.ok(asks.find((x) => x.env === null).args.at(-1).includes('Anything for default?'));
+  assert.ok(asks.find((x) => x.env === null).stdin.includes('Anything for default?'));
   const c = asks.find((x) => x.env?.endsWith('.claude-contract'));
   assert.ok(c, JSON.stringify(asks.map((x) => x.env)));
-  assert.ok(c.args.at(-1).includes('Anything for contract?') && c.args.at(-1).includes('kept from before, contract'));
-  assert.equal(c.args.at(-1).includes(SID_D.slice(0, 8)), false, 'the contract overseer\'s prompt carries no default session');
+  assert.ok(c.stdin.includes('Anything for contract?') && c.stdin.includes('kept from before, contract'));
+  assert.equal(c.stdin.includes(SID_D.slice(0, 8)), false, 'the contract overseer\'s prompt carries no default session');
   assert.equal(c.args[2], 'haiku', 'its own model');
 });
 
@@ -506,7 +510,7 @@ test('a session in another workspace\'s repository shows nothing of it', async (
   assert.ok(await answered(A), 'it answered: ' + log);
   const ask = logged().slice(before).find((x) => x.args[0] === '-p');
   assert.ok(ask, JSON.stringify(logged().slice(before)));
-  const prompt = ask.args.at(-1);
+  const prompt = ask.stdin;
   const id8 = SID_R.slice(0, 8), at = prompt.indexOf(`[${id8}]`);
   assert.ok(at >= 0, 'the session is on its board');
   // Its block on the board, and the folders a launch may use. (The feed keeps page A's own launch in o/n, from when A held it.)
@@ -514,6 +518,17 @@ test('a session in another workspace\'s repository shows nothing of it', async (
   assert.match(block, new RegExp(`^\\[${id8}\\] "${id8}"`), 'named by its id, not its folder');
   for (const bit of ['feat/x', repoN, '~/code/n', ' n @ ']) assert.equal(block.includes(bit), false, `its board block carries ${bit}: ${block}`);
   assert.equal(folders.includes('~/code/n'), false, folders);
+  // Asked to look into it, the panel reads nothing of that repository for the overseer: no git there, and no CI log.
+  fs.writeFileSync(path.join(home, 'next-answers.json'), JSON.stringify([{ reply: '', actions: [], look: [{ session: id8, what: 'changes' }, { session: id8, what: 'log' }] }]));
+  const n = logged().length;
+  assert.equal((await api('/api/overseer/say', { text: 'What did it change?' }, A.client)).ok, true);
+  assert.ok(await answered(A), 'it answered: ' + log);
+  const asks = logged().slice(n).filter((x) => x.args[0] === '-p');
+  assert.equal(asks.length, 2, 'it looked, and was asked again');
+  assert.match(asks[1].stdin, /what="changes">\nWhat it changed could not be read: That belongs to another workspace\. Switch to it to do this\.\n<\/excerpt>/);
+  assert.match(asks[1].stdin, /what="log">\nIts CI log could not be read: That belongs to another workspace\. Switch to it to do this\.\n<\/excerpt>/);
+  for (const bit of ['feat/x', repoN, '~/code/n']) assert.equal(asks[1].stdin.slice(asks[1].stdin.indexOf('<excerpt')).includes(bit), false, `an excerpt carries ${bit}`);
+  assert.deepEqual((await api('/api/overseer/turns', {}, A.client)).turns.at(-1).looked, [], 'and nothing is said to have been read');
 });
 
 test('a held request on that session carries nothing of the repository either', async () => {

@@ -57,12 +57,14 @@ if (a[0] === 'agents') {
   try { process.stdout.write(fs.readFileSync(f, 'utf8')); } catch { process.stdout.write('[]'); }
   process.exit(0);
 }
-fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ args: a, env: cfg }) + '\\n');
+// What the overseer is asked arrives on its stdin, and is logged with the call.
+const stdin = a[0] === '-p' ? fs.readFileSync(0, 'utf8') : undefined;
+fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ args: a, env: cfg, stdin }) + '\\n');
 // Signed in on contract only, as someone a page shown the plain profile must not learn of.
 if (a[0] === 'auth') { console.log(cfg && path.basename(cfg) === '.claude-contract' ? JSON.stringify({ loggedIn: true, email: ${JSON.stringify(EMAIL_C)}, orgName: 'Contract Org' }) : '{}'); process.exit(0); }
 if (a[0] === '--bg') { const i = a.indexOf('--resume'); console.log('backgrounded · ' + (i >= 0 ? a[i + 1].slice(0, 8) : 'deadbeef')); process.exit(0); }
 if (a[0] === '-p') {
-  // The overseer's call (its prompt is the last argument, logged above): it answers after a moment, saying whose login it ran on.
+  // The overseer's call (its prompt, read from stdin, is logged above): it answers after a moment, saying whose login it ran on.
   const v = { reply: 'Answered on ' + (cfg ? path.basename(cfg) : 'default') + '.', actions: [], look: [] };
   setTimeout(() => { console.log(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, num_turns: 2, result: JSON.stringify(v), structured_output: v })); process.exit(0); }, 400);
 } else process.exit(1);
@@ -241,7 +243,7 @@ test('Ask Glue reads each session\'s space and an open question the rail shows, 
   assert.ok(await until(() => sessionIn(A, sid)?.space === c.id));
 
   const ask = (client, text) => api('/api/overseer/say', { text }, client);
-  const promptFor = (text) => until(() => logged().findLast((x) => x.args[0] === '-p' && x.args.at(-1).includes(`<you>${text}</you>`))?.args.at(-1), 10_000);
+  const promptFor = (text) => until(() => logged().findLast((x) => x.args[0] === '-p' && x.stdin.includes(`<you>${text}</you>`))?.stdin, 10_000);
   assert.equal((await ask(A.client, 'How is billing going?')).ok, true);
   const mine = await promptFor('How is billing going?');
   assert.ok(mine, 'the default workspace asked');

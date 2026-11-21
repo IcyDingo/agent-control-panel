@@ -27,7 +27,7 @@ test('defaults for missing, null, corrupt', () => {
 test('the defaults match the page and the server', () => {
   assert.deepEqual(GLUE_DEFAULTS, { theme: 'dark', folded: ['finished'], notify: { requests: true, ci: true, watcher: true },
     titleCount: true, agentDefaults: { model: '', effort: '', mode: 'default', worktree: false, agent: 'claude', opencodeModel: '' },
-    overseerModel: 'sonnet', followUps: true, fallbackModel: '', seeded: false });
+    overseerModel: 'opus', followUps: true, fallbackModel: '', seeded: false });
 });
 
 test('the OpenCode defaults: which agent, and models by their provider/model shape', () => {
