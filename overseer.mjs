@@ -294,7 +294,8 @@ function sessionBlock(s, now, { follow: f = null, note = NOTE_SHORT, fresh = fal
   const said = flat(s.said, 4000);
   if (!said) return top;
   const when = Number.isFinite(s.saidAt) ? `${ago(now - s.saidAt)} ago` : '';
-  const label = s.state === 'busy' ? `said before this turn${when ? `, ${when}` : ''}` : `said${when ? ` ${when}` : ''}`;
+  // A working session's last message is from the turn before, unless the panel reads it as it goes (`saidLive`).
+  const label = s.state === 'busy' && !s.saidLive ? `said before this turn${when ? `, ${when}` : ''}` : `said${when ? ` ${when}` : ''}`;
   return `${top}\n  ${label}: "${mid(said, note)}"`;
 }
 
@@ -309,7 +310,7 @@ function workerLine(w, now) {
 }
 
 /** A session past the ones shown in full: one line, so it can still be named, looked at and messaged. */
-const sessionLine = (s) => clip([`[${flat(s.sessionId, 36).slice(0, 8)}] "${flat(s.name, 60)}"`, stateOf(s), whereOf(s)].filter(Boolean).join(' · '), 160);
+const sessionLine = (s, fresh = false) => `${clip([`[${flat(s.sessionId, 36).slice(0, 8)}] "${flat(s.name, 60)}"`, stateOf(s), whereOf(s)].filter(Boolean).join(' · '), 154)}${fresh ? ' · new' : ''}`;
 
 /** GitHub for the agents' repositories, in at most 2,000 characters. */
 function githubPart(g) {
@@ -364,8 +365,9 @@ function spacesPart(list, sessions) {
 /** Whether a session did something since `sinceAt`: the feed has an event about it (`fresh`), or it said something. */
 const isNewSince = (s, sinceAt, fresh) => fresh.has(s.sessionId) || (Number.isFinite(sinceAt) && Number.isFinite(s.saidAt) && s.saidAt > sinceAt);
 const boardSessions = (board) => (Array.isArray(board?.sessions) ? board.sessions.filter((s) => s && typeof s === 'object') : []);
-/** How many of the board's sessions the digest marks new. */
-export const newSince = (board, { sinceAt = null, fresh = new Set() } = {}) => boardSessions(board).filter((s) => isNewSince(s, sinceAt, fresh)).length;
+
+/** The board as text (see boardOf). */
+export const digest = (board, github, opts) => boardOf(board, github, opts).text;
 
 /**
  * The board as plain text inside <board>: sessions that need you first, then the ones you named, that have a follow-up
@@ -377,8 +379,10 @@ export const newSince = (board, { sinceAt = null, fresh = new Set() } = {}) => b
  * @param {object} [opts] `now`; `follow`: sessionId → its open follow-up ({ verdict, ask }); `text`: your message, so
  *   the sessions it names get a long note; `sinceAt`: when the overseer last answered, and `fresh`: the ids of the
  *   sessions the feed has an event about since then, so what is new is marked.
+ * @returns {{ text: string, marked: number }} the board, and how many sessions on it are marked new: only ones it
+ *   shows, so the prompt never speaks of a mark that is not there
  */
-export function digest(board, github, { now = Date.now(), follow = new Map(), text = '', sinceAt = null, fresh = new Set() } = {}) {
+export function boardOf(board, github, { now = Date.now(), follow = new Map(), text = '', sinceAt = null, fresh = new Set() } = {}) {
   const all = boardSessions(board);
   const asked = String(text ?? '').toLowerCase();
   const inText = (v) => { const t = flat(v, 60).toLowerCase(); return t.length >= 3 && asked.includes(t); };
@@ -397,6 +401,7 @@ export function digest(board, github, { now = Date.now(), follow = new Map(), te
   for (const { main, workers } of mains) if (!ENDED.has(main.state)) for (const w of workers) if (w.state !== 'waiting' && !follow.has(w.sessionId)) tucked.add(w);
   const sorted = ranked.filter((s) => !leading.has(s) && !tucked.has(s));
   const parts = [];
+  let marked = mains.filter((x) => isNew(x.main)).length;
   if (!ranked.length) parts.push('No sessions are on the board.');
   if (mains.length) {
     parts.push(`Main agents, each leading a space and the workers it started (speak of a space through its main agent):\n${mains.map(({ main, workers }) => {
@@ -412,8 +417,9 @@ export function digest(board, github, { now = Date.now(), follow = new Map(), te
     const shown = sorted.slice(0, MAX_SESSIONS), listed = sorted.slice(MAX_SESSIONS, MAX_SESSIONS + MAX_LISTED);
     const long = new Set(shown.filter(hot).slice(0, LONG_NOTES)), medium = new Set(shown.filter((s) => !long.has(s)).slice(0, MID_NOTES));
     const note = (s) => (long.has(s) ? NOTE_LONG : medium.has(s) ? NOTE_MID : NOTE_SHORT);
+    marked += [...shown, ...listed].filter(isNew).length;
     let part = `Sessions, the ones that need you first (${all.length} in all):\n${shown.map((s) => sessionBlock(s, now, { follow: follow.get(s.sessionId), note: note(s), fresh: isNew(s) })).join('\n\n')}`;
-    if (listed.length) part += `\n\nMore sessions, one line each:\n${listed.map(sessionLine).join('\n')}`;
+    if (listed.length) part += `\n\nMore sessions, one line each:\n${listed.map((s) => sessionLine(s, isNew(s))).join('\n')}`;
     const rest = sorted.length - shown.length - listed.length;
     if (rest > 0) part += `\n\nand ${rest} more sessions, not shown.`;
     parts.push(part);
@@ -423,7 +429,7 @@ export function digest(board, github, { now = Date.now(), follow = new Map(), te
     .map((f) => flat(tilde(f), 200)))].slice(0, MAX_FOLDERS);
   parts.push(folders.length ? `Folders a new session can start in:\n${folders.map((f) => `  ${f}`).join('\n')}` : 'No folders are known yet, so no session can be started.');
   parts.push(githubPart(github));
-  return `<board>\n${parts.join('\n\n')}\n</board>`;
+  return { text: `<board>\n${parts.join('\n\n')}\n</board>`, marked };
 }
 
 // ---------------------------------------------------------------- the prompt
@@ -500,7 +506,8 @@ export function chatLines(items, turns) {
 
 /** What git shows in a session's folder, as three short parts. */
 function changesLines(r) {
-  const part = (title, v, none) => `${title}\n${plain(v, CHANGES_CHARS) || none}`;
+  // A part git could not give (it took too long, or there is no commit yet) is said so, never shown as empty.
+  const part = (title, v, none) => `${title}\n${typeof v === 'string' ? plain(v, CHANGES_CHARS) || none : '(could not be read)'}`;
   return [part('git status:', r.status, '(nothing to show)'), part('not committed yet, against its last commit:', r.diff, '(nothing)'),
     part('its last commits:', r.log, '(none)')].join('\n\n');
 }
@@ -830,42 +837,48 @@ export function createOverseer({
 
   /** What a look found, as data: the end of the conversation, the failing part of the CI log, or what git shows. */
   async function lookBody(k) {
-    if (!k.s) return NO_MATCH;
+    const read = (text) => ({ read: true, text }), not = (text) => ({ read: false, text });
+    if (!k.s) return not(NO_MATCH);
     if (k.what === 'log') {
       let r = null;
       try { r = await ciLog(k.s.sessionId); } catch { /* said below */ }
-      return r?.ok && typeof r.text === 'string' && r.text.trim() ? ends(r.text, LOG_CHARS) : `Its CI log could not be read${r?.error ? `: ${flat(r.error, 200)}` : '.'}`;
+      return r?.ok && typeof r.text === 'string' && r.text.trim() ? read(ends(r.text, LOG_CHARS)) : not(`Its CI log could not be read${r?.error ? `: ${flat(r.error, 200)}` : '.'}`);
     }
     if (k.what === 'changes') {
       let r = null;
       try { r = await changes(k.s.sessionId); } catch { /* said below */ }
-      return r?.ok ? changesLines(r) : `What it changed could not be read${r?.error ? `: ${flat(r.error, 200)}` : '.'}`;
+      return r?.ok ? read(changesLines(r)) : not(`What it changed could not be read${r?.error ? `: ${flat(r.error, 200)}` : '.'}`);
     }
     let r = null;
     try { r = await history(k.s.sessionId, Math.min(200, Math.max(20, k.turns * 10))); } catch { /* said below */ }
-    return r?.ok && Array.isArray(r.items) ? chatLines(r.items, k.turns) : 'Its transcript could not be read.';
+    return r?.ok && Array.isArray(r.items) ? read(chatLines(r.items, k.turns)) : not('Its transcript could not be read.');
   }
 
-  /** The excerpt one look asks for. One that takes longer than twenty seconds is said so, and the answer still comes. */
+  /** The excerpt one look asks for. One that takes longer than twenty seconds is said so, and the answer still comes.
+   *  `look` (what the page says was read) is there only when something was read. */
   async function excerpt(l, sessions) {
     const k = lookOf(l, sessions);
     let timer = null;
-    const late = new Promise((resolve) => { timer = timers.setTimeout(() => resolve('Reading this took too long, so it is not here.'), LOOK_MS); timer?.unref?.(); });
-    const body = await Promise.race([lookBody(k).catch(() => 'It could not be read.'), late]);
+    const late = new Promise((resolve) => { timer = timers.setTimeout(() => resolve({ read: false, text: 'Reading this took too long, so it is not here.' }), LOOK_MS); timer?.unref?.(); });
+    const body = await Promise.race([lookBody(k).catch(() => ({ read: false, text: 'It could not be read.' })), late]);
     timers.clearTimeout(timer);
-    return { key: k.key, look: k.look, text: cutExcerpt(`${k.open}\n${body}\n</excerpt>`, CHAT_CHARS + 200) };
+    return { key: k.key, look: body.read ? k.look : null, text: cutExcerpt(`${k.open}\n${body.text}\n</excerpt>`, CHAT_CHARS + 200) };
   }
 
   /** The rounds behind one message: ask, read any transcripts it wants to look at, ask again, at most twice more. */
   async function rounds(run, text, earlier) {
     const started = run.since, model = data.model, p = prof(run.profileId);
     const excerpts = new Map(), looked = new Map();
-    // What is new is counted from its last answer of its own: not a failed one, and not a card of the PR watcher's.
-    const sinceAt = earlier.findLast((t) => t.who === 'overseer' && !t.error && t.model !== WATCHER)?.at ?? null;
+    // What is new is counted from its last answer of its own (not a failed one, and not a card of the PR watcher's):
+    // from when the board that answer was given was read (`saw`), not from when the answer arrived. What happened
+    // while it was answering it has not seen yet.
+    const last = earlier.findLast((t) => t.who === 'overseer' && !t.error && t.model !== WATCHER);
+    const sinceAt = last ? (Number.isFinite(last.saw) ? last.saw : last.at) : null;
+    let saw = null; // when the board of the newest round was read
     const finish = (fields) => {
       if (busy !== run) return;
       busy = null;
-      push(p, { id: `t${++p.seq}`, at: now(), who: 'overseer', text: '', model, ms: now() - started, looked: [...looked.values()], actions: [], ...fields });
+      push(p, { id: `t${++p.seq}`, at: now(), ...(saw != null ? { saw } : {}), who: 'overseer', text: '', model, ms: now() - started, looked: [...looked.values()], actions: [], ...fields });
       changed();
       scheduleExpiry();
     };
@@ -875,8 +888,10 @@ export function createOverseer({
       const looksLeft = MAX_LOOKS - round, b = readBoard(), sessions = objects(b.sessions);
       const follow = new Map(followUps(sessions).map((f) => [f.sessionId, f]));
       const fresh = new Set(sinceAt == null ? [] : p.feed.filter((e) => e.at > sinceAt && e.sessionId).map((e) => e.sessionId));
-      const prompt = promptOf({ digest: digest(b, readGithub(), { now: now(), follow, text, sinceAt, fresh }), feed: p.feed.slice(-FEED_IN_PROMPT), turns: earlier, text,
-        excerpts: [...excerpts.values()], looksLeft, now: now(), sinceAt, marked: newSince(b, { sinceAt, fresh }) });
+      saw = now();
+      const shown = boardOf(b, readGithub(), { now: saw, follow, text, sinceAt, fresh });
+      const prompt = promptOf({ digest: shown.text, feed: p.feed.slice(-FEED_IN_PROMPT), turns: earlier, text,
+        excerpts: [...excerpts.values()], looksLeft, now: saw, sinceAt, marked: shown.marked });
       const id = uuid();
       let res;
       if (model.startsWith(OC_PREFIX)) {

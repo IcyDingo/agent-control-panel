@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
-import { parseService, findService, serviceFile, permissionRules, agentFor, modelRef, refText, pickable, itemsOf, lastSaidOf,
+import { parseService, findService, serviceFile, permissionRules, agentFor, modelRef, refText, pickable, itemsOf, lastSaidOf, lastSaidAtOf,
          modelOfMessages, requestOf, questionOf, formAnswer, statusOf, isLimit, briefOf, sseParser, createClient, OC_ID, providersOf, turnErrorOf } from '../opencode.mjs';
 
 test('the service file: a url or a host and port, a password, local addresses only', () => {
@@ -235,4 +235,14 @@ test('the client sends its password, unwraps data, and says what went wrong', as
     await assert.rejects(c.prompt('../etc', 'x'), /not an OpenCode session/);
     await assert.rejects(createClient({ service: () => null }).info(), /not running/);
   } finally { srv.close(); }
+});
+
+test('when it said its last message is that reply\'s own time, not when it was read', () => {
+  const msgs = [{ type: 'user', time: { created: 100 }, content: [{ type: 'text', text: 'go' }] },
+    { type: 'assistant', time: { created: 200, completed: 250 }, content: [{ type: 'text', text: 'Done.' }] },
+    { type: 'assistant', time: { created: 300 }, content: [{ type: 'tool', name: 'bash' }] }];
+  assert.equal(lastSaidAtOf(msgs), 250);
+  assert.equal(lastSaidAtOf([{ type: 'assistant', time: { created: 200 }, content: [{ type: 'text', text: 'Hi' }] }]), 200);
+  assert.equal(lastSaidAtOf([{ type: 'assistant', content: [{ type: 'text', text: 'Hi' }] }]), null);
+  assert.equal(lastSaidAtOf([]), null);
 });

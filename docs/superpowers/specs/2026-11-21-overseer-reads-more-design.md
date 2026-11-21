@@ -51,7 +51,10 @@ words, never what an agent ran, changed or failed.
 - **Notes sized by need.** The first eight sessions that need the owner, were named, failed, have a follow-up or
   failing checks, or did something since the last answer get 1,500 characters; the next eight blocks 500; the rest 160.
   Twenty-four sessions get a block, the next thirty-six one line with their id.
-- **What is new.** A session with a feed event or a message since the overseer's last own answer is marked `new`. The
+- **What is new** is counted from when the board of the overseer's last own answer was read, not from when that answer
+  arrived: what happened while it was answering it has not seen. Only sessions the board shows are counted as marked.
+  An OpenCode session's last message carries the reply's own time, so reading it again is not news.
+  A session with a feed event or a message since then is marked `new`. The
   feed carries a line where that answer was. Above the owner's message the prompt says how much is new, or that nothing
   is. The newest earlier answer is shown up to 3,000 characters, with its proposals' outcomes kept whole.
 - **Looks.** Up to four at once, in two rounds at most, each bounded at twenty seconds:
