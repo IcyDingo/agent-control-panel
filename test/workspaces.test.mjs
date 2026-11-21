@@ -349,3 +349,97 @@ test('members not seen for 14 days are dropped', () => {
   assert.equal(s.spaceOf('default', SID), null);
   assert.deepEqual(s.spacesOf('default').map((x) => x.id), [id], 'the space itself stays');
 });
+
+// A space's main agent: the one session that leads it, and the workers it started.
+
+test('a space has at most one main agent: a session of its own, kept across a restart', () => {
+  const file = tmp(), s = createStore({ file, profiles: PROFILES });
+  const { id } = s.createSpace('default', 'Checkout'), other = s.createSpace('default', 'Billing').id;
+  const SID2 = 'b2c3d4e5-0000-4000-8000-000000000002';
+  assert.equal(s.roleOf('default', SID), null);
+  assert.match(s.setMain('default', id, { sessionId: SID, model: 'opus' }).error, /session of its own space/, 'it has to be in the space first');
+  s.setSpace('default', SID, id);
+  assert.equal(s.setMain('default', id, { sessionId: SID, model: 'opus', repo: '/work/shop' }).ok, true);
+  assert.equal(s.roleOf('default', SID), 'main');
+  assert.deepEqual(s.spacesOf('default'), [{ id, name: 'Checkout', main: { sessionId: SID, model: 'opus' } }, { id: other, name: 'Billing' }]);
+  assert.equal(s.mainOf('default', id).repo, '/work/shop');
+  assert.equal(s.mainOf('default', other), null);
+  assert.equal(s.mainOf('contract', id), null, 'another workspace knows nothing of it');
+  assert.equal(s.setMain('default', 'nope', { sessionId: SID }).ok, false);
+  // Another session takes the slot: one main agent per space.
+  s.setSpace('default', SID2, id);
+  assert.equal(s.setMain('default', id, { sessionId: SID2, model: 'fable' }).ok, true);
+  assert.equal(s.roleOf('default', SID), null);
+  assert.equal(s.roleOf('default', SID2), 'main');
+  const again = createStore({ file, profiles: PROFILES });
+  assert.equal(again.roleOf('default', SID2), 'main', 'kept across a restart');
+  assert.deepEqual(again.spacesOf('default')[0].main, { sessionId: SID2, model: 'fable' });
+});
+
+test('a main agent that leaves its space, or whose space is deleted, is its main agent no more', () => {
+  const s = createStore({ file: tmp(), profiles: PROFILES });
+  const a = s.createSpace('default', 'Checkout').id, b = s.createSpace('default', 'Billing').id;
+  s.setSpace('default', SID, a);
+  s.setMain('default', a, { sessionId: SID, model: 'opus' });
+  s.setSpace('default', SID, a); // put where it already is: nothing changes
+  assert.equal(s.roleOf('default', SID), 'main');
+  s.setSpace('default', SID, b);
+  assert.equal(s.roleOf('default', SID), null);
+  assert.equal(s.mainOf('default', a), null, 'moved to another space');
+  s.setMain('default', b, { sessionId: SID, model: 'opus' });
+  s.setSpace('default', SID, null);
+  assert.equal(s.mainOf('default', b), null, 'taken out of its space');
+  s.setSpace('default', SID, b);
+  s.setMain('default', b, { sessionId: SID, model: 'opus' });
+  assert.equal(s.deleteSpace('default', b).ok, true);
+  assert.equal(s.roleOf('default', SID), null, 'its space is gone');
+  // Long gone: its member record is dropped after 14 days, and the slot with it.
+  s.setSpace('default', SID, a);
+  s.setMain('default', a, { sessionId: SID, model: 'opus' });
+  s.touchSpaces('default', [], Date.now() + 16 * DAY);
+  assert.equal(s.mainOf('default', a), null);
+});
+
+test('a main agent just started holds its slot until its session shows up, for ten minutes at most', () => {
+  const file = tmp(), s = createStore({ file, profiles: PROFILES });
+  const { id } = s.createSpace('default', 'Checkout');
+  const t0 = Date.now();
+  assert.equal(s.setMain('default', id, { launchId: 'ab12cd34', model: 'opus', repo: '/work/shop' }, t0).ok, true);
+  assert.deepEqual(s.spacesOf('default')[0].main, { sessionId: null, model: 'opus' });
+  assert.deepEqual(s.awaitedMains('default', t0 + 1000), [{ space: id, launchId: 'ab12cd34', at: t0 }]);
+  assert.deepEqual(createStore({ file, profiles: PROFILES }).awaitedMains('default', t0 + 1000), [{ space: id, launchId: 'ab12cd34', at: t0 }], 'a restart does not lose it');
+  assert.equal(s.claimMain('default', id, SID).ok, true);
+  assert.equal(s.spaceOf('default', SID), id, 'it joins its space');
+  assert.equal(s.roleOf('default', SID), 'main');
+  assert.equal(s.mainOf('default', id).repo, '/work/shop');
+  assert.deepEqual(s.awaitedMains('default'), []);
+  assert.equal(s.claimMain('default', id, 'someone-else').ok, false, 'a slot is claimed once');
+  // One that never shows up gives the slot back.
+  const b = s.createSpace('default', 'Billing').id;
+  s.setMain('default', b, { launchId: 'ffff0000', model: 'opus' }, t0);
+  assert.deepEqual(s.awaitedMains('default', t0 + 11 * 60_000), []);
+  assert.equal(s.mainOf('default', b), null);
+});
+
+test('a member a main agent started is its worker, with the model it runs on', () => {
+  const file = tmp(), s = createStore({ file, profiles: PROFILES });
+  const { id } = s.createSpace('default', 'Checkout'), other = s.createSpace('default', 'Billing').id;
+  s.setSpace('default', SID, id, Date.now(), { worker: true, model: 'sonnet' });
+  assert.equal(s.roleOf('default', SID), 'worker');
+  assert.equal(s.workerModel('default', SID), 'sonnet');
+  assert.equal(createStore({ file, profiles: PROFILES }).roleOf('default', SID), 'worker', 'kept across a restart');
+  s.setSpace('default', SID, id);
+  assert.equal(s.roleOf('default', SID), 'worker', 'put where it already is: still a worker');
+  s.setSpace('default', SID, other);
+  assert.equal(s.roleOf('default', SID), null, 'moved by hand to another space: an ordinary session there');
+  // A malformed slot or role in the file is dropped; the space and its members stay.
+  const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+  saved.spaces.default.list[0].main = { sessionId: 'not-a-member', at: 1 };
+  saved.spaces.default.members[SID].worker = 'yes';
+  const bad = tmp();
+  fs.writeFileSync(bad, JSON.stringify(saved));
+  const t = createStore({ file: bad, profiles: PROFILES });
+  assert.equal(t.mainOf('default', id), null);
+  assert.equal(t.roleOf('default', SID), null);
+  assert.equal(t.spaceOf('default', SID), other);
+});

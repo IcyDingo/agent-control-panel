@@ -75,6 +75,7 @@ export const SYSTEM = `You are the overseer in Glue, a local control panel for s
 
 What each message gives you:
 - <board> is the panel's report on the sessions right now, the ones that most need the user first. Each has its 8-character id in square brackets, its name, whether it needs the user, is working, is idle or has ended, when it started, the space it is in, where it works, its pull request, what it is doing, what it asks, and what it last said with how long ago it said it. A session marked "new" did something since your last answer. A session that needs the user, or that the user named, gets a long note; a quiet one gets a short note, and past the first twenty-four only a line. Then every space with its sessions counted by state (a space is a group the user made for one line of work, such as a feature), the folders a new session can start in, and what GitHub shows for the agents' branches.
+- A space can have a main agent: a session that leads the space's work and starts its own workers (other sessions, each on a part of the job). When there are any, the board lists the main agents first, each with its workers under it in a line each. Speak of such a space through its main agent: what it reports, what it waits for. To change what a space does, propose telling its main agent, not its workers; it passes work on itself. You never propose starting a main agent or a worker.
 - <feed> lists recent events, newest last. A line in it marks where your last answer was; what follows that line is new.
 - <excerpt> holds something you asked to look at: the end of a session's conversation, the failing part of its CI log, or what git shows in its folder.
 - Lines that start with "Overseer:" are your own earlier answers, each followed by what became of the actions you proposed. Lines that start with "PR watcher:" are cards the panel's PR watcher made, not yours.
@@ -298,6 +299,16 @@ function sessionBlock(s, now, { follow: f = null, note = NOTE_SHORT, fresh = fal
   return `${top}\n  ${label}: "${mid(said, note)}"`;
 }
 
+// Main agents: a space's leading session and the workers it started. The board shows up to eight, each with up to
+// twelve workers in a line each.
+const MAX_MAINS = 8, MAX_WORKERS = 12, ENDED = new Set(['finished', 'failed']);
+/** A worker under its main agent: its id, name, model, state and the end of what it said last. */
+function workerLine(w, now) {
+  const said = flat(w.said, 4000), when = Number.isFinite(w.saidAt) ? ` ${ago(now - w.saidAt)} ago` : '';
+  return clip([`[${flat(w.sessionId, 36).slice(0, 8)}] "${flat(w.name, 60)}"`, flat(w.model, 30), stateOf(w), w.branch ? `on ${flat(w.branch, 60)}` : '',
+    ghWords(w.gh), said ? `said${when}: "${mid(said, 140)}"` : ''].filter(Boolean).join(' · '), 420);
+}
+
 /** A session past the ones shown in full: one line, so it can still be named, looked at and messaged. */
 const sessionLine = (s, fresh = false) => `${clip([`[${flat(s.sessionId, 36).slice(0, 8)}] "${flat(s.name, 60)}"`, stateOf(s), whereOf(s)].filter(Boolean).join(' · '), 154)}${fresh ? ' · new' : ''}`;
 
@@ -381,11 +392,28 @@ export function boardOf(board, github, { now = Date.now(), follow = new Map(), t
   const rank = (s) => (s.state === 'waiting' ? 0 : named(s) ? 1 : pressing(s) ? 2 : RANK[s.state] ?? 6);
   const spoke = (s) => (Number.isFinite(s.saidAt) ? s.saidAt : Number(s.since) || 0);
   const hot = (s) => s.state === 'waiting' || pressing(s) || isNew(s) || s.gh?.pr?.checks === 'failing';
-  const sorted = [...all].sort((a, b) => rank(a) - rank(b) || spoke(b) - spoke(a));
+  const ranked = [...all].sort((a, b) => rank(a) - rank(b) || spoke(b) - spoke(a));
+  // Main agents lead: each with the workers it started under it. A worker of a main agent that is up is listed only
+  // there, unless it needs you or has a follow-up: then it is yours to see among the sessions too.
+  const mains = [];
+  for (const m of ranked) if (m.role === 'main' && m.space && mains.length < MAX_MAINS && !mains.some((x) => x.main.space === m.space)) mains.push({ main: m, workers: ranked.filter((w) => w.role === 'worker' && w.space === m.space) });
+  const leading = new Set(mains.map((x) => x.main)), tucked = new Set();
+  for (const { main, workers } of mains) if (!ENDED.has(main.state)) for (const w of workers) if (w.state !== 'waiting' && !follow.has(w.sessionId)) tucked.add(w);
+  const sorted = ranked.filter((s) => !leading.has(s) && !tucked.has(s));
   const parts = [];
-  let marked = 0;
-  if (!sorted.length) parts.push('No sessions are on the board.');
-  else {
+  let marked = mains.filter((x) => isNew(x.main)).length;
+  if (!ranked.length) parts.push('No sessions are on the board.');
+  if (mains.length) {
+    parts.push(`Main agents, each leading a space and the workers it started (speak of a space through its main agent):\n${mains.map(({ main, workers }) => {
+      const counts = {};
+      for (const w of workers) counts[w.state] = (counts[w.state] ?? 0) + 1;
+      const sum = Object.keys(STATE_WORDS).filter((k) => counts[k]).map((k) => `${counts[k]} ${STATE_WORDS[k]}`).join(', ');
+      const lines = workers.slice(0, MAX_WORKERS).map((w) => `    ${workerLine(w, now)}`);
+      if (workers.length > MAX_WORKERS) lines.push(`    and ${workers.length - MAX_WORKERS} more workers.`);
+      return `${sessionBlock(main, now, { follow: follow.get(main.sessionId), note: NOTE_LONG, fresh: isNew(main) })}\n  ${workers.length ? `its workers: ${sum}\n${lines.join('\n')}` : 'it has no workers.'}`;
+    }).join('\n\n')}`);
+  }
+  if (sorted.length) {
     const shown = sorted.slice(0, MAX_SESSIONS), listed = sorted.slice(MAX_SESSIONS, MAX_SESSIONS + MAX_LISTED);
     const long = new Set(shown.filter(hot).slice(0, LONG_NOTES)), medium = new Set(shown.filter((s) => !long.has(s)).slice(0, MID_NOTES));
     const note = (s) => (long.has(s) ? NOTE_LONG : medium.has(s) ? NOTE_MID : NOTE_SHORT);
