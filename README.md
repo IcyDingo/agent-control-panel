@@ -381,7 +381,9 @@ Needs you comes first. Below it, every other live session sits under the reposit
 name order so the sections hold still while agents work: the header names the repository (its folder
 is in the tooltip). A repository's section is one list, working before idle, newest first. A row is the
 agent's name, which has the room, then a small git icon: hover it for the repository, branch and
-worktree. Sessions outside any repository are under Other folders, and ended ones under Finished. A
+worktree. The icon takes the colour of its pull request's checks (red failing, blue running, green
+passing), so the only dot on a row is the one on its left that says what the agent is doing. Sessions
+outside any repository are under Other folders, and ended ones under Finished. A
 section's header is its name, then its ⋯ menu and +, then the arrow that folds it at the far right. The ⋯
 and + keep their place, dim until you hover the header, so nothing moves under the pointer. The open
 session's header shows its repository, checkout and
