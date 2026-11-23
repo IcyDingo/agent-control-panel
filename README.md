@@ -382,8 +382,9 @@ name order so the sections hold still while agents work: the header names the re
 is in the tooltip). A repository's section is one list, working before idle, newest first. A row is the
 agent's name, which has the room, then a small git icon: hover it for the repository, branch and
 worktree. Sessions outside any repository are under Other folders, and ended ones under Finished. A
-section's ⋯ menu and + keep their place in its header, dim until you hover it, so nothing moves under
-the pointer. The open session's header shows its repository, checkout and
+section's header is its name, then its ⋯ menu and +, then the arrow that folds it at the far right. The ⋯
+and + keep their place, dim until you hover the header, so nothing moves under the pointer. The open
+session's header shows its repository, checkout and
 branch as chips, its folder beneath (a click copies it), and its pull request when it has one.
 
 ### Spaces
