@@ -247,19 +247,27 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .col.folded .col-add { opacity: 0; transition: opacity .12s; }
 .col.folded:hover .col-add, .col.folded:focus-within .col-add { opacity: 1; }
 @media (hover: none) { .col-h .col-add, .col.folded .col-add { opacity: 1; } }
-.col-body { padding: 0 8px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; align-content: start; } /* rows fit the rail: a long name shrinks, never the time */
-.col-empty { margin: 2px 8px 4px; color: var(--fg-dim); font-size: 12.5px; }
+.col-body { padding: 0 4px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; align-content: start; } /* rows fit the rail: a long name shrinks, never the time */
+/* A row starts in line with its section's name: its dot sits under the name's first letter. The arrow that opens its
+   subagents is laid over the row's left edge, so a row with one and a row without start at the same place. Its name is
+   a size smaller than the section's. */
+.col-body .srow { position: relative; padding-left: 12px; }
+.col-body .srow > .chev-slot { position: absolute; left: 0; top: 50%; transform: translateY(-50%); }
+.col-body .tname { font-size: 13px; }
+.col-empty { margin: 2px 12px 4px; color: var(--fg-dim); font-size: 12.5px; }
 /* A space is a card: set apart from the repository sections, its name a little larger, a line under it that says what
    it is doing. Folded, the card is its name and that line. */
 body:not(.rail-slim) .col[data-col="space"] { margin: 6px 6px 4px; padding: 4px 0 6px; border-radius: var(--r-2); background: var(--raise); box-shadow: 0 0 0 1px var(--line); }
 body:not(.rail-slim) .col[data-col="space"].folded { padding-bottom: 6px; }
 body:not(.rail-slim) .col[data-col="space"] .col-h { font-size: 14px; padding-right: 8px; }
-body:not(.rail-slim) .col[data-col="space"] .col-name { padding-left: 12px; }
-body:not(.rail-slim) .col[data-col="space"] .col-body { padding: 0 4px; }
-body:not(.rail-slim) .col[data-col="space"] .col-empty { margin: 0 12px 4px; }
+body:not(.rail-slim) .col[data-col="space"] .col-name { padding-left: 14px; }
+body:not(.rail-slim) .col[data-col="space"] .col-body { padding: 0 2px; }
+body:not(.rail-slim) .col[data-col="space"] .col-empty { margin: 0 14px 4px; }
+/* While any of its agents works, the card's border is the working colour. */
+body:not(.rail-slim) .col[data-col="space"].working { box-shadow: 0 0 0 1px var(--run); }
 /* Its count and "needs you" are in the line; while you search, the count says how many match. */
 body:not(.rail-slim) .col[data-col="space"]:not(.searching) .col-h .n, body:not(.rail-slim) .col[data-col="space"] :is(.col-asks, .peek) { display: none; }
-.col-sum { margin: -4px 12px 6px; font-size: 12px; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.col-sum { margin: -4px 14px 6px; font-size: 12px; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .col.folded .col-sum { margin-bottom: 0; }
 .col-sum[hidden] { display: none; }
 .col-sum b { color: var(--amber); font-weight: 500; }
@@ -2331,6 +2339,7 @@ function renderBoard(g, vis) {
       c.sum.hidden = !bits.length;
       if (c.sum._sig !== sig) { c.sum._sig = sig; c.sum.replaceChildren(...bits.flatMap((b, i) => (i ? [' · ', b] : [b]))); }
       c.sec.classList.toggle('searching', Boolean(railQuery));
+      c.sec.classList.toggle('working', vis.some((x) => spaceIn(x) === sec.space && stateOf(x) === 'busy'));
     }
     if (c.peek) {
       const shut = isFolded(sec.key);

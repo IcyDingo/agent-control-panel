@@ -411,6 +411,7 @@ unless you change it; the form lets you pick another for this one).
 - In the rail a space is a card: its name, a line that says what it is doing ("3 workers · 2 working ·
   1 needs you"), then its agents. The main agent comes first, in bolder text on a lighter row. A row shows
   no model; that is in each agent's details. Folded from its header, a card is its name and that line.
+  While any of its agents works, the card's border is the working colour.
 - **Ask Glue** reads main agents first, each with its workers under it, and speaks of a space through its
   main agent. To change what a space does it proposes telling the main agent, not the workers.
 - One per space, while it is up. Moving it out of its space, or deleting the space, makes it an ordinary
