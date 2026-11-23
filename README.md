@@ -379,11 +379,11 @@ and nothing opens. Anyone who finished setup before is not interrupted.
 
 Needs you comes first. Below it, every other live session sits under the repository it works in, in
 name order so the sections hold still while agents work: the header names the repository (its folder
-is in the tooltip). A repository's section looks like a space's: one list, working before idle, newest
-first, and a session in a worktree names that worktree on its row where a space's row names its
-repository (its branch is in the tooltip). Sessions
-outside any repository are under Other folders, and ended ones under Finished. A session under Needs
-you names its repository on its row. The open session's header shows its repository, checkout and
+is in the tooltip). A repository's section is one list, working before idle, newest first. A row is the
+agent's name, which has the room, then a small git icon: hover it for the repository, branch and
+worktree. Sessions outside any repository are under Other folders, and ended ones under Finished. A
+section's ⋯ menu and + keep their place in its header, dim until you hover it, so nothing moves under
+the pointer. The open session's header shows its repository, checkout and
 branch as chips, its folder beneath (a click copies it), and its pull request when it has one.
 
 ### Spaces
@@ -391,7 +391,7 @@ branch as chips, its folder beneath (a click copies it), and its pull request wh
 A space groups agents by what they work on ("Checkout redesign", "Billing bug"), across repositories. It is
 not a workspace: a workspace is one Claude login, and its spaces live inside it, so another workspace's page
 never sees them. Spaces come right after Needs you, in the order you made them. An agent in a space is
-listed there instead of under its repository, its row naming the repository; every agent you never sort
+listed there instead of under its repository (its git icon still says which); every agent you never sort
 stays where it was. Pick a space in **New agent** (or **New space…** to name one there), or move an agent
 from the **Space** picker in its details (None sends it back to its repository). An agent that carries on as a
 new session (in OpenCode, or a copy in its worktree) keeps its space. Hover a space's header for **Rename**
@@ -408,9 +408,8 @@ unless you change it; the form lets you pick another for this one).
 - **Home** shows a card per main agent, above everything else: its space, its name and model, what it is
   doing, its workers counted by state, and the first sentence of what it said last. A click opens it.
 - In the rail a space is a card: its name, a line that says what it is doing ("3 workers · 2 working ·
-  1 needs you"), then its agents. The main agent comes first, in bolder text on a lighter row. Rows of a main
-  agent and its workers carry no tag, so their names have the room; the model is in each one's details.
-  Folded from its header, a card is its name and that line.
+  1 needs you"), then its agents. The main agent comes first, in bolder text on a lighter row. A row shows
+  no model; that is in each agent's details. Folded from its header, a card is its name and that line.
 - **Ask Glue** reads main agents first, each with its workers under it, and speaks of a space through its
   main agent. To change what a space does it proposes telling the main agent, not the workers.
 - One per space, while it is up. Moving it out of its space, or deleting the space, makes it an ordinary

@@ -214,7 +214,13 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .l-space .lf-row .field { flex: 1; min-width: 0; }
 /* A header's buttons (Rename, Interrupt all, End idle, Clear, Delete) show only while the mouse or the keyboard is in it:
    at rest it is its name, its arrow and its +. One waiting for its confirm click stays. A touch screen shows them. */
-@media (hover: hover) { .col-h:not(:hover, :focus-within) .col-more:not([open], :has(.armed)) { display: none; } }
+/* Quiet until its header is hovered or focused, like the +. It keeps its place all the while: were it to appear only on
+   hover, the fold's chevron beside it would jump aside and the ⋯ land under the pointer in its stead. */
+@media (hover: hover) {
+  .col-h:not(:hover, :focus-within) .col-more:not([open], :has(.armed)) { opacity: .55; }
+  .col.folded .col-h:not(:hover, :focus-within) .col-more:not([open], :has(.armed)) { opacity: 0; }
+}
+.col-more { transition: opacity .12s; }
 .col-name { flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: 8px; padding: 0 0 0 16px; border: 0; background: none; font-weight: inherit; text-align: left; }
 .col-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .col:not([data-col="repo"], [data-col="space"]) .col-title { flex: none; }
@@ -285,6 +291,10 @@ body:not(.rail-slim) .col[data-col="space"] .srow[data-role="main"]:not([aria-cu
 .rask > span { margin-right: 2px; }
 .rask .btn.small { height: 22px; padding: 0 8px; font-size: 11.5px; background: var(--fill); }
 .trepo.mismatch, .kv dd.mismatch { color: var(--amber); }
+/* Where a row works, as a small git icon: its repository, branch and worktree are in its tooltip. */
+.trepo.git { flex: none; width: 13px; height: 13px; max-width: none; background: currentColor; opacity: .65;
+  -webkit-mask: var(--i-branch) center / contain no-repeat; mask: var(--i-branch) center / contain no-repeat; }
+.trepo.git:hover { opacity: 1; color: var(--fg); }
 .pl.mismatch { background: var(--amber-fill); color: var(--amber); font-family: inherit; }
 .chev-slot svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; transition: transform .12s; }
 .chev-slot.open svg { transform: rotate(90deg); }
@@ -1944,9 +1954,6 @@ function spaceSummary(spaceId, mine) {
 }
 /** The main agent a space has, as the snapshot gives it ({ sessionId, model }), or null. */
 const mainOfSpace = (id) => snap?.spaces?.find((x) => x.id === id)?.main ?? null;
-/** Whether a session has a role in its space: its main agent, or one of its workers. Its row then carries no tag, so
- *  its name has the room: the star says which leads, and the model is in its details. */
-const hasRole = (s) => Boolean(s.role && spaceIn(s));
 let renaming = null; // the space whose name is being edited in its header
 function endRename() { renaming = null; render(); }
 async function saveRename(c) {
@@ -2220,14 +2227,16 @@ function tile(s) {
   setAttr(t.glyph, 'data-s', st);
   setText(t.name, label(s));
   t.oc.hidden = !isOcS(s);
-  // Under Needs you or in a space a row is away from its repository's section, so it names the repository; in that
-  // section it names its worktree (nothing for the main checkout), as a space's row names its repository.
-  const away = (st === 'waiting' || spaceIn(s)) && repoOf(s.git), home = !away && colOf(st) !== 'finished' && s.git?.worktree;
-  // A space's main agent and its workers carry no tag: they work in the space's own repository.
-  const tag = s.mismatch ? `from ${s.mismatch.name}` : hasRole(s) ? '' : away || home;
+  // Where it works is a small git icon on the right, so its name has the room: hovering the icon names the repository,
+  // the branch and the worktree. Only one in another workspace's repository still says so in words.
+  const where = !s.mismatch && s.git ? [repoOf(s.git), s.git.branch ? `branch ${s.git.branch}` : s.git.commit ? `detached at ${s.git.commit}` : null,
+    s.git.worktree ? `worktree ${s.git.worktree}` : null].filter(Boolean).join(' · ') : '';
+  const tag = s.mismatch ? `from ${s.mismatch.name}` : where;
   setAttr(t.btn, 'data-role', spaceIn(s) && s.role ? s.role : '');
-  setText(t.repo, tag || '');
+  setText(t.repo, s.mismatch ? tag : '');
   t.repo.classList.toggle('mismatch', Boolean(s.mismatch));
+  t.repo.classList.toggle('git', Boolean(where));
+  if (where) { setAttr(t.repo, 'title', where); setAttr(t.repo, 'aria-label', where); } else { t.repo.removeAttribute('title'); t.repo.removeAttribute('aria-label'); }
   const ci = ciOf(s);
   t.ci.hidden = !ci;
   if (ci) { setAttr(t.ci, 'data-c', ci); setAttr(t.ci, 'title', `Pull request #${s.gh.pr.number}: ${CHECKS[ci]}`); }
