@@ -232,6 +232,9 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .col:not(.folded) .peek { display: none; }
 .chev { flex: none; width: 16px; margin-left: auto; font-size: 16px; line-height: 1; text-align: center; color: var(--fg-dim); transition: transform .15s; }
 .col:not(.folded) .chev { transform: rotate(90deg); }
+/* In a section's header the arrow is last: the name, then the ⋯ and the +, then the arrow at the far right. */
+.col-h > .chev { order: 3; margin-left: 0; cursor: pointer; }
+.col-h > .chev:hover { color: var(--fg); }
 .col-tools { display: flex; gap: 4px; order: 1; } /* before the +, so the + holds still when the ⋯ shows */
 .col-tools[hidden] { display: none; }
 .col-more-b { width: 24px; height: 24px; font-size: 15px; line-height: 1; letter-spacing: 1px; }
@@ -1903,7 +1906,10 @@ function sectionEl(key, kind) {
   else {
     c.peek = el('span', { class: 'peek' });
     c.head = el('button', { class: 'col-name col-fold', type: 'button', 'aria-controls': body.id, onclick: () => toggleFold(key) },
-      c.title, c.n, c.asks, c.peek, el('span', { class: 'chev', 'aria-hidden': 'true', text: '›' }));
+      c.title, c.n, c.asks, c.peek);
+    // The fold's arrow sits at the far right of the header, after the ⋯ and the +. It is the header button's own
+    // sign (that button is what a keyboard or a screen reader folds with), and a click on it folds too.
+    c.chev = el('span', { class: 'chev', 'aria-hidden': 'true', text: '›', onclick: () => toggleFold(key) });
   }
   if (kind === 'space') c.rename = el('input', { class: 'field col-rename', maxlength: 40, spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Space name', hidden: true,
     onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); saveRename(c); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); endRename(); } },
@@ -1915,7 +1921,7 @@ function sectionEl(key, kind) {
   // is kept across redraws, so it stays open while an action waits for its confirm click.
   c.more = el('details', { class: 'more col-more' }, el('summary', { class: 'btn icon col-more-b', title: 'More', text: '⋯' }), c.menu);
   c.tools.append(c.more);
-  c.sec = el('section', { class: 'col', 'data-col': kind }, el('div', { class: 'col-h' }, ...(c.rename ? [c.rename] : []), c.head, ...(c.add ? [c.add] : []), c.tools), ...(c.sum ? [c.sum] : []), body);
+  c.sec = el('section', { class: 'col', 'data-col': kind }, el('div', { class: 'col-h' }, ...(c.rename ? [c.rename] : []), c.head, ...(c.add ? [c.add] : []), c.tools, ...(c.chev ? [c.chev] : [])), ...(c.sum ? [c.sum] : []), body);
   secs.set(key, c);
   return c;
 }
