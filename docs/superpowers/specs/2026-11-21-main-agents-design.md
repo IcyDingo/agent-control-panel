@@ -81,8 +81,9 @@ Checkout redesign
   It starts on the model picked in the form, else on `mainAgents.model` (Opus).
 - **The page:** a "Main agent of this space" switch under the Space field in New agent (it preselects the main agents'
   model), and "Start main agent…" in a space's ⋯ menu. Home gets a "Main agents" section above the heatmap, a card per
-  main agent on the board. The rail lists the main agent first in its space with a ★, tagged `main · Opus`; workers are
-  tagged `worker · Sonnet`.
+  main agent on the board. The rail lists the main agent first in its space. *(Changed 2026-11-23, picked by the owner
+  from four mocked options: a space is a card with a line that says what it is doing; no star and no model tag on its
+  rows, so names have the room; the main agent is first, bolder, on a lighter row; a folded card keeps its line.)*
 - **Ask Glue's board** leads with main agents, each with its workers under it in a line each. A worker of a main agent
   that is up is listed only there, unless it needs the owner or has a follow-up. Without a main agent the board is as
   it was.

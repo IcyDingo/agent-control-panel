@@ -407,7 +407,10 @@ unless you change it; the form lets you pick another for this one).
 
 - **Home** shows a card per main agent, above everything else: its space, its name and model, what it is
   doing, its workers counted by state, and the first sentence of what it said last. A click opens it.
-- In the rail it comes first in its space, with a ★, tagged `main · Opus`. Workers are tagged `worker · Sonnet`.
+- In the rail a space is a card: its name, a line that says what it is doing ("3 workers · 2 working ·
+  1 needs you"), then its agents. The main agent comes first, in bolder text on a lighter row. Rows of a main
+  agent and its workers carry no tag, so their names have the room; the model is in each one's details.
+  Folded from its header, a card is its name and that line.
 - **Ask Glue** reads main agents first, each with its workers under it, and speaks of a space through its
   main agent. To change what a space does it proposes telling the main agent, not the workers.
 - One per space, while it is up. Moving it out of its space, or deleting the space, makes it an ordinary
