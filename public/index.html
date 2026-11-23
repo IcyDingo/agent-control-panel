@@ -306,6 +306,12 @@ body:not(.rail-slim) .col[data-col="space"] .srow[data-role="main"]:not([aria-cu
 .trepo.git { flex: none; width: 13px; height: 13px; max-width: none; background: currentColor; opacity: .65;
   -webkit-mask: var(--i-branch) center / contain no-repeat; mask: var(--i-branch) center / contain no-repeat; }
 .trepo.git:hover { opacity: 1; color: var(--fg); }
+/* The icon takes the colour of its pull request's checks, in place of a dot of their own beside the name. */
+.trepo.git[data-c] { opacity: 1; }
+.trepo.git[data-c="failing"], .trepo.git[data-c="failing"]:hover { color: var(--stop); }
+.trepo.git[data-c="running"], .trepo.git[data-c="running"]:hover { color: var(--run); }
+.trepo.git[data-c="passing"], .trepo.git[data-c="passing"]:hover { color: var(--ok); }
+body:not(.rail-slim) .col-body .srow > .tci { display: none; }
 .pl.mismatch { background: var(--amber-fill); color: var(--amber); font-family: inherit; }
 .chev-slot svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; transition: transform .12s; }
 .chev-slot.open svg { transform: rotate(90deg); }
@@ -349,7 +355,8 @@ body:not(.rail-slim) .col[data-col="space"] .srow[data-role="main"]:not([aria-cu
   min-width: 22px; height: 22px; padding: 0 7px; border: 0; border-radius: var(--r-pill); background: var(--stop-fill);
   color: var(--stop); font-size: 12px; font-weight: 600; cursor: pointer; opacity: 0;
 }
-.qstop::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+/* A square, the sign for stop: a round one read as a second state dot beside the one on the row's left. */
+.qstop::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 1.5px; background: currentColor; }
 .qstop.x { color: var(--fg-dim); background: var(--fill-strong); }
 /* The × is drawn, not typed: a font's × glyph sits below the middle of its line box (1.5-2px low in Geist at 15px), so
    the typed one was off-centre. This one is that glyph's size and stroke (6.7px across, in an 8px box: a whole number
@@ -2250,8 +2257,12 @@ function tile(s) {
   setText(t.repo, s.mismatch ? tag : '');
   t.repo.classList.toggle('mismatch', Boolean(s.mismatch));
   t.repo.classList.toggle('git', Boolean(where));
-  if (where) { setAttr(t.repo, 'title', where); setAttr(t.repo, 'aria-label', where); } else { t.repo.removeAttribute('title'); t.repo.removeAttribute('aria-label'); }
-  const ci = ciOf(s);
+  // Its pull request's checks colour that icon (red failing, blue running, green passing), and are named in its
+  // tooltip: the row has one dot, the one on its left that says what the agent is doing. (The slim rail, which shows
+  // no icon, keeps its small mark for failing checks.)
+  const ci = ciOf(s), checks = ci ? `pull request #${s.gh.pr.number}: ${CHECKS[ci]}` : '', tip = [where, checks].filter(Boolean).join(' · ');
+  if (where) { setAttr(t.repo, 'title', tip); setAttr(t.repo, 'aria-label', tip); } else { t.repo.removeAttribute('title'); t.repo.removeAttribute('aria-label'); }
+  if (where && ci) setAttr(t.repo, 'data-c', ci); else t.repo.removeAttribute('data-c');
   t.ci.hidden = !ci;
   if (ci) { setAttr(t.ci, 'data-c', ci); setAttr(t.ci, 'title', `Pull request #${s.gh.pr.number}: ${CHECKS[ci]}`); }
   t.repo.hidden = !tag;
