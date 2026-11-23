@@ -253,7 +253,14 @@ button, input, textarea, select { font: inherit; color: inherit; }
    a size smaller than the section's. */
 .col-body .srow { position: relative; padding-left: 12px; }
 .col-body .srow > .chev-slot { position: absolute; left: 0; top: 50%; transform: translateY(-50%); }
-.col-body .tname { font-size: 13px; }
+.col-body .tname { font-size: 12.5px; }
+/* The state dot, small and glassy: a little see-through, a soft light on its top left and a fine bright rim. Its colour
+   is still the state's (grey, blue working, amber needs you, red stopping). The slim rail keeps its own. */
+body:not(.rail-slim) .col-body .srow > .glyph { width: 6px; height: 6px; opacity: .8;
+  background-image: radial-gradient(circle at 32% 30%, rgba(255, 255, 255, .6), rgba(255, 255, 255, 0) 62%);
+  box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .28), 0 0 4px rgba(126, 166, 230, 0); }
+body:not(.rail-slim) .col-body .srow > .glyph:is([data-s="busy"], [data-s="running"]) { box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .28), 0 0 5px rgba(126, 166, 230, .45); }
+body:not(.rail-slim) .col-body .srow > .glyph[data-s="waiting"] { box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .28), 0 0 5px rgba(227, 171, 62, .4); }
 .col-empty { margin: 2px 12px 4px; color: var(--fg-dim); font-size: 12.5px; }
 /* A space is a card: set apart from the repository sections, its name a little larger, a line under it that says what
    it is doing. Folded, the card is its name and that line. */
