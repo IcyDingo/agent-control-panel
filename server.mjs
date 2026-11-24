@@ -2014,10 +2014,24 @@ async function startMain(body, focus, ws) {
   const tools = mainConfig(focus, space);
   const r = await launch({ ...body, model: main.model }, ws, { extra: MAIN_FLAGS(tools.file) });
   if (!(r.ok && r.id)) { dropMainFile(tools.file); return r; }
-  dropMainFile(store.mainOf(focus, space));
+  const was = store.mainOf(focus, space);
+  dropMainFile(was);
   store.setMain(focus, space, { launchId: String(r.id), model: main.model, repo: main.repo, keyHash: tools.keyHash, file: tools.name, login: launchLogin(focus, body?.login)?.id ?? null });
+  // The main agent it replaces (stopped, or the check above would have refused) is cleaned up as Turn off does: else it
+  // stays in the space as an ordinary agent, the new one watches it, and asks you to close it.
+  if (was?.sessionId) retireMain(focus, sessions.get(was.sessionId));
   broadcast();
   return r;
+}
+/** A main agent that no longer leads its space: out of the space, stopped if it runs, and off the board once it has
+ *  stopped (`claude rm` keeps its conversation). Never removed when it runs in a linked worktree (another agent's, when
+ *  its main checkout was not trusted): `claude rm` would take that worktree with it. */
+async function retireMain(wsId, s) {
+  if (!s || s.ws !== wsId) return;
+  store.setSpace(wsId, s.sessionId, null);
+  if (isUp(s)) await endSession(s).catch(() => null);
+  if (s.cwd && gitPlace(s.cwd)?.worktree) return;
+  (async () => { for (let i = 0; i < 20 && isUp(s); i++) await pause(500); if (!isUp(s) && isEnded(s)) { await remove({ sessionId: s.sessionId }).catch(() => null); broadcast(); } })();
 }
 /** What a main agent is first told: there is no goal, only the space to look at. */
 const WATCH_PROMPT = 'Look at the agents in this space and report to the owner: first what needs them, then what the space as a whole is doing.';
@@ -2046,14 +2060,7 @@ async function mainWatch(body, ctx) {
   const s = sessions.get(slot.sessionId);
   store.clearMain(ctx.focus, spaceId);
   dropMainFile(slot);
-  if (s && s.ws === ctx.focus) {
-    store.setSpace(ctx.focus, s.sessionId, null);
-    if (isUp(s)) await endSession(s).catch(() => null);
-    // Off the board once it has stopped: `claude rm` keeps its conversation. Never one that runs in a linked worktree
-    // (another agent's, when its main checkout was not trusted): `claude rm` would take that worktree with it.
-    const inWorktree = Boolean(s.cwd && gitPlace(s.cwd)?.worktree);
-    if (!inWorktree) (async () => { for (let i = 0; i < 20 && isUp(s); i++) await pause(500); if (!isUp(s) && isEnded(s)) { await remove({ sessionId: s.sessionId }).catch(() => null); broadcast(); } })();
-  }
+  await retireMain(ctx.focus, s);
   feed('ended', null, `You turned off the main agent of ${space.name}.`, ctx.focus);
   broadcast();
   return { ok: true };

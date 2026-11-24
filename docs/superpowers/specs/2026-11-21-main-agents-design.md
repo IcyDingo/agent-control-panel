@@ -160,6 +160,9 @@ just start the agent from the + sign". Picked: a pure watcher, starting no worke
 - **Off.** It is stopped, taken out of its space, its slot and key file go, and once it has stopped it is removed from
   the board (`claude rm`, which keeps its conversation; never for one that runs in a linked worktree, which `claude rm`
   would delete).
+- **Replaced.** When a new main agent takes a space whose old one is stopped, the old one is cleaned up as Turn off
+  does (out of the space, off the board, conversation kept). Before, it stayed in the space as an ordinary agent, and the
+  new main agent watched it and asked the owner to close it (seen 2026-11-24, picked by the owner).
 - **Workers stay, behind a switch.** Settings › Glue › Main agents › "Start workers", off by default. The setting was
   `spawn` and on; it is now `workers` and the old field is dropped, so every saved settings file starts with it off.
   Off, the worker tools are not even offered (Glue's hello says so and the MCP server lists only the two), the brief

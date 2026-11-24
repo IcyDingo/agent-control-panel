@@ -421,6 +421,11 @@ test('a new main agent gets a key file of its own: the one it replaces is left w
   assert.equal((await agent('list', {}, key1)).status, 403);
   assert.equal((await agent('hello', {}, key2)).ok, true);
   assert.equal(fs.statSync(second.file).mode & 0o777, 0o600);
+  // The one it replaced is cleaned up as Turn off does: out of the space (so the new one never sees it, nor asks you
+  // to close it), and off the board, its conversation kept.
+  assert.ok(await until(async () => (await sessionOf(sidOf(first.id)))?.space === null), 'the old main agent left its space');
+  assert.ok(await until(() => logged().some((x) => x.args[0] === 'rm' && x.args[1] === first.id), 15_000), 'and was removed from the board');
+  assert.doesNotMatch((await agent('list', {}, key2)).text, new RegExp(first.id), 'the new main agent does not see it');
 });
 
 test('you turn a space\'s main agent on and off: it starts where the space\'s agents work, watching, and off it is stopped and taken off the board', async () => {
