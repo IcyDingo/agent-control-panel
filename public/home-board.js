@@ -93,5 +93,13 @@
   /** What a dismissal of a failed agent holds for: until it is in another state or says something new. */
   const dismissKey = (s) => `${s.sessionId}:${s.state}:${s.lastMessageAt ?? ''}`;
 
-  globalThis.HomeBoard = { needsList, needKinds, homeCards, headCounts, plainAsk, bulkReplies, dismissKey, repoName };
+  /** The dismissals to keep: one goes when its agent is on the board and has moved on (another key). One whose agent is
+   *  not on the board stays, since the board is empty for a moment while the page starts; the newest 200 at most. */
+  function pruneDismissed(keys, sessions) {
+    const now = new Map(sessions.map((s) => [s.sessionId, dismissKey(s)]));
+    const kept = keys.filter((k) => { const sid = k.slice(0, k.indexOf(':')); return !now.has(sid) || now.get(sid) === k; });
+    return kept.slice(Math.max(0, kept.length - 200));
+  }
+
+  globalThis.HomeBoard = { needsList, needKinds, homeCards, headCounts, plainAsk, bulkReplies, dismissKey, pruneDismissed, repoName };
 })();

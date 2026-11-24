@@ -101,3 +101,13 @@ test('dismissKey changes when the agent says something new', () => {
   assert.notEqual(dismissKey(s), dismissKey({ ...s, lastMessageAt: 11 }));
   assert.notEqual(dismissKey(s), dismissKey({ ...s, state: 'idle' }));
 });
+
+test('pruneDismissed drops a dismissal only when its agent is on the board and has moved on; keeps the newest 200', () => {
+  const { pruneDismissed } = globalThis.HomeBoard;
+  const a = ag('a1', { state: 'failed', lastMessageAt: 1 }), b = ag('b1', { state: 'failed', lastMessageAt: 2 });
+  const kept = [dismissKey(a), dismissKey(b), `${ag('gone').sessionId}:failed:9`];
+  assert.deepEqual(pruneDismissed(kept, []), kept, 'an empty board (the page starting) drops nothing');
+  assert.deepEqual(pruneDismissed(kept, [a, { ...b, lastMessageAt: 3 }]), [dismissKey(a), kept[2]], 'b said something new: its dismissal goes');
+  const many = Array.from({ length: 205 }, (_, i) => `${i}-x:failed:1`);
+  assert.deepEqual(pruneDismissed(many, []), many.slice(5));
+});

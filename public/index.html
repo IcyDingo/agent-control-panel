@@ -1167,6 +1167,17 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
 .ma-held > span { flex: 1; min-width: 0; }
 /* Waiting on you: a card per agent that finished with a question, or with work left. */
 .h-board { padding-bottom: 24px; }
+/* Needs you: a row per agent, full width, one under the other. */
+.h-needs { display: grid; gap: 8px; }
+.h-bulk { display: flex; }
+.h-needs .fu-card { padding: 10px 12px 10px 16px; gap: 8px; }
+.h-needs .fu-card::before { top: 10px; bottom: 10px; }
+.fu-where { flex: none; color: var(--fg-dim); font-size: 12px; }
+.fu-card[data-k="failed"]::before { background: var(--stop); }
+.fu-card[data-k="merge"]::before { background: var(--ok); }
+.fu-tag[data-k="failed"] { background: var(--del); color: var(--stop); }
+.fu-tag[data-k="merge"] { background: var(--add); color: var(--ok); }
+.need-row .req { margin: 0; }
 .h-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 12px; align-items: start; }
 .h-empty { grid-column: 1 / -1; margin: 0; padding: 22px 18px; border: 1px dashed var(--line-strong); border-radius: var(--r-2); color: var(--fg-dim); font-size: 13px; text-align: center; }
 .fu-card { position: relative; display: grid; gap: 10px; min-width: 0; padding: 14px 14px 12px 18px; border-radius: var(--r-2); background: var(--raise); box-shadow: 0 0 0 1px var(--line); }
@@ -1351,7 +1362,7 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
       <!-- How much the agents worked this week, and the agents that stopped and wait on you: what the rail does not show. -->
       <div class="d-scroll" id="h-scroll">
         <div class="d-col h-col">
-          <section class="h-board" id="h-board" aria-label="Waiting on you"></section>
+          <section class="h-board" id="h-board" aria-label="Needs you"></section>
           <section class="h-spaces" id="h-spaces" aria-label="Spaces" hidden></section>
         </div>
       </div>
@@ -3876,10 +3887,9 @@ function homeNeedsNow() {
   homeNeeds = HB.needsList({ sessions: vis, stateOf, reqsOf, asking: asking(), follow: snap.overseer?.follow ?? [], mergeable: ready,
     dismissed: (s) => dismissedNeeds.has(HB.dismissKey(s)) });
   homeKindMap = HB.needKinds(homeNeeds);
-  // A dismissal for an agent that moved on, or left the board, is dropped.
-  const keys = new Set(vis.map(HB.dismissKey)), was = dismissedNeeds.size;
-  for (const k of [...dismissedNeeds]) if (!keys.has(k)) dismissedNeeds.delete(k);
-  if (dismissedNeeds.size !== was) saveDismissed();
+  // A dismissal goes once its agent has moved on (HB.pruneDismissed).
+  const kept = HB.pruneDismissed([...dismissedNeeds], vis);
+  if (kept.length !== dismissedNeeds.size) { dismissedNeeds.clear(); for (const k of kept) dismissedNeeds.add(k); saveDismissed(); }
   return vis;
 }
 const homeKinds = () => homeKindMap;
@@ -3989,23 +3999,117 @@ function renderCards(vis) {
 }
 
 let fuEmpty = null;
-/** "Waiting on you": a card per agent that finished with a question or with work left, newest first. Each card is
- *  rebuilt only when it changes, so a reply you are editing survives a broadcast. */
-function renderWaiting() {
-  const list = snap.overseer?.follow ?? [], box = $('h-board');
-  if (!box.firstChild) box.append(el('div', { class: 'h-lane' }, el('h3', { text: 'Waiting on you' }), el('span', { class: 'h-n' })), el('div', { class: 'h-cards' }));
-  setText(box.firstChild.lastChild, list.length ? String(list.length) : '');
+const needNodes = new Map(); // `${kind}:${sessionId}` → { sig, node }
+const reqCards = new Map();  // request id → its answer card, kept so what you typed in it survives a redraw
+const reqOpen = new Set();   // request ids whose answer card is unfolded under their row
+const reqErr = new Map();    // sessionId → why an Allow or Deny did not go through
+/** Where an agent works, for its row: its space's name, else its repository's. */
+const needWhere = (s) => snap.spaces?.find((x) => x.id === spaceIn(s))?.name ?? (s.git?.repo ? HB.repoName(s.git.repo) : '');
+/** A row's head: its name (opens it), where it works, what it needs, and when. */
+function needHead(s, tag, tagKind, at, extra = null) {
+  const openIt = () => { cancelAdvance(); open = s.sessionId; render(); };
+  return el('header', { class: 'fu-top' },
+    el('button', { class: 'fu-name', type: 'button', text: label(s), title: 'Open this session', onclick: openIt }),
+    needWhere(s) ? el('span', { class: 'fu-where', text: needWhere(s) }) : null,
+    el('span', { class: 'fu-tag', 'data-k': tagKind, text: tag }),
+    at ? el('span', { class: 'fu-time', text: clock(at), title: new Date(at).toLocaleString() }) : el('span', { class: 'fu-time' }), extra);
+}
+const openBtn = (s) => el('button', { class: 'btn quiet small', type: 'button', text: 'Open', onclick: () => { cancelAdvance(); open = s.sessionId; render(); } });
+/** An agent that waits on you: Allow or Deny for one plain tool request; Answer, unfolding the agent view's own card,
+ *  for anything else; and what the panel can say when it has no request to show. */
+function waitingRow(r) {
+  const s = r.s, p = r.reqs[0], busy = fuBusy.get(s.sessionId);
+  const decide = async (behavior) => {
+    fuBusy.set(s.sessionId, behavior === 'allow' ? 'Allowing…' : 'Denying…'); reqErr.delete(s.sessionId); render();
+    const res = await api(p.open ? '/api/answer-open' : '/api/decide', p.open ? { sessionId: s.sessionId, toolUseId: p.toolUseId, behavior } : { id: p.id, behavior });
+    fuBusy.delete(s.sessionId);
+    if (!res.ok) reqErr.set(s.sessionId, res.error || 'That did not go through.');
+    render();
+  };
+  let body, acts;
+  if (p && HB.plainAsk(r.reqs)) {
+    body = el('p', { class: 'fu-ask', text: askText(p) });
+    acts = [el('button', { class: 'btn small primary', type: 'button', text: 'Allow', onclick: () => decide('allow') }),
+      el('button', { class: 'btn small', type: 'button', text: 'Deny', onclick: () => decide('deny') })];
+  } else if (p) {
+    body = el('p', { class: 'fu-ask', text: askText(p) + (r.reqs.length > 1 ? ` (+${r.reqs.length - 1})` : '') });
+    const on = reqOpen.has(p.id);
+    acts = [el('button', { class: 'btn small' + (on ? '' : ' primary'), type: 'button', text: on ? 'Fold' : 'Answer', 'aria-expanded': String(on),
+      onclick: () => { if (reqOpen.has(p.id)) reqOpen.delete(p.id); else reqOpen.add(p.id); render(); } })];
+  } else {
+    const line = lineOf(s);
+    body = el('p', { class: 'fu-ask', text: typeof line?.[0] === 'string' ? line[0] : 'Waiting on something the panel can\'t read' });
+    acts = [];
+  }
+  const card = p && reqOpen.has(p.id) ? (reqCards.get(p.id) ?? (() => { const c = buildCard(p); reqCards.set(p.id, c); return c; })()) : null;
+  return el('article', { class: 'fu-card need-row', 'data-k': 'waiting', 'aria-label': `${label(s)} needs you` },
+    needHead(s, p ? (p.toolName === 'AskUserQuestion' ? 'Asks you' : p.toolName === 'ExitPlanMode' ? 'Plan ready' : 'Permission') : 'Waiting', 'waiting', p?.createdAt),
+    body, card, reqErr.has(s.sessionId) ? el('p', { class: 'err', text: reqErr.get(s.sessionId) }) : null,
+    busy ? el('div', { class: 'fu-busy', role: 'status' }, glyph('busy'), busy)
+      : el('div', { class: 'fu-acts' }, ...acts, el('span', { class: 'grow' }), openBtn(s)));
+}
+/** An agent that failed: its last line, Open, and Dismiss (until it does something new). */
+function failedRow(r) {
+  const s = r.s, said = reportStart(s.lastMessage) || (typeof lineOf(s)?.[0] === 'string' ? lineOf(s)[0] : '');
+  return el('article', { class: 'fu-card need-row', 'data-k': 'failed', 'aria-label': `${label(s)} failed` },
+    needHead(s, 'Failed', 'failed', s.lastMessageAt),
+    said ? el('p', { class: 'fu-ask', text: said }) : null,
+    el('div', { class: 'fu-acts' }, el('button', { class: 'btn small', type: 'button', text: 'Dismiss', title: 'Hide it here until it does something new',
+      onclick: () => { dismissedNeeds.add(HB.dismissKey(s)); saveDismissed(); render(); } }), el('span', { class: 'grow' }), openBtn(s)));
+}
+/** An agent whose pull request is green, with no follow-up of its own: Merge, two clicks. */
+function mergeRow(r) {
+  const s = r.s, pr = s.gh.pr, key = 'merge:' + s.sessionId, sure = armed?.key === key, busy = fuBusy.get(s.sessionId);
+  return el('article', { class: 'fu-card need-row', 'data-k': 'merge', 'aria-label': `${label(s)}: pull request #${pr.number} is ready` },
+    needHead(s, 'PR ready', 'merge', null),
+    el('div', { class: 'fu-pr' }, prChip(s), REVIEW_WORDS[pr.review] ? el('span', { text: REVIEW_WORDS[pr.review] }) : null),
+    busy ? el('div', { class: 'fu-busy', role: 'status' }, glyph('busy'), busy)
+      : el('div', { class: 'fu-acts' }, el('button', { class: 'btn small primary fu-merge' + (sure ? ' armed' : ''), type: 'button', text: sure ? `Confirm merge #${pr.number}` : `Merge #${pr.number}`,
+        title: `Merge pull request #${pr.number} with the repository’s default method. Click again to confirm.`, onclick: () => confirmOr(key, () => mergeSession(s.sessionId, pr)) }),
+      el('span', { class: 'grow' }), openBtn(s)));
+}
+/** Whether sending a follow-up's reply would close Claude in its terminal: "Send all" leaves those out. */
+const closesTerminal = (r) => r.follow?.how === 'restart' && r.s.kind === 'interactive' && Boolean(r.s.inRoster);
+/** Send every reply "Send all" may send, one after another, each as its own Send would. */
+async function sendAll(rows) {
+  for (const r of rows) {
+    if (fuBusy.has(r.s.sessionId)) continue;
+    await fuAct(r.follow, 'send', el('button'), fuEdits.get(r.follow.sessionId) ?? r.follow.reply);
+  }
+}
+/** "Needs you": a row per agent that needs you, acted on in place; "Send N replies" at its head. Each row is rebuilt
+ *  only when it changes, so a reply you are editing survives a broadcast. */
+function renderNeeds() {
+  const list = homeNeeds, box = $('h-board');
+  if (!box.firstChild) box.append(el('div', { class: 'h-lane' }, el('h3', { text: 'Needs you' }), el('span', { class: 'h-n' }), el('span', { class: 'grow' }), el('span', { class: 'h-bulk' })),
+    el('div', { class: 'h-needs' }));
+  const lane = box.firstChild;
+  setText(lane.children[1], list.length ? String(list.length) : '');
+  const bulk = HB.bulkReplies(list, closesTerminal), key = 'sendall:', sure = armed?.key === key;
+  patch(lane.lastChild, JSON.stringify([bulk.send.map((r) => r.s.sessionId), bulk.left.length, sure]), () => bulk.send.length < 2 ? [] : [
+    el('button', { class: 'btn small' + (sure ? ' primary armed' : ''), type: 'button', 'data-f': 'send-all',
+      text: sure ? `Confirm: send ${bulk.send.length} replies${bulk.left.length ? ` · ${bulk.left.length} left out: it would close Claude in its terminal` : ''}` : `Send ${bulk.send.length} replies`,
+      title: 'Send every drafted reply as it stands in its box. Never a merge, never a permission. Click again to confirm.',
+      onclick: () => confirmOr(key, () => sendAll(bulk.send)) })]);
   const grid = box.lastChild;
-  const want = list.map((f) => {
-    const s = sessionByShort(f.sessionId);
-    const sig = JSON.stringify([f, s && label(s), s?.lastMessage, s?.gh?.pr, fuSure.has(f.sessionId), armed?.key === 'merge:' + f.sessionId, fuBusy.get(f.sessionId)]);
-    let n = fuNodes.get(f.sessionId);
-    if (!n || n.sig !== sig) { n = { sig, node: fuCard(f, s) }; fuNodes.set(f.sessionId, n); }
+  const want = list.map((r) => {
+    const s = r.s, k = `${r.kind}:${s.sessionId}`, p = r.reqs[0];
+    const sig = JSON.stringify([r.kind, label(s), needWhere(s), stateOf(s), s.lastMessage, s.lastMessageAt, s.gh?.pr, r.follow, r.reqs.map((x) => x.id), p ? reqOpen.has(p.id) : false,
+      fuSure.has(s.sessionId), armed?.key === 'merge:' + s.sessionId, fuBusy.get(s.sessionId), reqErr.get(s.sessionId)]);
+    let n = needNodes.get(k);
+    if (!n || n.sig !== sig) {
+      const node = r.kind === 'follow' ? fuCard(r.follow, s) : r.kind === 'waiting' ? waitingRow(r) : r.kind === 'failed' ? failedRow(r) : mergeRow(r);
+      n = { sig, node }; needNodes.set(k, n);
+    }
     return n.node;
   });
-  const keep = new Set(list.map((f) => f.sessionId));
-  for (const k of fuNodes.keys()) if (!keep.has(k)) { fuNodes.delete(k); fuEdits.delete(k); fuSure.delete(k); fuBusy.delete(k); }
-  if (!want.length) want.push(fuEmpty ??= el('p', { class: 'h-empty', text: 'Nothing waits on you. Agents that finish with a question, or with work left, show up here.' }));
+  // What left the list takes its row, its edits and its state along.
+  const keep = new Set(list.map((r) => `${r.kind}:${r.s.sessionId}`)), ids = new Set(list.map((r) => r.s.sessionId));
+  for (const k of needNodes.keys()) if (!keep.has(k)) needNodes.delete(k);
+  for (const k of [...fuEdits.keys(), ...fuSure, ...fuBusy.keys(), ...reqErr.keys()]) if (!ids.has(k)) { fuEdits.delete(k); fuSure.delete(k); fuBusy.delete(k); reqErr.delete(k); }
+  const pend = new Set(snap.pending.map((p) => p.id));
+  for (const id of [...reqCards.keys()]) if (!pend.has(id)) { reqCards.delete(id); reqOpen.delete(id); }
+  if (!want.length) want.push(fuEmpty ??= el('p', { class: 'h-empty', text: 'Nothing needs you.' }));
   want.forEach((n, i) => { if (grid.children[i] !== n) grid.insertBefore(n, grid.children[i] ?? null); });
   while (grid.children.length > want.length) grid.lastChild.remove();
   // A reply drawn while the page was hidden never got its height: it gets it once it shows.
@@ -4035,6 +4139,7 @@ function fuCard(f, s) {
   return el('article', { class: 'fu-card', 'data-v': f.verdict, 'data-busy': Boolean(busy), 'aria-busy': busy ? 'true' : null, 'aria-label': `${name}, ${FU_WORDS[f.verdict] ?? f.verdict}` },
     el('header', { class: 'fu-top' },
       el('button', { class: 'fu-name', type: 'button', text: name, title: 'Open this session', onclick: openIt }),
+      s && needWhere(s) ? el('span', { class: 'fu-where', text: needWhere(s) }) : null,
       el('span', { class: 'fu-tag', text: FU_WORDS[f.verdict] ?? f.verdict }),
       el('span', { class: 'fu-time', text: clock(f.at), title: new Date(f.at).toLocaleString() }),
       busy ? null : el('button', { class: 'btn icon fu-x', type: 'button', 'aria-label': `Dismiss ${name}`, title: 'Nothing to do here: hide this card',
@@ -4068,15 +4173,17 @@ async function fuAct(f, decision, btn, text) {
   fuEdits.delete(f.sessionId); fuSure.delete(f.sessionId);
   if (r.result && r.result !== 'Sent.') toast(r.result);
 }
-async function fuMerge(f, pr) {
-  if (fuBusy.has(f.sessionId)) return;
-  fuBusy.set(f.sessionId, `Merging #${pr.number}…`);
+/** Merge an agent's pull request, from its follow-up or its "PR ready" row: the row says so the moment you confirm. */
+async function mergeSession(sessionId, pr) {
+  if (fuBusy.has(sessionId)) return;
+  fuBusy.set(sessionId, `Merging #${pr.number}…`);
   render();
-  const r = await api('/api/github/merge', { sessionId: f.sessionId, number: pr.number, sha: pr.sha });
-  if (!r.ok) { fuBusy.delete(f.sessionId); render(); toast(r.error || 'It was not merged.', true); return; }
-  fuBusy.set(f.sessionId, `Merged #${pr.number}.`);
+  const r = await api('/api/github/merge', { sessionId, number: pr.number, sha: pr.sha });
+  if (!r.ok) { fuBusy.delete(sessionId); render(); toast(r.error || 'It was not merged.', true); return; }
+  fuBusy.set(sessionId, `Merged #${pr.number}.`);
   toast(`Merged #${pr.number}.`);
 }
+const fuMerge = (f, pr) => mergeSession(f.sessionId, pr);
 
 // ---------- the chat, docked at the bottom: one line folded, the conversation when open ----------
 let dockOpen = pref('acp.ovDock') === '1';
@@ -4323,7 +4430,7 @@ function renderHome(g) {
   setText($('h-meta'), st ? `${ovModelName(st.model)} · proposes, you confirm` : '');
   const vis = homeNeedsNow();
   renderCounts(vis);
-  renderWaiting();
+  renderNeeds();
   renderCards(vis);
   setAttr($('h-dock'), 'data-open', dockOpen ? '1' : '0');
   setAttr($('h-dock-tog'), 'aria-expanded', String(dockOpen));
