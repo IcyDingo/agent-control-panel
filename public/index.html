@@ -787,7 +787,7 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 .more { position: relative; }
 .more > summary { list-style: none; }
 .more > summary::-webkit-details-marker { display: none; }
-.more-m { position: absolute; right: 0; top: calc(100% + 4px); z-index: 5; min-width: 190px; padding: 4px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--raise); box-shadow: 0 16px 40px -12px var(--shade); }
+.more-m { position: absolute; right: 0; top: calc(100% + 4px); z-index: 60; min-width: 190px; padding: 4px; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: var(--raise); box-shadow: 0 16px 40px -12px var(--shade); }
 .more-m button { display: block; width: 100%; padding: 7px 10px; border: 0; border-radius: var(--r-1); background: none; color: var(--fg); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; }
 .more-m button:hover { background: var(--fill); }
 .more-m button.danger { color: var(--stop); }
@@ -1909,6 +1909,41 @@ function toggleFold(k) {
   writeGlue({ folded: foldList() }).then((r) => { if (!r.ok) toast(r.error || 'The fold did not save.', true); });
 }
 const tilde = (p) => (p ? p.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, '~') : '');
+// A ⋯ menu is placed against the window when it opens, so the side panel's scrolling never cuts it off: under its
+// button and lined up with its right edge, else above it when there is no room below, always kept 8px in from the
+// window's edges, and scrolling inside itself if it is taller than the window. It follows its button while it is open
+// (the panel scrolls, the window changes size, its items change), and gives its place back when it closes.
+const MENU_PAD = 8;
+const menuWatch = new Map(); // open <details> → ResizeObserver of its menu
+function placeMenu(d) {
+  const m = d.querySelector(':scope > .more-m'), b = d.querySelector(':scope > summary');
+  if (!m || !b) return;
+  const r = b.getBoundingClientRect();
+  Object.assign(m.style, { position: 'fixed', right: 'auto', bottom: 'auto', maxHeight: `${innerHeight - 2 * MENU_PAD}px`, overflowY: 'auto' });
+  const w = m.offsetWidth, h = m.offsetHeight;
+  const left = Math.max(MENU_PAD, Math.min(r.right - w, innerWidth - w - MENU_PAD));
+  let top = r.bottom + 4;
+  if (top + h > innerHeight - MENU_PAD) top = r.top - 4 - h >= MENU_PAD ? r.top - 4 - h : Math.max(MENU_PAD, innerHeight - MENU_PAD - h);
+  m.style.left = `${Math.round(left)}px`;
+  m.style.top = `${Math.round(top)}px`;
+}
+function unplaceMenu(d) {
+  const m = d.querySelector(':scope > .more-m');
+  if (m) for (const k of ['position', 'right', 'bottom', 'left', 'top', 'maxHeight', 'overflowY']) m.style[k] = '';
+}
+document.addEventListener('toggle', (e) => {
+  const d = e.target;
+  if (!(d instanceof HTMLDetailsElement) || !d.classList.contains('more')) return;
+  menuWatch.get(d)?.disconnect();
+  menuWatch.delete(d);
+  if (!d.open) { unplaceMenu(d); return; }
+  placeMenu(d);
+  const m = d.querySelector(':scope > .more-m');
+  if (m && typeof ResizeObserver === 'function') { const o = new ResizeObserver(() => { if (d.open && d.isConnected) placeMenu(d); }); o.observe(m); menuWatch.set(d, o); }
+}, true);
+const replaceMenus = () => { for (const d of menuWatch.keys()) if (d.open && d.isConnected) placeMenu(d); };
+document.addEventListener('scroll', replaceMenus, true);
+window.addEventListener('resize', replaceMenus);
 // A header's ⋯ menu closes on a click outside it, and on Escape.
 // (By the click's path: an item clicked is often redrawn, gone from the page, before the click gets here.)
 document.addEventListener('click', (e) => { const path = e.composedPath(); for (const d of document.querySelectorAll('details.col-more[open]')) if (!path.includes(d)) d.open = false; });
