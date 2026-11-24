@@ -31,10 +31,11 @@ export const GLUE_DEFAULTS = Object.freeze({
   overseerModel: 'opus', // what a new workspace's overseer answers with; one that exists keeps the model it has
   followUps: true, // the overseer reads each agent's last message when its turn ends (a Haiku call), for follow-up cards
   fallbackModel: '', // the OpenCode model a Claude session at its usage limit carries on with; empty: OpenCode's default
-  // A space's main agent, and the workers it may start by itself: the model a main agent starts on, whether main
-  // agents may start workers at all, the models a worker may be given, and how many workers one main agent may have
-  // running at once and in all.
-  mainAgents: Object.freeze({ model: 'opus', spawn: true, workerModels: Object.freeze(['sonnet', 'haiku']), maxAlive: 4, maxTotal: 12 }),
+  // A space's main agent, which watches the agents in its space, and the workers it may start by itself when you let
+  // it: the model a main agent starts on, whether main agents may start workers at all (off: they only watch; the
+  // switch was `spawn` and on before main agents watched, and that old field is dropped), the models a worker may be
+  // given, and how many workers one main agent may have running at once and in all.
+  mainAgents: Object.freeze({ model: 'opus', workers: false, workerModels: Object.freeze(['sonnet', 'haiku']), maxAlive: 4, maxTotal: 12 }),
 
   seeded: false,
 });
@@ -62,7 +63,7 @@ const SHAPE = {
   overseerModel: isOverseerModel,
   followUps: isBool,
   fallbackModel: ocModel,
-  mainAgents: { model: oneOf(MAIN_MODELS), spawn: isBool, workerModels: someOf(WORKER_MODELS), maxAlive: within(1, 8), maxTotal: within(1, 40) },
+  mainAgents: { model: oneOf(MAIN_MODELS), workers: isBool, workerModels: someOf(WORKER_MODELS), maxAlive: within(1, 8), maxTotal: within(1, 40) },
   seeded: isBool,
 };
 const NAMES = Object.keys(SHAPE);

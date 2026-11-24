@@ -1,5 +1,11 @@
 # Main agents and their workers
 
+> **Changed 2026-11-24: a main agent watches its space.** The owner starts agents from a space's + themselves, so a main
+> agent that starts its own workers got in the way: it could not see the agents the owner started, and the space had
+> two kinds of agents side by side. Picked by the owner: the main agent starts nothing and watches. See
+> [A main agent watches its space](#a-main-agent-watches-its-space-2026-11-24) below; the rest of this document is the
+> design as first built, and still holds for workers when the owner turns them on.
+
 ## Intent
 The owner wants more work done in parallel, organised in three levels: Home and Ask Glue on top, one **main agent** per
 space that leads that space's work on a top model, and under it the **workers** it starts on cheaper models. Home shows
@@ -127,6 +133,39 @@ Checkout redesign
 - `tell_worker` needs a free place to wake a worker that finished its turn, and never restarts one that was stopped.
 - A worker's fingerprint for notices is how it stopped plus what it said, so one that fails with nothing new is told of.
 - A task may not start with `/` or `!`, as a message may not.
+
+### A main agent watches its space (2026-11-24)
+The owner asked "should it not just watch across the main agents in the space?" and "what does it start, cause I would
+just start the agent from the + sign". Picked: a pure watcher, starting no workers, opt-in per space, off by default.
+
+- **On and off, per space.** A space's ⋯ menu says "Turn on main agent" once the space has an agent, and "Turn off main
+  agent" while it has one. No space has one until the owner turns it on (`/api/main/watch { space, on }`). The "Main
+  agent of this space" switch in New agent is gone: a main agent has no goal to be started with.
+- **Where it runs.** In the repository of the space's newest Claude Code agent: its main checkout, never an agent's
+  worktree that agent may remove (unless that login has not trusted the main checkout), on that agent's login, on the
+  main agents' model (Opus), in `default` mode. Its first message is to look at the space and report.
+- **It changes nothing.** `--disallowedTools Edit,Write,NotebookEdit` comes with its tools, whatever its mode. It may
+  read files and run read-only commands; anything else asks the owner, as any agent's permission prompt does.
+- **What it sees.** `list_agents` and `read_agent` cover every session in its space but itself, the owner's and its
+  workers alike. It never messages the owner's agents: `tell_worker` and `interrupt_worker` are for its own workers.
+- **What it hears.** The same batched notices, now for every agent in its space: when one stops, fails or **waits on
+  the owner** (a permission or a question), in `<agent>` tags. What the agents said before it was turned on is marked
+  told when it takes its slot, so it does not start with a flood. The transcript fallback for a missed Stop hook covers
+  every agent in a space with a main agent, not only workers. Questions from the owner's agents still go to the owner
+  as follow-up cards; only workers' questions go to the main agent.
+- **What it reports.** Its last message is its report: first what needs the owner, then what the space is doing. Home's
+  card shows the start of it, the agents of the space by state ("4 agents: 2 working, 1 needs you, 1 finished") and
+  "watching" between turns. Ask Glue's board still lists main agents first, as a summary to check against the sessions,
+  and the space's own sessions as usual; it proposes telling a session itself, not its main agent.
+- **Off.** It is stopped, taken out of its space, its slot and key file go, and once it has stopped it is removed from
+  the board (`claude rm`, which keeps its conversation; never for one that runs in a linked worktree, which `claude rm`
+  would delete).
+- **Workers stay, behind a switch.** Settings › Glue › Main agents › "Start workers", off by default. The setting was
+  `spawn` and on; it is now `workers` and the old field is dropped, so every saved settings file starts with it off.
+  Off, the worker tools are not even offered (Glue's hello says so and the MCP server lists only the two), the brief
+  says nothing of workers, and the limits are hidden in Settings and the details.
+- **Unchanged:** the key per launch, one per space, the forty-notice hold and "Carry on", waking a stopped one with
+  what waits, the seal between workspaces.
 
 ## Honest limits
 A worker's report reaches an agent that has tools. The tags, the fixed notice line and the bounded tools lower the

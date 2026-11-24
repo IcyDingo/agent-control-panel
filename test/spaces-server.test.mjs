@@ -226,13 +226,12 @@ test('deleting a space sends its sessions back', async () => {
   assert.ok(await until(() => sessionIn(A, SID_D)?.space === null && !A.latest().spaces.some((x) => x.id === id)));
 });
 
-test('a space gets its main agent from a launch: on the main agents\' model, one per space, in a git repository, in its own workspace only', async () => {
+test('a space gets its main agent from a launch: on the main agents\' model, one per space, in its own workspace only', async () => {
   const c = await api('/api/space/create', { name: 'Checkout' }, A.client), id = c.id;
   assert.equal(c.ok, true, JSON.stringify(c));
   const before = logged().length;
   // What can't be a main agent is refused before anything runs.
   assert.match((await launchIn(repoS, A.client, { main: true })).error, /leads a space/);
-  assert.match((await launchIn(work, A.client, { main: true, space: id })).error, /works in a git repository/);
   assert.match((await launchIn(repoS, A.client, { main: true, space: id, agentKind: 'opencode' })).error, /runs on Claude Code/);
   assert.equal(launchedBy(A.client, before).length, 0, 'nothing ran');
 

@@ -1,4 +1,4 @@
-// glue-mcp: the tools a space's main agent has for its workers, as an MCP server on stdio. A fake `call` stands in for
+// glue-mcp: the tools a space's main agent has to watch its space (and lead workers, when let), as an MCP server on stdio. A fake `call` stands in for
 // Glue's own server, and one test runs the real program against a stub HTTP server. Run with `npm test`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -14,7 +14,7 @@ function mk(answers = {}) {
   return { ask, out, calls };
 }
 
-test('it says hello with the brief Glue gives it, and lists five tools: none that ends, answers or configures anything', async () => {
+test('it says hello with the brief Glue gives it; a main agent watching its space gets two tools, and none ends, answers or configures anything', async () => {
   const k = mk({ hello: { ok: true, instructions: 'You are the main agent of the space "Checkout".' } });
   const init = await k.ask({ id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25' } });
   assert.equal(init.id, 1);
@@ -22,28 +22,41 @@ test('it says hello with the brief Glue gives it, and lists five tools: none tha
   assert.deepEqual(init.result.capabilities, { tools: {} });
   assert.equal(init.result.instructions, 'You are the main agent of the space "Checkout".');
   const list = await k.ask({ id: 2, method: 'tools/list' });
-  assert.deepEqual(list.result.tools.map((t) => t.name), ['start_worker', 'list_workers', 'read_worker', 'tell_worker', 'interrupt_worker']);
-  assert.deepEqual(list.result.tools.filter((t) => t.annotations?.readOnlyHint).map((t) => t.name), ['list_workers', 'read_worker']);
-  for (const t of list.result.tools) assert.equal(t.inputSchema.type, 'object', t.name);
+  assert.deepEqual(list.result.tools.map((t) => t.name), ['list_agents', 'read_agent'], 'it watches: no worker tools');
+  assert.ok(list.result.tools.every((t) => t.annotations?.readOnlyHint), 'and only reads');
+  // A tool it was not offered never reaches Glue.
+  const n = k.calls.length;
+  assert.equal((await k.ask({ id: 3, method: 'tools/call', params: { name: 'start_worker', arguments: { name: 'a', task: 'b', model: 'sonnet' } } })).result.isError, true);
+  assert.equal(k.calls.length, n);
+  // Let start workers, it gets the worker tools too.
+  const w = mk({ hello: { ok: true, workers: true, instructions: 'x' } });
+  await w.ask({ id: 1, method: 'initialize', params: {} });
+  const all = (await w.ask({ id: 2, method: 'tools/list' })).result.tools;
+  assert.deepEqual(all.map((t) => t.name), ['list_agents', 'read_agent', 'start_worker', 'tell_worker', 'interrupt_worker']);
+  assert.deepEqual(all.filter((t) => t.annotations?.readOnlyHint).map((t) => t.name), ['list_agents', 'read_agent']);
+  for (const t of all) assert.equal(t.inputSchema.type, 'object', t.name);
   // What starting a worker takes: never a folder, a permission mode or a login.
-  assert.deepEqual(Object.keys(TOOLS[0].inputSchema.properties), ['name', 'task', 'model']);
-  for (const t of TOOLS) for (const k of Object.keys(t.inputSchema.properties)) assert.ok(['name', 'task', 'model', 'worker', 'turns', 'text'].includes(k), `${t.name} takes ${k}`);
-  // With Glue not answering it still starts, and says so.
-  const down = await mk().ask({ id: 1, method: 'initialize', params: {} });
+  assert.deepEqual(Object.keys(TOOLS.find((t) => t.name === 'start_worker').inputSchema.properties), ['name', 'task', 'model']);
+  for (const t of TOOLS) for (const k of Object.keys(t.inputSchema.properties)) assert.ok(['name', 'task', 'model', 'agent', 'worker', 'turns', 'text'].includes(k), `${t.name} takes ${k}`);
+  // With Glue not answering it still starts, and says so; it offers no worker tools.
+  const d = mk();
+  const down = await d.ask({ id: 1, method: 'initialize', params: {} });
   assert.match(down.result.instructions, /Glue did not answer just now/);
   assert.equal(down.result.protocolVersion, '2025-06-18');
+  assert.deepEqual((await d.ask({ id: 2, method: 'tools/list' })).result.tools.map((t) => t.name), ['list_agents', 'read_agent']);
 });
 
 test('a tool call goes to Glue by its verb, and what Glue says comes back as the tool\'s text', async () => {
-  const k = mk({ start: (a) => ({ ok: true, text: `Started ${a.name} on ${a.model}.` }), tell: { ok: false, error: 'No such worker.' }, list: { ok: true } });
+  const k = mk({ hello: { ok: true, workers: true }, start: (a) => ({ ok: true, text: `Started ${a.name} on ${a.model}.` }), tell: { ok: false, error: 'No such worker.' }, list: { ok: true } });
+  await k.ask({ id: 4, method: 'initialize', params: {} });
   const r = await k.ask({ id: 5, method: 'tools/call', params: { name: 'start_worker', arguments: { name: 'cart-api', task: 'Do it', model: 'sonnet' } } });
   assert.deepEqual(r, { jsonrpc: '2.0', id: 5, result: { content: [{ type: 'text', text: 'Started cart-api on sonnet.' }] } });
   assert.deepEqual(k.calls.at(-1), { verb: 'start', args: { name: 'cart-api', task: 'Do it', model: 'sonnet' } });
   const bad = await k.ask({ id: 6, method: 'tools/call', params: { name: 'tell_worker', arguments: { worker: 'zz', text: 'hi' } } });
   assert.deepEqual(bad.result, { content: [{ type: 'text', text: 'No such worker.' }], isError: true });
-  assert.equal((await k.ask({ id: 7, method: 'tools/call', params: { name: 'list_workers' } })).result.content[0].text, 'Done.');
+  assert.equal((await k.ask({ id: 7, method: 'tools/call', params: { name: 'list_agents' } })).result.content[0].text, 'Done.');
   // Glue not reachable: said as an error, nothing thrown.
-  const down = await k.ask({ id: 8, method: 'tools/call', params: { name: 'read_worker', arguments: { worker: 'a' } } });
+  const down = await k.ask({ id: 8, method: 'tools/call', params: { name: 'read_agent', arguments: { agent: 'a' } } });
   assert.equal(down.result.isError, true);
   assert.match(down.result.content[0].text, /Glue did not answer, so nothing was done/);
   // A tool that is not one of ours never reaches Glue.
@@ -86,7 +99,7 @@ test('the real program: it sends each call to Glue on this computer with its own
   p.stdout.on('data', (d) => { buf += d; let i; while ((i = buf.indexOf('\n')) >= 0) { lines.push(JSON.parse(buf.slice(0, i))); buf = buf.slice(i + 1); } });
   const until = async (fn) => { for (let i = 0; i < 100; i++) { if (fn()) return true; await new Promise((r) => setTimeout(r, 50)); } return false; };
   p.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25' } }) + '\n');
-  p.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'list_workers', arguments: {} } }) + '\n');
+  p.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'list_agents', arguments: {} } }) + '\n');
   assert.ok(await until(() => lines.length === 2), JSON.stringify(lines));
   assert.equal(lines[0].result.instructions, 'BRIEF');
   assert.equal(lines[1].result.content[0].text, 'Two workers.');
