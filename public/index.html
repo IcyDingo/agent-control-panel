@@ -263,8 +263,14 @@ body:not(.rail-slim) .col[data-col="space"] .col-h { font-size: 14px; padding-ri
 body:not(.rail-slim) .col[data-col="space"] .col-name { padding-left: 14px; }
 body:not(.rail-slim) .col[data-col="space"] .col-body { padding: 0 2px; }
 body:not(.rail-slim) .col[data-col="space"] .col-empty { margin: 0 14px 4px; }
-/* While any of its agents works, the card's border is the working colour. */
-body:not(.rail-slim) .col[data-col="space"].working { box-shadow: 0 0 0 1px var(--run); }
+/* While any of its agents works, the card is tinted a little with the working colour; its border stays as it was. */
+body:not(.rail-slim) .col[data-col="space"].working { background: color-mix(in srgb, var(--run) 7%, var(--raise)); }
+/* Its main agent, in the title: its state light and "Main", quiet until hovered; a pill while it is the one open. */
+.col-main { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border: 0; border-radius: 999px;
+  background: var(--fill); color: var(--fg-dim); font-size: 11.5px; font-weight: 500; cursor: pointer; }
+.col-main:hover { color: var(--fg); background: var(--hover); }
+.col-main[aria-current="true"] { color: var(--fg); background: var(--fill-strong); }
+.col-main[hidden], body.rail-slim .col-main { display: none; }
 /* Its count and "needs you" are in the line; while you search, the count says how many match. */
 body:not(.rail-slim) .col[data-col="space"]:not(.searching) .col-h .n, body:not(.rail-slim) .col[data-col="space"] :is(.col-asks, .peek) { display: none; }
 .col-sum { margin: -4px 14px 6px; font-size: 12px; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1988,13 +1994,16 @@ function sectionEl(key, kind) {
     onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); saveRename(c); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); endRename(); } },
     onblur: () => { if (renaming === c.key.slice(6)) saveRename(c); } });
   if (kind === 'space' || kind === 'repo') c.add = iconBtn(PLUS, { class: 'btn icon col-add', onclick: () => quickLaunch(key) });
+  // A space's main agent sits in its title, not among its agents: its state light and "Main", a click opens it. Shown
+  // while the card is open.
+  if (kind === 'space') c.main = el('button', { class: 'col-main', type: 'button', hidden: true }, el('span', { class: 'glyph', 'aria-hidden': 'true' }), 'Main');
   // A space is drawn as a card, with a line under its name that says what it is doing. The line stays when it is folded.
   if (kind === 'space') c.sum = el('p', { class: 'col-sum', hidden: true });
   // Its actions (Rename, Interrupt all, End idle, Clear, Delete) behind one ⋯, so they never squeeze its name. The menu
   // is kept across redraws, so it stays open while an action waits for its confirm click.
   c.more = el('details', { class: 'more col-more' }, el('summary', { class: 'btn icon col-more-b', title: 'More', text: '⋯' }), c.menu);
   c.tools.append(c.more);
-  c.sec = el('section', { class: 'col', 'data-col': kind }, el('div', { class: 'col-h' }, ...(c.rename ? [c.rename] : []), c.head, ...(c.add ? [c.add] : []), c.tools, ...(c.chev ? [c.chev] : [])), ...(c.sum ? [c.sum] : []), body);
+  c.sec = el('section', { class: 'col', 'data-col': kind }, el('div', { class: 'col-h' }, ...(c.rename ? [c.rename] : []), c.head, ...(c.main ? [c.main] : []), ...(c.add ? [c.add] : []), c.tools, ...(c.chev ? [c.chev] : [])), ...(c.sum ? [c.sum] : []), body);
   secs.set(key, c);
   return c;
 }
@@ -2012,24 +2021,14 @@ function mainWorkers(s) {
   return el('span', { class: 'd-lead' }, el('label', { class: 'switch' }, box, el('i'), 'May start workers'),
     el('small', { text: off ? 'Starting workers is off in Settings › Glue.' : `${m.started ?? 0}${total ? ` of ${total}` : ''} started` }));
 }
-/** What a space is doing, for the line on its card: "3 agents · 2 working · 1 needs you". `mine` are its sessions on
- *  the board. Its main agent is not counted: it watches the others. */
-const SUM_STATE = { busy: 'working', idle: 'idle', finished: 'finished' };
+/** What a space is doing, for the line on its card: "3 agents · 2 working". `mine` are its sessions on the board. Its
+ *  main agent is not counted: it watches the others, and has its own place in the card's title. */
 function spaceSummary(spaceId, mine) {
   const lead = mainOfSpace(spaceId)?.sessionId, others = mine.filter((x) => x.sessionId !== lead);
   if (!mine.length) return [];
-  const n = {};
-  for (const x of others) { const st = colOf(stateOf(x)); n[st] = (n[st] ?? 0) + 1; }
   const word = others.length && others.every((x) => x.role === 'worker') ? 'worker' : 'agent';
-  const bits = [others.length ? `${others.length} ${word}${others.length === 1 ? '' : 's'}` : lead ? 'no agents yet' : ''];
-  for (const k of ['busy', 'waiting', 'idle', 'finished']) {
-    if (!n[k]) continue;
-    bits.push(k === 'waiting' ? el('b', { text: `${n[k]} ${n[k] === 1 ? 'needs' : 'need'} you` }) : `${n[k]} ${SUM_STATE[k]}`);
-  }
-  // Its main agent needing you is said too: it is not among the ones counted above.
-  const leadS = lead ? mine.find((x) => x.sessionId === lead) : null;
-  if (leadS && stateOf(leadS) === 'waiting') bits.push(el('b', { text: 'its main agent needs you' }));
-  return bits.filter(Boolean);
+  const working = others.filter((x) => colOf(stateOf(x)) === 'busy').length;
+  return [others.length ? `${others.length} ${word}${others.length === 1 ? '' : 's'}` : 'no agents yet', working ? `${working} working` : ''].filter(Boolean);
 }
 /** Turn a space's main agent on or off. */
 async function watchSpace(space, on) {
@@ -2078,10 +2077,10 @@ function sections(g) {
   const working = (s) => (['busy', 'stopping'].includes(stateOf(s)) ? 0 : 1);
   // In a space: working, then idle, newest first; then what finished there, the latest to finish first.
   const done = (s) => (colOf(stateOf(s)) === 'finished' ? 1 : 0), ended = (s) => s.leftRosterAt ?? s.lastEventAt ?? 0;
-  // Its main agent leads the section, whatever it is doing.
-  const led = (s) => (s.role === 'main' ? 0 : 1);
+  // Its main agent is in the card's title, not a row: a row still while searching, or on the slim rail, which has no title.
+  const led = (s) => (s.role === 'main' ? 0 : 1), rowOf = (s) => s.role !== 'main' || Boolean(railQuery) || slimShown();
   for (const x of spaces) out.push({ key: 'space:' + x.id, kind: 'space', space: x.id, title: x.name, asks: spaceAsks.get(x.id) ?? 0,
-    list: inSpace.get(x.id).sort((a, b) => led(a) - led(b) || done(a) - done(b) || (done(a) ? ended(b) - ended(a) : working(a) - working(b) || (b.startedAt ?? 0) - (a.startedAt ?? 0))
+    list: inSpace.get(x.id).filter(rowOf).sort((a, b) => led(a) - led(b) || done(a) - done(b) || (done(a) ? ended(b) - ended(a) : working(a) - working(b) || (b.startedAt ?? 0) - (a.startedAt ?? 0))
       || a.sessionId.localeCompare(b.sessionId)) });
   for (const r of [...repos.keys()].sort((a, b) => base(a).localeCompare(base(b)) || a.localeCompare(b))) {
     // As in a space: working before idle, newest first. A row in a worktree names it.
@@ -2425,6 +2424,18 @@ function renderBoard(g, vis) {
       if (c.sum._sig !== sig) { c.sum._sig = sig; c.sum.replaceChildren(...bits.flatMap((b, i) => (i ? [' · ', b] : [b]))); }
       c.sec.classList.toggle('searching', Boolean(railQuery));
       c.sec.classList.toggle('working', vis.some((x) => spaceIn(x) === sec.space && stateOf(x) === 'busy'));
+    }
+    if (c.main) {
+      // Its main agent, in the title while the card is open (and not while searching, which lists rows only).
+      const id = mainOfSpace(sec.space)?.sessionId, m = id ? vis.find((x) => x.sessionId === id && spaceIn(x) === sec.space) : null;
+      c.main.hidden = !m || isFolded(sec.key) || Boolean(railQuery);
+      if (m) {
+        const st = stateOf(m), resting = m.up && st === 'finished';
+        setAttr(c.main.firstChild, 'data-s', resting ? 'idle' : st);
+        setAttr(c.main, 'aria-current', String(open === m.sessionId));
+        setAttr(c.main, 'title', `Main agent: ${label(m)} · ${resting ? 'watching' : LABEL[st]?.toLowerCase() ?? st}`);
+        c.main.onclick = () => { cancelAdvance(); selectNow(); subFocus = null; open = m.sessionId; render(); };
+      }
     }
     if (c.peek) {
       const shut = isFolded(sec.key);
