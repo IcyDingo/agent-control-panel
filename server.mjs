@@ -4125,6 +4125,14 @@ async function handle(req, res) {
     res.writeHead(200, { 'content-type': VENDOR[url.pathname], 'cache-control': 'max-age=86400' });
     return res.end(body);
   }
+  // Home's board (what needs you, the cards): its deciding part, a file of its own so the tests can run it. It changes
+  // with Glue, so it is never cached.
+  if (req.method === 'GET' && url.pathname === '/home-board.js') {
+    let body;
+    try { body = fs.readFileSync(new URL('./public/home-board.js', import.meta.url)); } catch { return send(res, 404, { error: 'not found' }); }
+    res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-cache' });
+    return res.end(body);
+  }
   if (req.method === 'GET' && url.pathname === '/') {
     return send(res, 200, page().replace('__ACP_TOKEN__', TOKEN), 'text/html; charset=utf-8');
   }
