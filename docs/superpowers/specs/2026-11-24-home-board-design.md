@@ -1,5 +1,10 @@
 # Home as a board: what needs you, then every space
 
+> **Status: built (2026-11-24).** Changed while building, after the owner's note on the side panel's space cards ("tint
+> the card slightly blue… just show total agents and how many working, not finished… main agent in the title"): Home's
+> cards follow it too. A working card is tinted, not outlined; the summary is "N agents · M working · K need you", with
+> no "+N finished"; the main agent is a "Main" pill in the card's title, with its report under it.
+
 ## Intent
 The owner asked "does it still show all tasks?" and then: "we need home to be an efficient management space to control
 and have overview". Today Home is an inbox, not an overview: it shows main-agent cards (only for spaces where one is

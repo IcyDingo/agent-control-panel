@@ -3862,7 +3862,6 @@ const partOf = (t) => Math.floor(new Date(t).getHours() / 6);
 
 // ---------- the board: agents that stopped and wait on you (the overseer reads each turn's last message) ----------
 const fuEdits = new Map(); // sessionId → the reply as you changed it
-const fuNodes = new Map(); // sessionId → { sig, node }
 const fuSure = new Set();  // sessionIds whose send was held for a restart: the next click sends anyway
 const fuBusy = new Map();  // sessionId → what the card is doing now ("Sending…", "Merging #14…"), shown the moment you click
 const FU_WORDS = { 'needs-answer': 'Asks you', 'stopped-short': 'Unfinished' };
