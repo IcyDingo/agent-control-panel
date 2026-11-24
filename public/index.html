@@ -1132,30 +1132,55 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
   box-shadow: 0 0 0 1px var(--line-strong), 0 10px 28px -10px var(--shade); font-size: 12.5px; white-space: pre; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
 .hm-note { margin: 10px 0 0; color: var(--fg-faint); font-size: 12.5px; }
 /* Main agents: a card per space that has one. What its space is doing, at a glance; a click opens the main agent. */
-.h-mains { margin-bottom: 32px; }
-.ma-card { position: relative; display: grid; gap: 8px; min-width: 0; padding: 14px 14px 13px 18px; border: 0; border-radius: var(--r-2); background: var(--raise);
-  box-shadow: 0 0 0 1px var(--line); color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.ma-card:hover { background: var(--hover); }
-.ma-card:focus-visible { outline: 2px solid var(--run); outline-offset: 2px; }
-.ma-card::before { content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px; border-radius: 0 3px 3px 0; background: var(--line-strong); }
-.ma-card[data-s="busy"]::before { background: var(--run); }
-.ma-card[data-s="waiting"]::before, .ma-card[data-asks]::before { background: var(--amber); }
-.ma-card[data-s="failed"]::before { background: var(--stop); }
-.ma-space { font-size: 11.5px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ma-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.ma-name { min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ma-model, .ma-state { flex: none; color: var(--fg-dim); font-size: 12.5px; }
-.ma-state { margin-left: auto; }
-.ma-card[data-s="waiting"] .ma-state, .ma-tag { color: var(--amber); }
-.ma-tag { flex: none; padding: 1px 7px; border-radius: 999px; background: var(--amber-fill); font-size: 11.5px; font-weight: 600; }
-.ma-workers { font-size: 13px; color: var(--fg-dim); }
-.ma-workers b { color: var(--amber); font-weight: 600; }
-.ma-said { margin: 0; font-size: 13px; color: var(--fg); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.ma-said:empty { display: none; }
+.h-counts { margin-left: 4px; color: var(--fg-dim); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.h-counts b { color: var(--amber); font-weight: 600; }
+/* A card per space (and per repository with agents in no space): a little tinted while its agents work. */
+.h-spaces { padding-bottom: 24px; }
+.hc-card { position: relative; display: grid; gap: 8px; min-width: 0; padding: 10px 10px 10px 14px; border-radius: var(--r-2); background: var(--raise); box-shadow: 0 0 0 1px var(--line); }
+.hc-card[data-working] { background: color-mix(in srgb, var(--run) 7%, var(--raise)); }
+.hc-head { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 28px; }
+.hc-head .grow { flex: 1; }
+.hc-title { margin: 0; min-width: 0; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hc-quiet { flex: none; color: var(--fg-faint); font-size: 12px; }
+.hc-head .btn.icon { width: 26px; height: 26px; }
+.hc-more { position: relative; }
+.hc-sum, .hc-prs { margin: -4px 0 0; font-size: 12.5px; color: var(--fg-dim); }
+.hc-sum b { color: var(--amber); font-weight: 500; }
+.hc-main { display: grid; gap: 8px; padding: 8px 10px; border-radius: var(--r-1); background: var(--fill); }
+.hc-report { padding: 0; border: 0; background: none; color: var(--fg); font-size: 13px; line-height: 1.45; text-align: left; cursor: pointer;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.hc-report:hover { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-strong); }
+.hc-rows { display: grid; margin: 0 -4px; }
+.hc-row { display: flex; align-items: center; gap: 8px; min-width: 0; height: 28px; padding: 0 6px; border: 0; border-radius: var(--r-1); background: none; color: var(--fg); font-size: 13px; text-align: left; cursor: pointer; }
+.hc-row:hover { background: var(--hover); }
+.hc-row[aria-current="true"] { background: var(--fill-strong); }
+.hc-name { flex: 0 1 auto; min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hc-detail { flex: 1 1 0; min-width: 0; color: var(--fg-dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hc-row[data-need]:not([data-need=""]) .hc-detail { color: var(--amber); }
+.hc-pr { flex: none; font: 11.5px var(--mono); color: var(--fg-dim); }
+.hc-pr[data-c="failing"] { color: var(--stop); }
+.hc-pr[data-c="passing"] { color: var(--ok); }
+.hc-pr[data-c="running"] { color: var(--run); }
+.hc-more-rows { justify-self: start; padding: 0 2px; border: 0; background: none; color: var(--fg-dim); font-size: 12px; cursor: pointer; }
+.hc-more-rows:hover { color: var(--fg); }
 .ma-held { display: flex; align-items: center; gap: 10px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--amber); }
 .ma-held > span { flex: 1; min-width: 0; }
 /* Waiting on you: a card per agent that finished with a question, or with work left. */
 .h-board { padding-bottom: 24px; }
+/* Needs you: a row per agent, full width, one under the other. */
+.h-needs { display: grid; gap: 8px; }
+.h-bulk { display: flex; }
+.h-needs .fu-card { padding: 10px 12px 10px 16px; gap: 8px; }
+.h-needs .fu-card::before { top: 10px; bottom: 10px; }
+.fu-where { flex: none; color: var(--fg-dim); font-size: 12px; }
+.fu-card[data-k="failed"]::before { background: var(--stop); }
+.fu-card[data-k="merge"]::before { background: var(--ok); }
+.fu-tag[data-k="failed"] { background: var(--del); color: var(--stop); }
+.fu-tag[data-k="merge"] { background: var(--add); color: var(--ok); }
+.need-row .req { margin: 0; }
+.need-ask { display: grid; gap: 4px; min-width: 0; }
+.need-tool { color: var(--fg-dim); font-size: 12px; }
+.need-cmd { margin: 0; padding: 6px 8px; border-radius: var(--r-1); background: var(--panel); font: 12.5px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 12em; overflow: auto; }
 .h-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 12px; align-items: start; }
 .h-empty { grid-column: 1 / -1; margin: 0; padding: 22px 18px; border: 1px dashed var(--line-strong); border-radius: var(--r-2); color: var(--fg-dim); font-size: 13px; text-align: center; }
 .fu-card { position: relative; display: grid; gap: 10px; min-width: 0; padding: 14px 14px 12px 18px; border-radius: var(--r-2); background: var(--raise); box-shadow: 0 0 0 1px var(--line); }
@@ -1334,13 +1359,14 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
       <div class="d-top-band"><div class="d-col h-col h-head">
         <span class="ov-mark" aria-hidden="true"></span><h2 class="d-name">Home</h2>
         <span class="d-meta" id="h-meta"></span>
+        <span class="h-counts" id="h-counts"></span>
         <button class="btn icon h-close" type="button" id="h-close" aria-label="Back to the sessions" title="Back to the sessions"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </div></div>
       <!-- How much the agents worked this week, and the agents that stopped and wait on you: what the rail does not show. -->
       <div class="d-scroll" id="h-scroll">
         <div class="d-col h-col">
-          <section class="h-mains" id="h-mains" aria-label="Main agents" hidden></section>
-          <section class="h-board" id="h-board" aria-label="Waiting on you"></section>
+          <section class="h-board" id="h-board" aria-label="Needs you"></section>
+          <section class="h-spaces" id="h-spaces" aria-label="Spaces" hidden></section>
         </div>
       </div>
       <!-- The chat with the overseer, docked at the bottom: one line folded, the conversation when open. -->
@@ -1536,6 +1562,7 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
 </dialog>
 <div id="toasts" role="status" aria-live="polite"></div>
 
+<script src="/home-board.js"></script>
 <script>
 const TOKEN = '__ACP_TOKEN__';
 // The page runs in a browser, in the Mac app and in the Linux app. Where its words name the Mac, they ask this first.
@@ -3838,7 +3865,6 @@ const partOf = (t) => Math.floor(new Date(t).getHours() / 6);
 
 // ---------- the board: agents that stopped and wait on you (the overseer reads each turn's last message) ----------
 const fuEdits = new Map(); // sessionId → the reply as you changed it
-const fuNodes = new Map(); // sessionId → { sig, node }
 const fuSure = new Set();  // sessionIds whose send was held for a restart: the next click sends anyway
 const fuBusy = new Map();  // sessionId → what the card is doing now ("Sending…", "Merging #14…"), shown the moment you click
 const FU_WORDS = { 'needs-answer': 'Asks you', 'stopped-short': 'Unfinished' };
@@ -3846,92 +3872,248 @@ const REVIEW_WORDS = { APPROVED: 'approved', CHANGES_REQUESTED: 'changes request
 const UNREADY_WORDS = { BLOCKED: 'blocked', DIRTY: 'has conflicts', BEHIND: 'behind its base', UNSTABLE: 'a check fails', UNKNOWN: 'checking' };
 /** Its pull request can be merged now, as the last poll saw it: not a draft, and GitHub calls it clean. */
 const mergeable = (pr) => Boolean(pr && !pr.draft && pr.sha && (pr.mergeState === 'CLEAN' || pr.mergeState === 'HAS_HOOKS'));
-// ---------- main agents: a card per space that has one ----------
-const MA_STATE = { waiting: 'needs you', busy: 'working', stopping: 'stopping', idle: 'idle', finished: 'finished', failed: 'failed' };
-const maNodes = new Map(); // space id → { sig, node }
 /** The start of a main agent's last report, for its card: what needs you comes first in it. */
 const reportStart = (text) => { const t = String(text ?? '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[#*`_>]/g, '').replace(/\s+/g, ' ').trim(); return t.length > 320 ? `${t.slice(0, 319).trimEnd()}…` : t; };
-/** "5 agents: 3 working, 1 needs you, 1 finished", the part that needs you set apart: the agents it watches. */
-function agentsLine(agents) {
-  if (!agents.length) return el('span', { class: 'ma-workers', text: 'No agents in the space yet' });
-  const n = {};
-  for (const w of agents) { const st = colOf(stateOf(w)); n[st] = (n[st] ?? 0) + 1; }
-  const bits = ['busy', 'waiting', 'idle', 'finished'].filter((k) => n[k]).map((k) => (k === 'waiting' ? el('b', { text: `${n[k]} ${n[k] === 1 ? 'needs' : 'need'} you` }) : `${n[k]} ${MA_STATE[k]}`));
-  const out = el('span', { class: 'ma-workers' }, `${agents.length} ${agents.length === 1 ? 'agent' : 'agents'}: `);
-  bits.forEach((b, i) => out.append(i ? ', ' : '', b));
+// ---------- Home: what needs you, then a card per space ----------
+// The deciding part is public/home-board.js (HomeBoard): who needs you and why, which card an agent is on, the counts.
+const HB = globalThis.HomeBoard;
+/** What a card's row says for an agent that needs you. */
+const NEED_WORD = { waiting: 'asks you', follow: 'reply drafted', failed: 'failed', merge: 'PR ready' };
+/** Failed agents you dismissed from Needs you, by HB.dismissKey: each holds until the agent does something new. */
+const dismissedNeeds = new Set((() => { try { const v = JSON.parse(pref('acp.homeDismissed')); return Array.isArray(v) ? v.filter((k) => typeof k === 'string') : []; } catch { return []; } })());
+const saveDismissed = () => pref('acp.homeDismissed', JSON.stringify([...dismissedNeeds]));
+let homeNeeds = [], homeKindMap = new Map();
+/** Work out what needs you, once per Home redraw. Returns the agents on the board. */
+function homeNeedsNow() {
+  const vis = visible(), ready = (s) => mergeable(s.gh?.pr);
+  homeNeeds = HB.needsList({ sessions: vis, stateOf, reqsOf, asking: asking(), follow: snap.overseer?.follow ?? [], mergeable: ready,
+    dismissed: (s) => dismissedNeeds.has(HB.dismissKey(s)) });
+  homeKindMap = HB.needKinds(homeNeeds);
+  // A dismissal goes once its agent has moved on (HB.pruneDismissed).
+  const kept = HB.pruneDismissed([...dismissedNeeds], vis);
+  if (kept.length !== dismissedNeeds.size) { dismissedNeeds.clear(); for (const k of kept) dismissedNeeds.add(k); saveDismissed(); }
+  return vis;
+}
+const homeKinds = () => homeKindMap;
+/** Home's head line: how many need you, work and are idle, and how many pull requests are ready. */
+function renderCounts(vis) {
+  const n = HB.headCounts({ sessions: vis, kinds: homeKindMap, colOf, stateOf, mergeable: (s) => mergeable(s.gh?.pr) });
+  patch($('h-counts'), JSON.stringify(n), () => [
+    n.need ? el('b', { text: `${n.need} need${n.need === 1 ? 's' : ''} you` }) : null, n.working ? `${n.working} working` : null,
+    n.idle ? `${n.idle} idle` : null, n.ready ? `${n.ready} ${n.ready === 1 ? 'PR' : 'PRs'} ready` : null].filter(Boolean).flatMap((b, i) => (i ? [' · ', b] : [b])));
+}
+const cardNodes = new Map(); // card key → { sig, node }
+const cardsOpen = new Set(); // cards whose every agent is listed (past the first six)
+let cardMenu = null;         // the card whose ⋯ is open, so a redraw keeps it open
+const CARD_ROWS = 6;
+/** What a card's row says after an agent's name: what it needs, else what it runs, else how long it has been idle. */
+function cardDetail(s) {
+  const kind = homeKindMap.get(s.sessionId);
+  if (kind) return NEED_WORD[kind];
+  const st = stateOf(s);
+  if (st === 'stopping') return 'stopping';
+  if (st === 'busy') return HB.busyLine(s) || 'working';
+  if (colOf(st) === 'finished') return LABEL[st]?.toLowerCase() ?? st;
+  return `idle ${ago(snap.now - (s.lastEventAt ?? s.startedAt ?? snap.now))}`;
+}
+/** A card's ⋯: its main agent on or off, Rename, and the side panel's actions for its agents. Never Delete. */
+function cardMenuItems(c) {
+  const out = [], sec = { key: c.key, kind: c.kind, space: c.kind === 'space' ? c.id : null, repo: c.kind === 'repo' ? c.id : null, title: c.title, list: c.all };
+  if (c.kind === 'space') {
+    const slot = mainOfSpace(c.id);
+    if (!slot && c.all.length) out.push(el('button', { type: 'button', role: 'menuitem', text: 'Turn on main agent', onclick: () => { cardMenu = null; watchSpace(c.id, true); } }));
+    if (slot?.sessionId) out.push(el('button', { type: 'button', role: 'menuitem', text: 'Turn off main agent', onclick: () => { cardMenu = null; watchSpace(c.id, false); } }));
+    out.push(el('button', { type: 'button', role: 'menuitem', text: 'Rename…', onclick: () => { cardMenu = null; renaming = c.id; if (isFolded(c.key)) toggleFold(c.key); else render(); } }));
+  }
+  for (const b of bulksOf(sec)) {
+    if (b.key.startsWith('spacedel:')) continue; // deleting a space stays in the side panel
+    out.push(el('button', { class: 'danger' + (armed?.key === b.key ? ' armed' : ''), type: 'button', role: 'menuitem', title: hintOf(b.key),
+      text: armed?.key === b.key ? (b.armed.endsWith('?') ? b.armed : `${b.armed}?`) : b.text, onclick: () => confirmOr(b.key, () => { cardMenu = null; b.run(); }) }));
+  }
   return out;
 }
-/** One space's main agent: the space, its name and model, what it is doing, the agents it watches by state, and the
- *  start of its last report. A click opens it. */
-function maCard(x, s, agents, asks) {
-  const model = modelWord(s.model) ?? modelWord(x.main.model);
-  // Between turns the panel lists it as finished; it is watching, until an agent in its space stops.
-  const resting = s.up && stateOf(s) === 'finished';
-  const st = resting ? 'idle' : stateOf(s), word = resting ? 'watching' : stateOf(s) === 'busy' ? 'looking' : MA_STATE[st] ?? st;
-  const openIt = () => { cancelAdvance(); open = s.sessionId; render(); };
-  // What waits for it while it is not being sent it: it is stopped (a message would restart it), or its notices are held
-  // after many with no word from you. One click sends them.
-  const held = snap.mains?.[x.id], n = held?.waiting ?? 0;
-  const wake = held ? el('span', { class: 'ma-held' },
-    el('span', { text: held.down ? `It is stopped. ${n} ${n === 1 ? 'update waits' : 'updates wait'} for it.` : `Updates from its space are held: many went with no word from you. ${n} ${n === 1 ? 'waits' : 'wait'}.` }),
-    el('button', { class: 'btn small', type: 'button', 'data-f': 'ma-wake', text: held.down ? 'Wake it' : 'Carry on', onclick: async (e) => {
-      e.stopPropagation();
-      e.currentTarget.disabled = true;
-      const r = await api('/api/main/wake', { space: x.id });
-      if (!r.ok) toast(r.error || 'It could not be sent.', true);
-    } })) : null;
-  const card = el('div', { class: 'ma-card', role: 'button', tabindex: '0', 'data-s': st, title: `Open ${label(s)}`, onclick: openIt,
-    onkeydown: (e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openIt(); } } },
-    el('span', { class: 'ma-space', text: x.name }),
-    el('span', { class: 'ma-head' }, el('span', { class: 'ma-name', text: label(s) }), model ? el('span', { class: 'ma-model', text: model }) : null,
-      asks ? el('span', { class: 'ma-tag', text: 'Asks you' }) : null, el('span', { class: 'ma-state', text: word })),
-    agentsLine(agents),
-    el('p', { class: 'ma-said', text: reportStart(s.lastMessage) }),
-    wake);
-  if (asks || held) card.setAttribute('data-asks', '');
+/** One card: its name, its main agent, what it is doing, its pull requests, and its live agents in a row each. */
+function homeCard(c) {
+  const openIt = (s) => { cancelAdvance(); selectNow(); subFocus = null; open = s.sessionId; render(); };
+  const need = c.live.filter((s) => homeKindMap.has(s.sessionId)).length, working = c.all.filter((s) => colOf(stateOf(s)) === 'busy').length;
+  const total = c.all.length;
+  const sum = el('p', { class: 'hc-sum' }, total ? `${total} ${total === 1 ? 'agent' : 'agents'}` : 'No agents yet');
+  if (working) sum.append(` · ${working} working`);
+  if (need) sum.append(' · ', el('b', { text: `${need} need${need === 1 ? 's' : ''} you` }));
+  const p = c.prs, prBits = [p.failing && `${p.failing} failing`, p.running && `${p.running} running`, p.ready && `${p.ready} ready`].filter(Boolean);
+  const m = c.main, resting = m && m.up && stateOf(m) === 'finished';
+  const held = c.kind === 'space' ? snap.mains?.[c.id] : null, nWait = held?.waiting ?? 0;
+  const menu = el('details', { class: 'more col-more hc-more', ontoggle: (e) => { cardMenu = e.currentTarget.open ? c.key : cardMenu === c.key ? null : cardMenu; } },
+    el('summary', { class: 'btn icon', title: 'More', 'aria-label': `More for ${c.title}`, text: '⋯' }), el('div', { class: 'more-m', role: 'menu' }, ...cardMenuItems(c)));
+  if (cardMenu === c.key) menu.open = true;
+  const add = iconBtn(PLUS, { class: 'btn icon hc-add', title: `New agent in ${c.kind === 'repo' ? tilde(c.id) : c.title}`, 'aria-label': `New agent in ${c.title}`,
+    onclick: () => (c.kind === 'space' ? quickLaunch(c.key) : openLauncher({ space: '', cwd: c.kind === 'repo' ? c.id : null, where: c.kind === 'repo' ? tilde(c.id) : 'Other folders' })) });
+  const shown = cardsOpen.has(c.key) ? c.live : c.live.slice(0, CARD_ROWS), more = c.live.length - shown.length;
+  const card = el('section', { class: 'hc-card', 'data-key': c.key, 'aria-label': c.kind === 'space' ? `Space ${c.title}` : c.title },
+    el('div', { class: 'hc-head' },
+      el('h3', { class: 'hc-title', text: c.title }), c.kind !== 'space' ? el('span', { class: 'hc-quiet', text: c.kind === 'repo' ? 'no space' : '' }) : null,
+      m ? el('button', { class: 'col-main', type: 'button', 'aria-current': String(open === m.sessionId), title: `Main agent: ${label(m)} · ${resting ? 'watching' : LABEL[stateOf(m)]?.toLowerCase()}`,
+        onclick: () => openIt(m) }, glyph(resting ? 'idle' : stateOf(m)), 'Main') : null,
+      el('span', { class: 'grow' }), menu, add),
+    sum,
+    prBits.length ? el('p', { class: 'hc-prs', text: `PRs: ${prBits.join(' · ')}` }) : null,
+    m && (m.lastMessage || held) ? el('div', { class: 'hc-main' },
+      m.lastMessage ? el('button', { class: 'hc-report', type: 'button', title: `Open ${label(m)}`, onclick: () => openIt(m), text: reportStart(m.lastMessage) }) : null,
+      held ? el('span', { class: 'ma-held' },
+        el('span', { text: held.down ? `It is stopped. ${nWait} ${nWait === 1 ? 'update waits' : 'updates wait'} for it.` : `Updates from its space are held: many went with no word from you. ${nWait} ${nWait === 1 ? 'waits' : 'wait'}.` }),
+        el('button', { class: 'btn small', type: 'button', 'data-f': 'ma-wake', text: held.down ? 'Wake it' : 'Carry on', onclick: async (e) => {
+          e.currentTarget.disabled = true;
+          const r = await api('/api/main/wake', { space: c.id });
+          if (!r.ok) toast(r.error || 'It could not be sent.', true);
+        } })) : null) : null,
+    shown.length ? el('div', { class: 'hc-rows' }, ...shown.map((s) => {
+      const kind = homeKindMap.get(s.sessionId), pr = s.gh?.pr;
+      return el('button', { class: 'hc-row', type: 'button', 'data-need': kind ?? '', 'aria-current': String(open === s.sessionId), title: `Open ${label(s)}`, onclick: () => openIt(s) },
+        glyph(stateOf(s)), el('span', { class: 'hc-name', text: label(s) }), el('span', { class: 'hc-detail', text: cardDetail(s) }),
+        pr ? el('span', { class: 'hc-pr', 'data-c': pr.checks === 'failing' ? 'failing' : pr.checks === 'running' ? 'running' : pr.checks === 'passing' ? 'passing' : 'none', text: `#${pr.number}` }) : null);
+    })) : null,
+    more > 0 || (cardsOpen.has(c.key) && c.live.length > CARD_ROWS) ? el('button', { class: 'hc-more-rows', type: 'button', text: more > 0 ? `+${more} more` : 'Show fewer',
+      onclick: () => { if (cardsOpen.has(c.key)) cardsOpen.delete(c.key); else cardsOpen.add(c.key); render(); } }) : null);
+  if (working) card.dataset.working = '';
+  if (need) card.dataset.need = '';
   return card;
 }
-/** Main agents, above everything else on Home: hidden while no space has one that is on the board. */
-function renderMains() {
-  const box = $('h-mains'), follow = new Set((snap.overseer?.follow ?? []).map((f) => f.sessionId));
-  const rows = (snap.spaces ?? []).map((x) => ({ x, s: x.main?.sessionId ? snap.sessions.find((y) => y.sessionId === x.main.sessionId) : null })).filter((r) => r.s);
-  box.hidden = !rows.length;
-  if (!rows.length) { maNodes.clear(); box.replaceChildren(); return; }
-  if (!box.firstChild) box.append(el('div', { class: 'h-lane' }, el('h3', { text: 'Main agents' }), el('span', { class: 'h-n' })), el('div', { class: 'h-cards' }));
-  setText(box.firstChild.lastChild, String(rows.length));
+/** Every space, then every repository with agents in no space, then Other folders: a card each, in a fixed order. */
+function renderCards(vis) {
+  const box = $('h-spaces');
+  const cards = HB.homeCards({ spaces: snap.spaces ?? [], sessions: vis, spaceIn, repoOf: (s) => s.git?.repo ?? null, colOf, stateOf, kinds: homeKindMap,
+    mainOf: (id) => { const m = mainOfSpace(id)?.sessionId; return m ? vis.find((x) => x.sessionId === m) ?? null : null; } });
+  box.hidden = !cards.length;
+  if (!box.firstChild) box.append(el('div', { class: 'h-lane' }, el('h3', { text: 'Spaces' }), el('span', { class: 'h-n' })), el('div', { class: 'h-cards' }));
+  setText(box.firstChild.lastChild, cards.length ? String(cards.length) : '');
   const grid = box.lastChild;
-  const want = rows.map(({ x, s }) => {
-    const agents = snap.sessions.filter((w) => w.space === x.id && w.sessionId !== s.sessionId), asks = follow.has(s.sessionId);
-    const sig = JSON.stringify([x, label(s), stateOf(s), s.up, s.model, s.lastMessage, asks, snap.mains?.[x.id] ?? null, agents.map((w) => [w.sessionId, stateOf(w)])]);
-    let n = maNodes.get(x.id);
-    if (!n || n.sig !== sig) { n = { sig, node: maCard(x, s, agents, asks) }; maNodes.set(x.id, n); }
+  const want = cards.map((c) => {
+    const row = (s) => [s.sessionId, label(s), stateOf(s), homeKindMap.get(s.sessionId) ?? '', cardDetail(s), s.gh?.pr?.number ?? 0, s.gh?.pr?.checks ?? '', open === s.sessionId];
+    const m = c.main;
+    const sig = JSON.stringify([c.key, c.title, c.live.map(row), c.all.map((s) => [s.sessionId, stateOf(s), s.kind]), c.prs, m ? [row(m), m.up, m.lastMessage] : null,
+      c.kind === 'space' ? [mainOfSpace(c.id), snap.mains?.[c.id] ?? null] : null, cardsOpen.has(c.key), cardMenu === c.key, armed?.key ?? null, glue?.mainAgents?.workers]);
+    let n = cardNodes.get(c.key);
+    if (!n || n.sig !== sig) { n = { sig, node: homeCard(c) }; cardNodes.set(c.key, n); }
     return n.node;
   });
-  for (const k of maNodes.keys()) if (!rows.some((r) => r.x.id === k)) maNodes.delete(k);
-  want.forEach((n, i) => { if (grid.children[i] !== n) grid.insertBefore(n, grid.children[i] ?? null); });
-  while (grid.children.length > want.length) grid.lastChild.remove();
+  for (const k of cardNodes.keys()) if (!cards.some((c) => c.key === k)) cardNodes.delete(k);
+  HB.syncChildren(grid, want); // a row that stays is never moved: a box being typed in keeps its focus
 }
 
 let fuEmpty = null;
-/** "Waiting on you": a card per agent that finished with a question or with work left, newest first. Each card is
- *  rebuilt only when it changes, so a reply you are editing survives a broadcast. */
-function renderWaiting() {
-  const list = snap.overseer?.follow ?? [], box = $('h-board');
-  if (!box.firstChild) box.append(el('div', { class: 'h-lane' }, el('h3', { text: 'Waiting on you' }), el('span', { class: 'h-n' })), el('div', { class: 'h-cards' }));
-  setText(box.firstChild.lastChild, list.length ? String(list.length) : '');
+const needNodes = new Map(); // `${kind}:${sessionId}` → { sig, node }
+const reqCards = new Map();  // request id → its answer card, kept so what you typed in it survives a redraw
+const reqOpen = new Set();   // request ids whose answer card is unfolded under their row
+const reqErr = new Map();    // sessionId → why an Allow or Deny did not go through
+/** Where an agent works, for its row: its space's name, else its repository's. */
+const needWhere = (s) => snap.spaces?.find((x) => x.id === spaceIn(s))?.name ?? (s.git?.repo ? HB.repoName(s.git.repo) : '');
+/** A row's head: its name (opens it), where it works, what it needs, and when. */
+function needHead(s, tag, tagKind, at, extra = null) {
+  const openIt = () => { cancelAdvance(); open = s.sessionId; render(); };
+  return el('header', { class: 'fu-top' },
+    el('button', { class: 'fu-name', type: 'button', text: label(s), title: 'Open this session', onclick: openIt }),
+    needWhere(s) ? el('span', { class: 'fu-where', text: needWhere(s) }) : null,
+    el('span', { class: 'fu-tag', 'data-k': tagKind, text: tag }),
+    at ? el('span', { class: 'fu-time', text: clock(at), title: new Date(at).toLocaleString() }) : el('span', { class: 'fu-time' }), extra);
+}
+const openBtn = (s) => el('button', { class: 'btn quiet small', type: 'button', text: 'Open', onclick: () => { cancelAdvance(); open = s.sessionId; render(); } });
+/** An agent that waits on you: Allow or Deny for one plain tool request; Answer, unfolding the agent view's own card,
+ *  for anything else; and what the panel can say when it has no request to show. */
+function waitingRow(r) {
+  const s = r.s, p = r.reqs[0], busy = fuBusy.get(s.sessionId);
+  const decide = async (behavior) => {
+    fuBusy.set(s.sessionId, behavior === 'allow' ? 'Allowing…' : 'Denying…'); reqErr.delete(s.sessionId); render();
+    const res = await api(p.open ? '/api/answer-open' : '/api/decide', p.open ? { sessionId: s.sessionId, toolUseId: p.toolUseId, behavior } : { id: p.id, behavior });
+    fuBusy.delete(s.sessionId);
+    if (!res.ok) reqErr.set(s.sessionId, res.error || 'That did not go through.');
+    render();
+  };
+  let body, acts;
+  if (p && HB.plainAsk(r.reqs)) {
+    // What one click allows, whole: the full command, file, pattern, address or query, never cut.
+    body = el('div', { class: 'need-ask' }, el('span', { class: 'need-tool', text: (p.agentId ? 'Its subagent: ' : '') + p.toolName }), el('pre', { class: 'need-cmd', text: HB.inlineAsk(p) }));
+    acts = [el('button', { class: 'btn small primary', type: 'button', text: 'Allow', onclick: () => decide('allow') }),
+      el('button', { class: 'btn small', type: 'button', text: 'Deny', onclick: () => decide('deny') })];
+  } else if (p) {
+    body = el('p', { class: 'fu-ask', text: (p.agentId ? 'Its subagent: ' : '') + askText(p) + (r.reqs.length > 1 ? ` (+${r.reqs.length - 1})` : '') });
+    const on = reqOpen.has(p.id);
+    acts = [el('button', { class: 'btn small' + (on ? '' : ' primary'), type: 'button', text: on ? 'Fold' : 'Answer', 'aria-expanded': String(on),
+      onclick: () => { if (reqOpen.has(p.id)) reqOpen.delete(p.id); else reqOpen.add(p.id); render(); } })];
+  } else {
+    const line = lineOf(s);
+    body = el('p', { class: 'fu-ask', text: s.ocError?.message ? HB.busyLine(s) : typeof line?.[0] === 'string' ? line[0] : 'Waiting on something the panel can\'t read' });
+    acts = [];
+  }
+  const card = p && reqOpen.has(p.id) ? (reqCards.get(p.id) ?? (() => { const c = buildCard(p); reqCards.set(p.id, c); return c; })()) : null;
+  return el('article', { class: 'fu-card need-row', 'data-k': 'waiting', 'aria-label': `${label(s)} needs you` },
+    needHead(s, p ? (p.toolName === 'AskUserQuestion' ? 'Asks you' : p.toolName === 'ExitPlanMode' ? 'Plan ready' : 'Permission') : 'Waiting', 'waiting', p?.createdAt),
+    body, card, reqErr.has(s.sessionId) ? el('p', { class: 'err', text: reqErr.get(s.sessionId) }) : null,
+    busy ? el('div', { class: 'fu-busy', role: 'status' }, glyph('busy'), busy)
+      : el('div', { class: 'fu-acts' }, ...acts, el('span', { class: 'grow' }), openBtn(s)));
+}
+/** An agent that failed: its last line, Open, and Dismiss (until it does something new). */
+function failedRow(r) {
+  const s = r.s, said = reportStart(s.lastMessage) || (typeof lineOf(s)?.[0] === 'string' ? lineOf(s)[0] : '');
+  return el('article', { class: 'fu-card need-row', 'data-k': 'failed', 'aria-label': `${label(s)} failed` },
+    needHead(s, 'Failed', 'failed', s.lastMessageAt),
+    said ? el('p', { class: 'fu-ask', text: said }) : null,
+    el('div', { class: 'fu-acts' }, el('button', { class: 'btn small', type: 'button', text: 'Dismiss', title: 'Hide it here until it does something new',
+      onclick: () => { dismissedNeeds.add(HB.dismissKey(s)); saveDismissed(); render(); } }), el('span', { class: 'grow' }), openBtn(s)));
+}
+/** An agent whose pull request is green, with no follow-up of its own: Merge, two clicks. */
+function mergeRow(r) {
+  const s = r.s, pr = s.gh.pr, key = 'merge:' + s.sessionId, sure = armed?.key === key, busy = fuBusy.get(s.sessionId);
+  return el('article', { class: 'fu-card need-row', 'data-k': 'merge', 'aria-label': `${label(s)}: pull request #${pr.number} is ready` },
+    needHead(s, 'PR ready', 'merge', null),
+    el('div', { class: 'fu-pr' }, prChip(s), REVIEW_WORDS[pr.review] ? el('span', { text: REVIEW_WORDS[pr.review] }) : null),
+    busy ? el('div', { class: 'fu-busy', role: 'status' }, glyph('busy'), busy)
+      : el('div', { class: 'fu-acts' }, el('button', { class: 'btn small primary fu-merge' + (sure ? ' armed' : ''), type: 'button', text: sure ? `Confirm merge #${pr.number}` : `Merge #${pr.number}`,
+        title: `Merge pull request #${pr.number} with the repository’s default method. Click again to confirm.`, onclick: () => confirmOr(key, () => mergeSession(s.sessionId, pr)) }),
+      el('span', { class: 'grow' }), openBtn(s)));
+}
+/** Whether sending a follow-up's reply would close Claude in its terminal: "Send all" leaves those out. */
+const closesTerminal = (r) => HB.closesTerminal(r, fuSure);
+/** Send every reply "Send all" may send, one after another, each as its own Send would. */
+async function sendAll(rows) {
+  for (const r of rows) {
+    if (fuBusy.has(r.s.sessionId)) continue;
+    await fuAct(r.follow, 'send', el('button'), fuEdits.get(r.follow.sessionId) ?? r.follow.reply);
+  }
+}
+/** "Needs you": a row per agent that needs you, acted on in place; "Send N replies" at its head. Each row is rebuilt
+ *  only when it changes, so a reply you are editing survives a broadcast. */
+function renderNeeds() {
+  const list = homeNeeds, box = $('h-board');
+  if (!box.firstChild) box.append(el('div', { class: 'h-lane' }, el('h3', { text: 'Needs you' }), el('span', { class: 'h-n' }), el('span', { class: 'grow' }), el('span', { class: 'h-bulk' })),
+    el('div', { class: 'h-needs' }));
+  const lane = box.firstChild;
+  setText(lane.children[1], list.length ? String(list.length) : '');
+  const bulk = HB.bulkReplies(list, closesTerminal), key = 'sendall:', sure = armed?.key === key;
+  patch(lane.lastChild, JSON.stringify([bulk.send.map((r) => r.s.sessionId), bulk.left.length, sure]), () => bulk.send.length < 2 ? [] : [
+    el('button', { class: 'btn small' + (sure ? ' primary armed' : ''), type: 'button', 'data-f': 'send-all',
+      text: sure ? `Confirm: send ${bulk.send.length} replies${bulk.left.length ? ` · ${bulk.left.length} left out: it would close Claude in its terminal` : ''}` : `Send ${bulk.send.length} replies`,
+      title: 'Send every drafted reply as it stands in its box. Never a merge, never a permission. Click again to confirm.',
+      onclick: () => confirmOr(key, () => sendAll(bulk.send)) })]);
   const grid = box.lastChild;
-  const want = list.map((f) => {
-    const s = sessionByShort(f.sessionId);
-    const sig = JSON.stringify([f, s && label(s), s?.lastMessage, s?.gh?.pr, fuSure.has(f.sessionId), armed?.key === 'merge:' + f.sessionId, fuBusy.get(f.sessionId)]);
-    let n = fuNodes.get(f.sessionId);
-    if (!n || n.sig !== sig) { n = { sig, node: fuCard(f, s) }; fuNodes.set(f.sessionId, n); }
+  const want = list.map((r) => {
+    const s = r.s, k = `${r.kind}:${s.sessionId}`, p = r.reqs[0];
+    const sig = JSON.stringify([r.kind, label(s), needWhere(s), r.kind === 'follow' ? '' : stateOf(s), s.lastMessage, r.kind === 'follow' ? 0 : s.lastMessageAt, s.gh?.pr, r.follow, r.reqs.map((x) => x.id), p ? reqOpen.has(p.id) : false,
+      fuSure.has(s.sessionId), armed?.key === 'merge:' + s.sessionId, fuBusy.get(s.sessionId), reqErr.get(s.sessionId)]);
+    let n = needNodes.get(k);
+    if (!n || n.sig !== sig) {
+      const node = r.kind === 'follow' ? fuCard(r.follow, s) : r.kind === 'waiting' ? waitingRow(r) : r.kind === 'failed' ? failedRow(r) : mergeRow(r);
+      n = { sig, node }; needNodes.set(k, n);
+    }
     return n.node;
   });
-  const keep = new Set(list.map((f) => f.sessionId));
-  for (const k of fuNodes.keys()) if (!keep.has(k)) { fuNodes.delete(k); fuEdits.delete(k); fuSure.delete(k); fuBusy.delete(k); }
-  if (!want.length) want.push(fuEmpty ??= el('p', { class: 'h-empty', text: 'Nothing waits on you. Agents that finish with a question, or with work left, show up here.' }));
-  want.forEach((n, i) => { if (grid.children[i] !== n) grid.insertBefore(n, grid.children[i] ?? null); });
-  while (grid.children.length > want.length) grid.lastChild.remove();
+  // What left the list takes its row, its edits and its state along.
+  const keep = new Set(list.map((r) => `${r.kind}:${r.s.sessionId}`)), ids = new Set(list.map((r) => r.s.sessionId));
+  for (const k of needNodes.keys()) if (!keep.has(k)) needNodes.delete(k);
+  for (const k of [...fuEdits.keys(), ...fuSure, ...fuBusy.keys(), ...reqErr.keys()]) if (!ids.has(k)) { fuEdits.delete(k); fuSure.delete(k); fuBusy.delete(k); reqErr.delete(k); }
+  const pend = new Set(snap.pending.map((p) => p.id));
+  for (const id of [...reqCards.keys()]) if (!pend.has(id)) { reqCards.delete(id); reqOpen.delete(id); }
+  if (!want.length) want.push(fuEmpty ??= el('p', { class: 'h-empty', text: 'Nothing needs you.' }));
+  HB.syncChildren(grid, want); // a row that stays is never moved: a box being typed in keeps its focus
   // A reply drawn while the page was hidden never got its height: it gets it once it shows.
   for (const ta of grid.querySelectorAll('.fu-reply')) if (!ta.style.height) fit(ta);
 }
@@ -3959,6 +4141,7 @@ function fuCard(f, s) {
   return el('article', { class: 'fu-card', 'data-v': f.verdict, 'data-busy': Boolean(busy), 'aria-busy': busy ? 'true' : null, 'aria-label': `${name}, ${FU_WORDS[f.verdict] ?? f.verdict}` },
     el('header', { class: 'fu-top' },
       el('button', { class: 'fu-name', type: 'button', text: name, title: 'Open this session', onclick: openIt }),
+      s && needWhere(s) ? el('span', { class: 'fu-where', text: needWhere(s) }) : null,
       el('span', { class: 'fu-tag', text: FU_WORDS[f.verdict] ?? f.verdict }),
       el('span', { class: 'fu-time', text: clock(f.at), title: new Date(f.at).toLocaleString() }),
       busy ? null : el('button', { class: 'btn icon fu-x', type: 'button', 'aria-label': `Dismiss ${name}`, title: 'Nothing to do here: hide this card',
@@ -3992,15 +4175,17 @@ async function fuAct(f, decision, btn, text) {
   fuEdits.delete(f.sessionId); fuSure.delete(f.sessionId);
   if (r.result && r.result !== 'Sent.') toast(r.result);
 }
-async function fuMerge(f, pr) {
-  if (fuBusy.has(f.sessionId)) return;
-  fuBusy.set(f.sessionId, `Merging #${pr.number}…`);
+/** Merge an agent's pull request, from its follow-up or its "PR ready" row: the row says so the moment you confirm. */
+async function mergeSession(sessionId, pr) {
+  if (fuBusy.has(sessionId)) return;
+  fuBusy.set(sessionId, `Merging #${pr.number}…`);
   render();
-  const r = await api('/api/github/merge', { sessionId: f.sessionId, number: pr.number, sha: pr.sha });
-  if (!r.ok) { fuBusy.delete(f.sessionId); render(); toast(r.error || 'It was not merged.', true); return; }
-  fuBusy.set(f.sessionId, `Merged #${pr.number}.`);
+  const r = await api('/api/github/merge', { sessionId, number: pr.number, sha: pr.sha });
+  if (!r.ok) { fuBusy.delete(sessionId); render(); toast(r.error || 'It was not merged.', true); return; }
+  fuBusy.set(sessionId, `Merged #${pr.number}.`);
   toast(`Merged #${pr.number}.`);
 }
+const fuMerge = (f, pr) => mergeSession(f.sessionId, pr);
 
 // ---------- the chat, docked at the bottom: one line folded, the conversation when open ----------
 let dockOpen = pref('acp.ovDock') === '1';
@@ -4245,8 +4430,10 @@ function renderHome(g) {
   if (ovProposedWas != null && proposed > ovProposedWas && !dockOpen) { ovProposedWas = proposed; setDock(true); return; }
   ovProposedWas = proposed;
   setText($('h-meta'), st ? `${ovModelName(st.model)} · proposes, you confirm` : '');
-  renderMains();
-  renderWaiting();
+  const vis = homeNeedsNow();
+  renderCounts(vis);
+  renderNeeds();
+  renderCards(vis);
   setAttr($('h-dock'), 'data-open', dockOpen ? '1' : '0');
   setAttr($('h-dock-tog'), 'aria-expanded', String(dockOpen));
   setAttr($('h-dock-tog'), 'title', dockOpen ? 'Fold the chat' : 'Open the chat with Glue');

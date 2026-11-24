@@ -210,3 +210,13 @@ test('the terminal routes need the token, and only the three library files are s
     assert.notEqual((await fetch(BASE + p)).status, 200, p);
   }
 });
+
+test('Home\'s board script is served, fresh each time; nothing else beside it in public/ is', async () => {
+  const js = await fetch(BASE + '/home-board.js');
+  assert.equal(js.status, 200);
+  assert.match(js.headers.get('content-type'), /javascript/);
+  assert.equal(js.headers.get('cache-control'), 'no-cache');
+  assert.match(await js.text(), /globalThis\.HomeBoard = /);
+  for (const p of ['/home-board.js.map', '/index.html', '/home-board.js/', '/vendor/../home-board.js.bak']) assert.notEqual((await fetch(BASE + p)).status, 200, p);
+  assert.match(await (await fetch(BASE + '/')).text(), /<script src="\/home-board\.js"><\/script>/, 'the page loads it');
+});
