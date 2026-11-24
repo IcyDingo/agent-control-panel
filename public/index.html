@@ -2265,7 +2265,8 @@ function subRow(s, a, last) {
   b.dataset.sid = s.sessionId;
   b.dataset.aid = a.agentId;
   setAttr(b, 'data-state', st);
-  b.classList.toggle('focus', subFocus === a.agentId);
+  b.classList.toggle('focus', subFocus === a.agentId && open === s.sessionId);
+  setAttr(b, 'aria-current', String(subFocus === a.agentId && open === s.sessionId));
   b.classList.toggle('last', last);
   b.onclick = () => { selectNow(); focusSub(s, a); };
   setText(b.children[1], a.title || a.agentType);
@@ -2292,7 +2293,13 @@ function tile(s) {
   if (!t) {
     t = { chev: el('span', { class: 'chev-slot', 'aria-hidden': 'true' }), glyph: el('span', { class: 'glyph', 'aria-hidden': 'true' }), name: el('span', { class: 'tname' }),
           ci: el('span', { class: 'tci', hidden: true }), oc: el('span', { class: 'toc', text: 'OC', title: 'Runs in OpenCode', hidden: true }), repo: el('span', { class: 'trepo' }), detail: el('span', { class: 'tdetail' }), old: el('span', { class: 'told', text: '!' }), age: el('span', { class: 'tage' }) };
-    t.btn = el('button', { class: 'srow', type: 'button', onclick: () => { cancelAdvance(); selectNow(); subFocus = null; open = open === id ? null : id; render(); } },
+    // A click opens it, or closes it when it is already the one picked. With one of its subagents picked, a click picks
+    // the session itself again rather than closing it.
+    t.btn = el('button', { class: 'srow', type: 'button', onclick: () => {
+      cancelAdvance(); selectNow();
+      const sub = open === id && subFocus && tiles.get(id)?.subRows.some((b) => b.dataset.aid === subFocus);
+      subFocus = null; open = open === id && !sub ? null : id; render();
+    } },
       t.chev, t.glyph, t.name, t.oc, t.ci, t.repo, t.detail, t.old, t.age);
     t.q = el('button', { class: 'qstop', type: 'button', onclick: () => t.act && confirmOr(t.key, t.act.run) });
     t.wrap = el('div', { class: 'tile-wrap', 'data-sid': id }, t.btn, t.q);
@@ -2307,7 +2314,9 @@ function tile(s) {
   if (hasSubs) setAttr(t.btn, 'aria-expanded', String(treeOn)); else t.btn.removeAttribute('aria-expanded');
   t.subRows = treeOn ? s.subagents.map((a, i) => subRow(s, a, i === s.subagents.length - 1)) : [];
   setAttr(t.btn, 'data-state', st);
-  setAttr(t.btn, 'aria-current', String(open === id));
+  // One row is marked as picked: the subagent, when one of its shown subagents is picked; else the session itself.
+  const subPicked = open === id && treeOn && !slimShown() && s.subagents.some((a) => a.agentId === subFocus);
+  setAttr(t.btn, 'aria-current', String(open === id && !subPicked));
   setAttr(t.btn, 'title', slimShown() ? `${label(s)}\n${tipOf(s, st)}` : tipOf(s, st)); // slim, the row shows no name
   setAttr(t.glyph, 'data-s', st);
   setText(t.name, label(s));
