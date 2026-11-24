@@ -79,9 +79,40 @@
     return n;
   }
 
-  /** Whether one click answers these requests: a single plain tool request from Claude Code, not one held open. */
+  /** What one click on Allow would allow, in full and never cut, for a plain tool: its command, file, pattern, address
+   *  or query. Null when the request is not one line (an MCP tool's input, an edit): that row offers Answer instead. */
+  function inlineAsk(p) {
+    const i = p?.toolInput ?? {}, str = (v) => (typeof v === 'string' && v.trim() ? v : null);
+    switch (p?.toolName) {
+      case 'Bash': return str(i.command);
+      case 'Read': return str(i.file_path);
+      case 'Glob': case 'Grep': return str(i.pattern) && (str(i.path) ? `${i.pattern} in ${i.path}` : i.pattern);
+      case 'WebFetch': return str(i.url);
+      case 'WebSearch': return str(i.query);
+      default: return null;
+    }
+  }
+
+  /** Whether one click answers these requests: a single plain tool request from Claude Code, not one held open, whose
+   *  whole input the row can show. */
   const plainAsk = (reqs) => Array.isArray(reqs) && reqs.length === 1 && !reqs[0].open && reqs[0].agent !== 'opencode'
-    && (PLAIN.has(reqs[0].toolName) || String(reqs[0].toolName ?? '').startsWith('mcp__'));
+    && PLAIN.has(reqs[0].toolName) && inlineAsk(reqs[0]) !== null;
+
+  /** What a working agent runs, in a line ("Edit cart.tsx"), or its error; '' when the panel does not know. */
+  const busyLine = (s) => (s?.ocError?.message ? `Error: ${s.ocError.message}` : s?.lastTool?.tool ? [s.lastTool.tool, s.lastTool.text].filter(Boolean).join(' ') : '');
+
+  /** Whether sending a follow-up's reply would close Claude in its terminal: its follow-up says restart, or the server
+   *  just held a send for that (`held`: the session ids whose last send was held), on a terminal session. */
+  const closesTerminal = (r, held) => r.s?.kind === 'interactive' && Boolean(r.s.inRoster) && (r.follow?.how === 'restart' || held.has(r.follow?.sessionId));
+
+  /** Put `want` under `parent` in order, never moving a node that stays where it already sits relative to the others:
+   *  the ones that go are taken out first, so one row leaving never moves the rows under it (moving a node out and back
+   *  blurs a box being typed in). */
+  function syncChildren(parent, want) {
+    const keep = new Set(want);
+    for (const n of [...parent.children]) if (!keep.has(n)) parent.removeChild(n);
+    want.forEach((n, i) => { if (parent.children[i] !== n) parent.insertBefore(n, parent.children[i] ?? null); });
+  }
 
   /** The follow-up rows "Send all" sends, and the ones it leaves out: those whose sending would close a terminal Claude. */
   function bulkReplies(rows, restarts) {
@@ -101,5 +132,5 @@
     return kept.slice(Math.max(0, kept.length - 200));
   }
 
-  globalThis.HomeBoard = { needsList, needKinds, homeCards, headCounts, plainAsk, bulkReplies, dismissKey, pruneDismissed, repoName };
+  globalThis.HomeBoard = { needsList, needKinds, homeCards, headCounts, plainAsk, inlineAsk, busyLine, closesTerminal, syncChildren, bulkReplies, dismissKey, pruneDismissed, repoName };
 })();

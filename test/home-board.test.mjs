@@ -79,12 +79,13 @@ test('headCounts do not overlap', () => {
 });
 
 test('plainAsk: one plain tool request, from Claude Code, not an open one', () => {
-  assert.equal(plainAsk([{ toolName: 'Bash' }]), true);
-  assert.equal(plainAsk([{ toolName: 'mcp__github__list' }]), true);
+  assert.equal(plainAsk([{ toolName: 'Bash', toolInput: { command: 'ls' } }]), true);
+  assert.equal(plainAsk([{ toolName: 'mcp__github__list', toolInput: {} }]), false, 'an MCP tool gets Answer: its input is not one line');
   assert.equal(plainAsk([{ toolName: 'Edit' }]), false);
-  assert.equal(plainAsk([{ toolName: 'Bash' }, { toolName: 'Read' }]), false);
-  assert.equal(plainAsk([{ toolName: 'Bash', open: true }]), false);
-  assert.equal(plainAsk([{ toolName: 'Bash', agent: 'opencode' }]), false);
+  const ls = { toolName: 'Bash', toolInput: { command: 'ls' } };
+  assert.equal(plainAsk([ls, { toolName: 'Read', toolInput: { file_path: '/a' } }]), false);
+  assert.equal(plainAsk([{ ...ls, open: true }]), false);
+  assert.equal(plainAsk([{ ...ls, agent: 'opencode' }]), false);
   assert.equal(plainAsk([]), false);
 });
 
@@ -100,6 +101,53 @@ test('dismissKey changes when the agent says something new', () => {
   assert.equal(dismissKey(s), dismissKey({ ...s }));
   assert.notEqual(dismissKey(s), dismissKey({ ...s, lastMessageAt: 11 }));
   assert.notEqual(dismissKey(s), dismissKey({ ...s, state: 'idle' }));
+});
+
+test('inlineAsk shows in full what one click would allow, or nothing (then the row offers Answer)', () => {
+  const { inlineAsk } = globalThis.HomeBoard;
+  const long = `npm run build && ${'x'.repeat(200)} && rm -rf dist`;
+  assert.equal(inlineAsk({ toolName: 'Bash', toolInput: { command: long } }), long, 'the whole command, never cut');
+  assert.equal(inlineAsk({ toolName: 'WebFetch', toolInput: { url: 'https://a.b/c' } }), 'https://a.b/c');
+  assert.equal(inlineAsk({ toolName: 'Grep', toolInput: { pattern: 'TODO', path: 'src' } }), 'TODO in src');
+  assert.equal(inlineAsk({ toolName: 'Read', toolInput: { file_path: '/x/a.js' } }), '/x/a.js');
+  assert.equal(inlineAsk({ toolName: 'mcp__mail__send', toolInput: { to: 'a@b.c', body: 'hi' } }), null, 'an MCP tool\'s input is not one line: Answer');
+  assert.equal(inlineAsk({ toolName: 'Bash', toolInput: {} }), null);
+  assert.equal(globalThis.HomeBoard.plainAsk([{ toolName: 'mcp__mail__send', toolInput: { to: 'a' } }]), false, 'so it gets no inline Allow');
+});
+
+test('busyLine says what a working agent runs', () => {
+  const { busyLine } = globalThis.HomeBoard;
+  assert.equal(busyLine({ lastTool: { tool: 'Edit', text: 'cart.tsx' } }), 'Edit cart.tsx');
+  assert.equal(busyLine({ lastTool: { tool: 'Bash', text: '' } }), 'Bash');
+  assert.equal(busyLine({ ocError: { message: 'Rate limited' } }), 'Error: Rate limited');
+  assert.equal(busyLine({}), '');
+});
+
+test('closesTerminal: a reply whose send would close a terminal Claude, also one the server just held for that', () => {
+  const { closesTerminal } = globalThis.HomeBoard;
+  const term = { kind: 'interactive', inRoster: true }, bg = { kind: 'background', inRoster: true };
+  assert.equal(closesTerminal({ s: term, follow: { sessionId: 'a', how: 'restart' } }, new Set()), true);
+  assert.equal(closesTerminal({ s: term, follow: { sessionId: 'a', how: 'send' } }, new Set(['a'])), true, 'held for a restart a moment ago');
+  assert.equal(closesTerminal({ s: term, follow: { sessionId: 'a', how: 'send' } }, new Set()), false);
+  assert.equal(closesTerminal({ s: bg, follow: { sessionId: 'a', how: 'restart' } }, new Set(['a'])), false, 'a background job just carries on');
+});
+
+test('syncChildren never moves a row that stays, so a box being typed in keeps its focus', () => {
+  const { syncChildren } = globalThis.HomeBoard;
+  // A tiny stand-in for a DOM parent that counts how often each node is taken out and put back.
+  const mkParent = (kids) => { const p = { children: [...kids], moved: new Map(),
+    insertBefore(n, ref) { const i = p.children.indexOf(n); if (i >= 0) { p.children.splice(i, 1); p.moved.set(n, (p.moved.get(n) ?? 0) + 1); } const j = ref ? p.children.indexOf(ref) : -1; p.children.splice(j < 0 ? p.children.length : j, 0, n); },
+    removeChild(n) { p.children.splice(p.children.indexOf(n), 1); } }; return p; };
+  const A = { id: 'A' }, B = { id: 'B' }, C = { id: 'C' }, D = { id: 'D' };
+  const p = mkParent([A, B, C]);
+  syncChildren(p, [B, C]); // A was answered
+  assert.deepEqual(p.children, [B, C]);
+  assert.equal(p.moved.get(B), undefined, 'B, being typed in, was not moved');
+  syncChildren(p, [D, B, C]); // a new row comes in on top
+  assert.deepEqual(p.children, [D, B, C]);
+  assert.equal(p.moved.get(B), undefined);
+  syncChildren(p, [C, B]); // a real change of order moves what it must
+  assert.deepEqual(p.children, [C, B]);
 });
 
 test('pruneDismissed drops a dismissal only when its agent is on the board and has moved on; keeps the newest 200', () => {
