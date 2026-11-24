@@ -60,6 +60,7 @@ test('a card lists needs-you first, then working, then idle; finished are a coun
   assert.equal(card.main, main);
   assert.deepEqual(card.live.map((s) => s.sessionId.slice(0, 2)), ['q1', 'f1', 'b1', 'i1'], 'what they need, in priority order (a follow-up before failed), then busy, then idle');
   assert.equal(card.finished, 2, 'the finished ones that need nothing are a count');
+  assert.deepEqual(card.all.map((s) => s.sessionId.slice(0, 2)).sort(), ['b1', 'd1', 'f1', 'i1', 'p1', 'q1'], 'all its agents but the main one, for its actions');
   assert.deepEqual(card.prs, { failing: 1, running: 0, ready: 0 });
 });
 

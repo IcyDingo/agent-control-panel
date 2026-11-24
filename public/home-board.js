@@ -35,7 +35,7 @@
   /**
    * The cards, in a fixed order: every space as it was made (empty ones too), then a card per repository by name for
    * agents in no space, then "Other folders" for the rest. A repository's card is there while any of its agents is.
-   * Each: `{ key, kind, id, title, main, live, finished, prs }`. `live` are the agents to list (not the main agent):
+   * Each: `{ key, kind, id, title, main, live, finished, prs, all }` (`all`: its agents but the main one). `live` are the agents to list (not the main agent):
    * what needs the owner first, in priority order, then working, then idle. `finished` counts the rest.
    */
   function homeCards({ spaces, sessions, spaceIn, repoOf, mainOf, colOf, stateOf, kinds }) {
@@ -59,7 +59,7 @@
         else if (pr.checks === 'running') prs.running++;
         else if (kinds.get(s.sessionId) === 'merge' || kinds.get(s.sessionId) === 'follow' && pr.checks === 'passing') prs.ready++;
       }
-      return { key, kind, id, title, main: main ?? null, live, finished: others.length - live.length, prs };
+      return { key, kind, id, title, main: main ?? null, live, finished: others.length - live.length, prs, all: others };
     };
     const out = spaces.map((x) => card(`space:${x.id}`, 'space', x.id, x.name, bySpace.get(x.id), mainOf(x.id)));
     for (const r of [...byRepo.keys()].sort((a, b) => repoName(a).localeCompare(repoName(b)) || a.localeCompare(b))) out.push(card(`repo:${r}`, 'repo', r, repoName(r), byRepo.get(r), null));
