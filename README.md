@@ -500,10 +500,14 @@ the stuck run.
 
 ## Home and Ask Glue
 
-With no session open, the panel shows **Home** (the row pinned at the top of the rail): what the agents worked this week,
-the agents that stopped and wait on you, and **Ask Glue**, one chat docked at the bottom that knows every session on the
-board. Ask what needs you, what everyone is doing, or what is failing, or say what you want done. (In the code and its
-files, the assistant is still called the overseer.)
+With no session open, the panel shows **Home** (the row pinned at the top of the rail): its main agents, the agents
+that stopped and wait on you, and **Ask Glue**, one chat docked at the bottom that knows every session on the board. Ask
+what needs you, what everyone is doing, or what is failing, or say what you want done. (In the code and its files, the
+assistant is still called the overseer.)
+
+**Agent work** sits in the top bar: the last seven days as small squares, darker the more your agents worked, and
+today's agent-minutes. Click it for the whole year in a window, a square a day (**Year**) or by part of the day
+(**Time of day**).
 
 - Each message is one headless `claude -p` call on the profile's own Claude Code login, with no
   tools, from an empty folder of its own. It reads a digest of the board: each session the rail
