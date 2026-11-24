@@ -61,9 +61,9 @@ const mainIn = (m) => (m && typeof m === 'object' && Number.isFinite(m.at) && (s
       ...(/^[0-9a-f]{64}$/.test(m.keyHash ?? '') ? { keyHash: m.keyHash } : {}), ...(str(m.login, 64) ? { login: str(m.login, 64) } : {}),
       ...(/^[\w.-]{1,120}\.json$/.test(m.file ?? '') ? { file: m.file } : {}), // the name of the file its key is in: a name only, never a path
       ...(m.spawn === false ? { spawn: false } : {}), started: Number.isInteger(m.started) && m.started > 0 ? m.started : 0 } : null);
-/** A kept member's role: a worker, the model it was started on, and (`told`) the fingerprint of the last message of
- *  its that its main agent was told of. Nothing for an ordinary member. */
-const roleIn = (m) => (m?.worker === true ? { worker: true, ...(str(m.model, 40) ? { model: str(m.model, 40) } : {}), ...(str(m.told, 64) ? { told: str(m.told, 64) } : {}) } : {});
+/** A kept member's role: a worker and the model it was started on, for one a main agent started; and for any member
+ *  (`told`) the fingerprint of the last message of its that its space's main agent was told of. */
+const roleIn = (m) => ({ ...(m?.worker === true ? { worker: true, ...(str(m.model, 40) ? { model: str(m.model, 40) } : {}) } : {}), ...(str(m?.told, 64) ? { told: str(m.told, 64) } : {}) });
 
 // A profile folder's label: its name without the leading dot (`.claude-contract` is `claude-contract`).
 const folderLabel = (dir) => path.basename(dir).replace(/^\./, '');
@@ -485,11 +485,11 @@ export function createStore({ file, home = '', profiles = [], codex = null } = {
       save();
       return { ok: true, spawn: Boolean(on) };
     },
-    /** The fingerprint of the last message of a worker's that its main agent was told of ('' when none). */
+    /** The fingerprint of the last message of an agent's that its space's main agent was told of ('' when none). */
     toldOf: (ws, sessionId) => st.spaces[ws]?.members[sessionId]?.told ?? '',
     setTold(ws, sessionId, key) {
       const m = st.spaces[ws]?.members[sessionId];
-      if (!m?.worker || typeof key !== 'string' || !key || m.told === key) return;
+      if (!m || typeof key !== 'string' || !key || m.told === key) return;
       m.told = key.slice(0, 64);
       save();
     },

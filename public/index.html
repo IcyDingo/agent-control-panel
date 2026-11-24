@@ -699,10 +699,6 @@ dialog.launcher::backdrop { background: rgba(0, 0, 0, .45); }
 .ticks button[aria-current="true"] { color: var(--fg); font-weight: 550; }
 .wt-pick { display: flex; align-items: center; gap: 12px; min-height: 28px; margin-top: -4px; }
 .wt-pick .switch { flex: none; color: var(--fg); }
-/* "Main agent of this space", under the Space field: the switch, and a line on what it means. */
-.l-main { display: grid; gap: 6px; margin-top: -4px; }
-.l-main .switch { color: var(--fg); min-height: 28px; }
-.l-main .l-note { margin: 0; }
 .switch:has(input:disabled) { color: var(--fg-faint); cursor: default; }
 .switch input:disabled + i { opacity: .45; }
 .wt-name { flex: 1; min-width: 0; height: 32px; padding: 0 12px; border: 1px solid transparent; border-radius: var(--r-1); background: var(--fill); font: 12.5px var(--mono); }
@@ -1455,10 +1451,6 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
     <p class="l-note" id="l-wt-note" hidden></p>
     <div class="lf l-ws" role="radiogroup" aria-labelledby="l-ws-t" id="l-ws" hidden><span id="l-ws-t"></span><div class="seg" id="l-ws-seg"></div></div>
     <div class="lf l-space"><span id="l-space-t">Space</span><span class="lf-row"><select class="field" id="l-space" aria-labelledby="l-space-t"></select><input class="field" id="l-space-new" maxlength="40" placeholder="Name the space" spellcheck="false" autocomplete="off" aria-label="New space name" hidden></span></div>
-    <div class="l-main l-claude" id="l-main-row" hidden>
-      <label class="switch"><input type="checkbox" id="l-main"><i></i>Main agent of this space</label>
-      <p class="l-note" id="l-main-note" hidden></p>
-    </div>
     <div class="pair">
       <label class="lf"><span>Name <small>(optional)</small></span><input id="l-name" maxlength="60" placeholder="fix-timesheet-tests" spellcheck="false"></label>
       <label class="lf l-claude"><span>Agent type <small>(optional)</small></span><input id="l-agent" list="l-agents" placeholder="e.g. code-reviewer" spellcheck="false"><datalist id="l-agents"></datalist></label>
@@ -2012,7 +2004,7 @@ const spaceIn = (s) => (s?.space && snap?.spaces?.some((x) => x.id === s.space) 
 const modelWord = (m) => { const w = /(opus|sonnet|haiku|fable)/i.exec(m ?? '')?.[1]; return w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : null; };
 /** A main agent's own switch for starting workers, and how many it has started: in its details. */
 function mainWorkers(s) {
-  const m = mainOfSpace(s.space) ?? {}, total = glue?.mainAgents?.maxTotal, off = glue?.mainAgents?.spawn === false;
+  const m = mainOfSpace(s.space) ?? {}, total = glue?.mainAgents?.maxTotal, off = !glue?.mainAgents?.workers;
   const box = el('input', { type: 'checkbox', 'data-f': 'ma-own-spawn', checked: m.spawn !== false && !off, disabled: off, onchange: async (e) => {
     const r = await api('/api/main/spawn', { space: s.space, on: e.target.checked });
     if (!r.ok) { e.target.checked = !e.target.checked; toast(r.error || 'That did not change.', true); }
@@ -2020,8 +2012,8 @@ function mainWorkers(s) {
   return el('span', { class: 'd-lead' }, el('label', { class: 'switch' }, box, el('i'), 'May start workers'),
     el('small', { text: off ? 'Starting workers is off in Settings › Glue.' : `${m.started ?? 0}${total ? ` of ${total}` : ''} started` }));
 }
-/** What a space is doing, for the line on its card: "3 workers · 2 working · 1 needs you". `mine` are its sessions on
- *  the board. With a main agent the others are counted as its workers (when they are) and it is not counted itself. */
+/** What a space is doing, for the line on its card: "3 agents · 2 working · 1 needs you". `mine` are its sessions on
+ *  the board. Its main agent is not counted: it watches the others. */
 const SUM_STATE = { busy: 'working', idle: 'idle', finished: 'finished' };
 function spaceSummary(spaceId, mine) {
   const lead = mainOfSpace(spaceId)?.sessionId, others = mine.filter((x) => x.sessionId !== lead);
@@ -2029,7 +2021,7 @@ function spaceSummary(spaceId, mine) {
   const n = {};
   for (const x of others) { const st = colOf(stateOf(x)); n[st] = (n[st] ?? 0) + 1; }
   const word = others.length && others.every((x) => x.role === 'worker') ? 'worker' : 'agent';
-  const bits = [others.length ? `${others.length} ${word}${others.length === 1 ? '' : 's'}` : lead ? 'no workers yet' : ''];
+  const bits = [others.length ? `${others.length} ${word}${others.length === 1 ? '' : 's'}` : lead ? 'no agents yet' : ''];
   for (const k of ['busy', 'waiting', 'idle', 'finished']) {
     if (!n[k]) continue;
     bits.push(k === 'waiting' ? el('b', { text: `${n[k]} ${n[k] === 1 ? 'needs' : 'need'} you` }) : `${n[k]} ${SUM_STATE[k]}`);
@@ -2038,6 +2030,12 @@ function spaceSummary(spaceId, mine) {
   const leadS = lead ? mine.find((x) => x.sessionId === lead) : null;
   if (leadS && stateOf(leadS) === 'waiting') bits.push(el('b', { text: 'its main agent needs you' }));
   return bits.filter(Boolean);
+}
+/** Turn a space's main agent on or off. */
+async function watchSpace(space, on) {
+  const r = await api('/api/main/watch', { space, on });
+  if (!r.ok) return toast(r.error || 'That did not change.', true);
+  toast(on ? 'Its main agent is starting. It reports on Home.' : 'Its main agent is off.');
 }
 /** The main agent a space has, as the snapshot gives it ({ sessionId, model }), or null. */
 const mainOfSpace = (id) => snap?.spaces?.find((x) => x.id === id)?.main ?? null;
@@ -2436,15 +2434,20 @@ function renderBoard(g, vis) {
     setAttr(c.head, 'title', sec.kind === 'repo' ? tilde(sec.repo) : '');
     const bs = bulksOf(sec), armedB = bs.find((b) => armed?.key === b.key);
     const renameBtn = sec.kind === 'space' && renaming !== sec.space;
-    // A space with no main agent leading it offers to start one.
+    // A space's main agent is yours to turn on, once it has agents to watch, and off again. One just started is
+    // neither: it shows in a moment.
     const slot = sec.kind === 'space' ? mainOfSpace(sec.space) : null;
-    const mainBtn = sec.kind === 'space' && !liveMainOf(sec.space) && !(slot && !slot.sessionId); // none up, and none just started
-    c.tools.hidden = !renameBtn && !mainBtn && !bs.length;
+    const mainOn = sec.kind === 'space' && !slot && (snap?.sessions ?? []).some((x) => spaceIn(x) === sec.space && x.role !== 'main');
+    const mainOff = sec.kind === 'space' && Boolean(slot?.sessionId);
+    c.tools.hidden = !renameBtn && !mainOn && !mainOff && !bs.length;
     if (c.tools.hidden) c.more.open = false;
     setAttr(c.more.firstChild, 'aria-label', `More for ${sec.title}`);
-    patch(c.menu, JSON.stringify([renameBtn, mainBtn, bs.map((b) => [b.key, b.text, b.armed, armed?.key === b.key])]), () => [
+    patch(c.menu, JSON.stringify([renameBtn, mainOn, mainOff, bs.map((b) => [b.key, b.text, b.armed, armed?.key === b.key])]), () => [
       renameBtn ? el('button', { type: 'button', role: 'menuitem', text: 'Rename…', onclick: () => { c.more.open = false; renaming = sec.space; render(); } }) : null,
-      mainBtn ? el('button', { type: 'button', role: 'menuitem', text: 'Start main agent…', onclick: () => { c.more.open = false; quickLaunch(sec.key, { main: true }); } }) : null,
+      mainOn ? el('button', { type: 'button', role: 'menuitem', text: 'Turn on main agent', title: `${modelWord(glue?.mainAgents?.model) ?? 'Opus'} watches the agents in this space and reports on Home. It changes nothing.`,
+        onclick: () => { c.more.open = false; watchSpace(sec.space, true); } }) : null,
+      mainOff ? el('button', { type: 'button', role: 'menuitem', text: 'Turn off main agent', title: 'It stops, and leaves the side panel. Its conversation is kept.',
+        onclick: () => { c.more.open = false; watchSpace(sec.space, false); } }) : null,
       ...bs.map((b) => el('button', {
         class: 'danger' + (armed?.key === b.key ? ' armed' : ''), type: 'button', role: 'menuitem', 'data-key': b.key, title: hintOf(b.key),
         text: armed?.key === b.key ? (b.armed.endsWith('?') ? b.armed : `${b.armed}?`) : b.text, onclick: () => confirmOr(b.key, () => { c.more.open = false; b.run(); }) })),
@@ -2592,7 +2595,7 @@ function renderDrawer(vis) {
   // The column: where it works, how to reopen it, its subagents, and the buttons that stop it.
   patch($('d-info'), JSON.stringify([s.sessionId, s.cwd, here, s.git, s.mismatch, s.kind, s.id, Boolean(s.leftRosterAt), sessLogin(s)?.command, sharers, elsewhere, spaceIn(s), snap.spaces, s.role, glue?.mainAgents]), () => el('dl', { class: 'kv' },
     s.mismatch ? null : [el('dt', { text: 'Space' }), el('dd', {}, spacePicker(s))],
-    s.role === 'main' && spaceIn(s) ? [el('dt', { text: 'Workers' }), el('dd', {}, mainWorkers(s))] : null,
+    s.role === 'main' && spaceIn(s) && glue?.mainAgents?.workers ? [el('dt', { text: 'Workers' }), el('dd', {}, mainWorkers(s))] : null,
     snap.logins?.length > 1 && s.login && !isOcS(s) ? [el('dt', { text: 'Login' }), el('dd', { text: sessLogin(s)?.label ?? s.login })] : null,
     s.mismatch ? [el('dt', { text: 'Folder' }), el('dd', { class: 'mismatch', text: mismatchText(s), title: MISMATCH_WHY })]
       : [el('dt', { text: 'Folder' }), el('dd', { class: 'mono', text: here || 'unknown', title: here !== s.cwd && s.cwd ? `Started in ${s.cwd}` : null })],
@@ -3826,31 +3829,31 @@ const mergeable = (pr) => Boolean(pr && !pr.draft && pr.sha && (pr.mergeState ==
 // ---------- main agents: a card per space that has one ----------
 const MA_STATE = { waiting: 'needs you', busy: 'working', stopping: 'stopping', idle: 'idle', finished: 'finished', failed: 'failed' };
 const maNodes = new Map(); // space id → { sig, node }
-/** The first sentence of what it said last, for a card. */
-const firstSentence = (text) => { const t = String(text ?? '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[#*`_>]/g, '').replace(/\s+/g, ' ').trim(); return (t.match(/^.{1,220}?[.!?](\s|$)/)?.[0] ?? t.slice(0, 220)).trim(); };
-/** "5 workers: 3 working, 1 needs you, 1 finished", the part that needs you set apart. */
-function workersLine(workers) {
-  if (!workers.length) return el('span', { class: 'ma-workers', text: 'No workers yet' });
+/** The start of a main agent's last report, for its card: what needs you comes first in it. */
+const reportStart = (text) => { const t = String(text ?? '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[#*`_>]/g, '').replace(/\s+/g, ' ').trim(); return t.length > 320 ? `${t.slice(0, 319).trimEnd()}…` : t; };
+/** "5 agents: 3 working, 1 needs you, 1 finished", the part that needs you set apart: the agents it watches. */
+function agentsLine(agents) {
+  if (!agents.length) return el('span', { class: 'ma-workers', text: 'No agents in the space yet' });
   const n = {};
-  for (const w of workers) { const st = colOf(stateOf(w)); n[st] = (n[st] ?? 0) + 1; }
+  for (const w of agents) { const st = colOf(stateOf(w)); n[st] = (n[st] ?? 0) + 1; }
   const bits = ['busy', 'waiting', 'idle', 'finished'].filter((k) => n[k]).map((k) => (k === 'waiting' ? el('b', { text: `${n[k]} ${n[k] === 1 ? 'needs' : 'need'} you` }) : `${n[k]} ${MA_STATE[k]}`));
-  const out = el('span', { class: 'ma-workers' }, `${workers.length} ${workers.length === 1 ? 'worker' : 'workers'}: `);
+  const out = el('span', { class: 'ma-workers' }, `${agents.length} ${agents.length === 1 ? 'agent' : 'agents'}: `);
   bits.forEach((b, i) => out.append(i ? ', ' : '', b));
   return out;
 }
-/** One space's main agent: the space, its name and model, what it is doing, its workers by state, and the first
- *  sentence of what it said last. A click opens it. */
-function maCard(x, s, workers, asks) {
+/** One space's main agent: the space, its name and model, what it is doing, the agents it watches by state, and the
+ *  start of its last report. A click opens it. */
+function maCard(x, s, agents, asks) {
   const model = modelWord(s.model) ?? modelWord(x.main.model);
-  // Between turns the panel lists it as finished; it is resting until its workers report, and says so.
-  const resting = s.up && stateOf(s) === 'finished', busy = workers.some((w) => ['busy', 'waiting'].includes(colOf(stateOf(w))));
-  const st = resting ? 'idle' : stateOf(s), word = resting ? (busy ? 'waiting for its workers' : 'between turns') : MA_STATE[st] ?? st;
+  // Between turns the panel lists it as finished; it is watching, until an agent in its space stops.
+  const resting = s.up && stateOf(s) === 'finished';
+  const st = resting ? 'idle' : stateOf(s), word = resting ? 'watching' : stateOf(s) === 'busy' ? 'looking' : MA_STATE[st] ?? st;
   const openIt = () => { cancelAdvance(); open = s.sessionId; render(); };
   // What waits for it while it is not being sent it: it is stopped (a message would restart it), or its notices are held
   // after many with no word from you. One click sends them.
   const held = snap.mains?.[x.id], n = held?.waiting ?? 0;
   const wake = held ? el('span', { class: 'ma-held' },
-    el('span', { text: held.down ? `It is stopped. ${n} ${n === 1 ? 'update waits' : 'updates wait'} for it.` : `Its workers’ updates are held: many went with no word from you. ${n} ${n === 1 ? 'waits' : 'wait'}.` }),
+    el('span', { text: held.down ? `It is stopped. ${n} ${n === 1 ? 'update waits' : 'updates wait'} for it.` : `Updates from its space are held: many went with no word from you. ${n} ${n === 1 ? 'waits' : 'wait'}.` }),
     el('button', { class: 'btn small', type: 'button', 'data-f': 'ma-wake', text: held.down ? 'Wake it' : 'Carry on', onclick: async (e) => {
       e.stopPropagation();
       e.currentTarget.disabled = true;
@@ -3862,8 +3865,8 @@ function maCard(x, s, workers, asks) {
     el('span', { class: 'ma-space', text: x.name }),
     el('span', { class: 'ma-head' }, el('span', { class: 'ma-name', text: label(s) }), model ? el('span', { class: 'ma-model', text: model }) : null,
       asks ? el('span', { class: 'ma-tag', text: 'Asks you' }) : null, el('span', { class: 'ma-state', text: word })),
-    workersLine(workers),
-    el('p', { class: 'ma-said', text: firstSentence(s.lastMessage) }),
+    agentsLine(agents),
+    el('p', { class: 'ma-said', text: reportStart(s.lastMessage) }),
     wake);
   if (asks || held) card.setAttribute('data-asks', '');
   return card;
@@ -3878,10 +3881,10 @@ function renderMains() {
   setText(box.firstChild.lastChild, String(rows.length));
   const grid = box.lastChild;
   const want = rows.map(({ x, s }) => {
-    const workers = snap.sessions.filter((w) => w.space === x.id && w.role === 'worker'), asks = follow.has(s.sessionId);
-    const sig = JSON.stringify([x, label(s), stateOf(s), s.up, s.model, s.lastMessage, asks, snap.mains?.[x.id] ?? null, workers.map((w) => [w.sessionId, stateOf(w)])]);
+    const agents = snap.sessions.filter((w) => w.space === x.id && w.sessionId !== s.sessionId), asks = follow.has(s.sessionId);
+    const sig = JSON.stringify([x, label(s), stateOf(s), s.up, s.model, s.lastMessage, asks, snap.mains?.[x.id] ?? null, agents.map((w) => [w.sessionId, stateOf(w)])]);
     let n = maNodes.get(x.id);
-    if (!n || n.sig !== sig) { n = { sig, node: maCard(x, s, workers, asks) }; maNodes.set(x.id, n); }
+    if (!n || n.sig !== sig) { n = { sig, node: maCard(x, s, agents, asks) }; maNodes.set(x.id, n); }
     return n.node;
   });
   for (const k of maNodes.keys()) if (!rows.some((r) => r.x.id === k)) maNodes.delete(k);
@@ -4569,7 +4572,7 @@ function syncKind() {
   $('l-oc-note').hidden = false;
   showQuick(); // OpenCode's models came in: the short form names the one it starts on
 }
-$('l-kind').addEventListener('change', () => { syncKind(); syncLauncher(); if (picked('l-kind') === 'opencode') loadOc(); });
+$('l-kind').addEventListener('change', () => { syncKind(); syncLauncher(); if (picked('l-kind') === 'opencode') loadOc(); showQuick(); });
 $('l-oc-model').addEventListener('change', () => { ocWant = $('l-oc-model').value; });
 /** The Claude login New agent starts on: the one picked, else the workspace's default. */
 const launchLogin = () => snap?.logins?.find((l) => l.id === $('l-login').value) ?? snap?.logins?.[0] ?? snap?.profile ?? null;
@@ -4587,12 +4590,12 @@ function loginOptions() {
 $('l-login').addEventListener('change', () => { syncLauncher(); checkFolder(); });
 /** A space's or repository's +: New agent in it, in the short form. A space starts in the folder its newest agent
  *  works in (any agent of it: waiting, working or finished), else where New agent would. */
-function quickLaunch(key, { main = false } = {}) {
+function quickLaunch(key) {
   const sec = sections(groups(visible())).find((x) => x.key === key);
   if (!sec || modalOpen()) return;
   if (sec.kind === 'repo') return openLauncher({ space: '', cwd: sec.repo, where: tilde(sec.repo) });
   const newest = (snap?.sessions ?? []).filter((x) => spaceIn(x) === sec.space).sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))[0];
-  openLauncher({ space: sec.space, cwd: newest ? folderOf(newest) : null, where: sec.title, main }); // `main`: as the space's main agent
+  openLauncher({ space: sec.space, cwd: newest ? folderOf(newest) : null, where: sec.title });
 }
 /** The folder a session suggests for another agent: a worktree Claude Code made for it suggests its repository. */
 const folderOf = (s) => (s.git?.worktree && s.git.top.includes('/.claude/worktrees/') ? s.git.repo : s.cwd);
@@ -4604,7 +4607,7 @@ function showQuick() {
   const spanOf = (name) => document.querySelector(`input[name="${name}"]:checked + span`)?.textContent ?? '';
   const oc = picked('l-kind') === 'opencode', folder = $('l-cwd').value.trim(), inSpace = $('l-space').value && $('l-space').value !== '+new';
   const model = oc ? $('l-oc-model').selectedOptions[0]?.textContent ?? '' : spanOf('l-model') === 'Default' ? 'default model' : spanOf('l-model');
-  const bits = [inSpace ? tilde(folder || '~') : null, !oc && $('l-main').checked ? 'its main agent' : null, oc ? `OpenCode, ${model}` : `Claude Code, ${model}`, spanOf('l-mode'),
+  const bits = [inSpace ? tilde(folder || '~') : null, oc ? `OpenCode, ${model}` : `Claude Code, ${model}`, spanOf('l-mode'),
     $('l-wt').checked && !$('l-wt').disabled ? 'its own worktree' : null].filter(Boolean);
   $('l-quick-t').replaceChildren(el('b', { text: `In ${inSpace ? quickWhere : tilde(folder || '~')}` }), ` · ${bits.join(' · ')}`);
 }
@@ -4646,9 +4649,6 @@ function openLauncher(preset = null) {
   spaceOptions($('l-space'), space);
   $('l-space-new').hidden = $('l-space').value !== '+new';
   quickWhere = preset?.where ?? null;
-  modelBeforeMain = null; // the defaults above set the model afresh
-  $('l-main').checked = Boolean(preset?.main);
-  syncMain();
   setQuick(Boolean(preset));
   lErr.hidden = true;
   setWsAsk(null); // asked again for this page's workspace, once the folder is looked at
@@ -4791,33 +4791,8 @@ $('l-space').addEventListener('change', () => {
   const fresh = $('l-space').value === '+new';
   $('l-space-new').hidden = !fresh;
   if (fresh) $('l-space-new').focus();
-  syncMain();
-});
-/** The session leading a space now: its main agent, while it is on the board and not over. */
-function liveMainOf(spaceId) {
-  const id = mainOfSpace(spaceId)?.sessionId, s = id ? snap?.sessions.find((x) => x.sessionId === id) : null;
-  return s?.up ? s : null; // `up`: a main agent that finished its turn rests with its process up, and still leads
-}
-/** "Main agent of this space": offered for a Claude Code agent once a space is picked, and not where one leads already.
- *  Turned on, it picks the main agents' model (yours to change below); turned off, the model you had comes back. */
-let modelBeforeMain = null;
-function syncMain() {
-  const v = $('l-space').value, oc = picked('l-kind') === 'opencode', box = $('l-main'), note = $('l-main-note');
-  const known = v && v !== '+new', up = known ? liveMainOf(v) : null, awaited = known && mainOfSpace(v) && !mainOfSpace(v).sessionId;
-  $('l-main-row').hidden = !v || oc;
-  box.disabled = Boolean(up || awaited);
-  if (box.disabled || $('l-main-row').hidden) box.checked = false;
-  const pick = (m) => { const r = document.querySelector(`input[name="l-model"][value="${CSS.escape(m)}"]`); if (r) r.checked = true; };
-  if (box.checked && modelBeforeMain === null) { modelBeforeMain = picked('l-model') ?? ''; pick(glue?.mainAgents?.model ?? 'opus'); }
-  else if (!box.checked && modelBeforeMain !== null) { pick(modelBeforeMain); modelBeforeMain = null; }
-  const space = snap?.spaces?.find((x) => x.id === v)?.name ?? 'This space';
-  setText(note, up ? `${space} already has a main agent: ${label(up)}.` : awaited ? `A main agent was just started in ${space}.`
-    : box.checked ? 'It leads the space: Home shows it, and it comes first in its section. Pick its model below.' : '');
-  note.hidden = !note.textContent;
   showQuick();
-}
-$('l-main').addEventListener('change', syncMain);
-for (const r of document.querySelectorAll('input[name="l-kind"]')) r.addEventListener('change', syncMain);
+});
 $('launch-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const go = $('l-go');
@@ -4841,7 +4816,6 @@ $('launch-form').addEventListener('submit', async (e) => {
     prompt: $('l-prompt').value, cwd: $('l-cwd').value, name, agentKind: ocKind ? 'opencode' : 'claude',
     ...(ocKind ? { model: $('l-oc-model').value } : { agent: $('l-agent').value.trim(), model: picked('l-model'), effort: EFFORT_STOPS[$('l-effort').value][0], login: $('l-login').value || undefined }),
     mode: picked('l-mode'), worktree, worktreeName, assign, space,
-    ...(!ocKind && space && $('l-main').checked && !$('l-main').disabled ? { main: true } : {}),
   });
   go.disabled = false;
   go.textContent = 'Launch agent';
@@ -6336,20 +6310,22 @@ function setGlueAgents(box, g) {
   const oc = setOc;
   setPatch(box, JSON.stringify([a, g.fallbackModel, oc, g.mainAgents]), () => {
     const opencode = a.agent === 'opencode';
-    // Main agents and the workers they start by themselves: the model a main agent starts on, and the workers' limits.
-    const m = g.mainAgents ?? { model: 'opus', spawn: true, workerModels: ['sonnet', 'haiku'], maxAlive: 4, maxTotal: 12 }, setMain = (patch) => setGlue({ mainAgents: patch });
+    // Main agents, which watch their spaces: the model one starts on, and whether (and inside which limits) they may
+    // start workers of their own. The workers' limits show only while that is on.
+    const m = g.mainAgents ?? { model: 'opus', workers: false, workerModels: ['sonnet', 'haiku'], maxAlive: 4, maxTotal: 12 }, setMain = (patch) => setGlue({ mainAgents: patch });
     const WORKER_SETS = [['sonnet,haiku', 'Sonnet or Haiku'], ['haiku', 'Haiku only'], ['sonnet', 'Sonnet only'], ['opus,sonnet,haiku', 'Opus, Sonnet or Haiku']];
     const workerSet = m.workerModels.join(','), sets = WORKER_SETS.some(([v]) => v === workerSet) ? WORKER_SETS : [...WORKER_SETS, [workerSet, m.workerModels.map(modelWord).join(', ')]];
     const counts = (list, n) => [...new Set([...list, n])].sort((x, y) => x - y).map((v) => [String(v), String(v)]);
     const mainAgents = [
       el('h4', { class: 'rule', text: 'Main agents' }),
-      el('p', { class: 'set-quiet set-sub', text: 'A space’s main agent leads its work and starts workers by itself, each in a worktree of its own. A worker gets the permissions a new agent starts with (above); a main agent never picks them.' }),
-      setOpt('Main agent’s model', 'What a main agent starts on, unless you pick another when you start it.',
+      el('p', { class: 'set-quiet set-sub', text: 'A space’s main agent watches the agents in it and reports on Home: what needs you, and what the space is doing. It changes no files. Turn one on from a space’s ⋯ menu; no space has one until you do.' }),
+      setOpt('Main agent’s model', 'What a main agent runs on.',
         setSelect('ma-model', 'Model a main agent starts on', [['opus', 'Opus'], ['opus[1m]', 'Opus 1M'], ['fable', 'Fable'], ['sonnet', 'Sonnet']], m.model, (v) => setMain({ model: v }))),
-      setOpt('Start workers', 'Off, a main agent does all its work itself.', setSwitch('ma-spawn', 'Main agents may start workers', m.spawn, (on) => setMain({ spawn: on }))),
-      setOpt('Workers’ models', 'The models a main agent may give a worker.', setSelect('ma-models', 'Models a worker may run on', sets, workerSet, (v) => setMain({ workerModels: v.split(',') }))),
-      setOpt('Workers at once', 'How many of one main agent’s workers may work at the same time.', setSelect('ma-alive', 'Workers at once', counts([1, 2, 3, 4, 6, 8], m.maxAlive), String(m.maxAlive), (v) => setMain({ maxAlive: Number(v) }))),
-      setOpt('Workers in all', 'How many one main agent may start, all told.', setSelect('ma-total', 'Workers in all', counts([4, 8, 12, 20, 40], m.maxTotal), String(m.maxTotal), (v) => setMain({ maxTotal: Number(v) }))),
+      setOpt('Start workers', 'Off, a main agent only watches. On, it may also start workers of its own, each in a worktree, with the permissions a new agent starts with (above).',
+        setSwitch('ma-workers', 'Main agents may start workers', m.workers, (on) => setMain({ workers: on }))),
+      !m.workers ? null : setOpt('Workers’ models', 'The models a main agent may give a worker.', setSelect('ma-models', 'Models a worker may run on', sets, workerSet, (v) => setMain({ workerModels: v.split(',') }))),
+      !m.workers ? null : setOpt('Workers at once', 'How many of one main agent’s workers may work at the same time.', setSelect('ma-alive', 'Workers at once', counts([1, 2, 3, 4, 6, 8], m.maxAlive), String(m.maxAlive), (v) => setMain({ maxAlive: Number(v) }))),
+      !m.workers ? null : setOpt('Workers in all', 'How many one main agent may start, all told.', setSelect('ma-total', 'Workers in all', counts([4, 8, 12, 20, 40], m.maxTotal), String(m.maxTotal), (v) => setMain({ maxTotal: Number(v) }))),
     ];
     const which = el('div', { class: 'seg set-seg', role: 'radiogroup', 'aria-label': 'Which agent a new agent runs on' },
       ...[['claude', 'Claude Code'], ['opencode', 'OpenCode']].map(([v, name]) => el('label', {},

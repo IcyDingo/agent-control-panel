@@ -1106,7 +1106,7 @@ test('main agents lead the board, each with its workers under it; a worker that 
   const board = (main) => ({ sessions: [loose, ...workers, main], folders: [], spaces: [{ name: 'Checkout' }] });
   const text = digest(board(lead()), null, { now: 1_000_000 });
   const at = (s) => text.indexOf(s);
-  assert.ok(at('Main agents, each leading a space') > 0 && at('Main agents, each leading a space') < at('Sessions, the ones that need you first'), 'main agents come first');
+  assert.ok(at('Main agents, each watching a space') > 0 && at('Main agents, each watching a space') < at('Sessions, the ones that need you first'), 'main agents come first');
   assert.match(text, /\[00000001\] "checkout-lead" · background · idle[^\n]*space "Checkout"[^\n]*\n {2}said: "API is done, UI half way\."\n {2}its workers: 1 needs you, 1 working\n {4}\[0000000[23]\]/);
   assert.match(text, /\n {4}\[00000002\] "cart-api" · sonnet · working · on worktree-cart-api · said 2m ago: "Working on it\."/);
   assert.match(text, /\n {4}\[00000003\] "cart-ui" · haiku · needs you · on fix\/login/);
@@ -1122,20 +1122,20 @@ test('main agents lead the board, each with its workers under it; a worker that 
   const resting = digest(board(lead({ state: 'finished', up: true })), null, { now: 1_000_000 });
   assert.equal(resting.split('[00000002]').length - 1, 1, 'its workers stay under it');
   assert.match(resting, /\[00000001\] "checkout-lead" · background · waiting for its workers · /);
-  assert.match(digest({ sessions: [lead({ state: 'finished', up: true })], folders: [] }, null, { now: 1_000_000 }), /"checkout-lead" · background · between turns · /);
+  assert.match(digest({ sessions: [lead({ state: 'finished', up: true })], folders: [] }, null, { now: 1_000_000 }), /"checkout-lead" · background · watching its space · /);
   assert.equal(digest(board(lead({ state: 'finished', up: false })), null, { now: 1_000_000 }).split('[00000002]').length - 1, 2, 'one that is stopped does not');
   // A main agent with no workers says so; a board without one says nothing of main agents.
   assert.match(digest({ sessions: [lead()], folders: [] }, null, { now: 1_000_000 }), /\n {2}it has no workers\./);
   assert.doesNotMatch(digest({ sessions: [loose, ...workers.map((w) => ({ ...w, role: null }))], folders: [] }, null, { now: 1_000_000 }), /Main agents|its workers/);
-  assert.match(SYSTEM, /propose telling its main agent, not its workers/);
+  assert.match(SYSTEM, /To move one of the user.s sessions on, propose telling that session/);
 });
 
 test('the check is told when the agent is a main agent with workers still working: waiting for them is done', async () => {
   assert.equal(followPrompt({ name: 'lead', repo: 'shop', branch: 'main', said: 'Started three workers. Waiting.', role: 'main', working: 3 }),
     '<agent name="lead" where="shop @ main" role="main agent" workers-still-working="3">\nStarted three workers. Waiting.\n</agent>');
   assert.equal(followPrompt({ name: 'w', repo: 'shop', said: 'Done.', role: 'worker', working: 3 }), '<agent name="w" where="shop">\nDone.\n</agent>', 'said only of a main agent');
-  assert.match(FOLLOW_SYSTEM, /role="main agent"[^.]*leads other agents/);
-  assert.match(FOLLOW_SYSTEM, /while workers-still-working is above 0, is done/);
+  assert.match(FOLLOW_SYSTEM, /role="main agent"[^.]*watches the other agents in its space/);
+  assert.match(FOLLOW_SYSTEM, /Its report is done: it carries on without the user, also when it says it waits for its workers while workers-still-working is above 0\./);
   // The overseer counts the workers of that main agent's space that work now.
   const k = mk();
   k.fx.board = () => ({ folders: [REPO], sessions: [session({ role: 'main', space: 'Checkout', said: 'Started two workers. I wait for them.' }),

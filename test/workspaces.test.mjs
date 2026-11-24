@@ -464,15 +464,17 @@ test('a main agent\'s key, switch and count are kept with its slot, and its key 
   assert.equal(again.mainOf('default', a).login, 'default');
   assert.equal(again.setMainSpawn('default', a, true).spawn, true);
   assert.equal(again.setMainSpawn('default', 'nope', true).ok, false);
-  // What its main agent was told of a worker, and its workers.
+  // What its main agent was told of an agent in its space, and its workers.
   const W1 = 'b2c3d4e5-0000-4000-8000-000000000002';
   again.setSpace('default', W1, a, Date.now(), { worker: true, model: 'haiku' });
   assert.deepEqual(again.workersOf('default', a), [W1]);
   assert.equal(again.toldOf('default', W1), '');
   again.setTold('default', W1, 'k1');
-  again.setTold('default', SID, 'k9'); // not a worker: nothing is kept
+  again.setTold('default', SID, 'k9'); // any member of a space: a main agent watches them all
+  again.setTold('default', 'f0f0f0f0-0000-4000-8000-00000000000f', 'k8'); // in no space: nothing is kept
   assert.equal(createStore({ file, profiles: PROFILES }).toldOf('default', W1), 'k1');
-  assert.equal(again.toldOf('default', SID), '');
+  assert.equal(createStore({ file, profiles: PROFILES }).toldOf('default', SID), 'k9', 'kept across a restart, for any member');
+  assert.equal(again.toldOf('default', 'f0f0f0f0-0000-4000-8000-00000000000f'), '');
   // A new main agent takes the slot with a new key: the old key finds nothing.
   again.setMain('default', a, { sessionId: SID, model: 'opus', keyHash: 'c'.repeat(64) });
   assert.equal(again.mainByKey(h1), null);
