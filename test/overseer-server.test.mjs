@@ -359,6 +359,12 @@ test('an agent that ends its turn with a question gets a follow-up card from one
   assert.equal(call.args[call.args.indexOf('--model') + 1], 'haiku');
   assert.equal(call.args[call.args.indexOf('--tools') + 1], '');
   assert.match(call.stdin, /Should I also update the docs\?/);
+  // Answered in the agent itself: a prompt from you after it asked closes the card; the older one in its transcript did not.
+  const tx = path.join(home, '.claude', 'projects', 'p', `${SID}.jsonl`), before = fs.readFileSync(tx, 'utf8');
+  fs.appendFileSync(tx, JSON.stringify({ type: 'user', cwd: repo, timestamp: new Date(Date.now() + 1000).toISOString(), message: { role: 'user', content: 'yes, the docs too' } }) + '\n');
+  assert.ok(await until(async () => (await snapshot()).overseer.follow.length === 0), 'the card stayed after you answered in the agent');
+  fs.writeFileSync(tx, before);
+  assert.ok(await until(async () => (await snapshot()).overseer.follow.length === 1), 'the card did not come back');
   assert.deepEqual(await api('/api/overseer/follow', { sessionId: SID, decision: 'dismiss' }), { ok: true });
   assert.deepEqual((await snapshot()).overseer.follow, []);
 });

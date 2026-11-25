@@ -609,6 +609,7 @@ async function pollRoster(login) {
   // whose session has stopped waiting for two polls running was answered there (the backstop for a
   // PostToolUse that doesn't match, e.g. a command amended in the terminal). Not for subagents: a
   // background subagent can wait on us while its parent session reads as idle.
+  sweepAnswered((p) => sessions.get(p.sessionId)?.login === login.id);
   for (const p of [...pending.values()]) {
     const s = sessions.get(p.sessionId);
     if (p.agentId || !s?.inRoster || s.login !== login.id || Date.now() - p.createdAt < 4000) continue;
@@ -622,6 +623,8 @@ function prune() {
   const now = Date.now();
   for (const [k, st] of stops) if (now - st.at > STOP_TTL_MS) stops.delete(k);
   while (dismissed.size > 500) dismissed.delete(dismissed.values().next().value);
+  try { sweepAnswered(); } catch (err) { console.error('sweep:', err?.message ?? err); } // hook-only sessions have no roster poll
+  for (const id of prompts.keys()) if (!sessions.has(id)) prompts.delete(id);
   for (const [id, s] of sessions) {
     for (const [aid, sub] of s.subagents) if (sub.stoppedAt && now - sub.stoppedAt > SUBAGENT_LINGER_MS) s.subagents.delete(aid);
     // Closed sessions linger 10 minutes; hook-only ones (claude -p, SDK) never enter the roster and go an hour after they go quiet.
@@ -646,6 +649,9 @@ function holdPermission(e, { s, ws }, res) {
   p.timer = setTimeout(() => settle(id, null, 'expired'), HOLD_MS);
   // The hook timed out or its session went away. (A terminal answer does NOT close it: see pollRoster.)
   res.on('close', () => { if (pending.has(id)) settle(id, null, 'closed by Claude Code'); });
+  // It asks again: what it asked before may have been answered in the agent meanwhile, with nothing that told us.
+  try { sweepAnswered((q) => q.sessionId === p.sessionId); p.answeredBefore = answeredCalls(p); }
+  catch (err) { console.error('sweep:', err?.message ?? err); }
   pending.set(id, p);
   if (s) {
     s.lastEventAt = Date.now();
@@ -656,8 +662,60 @@ function holdPermission(e, { s, ws }, res) {
   }
   broadcast({ type: 'new-request', id, ws: p.ws }); // only pages shown its workspace hear of it
 }
+// A request answered in the agent itself (its terminal, or `claude attach`) leaves our hook open, and a PostToolUse
+// that would say so does not come when it was denied there or ran amended. Its transcript says it all the same: the
+// call it was for has a result. A real PermissionRequest names no tool_use_id, so the call is found by its tool and
+// input, as PostToolUse is matched; a call with that tool and input that was answered before the request was held is
+// not the one (the same command, run earlier).
+const callReads = new Map(); // file → { size, mtimeMs, uses: [{ id, name, input }], done: Set of tool_use_ids }
+function callsIn(file) {
+  let st;
+  try { st = fs.statSync(file); } catch { return null; }
+  const c = callReads.get(file);
+  if (c && c.size === st.size && c.mtimeMs === st.mtimeMs) return c;
+  const uses = [], done = new Set();
+  for (const line of tailOf(file, 512_000)) {
+    let d;
+    try { d = JSON.parse(line); } catch { continue; }
+    const content = d.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const b of content) {
+      if (d.type === 'assistant' && b?.type === 'tool_use') uses.push({ id: b.id, name: b.name, input: JSON.stringify(b.input ?? {}) });
+      else if (d.type === 'user' && b?.type === 'tool_result') done.add(b.tool_use_id);
+    }
+  }
+  const r = { size: st.size, mtimeMs: st.mtimeMs, uses, done };
+  callReads.delete(file);
+  callReads.set(file, r);
+  if (callReads.size > 100) callReads.delete(callReads.keys().next().value);
+  return r;
+}
+/** The transcript a request's call is in: its session's, or its subagent's own. */
+function requestFile(p) {
+  const file = transcriptFile(p.sessionId);
+  if (!file || !p.agentId) return file;
+  return /^[\w-]{1,80}$/.test(p.agentId) ? path.join(file.slice(0, -'.jsonl'.length), 'subagents', `agent-${p.agentId}.jsonl`) : null;
+}
+/** The calls this request could be for that have a result now, by id; null while there is no transcript to read. */
+function answeredCalls(p) {
+  const file = requestFile(p), c = file && callsIn(file);
+  if (!c) return null;
+  if (p.toolUseId) return new Set(c.done.has(p.toolUseId) ? [p.toolUseId] : []);
+  const input = JSON.stringify(p.toolInput ?? {});
+  return new Set(c.uses.filter((u) => u.name === p.toolName && (DIALOGS.has(p.toolName) || u.input === input) && c.done.has(u.id)).map((u) => u.id));
+}
+/** Hand back the held requests (those `which` picks) whose call got a result in the agent since they were held. */
+function sweepAnswered(which = () => true) {
+  for (const p of [...pending.values()]) {
+    if (!which(p)) continue;
+    const now = answeredCalls(p);
+    if (!now) continue;
+    if (!p.answeredBefore) { p.answeredBefore = now; continue; } // its transcript appeared only now: what it has is from before
+    if ([...now].some((x) => !p.answeredBefore.has(x))) settle(p.id, null, 'answered in the terminal');
+  }
+}
 /** The requests held for a session. */
-const heldFor = (sessionId) => [...pending.values()].filter((p) => p.sessionId === sessionId);
+const heldFor =(sessionId) => [...pending.values()].filter((p) => p.sessionId === sessionId);
 
 /** Answer a held request. `decision` null = no answer, the terminal dialog decides. */
 function settle(id, decision, why) {
@@ -2950,6 +3008,30 @@ function overseerFolders(wsId, board = onBoard(wsId)) {
   }
   return [...out].filter((d) => { try { return fs.statSync(d).isDirectory(); } catch { return false; } }).slice(0, 12);
 }
+// When you last wrote to a session: the newest prompt in its transcript (typed, sent from the panel, or queued while it
+// worked), not what other agents and its own tasks hand it (those come wrapped in a tag, or as another session's
+// message). Read only for one that has stopped, whose transcript changes little: it closes a follow-up you answered in
+// the agent itself.
+const prompts = new Map(); // sessionId → { size, mtimeMs, at }
+const yours = (text) => typeof text === 'string' && text.trim() !== '' && !/^\s*</.test(text) && !text.startsWith('Another Claude session sent a message');
+function promptAtOf(s) {
+  const file = transcriptFile(s.sessionId);
+  let st;
+  try { st = file && fs.statSync(file); } catch {}
+  if (!st) return null;
+  const c = prompts.get(s.sessionId);
+  if (c && c.size === st.size && c.mtimeMs === st.mtimeMs) return c.at;
+  let at = null;
+  for (const line of tailOf(file, 256_000)) {
+    let d;
+    try { d = JSON.parse(line); } catch { continue; }
+    if (d.isSidechain || d.isMeta) continue;
+    const typed = d.type === 'user' && yours(d.message?.content), queued = d.type === 'queue-operation' && d.operation === 'enqueue' && yours(d.content);
+    if (typed || queued) { at = Date.parse(d.timestamp) || null; if (at) break; }
+  }
+  prompts.set(s.sessionId, { size: st.size, mtimeMs: st.mtimeMs, at });
+  return at;
+}
 /** What workspace `wsId`'s overseer reads: its board's sessions, each with what it asks and its space, its spaces, and
  *  the folders a launch may use. Only this workspace's: its spaces' names never reach another workspace's overseer. */
 function overseerBoard(wsId) {
@@ -2960,13 +3042,15 @@ function overseerBoard(wsId) {
   return { folders: overseerFolders(wsId, board), spaces: spaces.map((x) => ({ name: x.name })), sessions: board.map((s) => {
     // In another workspace's repository, it reads what the page shows: nothing of the repository.
     const off = mismatched(s), p = off ? null : placeOf(s), asks = asking.get(s.sessionId) ?? [];
-    return { sessionId: s.sessionId, name: labelOf(s), kind: s.kind, state: boardState(s, asks.length > 0), since: s.startedAt ?? s.lastEventAt,
+    const state = boardState(s, asks.length > 0);
+    return { sessionId: s.sessionId, name: labelOf(s), kind: s.kind, state, since: s.startedAt ?? s.lastEventAt,
       space: spaceName.get(store.spaceOf(wsId, s.sessionId)) ?? null, role: store.roleOf(wsId, s.sessionId), model: s.model ?? null, up: isUp(s),
       repo: p ? path.basename(p.repo) : null, worktree: p?.worktree ?? null, branch: p?.branch ?? null, folder: off ? null : s.ranCwd ?? s.hereCwd ?? s.cwd ?? null,
       mode: s.mode ?? null, tool: isWorking(s) && s.lastTool ? `${s.lastTool.tool}: ${s.lastTool.text}` : null, asks: asks.map(askOf),
       subagents: [...s.subagents.values()].map((a) => ({ type: a.agentType ?? null, title: a.title ?? null, running: !a.stoppedAt })),
       // An OpenCode session's last message is read as it works; Claude Code's is the one its last turn ended with.
-      said: s.lastMessage ?? null, saidAt: s.lastMessageAt ?? null, saidLive: isOc(s), gh: sessionGh(p, wsId) };
+      said: s.lastMessage ?? null, saidAt: s.lastMessageAt ?? null, saidLive: isOc(s), gh: sessionGh(p, wsId),
+      promptAt: ['idle', 'finished', 'failed'].includes(state) && !isOc(s) ? promptAtOf(s) : null };
   }) };
 }
 /** What a message to it does now: goes in at once, waits until it is done, or restarts it in the background (which,

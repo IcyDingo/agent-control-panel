@@ -182,6 +182,31 @@ test('a held permission request marks its tool row waiting, and settling it reco
   assert.equal(done.patch.waiting, false);
 });
 
+test('a held request whose call has a result in the transcript was answered in the agent: the next request settles it', async (t) => {
+  const s = await setup(t), id = crypto.randomUUID(), file = path.join(s.projA, id + '.jsonl');
+  const result = (toolId, n) => JSON.stringify({ parentUuid: `a${n}`, type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolId, content: 'ok' }] }, uuid: `r${n}`, timestamp: stamp(n) });
+  // `ls` ran once before (answered), and is asked again now (toolu_1, no result yet).
+  fs.writeFileSync(file, [you('look around', 1), call('toolu_0', 'Bash', { command: 'ls' }, 2), result('toolu_0', 3), call('toolu_1', 'Bash', { command: 'ls' }, 4)].join('\n') + '\n');
+  const page = await s.stream();
+  const stop = new AbortController();
+  t.after(() => stop.abort());
+  const ask = (command) => { const p = s.hook('permission', { session_id: id, transcript_path: file, hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command } }, stop.signal); p.catch(() => {}); return p; };
+  const pendingNow = () => page.msgs.findLast((m) => m.event === 'message')?.data.pending.map((p) => p.toolInput.command) ?? [];
+  const first = ask('ls');
+  assert.ok(await until(() => pendingNow().includes('ls')), 'the first request was never held');
+  // A second request while the first is unanswered: the earlier `ls` result is not this request's, so it stays held.
+  ask('pwd');
+  assert.ok(await until(() => pendingNow().length === 2), 'both requests should be held: ' + JSON.stringify(pendingNow()));
+  // Answered in the agent: its result lands in the transcript, and the agent asks for the next thing.
+  fs.appendFileSync(file, [result('toolu_1', 5), call('toolu_2', 'Bash', { command: 'pwd' }, 6), result('toolu_2', 7), call('toolu_3', 'Bash', { command: 'date' }, 8)].join('\n') + '\n');
+  ask('date');
+  const r = await Promise.race([first, sleep(4000).then(() => null)]);
+  assert.ok(r, 'the answered request was still held: ' + JSON.stringify(pendingNow()));
+  assert.equal(r.status, 200);
+  assert.equal(await r.text(), ''); // no decision: the agent already had its answer
+  assert.ok(await until(() => JSON.stringify(pendingNow()) === JSON.stringify(['date'])), 'only the newest request should be left: ' + JSON.stringify(pendingNow()));
+});
+
 test('a follow for a session with no transcript yet turns live when the file appears', async (t) => {
   const s = await setup(t), id = crypto.randomUUID(), file = path.join(s.projA, id + '.jsonl');
   const page = await s.stream();
