@@ -71,11 +71,22 @@ Each issue of the workspace is a goal; its title is the outcome. Its items are i
 pressing move** in words with its button, then a progress bar and "shipped/total". Open, the words become "last shipped
 <ago>" (or "nothing shipped yet") and the move moves to its branch. A click on the line (not a button) opens or closes it.
 
-### An open goal: the light tree
-Under the line, one row per branch, joined by `├` and `╰`: the tip dot, the item's text, where it stands in words, and
-its button if it has one. Then one row for what is ahead: "Next: <first todo item> · +N more" with **Pick up** (the
-Issues panel's pick-up, with its first-time form when the issue has no folder yet). A goal with no items shows "Add the
-first part" (opens the Issues panel at it).
+### An open goal: the tree runs sideways
+The owner asked to "use more horizontal space for the tree" and picked a sideways tree:
+```
+Pages load in under 2 s   ━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━ ┄┄ ◌ Next: Preload fonts
+▰▰▰▱ 9/14 · 20 min ago      ● Image sizes  ◯ Cache headers   ◯ Lazy-load charts    +1 more  [Pick up]
+                            PR fails       running tests 1m  no change 25m
+                            [Ask to fix]                     [Nudge]
+```
+- Left column (fixed width): the title, the progress bar with "shipped/total", and "shipped <ago>".
+- Right: the main line runs left to right; each branch hangs off it as a column (side by side, so parallel work sits in
+  parallel): its tip dot and the item's text, where it stands in words, and its button(s). A branch's stem takes its
+  colour. More branches than fit wrap onto a second row.
+- The line ends, dashed, in what is ahead: "Next: <first todo item>", "+N more", and **Pick up** (the Issues panel's
+  pick-up, with its first-time form when the issue has no folder yet).
+- No branches: the dashed line and the ahead part only. No items: "Add the first part" (opens the Issues panel at it).
+- Below about 720 px the branches stack as rows joined by `├`/`╰` (the light tree), the same parts and buttons.
 
 ### Where a branch stands, first match wins
 Decided in `public/home-board.js` from the item, its session, the held requests, Ask Glue's follow-ups and the PR:

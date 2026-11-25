@@ -162,3 +162,19 @@ test('it survives a restart; a malformed file keeps what is valid', () => {
   fs.writeFileSync(file, 'not json');
   assert.deepEqual(createIssues({ file }).list('w'), []);
 });
+
+test('an item records when it was done; undone clears it', () => {
+  const file = tmp();
+  let t = 1000;
+  const s = createIssues({ file, now: () => t });
+  const issue = s.create('w', 'Checkout').id, a = s.addItem('w', issue, 'Cart').id, b = s.addItem('w', issue, 'Pay').id;
+  const item = (id, st = s) => st.list('w')[0].items.find((x) => x.id === id);
+  s.tick('w', issue, a, true);
+  assert.equal(item(a).doneAt, 1000);
+  t = 2000;
+  s.done('w', issue, b, 5);
+  assert.equal(item(b).doneAt, 2000);
+  s.tick('w', issue, a, false);
+  assert.equal(item(a).doneAt, 0);
+  assert.equal(item(b, createIssues({ file })).doneAt, 2000, 'kept across a restart');
+});
