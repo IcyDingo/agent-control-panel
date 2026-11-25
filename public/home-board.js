@@ -132,5 +132,28 @@
     return kept.slice(Math.max(0, kept.length - 200));
   }
 
-  globalThis.HomeBoard = { needsList, needKinds, homeCards, headCounts, plainAsk, inlineAsk, busyLine, closesTerminal, syncChildren, bulkReplies, dismissKey, pruneDismissed, repoName };
+  /**
+   * What an issue's item shows: `{ mark, label, detail }`. `mark` is todo, working (its agent on the board, or starting),
+   * finished (its agent finished or is gone, nothing merged) or done. `sessions` is a Map of session id to session.
+   */
+  function itemView(it, sessions, stateOf, labelOf) {
+    if (it.state === 'done') return { mark: 'done', label: '', detail: Number.isInteger(it.pr) ? `merged #${it.pr}` : 'done' };
+    if (it.state !== 'working') return { mark: 'todo', label: '', detail: '' };
+    if (!it.sessionId) return { mark: 'working', label: '', detail: 'starting' };
+    const s = sessions.get(it.sessionId);
+    if (!s) return { mark: 'finished', label: '', detail: 'agent finished' };
+    const st = stateOf(s);
+    if (st === 'finished' || st === 'failed') return { mark: 'finished', label: labelOf(s), detail: 'agent finished' };
+    return { mark: 'working', label: labelOf(s), detail: st === 'waiting' ? 'needs you' : st === 'busy' || st === 'stopping' ? 'working' : 'idle' };
+  }
+
+  /** Issues in their order, the ones whose every item is done last (an empty one is not done): each with `allDone`. */
+  function issueOrder(list) {
+    const tagged = list.map((x) => ({ ...x, allDone: x.items.length > 0 && x.items.every((it) => it.state === 'done') }));
+    return [...tagged.filter((x) => !x.allDone), ...tagged.filter((x) => x.allDone)];
+  }
+  /** How many items are to do across these issues. */
+  const todoCount = (list) => list.reduce((n, x) => n + x.items.filter((it) => it.state === 'todo').length, 0);
+
+  globalThis.HomeBoard = { itemView, issueOrder, todoCount, needsList, needKinds, homeCards, headCounts, plainAsk, inlineAsk, busyLine, closesTerminal, syncChildren, bulkReplies, dismissKey, pruneDismissed, repoName };
 })();
