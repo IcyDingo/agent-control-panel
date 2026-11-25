@@ -96,6 +96,22 @@ test('outsideOf: agents in no working item that need you (finished or not), or w
   assert.deepEqual([held[0].tip.kind, held[0].tip.acts, held[0].space], ['wake', ['wake'], 's1']);
 });
 
+test('a held main agent shows once, as the one to wake (unless it asks or failed), and says whether it is stopped', () => {
+  const main = ag('m1', { state: 'idle' });
+  const rows = outsideOf({ sessions: [main], workingIds: new Set(), isMain: () => true, reqsOf: () => [], followOf: () => null, failedShown: () => true,
+    mergeable: () => false, stateOf, now: NOW, held: [{ space: 's1', name: 'Billing', down: false, waiting: 2, s: main }] });
+  assert.deepEqual(rows.map((r) => [r.tip.kind, r.down]), [['wake', false]]);
+  const asking = outsideOf({ sessions: [{ ...main, state: 'waiting' }], workingIds: new Set(), isMain: () => true, reqsOf: () => [bash], followOf: () => null,
+    failedShown: () => true, mergeable: () => false, stateOf, now: NOW, held: [{ space: 's1', name: 'Billing', down: false, waiting: 2, s: main }] });
+  assert.deepEqual(asking.map((r) => r.tip.kind), ['asks', 'wake'], 'what it asks still shows');
+});
+
+test('one click allows the whole command: a plain ask says it in full, never cut', () => {
+  const long = 'npm run migrate -- --env production --dry-run=false --tables users,orders,payments,refunds,invoices';
+  const t = tipOf(ag('a1', { state: 'waiting' }), base({ reqs: [{ ...bash, toolInput: { command: long } }] }));
+  assert.equal(t.words, `asks: run ${long}`);
+});
+
 test('isOpen: open while something new needs you; a goal you collapsed stays shut until that changes', () => {
   const g = { id: 'i1', needSig: '[["d","asks"]]' };
   assert.equal(isOpen(g, new Map()), true);

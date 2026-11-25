@@ -1216,8 +1216,11 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
 .gl-list { display: grid; }
 .gl { border-top: 1px solid var(--line); padding: 2px 0; }
 .gl:first-child { border-top: 0; }
-.gl-line { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 38px; cursor: pointer; }
-.gl-chev { flex: none; width: 18px; padding: 0; border: 0; background: none; color: var(--fg-faint); font-size: 11px; cursor: pointer; }
+.gl-line { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 40px; margin: 0 -8px; padding: 0 8px; border-radius: var(--r-1); cursor: pointer; }
+.gl-line:hover { background: var(--hover); }
+.gl-chev { flex: none; display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; background: none; color: var(--fg-dim); cursor: pointer; }
+.gl-chev svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform .12s; }
+.gl-chev[aria-expanded="true"] svg { transform: rotate(90deg); }
 .gl-title { flex: 0 1 auto; min-width: 0; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gl-dots { flex: none; display: inline-flex; gap: 3px; }
 .gl-move { flex: 0 1 auto; min-width: 0; font-size: 12.5px; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1227,6 +1230,14 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
 .gl-line .grow { flex: 1; }
 .gl-acts, .gl-br-acts { flex: none; display: inline-flex; gap: 6px; align-items: center; }
 .gl-busy { font-size: 12px; color: var(--fg-dim); }
+/* A goal's buttons: tinted by what they do (amber answers, red fixes, green merges), never the loud filled button. */
+.btn.gl-act { background: var(--fill); color: var(--fg); }
+.btn.gl-act:hover { background: var(--fill-strong); }
+.btn.gl-act[data-tone="amber"] { background: var(--amber-fill); color: var(--amber); }
+.btn.gl-act[data-tone="red"] { background: var(--stop-fill); color: var(--stop); }
+.btn.gl-act[data-tone="green"] { background: var(--ok-fill); color: var(--ok); }
+.btn.gl-act[data-tone]:hover { box-shadow: inset 0 0 0 1px currentColor; }
+.btn.gl-act.armed { box-shadow: inset 0 0 0 1px currentColor; font-weight: 600; }
 .gl-prog { flex: none; display: inline-flex; align-items: center; gap: 6px; width: 104px; justify-content: flex-end; font: 11.5px var(--mono); color: var(--fg-faint); }
 .gl-bar { width: 60px; height: 5px; border-radius: 3px; background: var(--fill-strong); overflow: hidden; }
 .gl-bar i { display: block; height: 100%; background: var(--ok); }
@@ -1238,25 +1249,32 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
 .gl-dot[data-ring="1"][data-tone="green"] { border-color: var(--ok); }
 .gl-dot[data-ring="1"][data-tone="amber"] { border-color: var(--amber); }
 .gl-dot[data-ring="dash"] { background: none; border: 1.5px dashed var(--fg-faint); }
-/* The tree: a main line left to right; each branch a column hanging off it; what is ahead ends the line, dashed. */
-.gl-tree { position: relative; display: flex; align-items: flex-start; gap: 34px; width: fit-content; max-width: calc(100% - 28px); margin: 0 0 12px 28px; padding-top: 14px; }
-.gl-tree::before { content: ""; position: absolute; left: 0; right: 0; top: 4px; border-top: 2px solid color-mix(in srgb, var(--ok) 55%, transparent); }
-.gl-tree[data-outside="1"]::before { border-top-color: var(--line-strong); }
-.gl-brs { display: flex; flex-wrap: wrap; gap: 10px 4px; min-width: 0; flex: 0 1 auto; }
-.gl-br { position: relative; display: grid; gap: 2px; align-content: start; width: 200px; padding: 2px 8px 0 12px; }
-.gl-br::before { content: ""; position: absolute; left: 3px; top: -12px; height: 18px; border-left: 2px solid var(--fg-faint); }
-.gl-br[data-tone="green"]::before { border-left-color: var(--ok); }
-.gl-br[data-tone="amber"]::before { border-left-color: var(--amber); }
-.gl-br[data-tone="red"]::before { border-left-color: var(--stop); }
-.gl-br-name { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 0; border: 0; background: none; color: var(--fg); font-size: 13px; text-align: left; cursor: pointer; }
+/* An open goal: its branches side by side as small tinted cards (parallel work, in parallel), then one quiet line for
+   what is ahead. */
+.gl-tree { display: grid; gap: 8px; margin: 0 0 14px 30px; }
+.gl-brs { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; }
+.gl-brs:empty { display: none; }
+.gl-br { display: grid; gap: 2px; width: 236px; padding: 8px 11px; border-radius: var(--r-2); background: var(--fill); }
+.gl-br[data-tone="green"] { background: color-mix(in srgb, var(--ok) 8%, var(--panel)); }
+.gl-br[data-tone="amber"] { background: color-mix(in srgb, var(--amber) 9%, var(--panel)); }
+.gl-br[data-tone="red"] { background: color-mix(in srgb, var(--stop) 9%, var(--panel)); }
+.gl-br[data-open="1"] { box-shadow: 0 0 0 1px var(--line-strong); }
+.gl-br-name { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 0; border: 0; background: none; color: var(--fg); font-size: 13px; font-weight: 500; text-align: left; cursor: pointer; }
 .gl-br-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gl-br-name:hover span, .gl-br[data-open="1"] .gl-br-name span { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-strong); }
-.gl-br-words { font-size: 12px; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gl-br-acts { margin-top: 4px; flex-wrap: wrap; }
-.gl-ahead { position: relative; flex: none; display: grid; gap: 4px; justify-items: start; width: 240px; padding: 0 0 0 10px; margin-top: -12px; background: var(--panel); font-size: 12px; color: var(--fg-dim); }
-.gl-ahead::before { content: ""; position: absolute; left: -24px; width: 24px; top: 6px; border-top: 2px dashed var(--line-strong); }
-.gl-next { display: flex; align-items: center; gap: 7px; color: var(--fg); }
-.gl-stop { margin: 0 0 12px 28px; max-width: 720px; }
+.gl-br-name:hover span { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-strong); }
+.gl-br-words { padding-left: 16px; font-size: 12px; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gl-br-words[data-full="1"] { white-space: normal; overflow-wrap: anywhere; font-family: var(--mono); font-size: 11.5px; }
+.gl-br-acts { margin: 6px 0 0 16px; flex-wrap: wrap; }
+.gl-ahead { display: flex; align-items: center; gap: 10px; min-height: 26px; font-size: 12.5px; color: var(--fg-dim); }
+.gl-next { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--fg-dim); }
+.gl-next b { color: var(--fg); font-weight: 500; }
+.gl-stop { margin: -6px 0 14px 30px; max-width: 720px; }
+.gl-stop .fu-card { background: color-mix(in srgb, var(--amber) 6%, var(--raise)); box-shadow: none; padding: 12px 14px; }
+.gl-stop .fu-card::before { display: none; }
+.gl-stop .need-row { background: none; padding: 0; } /* the request's own card is the box: no box around it */
+.gl-stop .fu-top { display: none; } /* its branch above already names it and says what it asks */
+.gl-stop .need-row > .fu-ask { display: none; }
+.gl-stop .btn.primary { background: var(--amber-fill); color: var(--amber); }
 .gl-stop-row { display: flex; align-items: center; gap: 8px; }
 .gl-stop .gl-why { margin: 0 0 6px; font-size: 12px; color: var(--stop); }
 .gl-tell { flex: 1; min-width: 0; height: 30px; padding: 0 10px; border-radius: var(--r-1); border: 1px solid var(--line-strong); background: var(--raise); color: var(--fg); font: inherit; font-size: 13px; }
@@ -1264,16 +1282,14 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
 .gl-new .gl-tell { width: 100%; }
 .gl-reached { margin: 10px 0 0; font-size: 12.5px; }
 @media (max-width: 720px) {
-  .gl-tree { display: grid; gap: 6px; padding-top: 0; margin-left: 22px; }
-  .gl-tree::before { display: none; }
-  .gl-brs { display: grid; gap: 6px; }
-  .gl-br { width: auto; padding-left: 16px; }
-  .gl-br::before { top: -6px; height: calc(100% + 6px); }
-  .gl-ahead { width: auto; margin: 0; padding-left: 16px; background: none; }
-  .gl-ahead::before { display: none; }
+  .gl-tree { margin-left: 22px; }
+  .gl-br { width: 100%; }
   .gl-prog { width: auto; }
   .gl-bar { width: 36px; }
-  .gl-line { flex-wrap: wrap; row-gap: 4px; padding: 6px 0; }
+  .gl-line { flex-wrap: wrap; row-gap: 4px; padding: 6px 8px; }
+  .gl-stop { margin-left: 22px; }
+}
+}
 }
 .h-empty { grid-column: 1 / -1; margin: 0; padding: 22px 18px; border: 1px dashed var(--line-strong); border-radius: var(--r-2); color: var(--fg-dim); font-size: 13px; text-align: center; }
 .fu-card { position: relative; display: grid; gap: 10px; min-width: 0; padding: 14px 14px 12px 18px; border-radius: var(--r-2); background: var(--raise); box-shadow: 0 0 0 1px var(--line); }
@@ -3958,8 +3974,8 @@ const REVIEW_WORDS = { APPROVED: 'approved', CHANGES_REQUESTED: 'changes request
 const UNREADY_WORDS = { BLOCKED: 'blocked', DIRTY: 'has conflicts', BEHIND: 'behind its base', UNSTABLE: 'a check fails', UNKNOWN: 'checking' };
 /** Its pull request can be merged now, as the last poll saw it: not a draft, and GitHub calls it clean. */
 const mergeable = (pr) => Boolean(pr && !pr.draft && pr.sha && (pr.mergeState === 'CLEAN' || pr.mergeState === 'HAS_HOOKS'));
-// ---------- Home: what needs you, then a card per space ----------
-// The deciding part is public/home-board.js (HomeBoard): who needs you and why, which card an agent is on, the counts.
+// ---------- Home: the goals ----------
+// The deciding part is public/home-board.js (HomeBoard): each issue as a goal, its branches and its move.
 const HB = globalThis.HomeBoard;
 /** Failed agents you dismissed from Needs you, by HB.dismissKey: each holds until the agent does something new. */
 const dismissedNeeds = new Set((() => { try { const v = JSON.parse(pref('acp.homeDismissed')); return Array.isArray(v) ? v.filter((k) => typeof k === 'string') : []; } catch { return []; } })());
@@ -4039,12 +4055,16 @@ function toggleGoal(g, open) {
   saveCollapsed(); render();
 }
 /** The buttons a branch (or a goal's move) offers, each acting on its own agent or item. */
-function goalActs(acts, { g = null, item = null, s = null, stopKey = null, space = null }) {
+/** Allow on a goal's collapsed line only when the whole command fits there; else Answer…, which opens it in full. */
+const lineActs = (acts, s) => { const p = s ? reqsOf(s.sessionId)[0] : null; return acts.includes('allow') && (HB.inlineAsk(p) ?? '').length > 60 ? ['answer'] : acts; };
+/** Run a button's action once at a time: a second click while it runs does nothing. */
+async function once(btn, run) { if (btn.dataset.busy) return; btn.dataset.busy = '1'; btn.disabled = true; try { await run(); } finally { delete btn.dataset.busy; btn.disabled = false; } }
+function goalActs(acts, { g = null, item = null, s = null, stopKey = null, space = null, down = false }) {
   const sid = s?.sessionId, fo = sid ? followOf(sid) : null;
   const busy = sid ? fuBusy.get(sid) ?? (fo && fuBusy.get(fo.sessionId)) ?? (fo?.sending ? 'Sending…' : null) : null;
   if (busy) return [el('span', { class: 'gl-busy', role: 'status', text: busy })];
   const issue = g?.issue, f = sid ? followOf(sid) : null, pr = s?.gh?.pr, p = sid ? reqsOf(sid)[0] : null;
-  const b = (text, run, primary = true, extra = {}) => el('button', { class: 'btn small gl-act' + (primary ? ' primary' : ''), type: 'button', text, ...extra,
+  const b = (text, run, tone = '', extra = {}) => el('button', { class: 'btn small gl-act', 'data-tone': tone || null, type: 'button', text, ...extra,
     onclick: (e) => { e.stopPropagation(); run(e.currentTarget); } });
   const stop = () => {
     goalStop = goalStop === stopKey ? null : stopKey;
@@ -4059,31 +4079,41 @@ function goalActs(acts, { g = null, item = null, s = null, stopKey = null, space
         fuBusy.set(sid, a === 'allow' ? 'Allowing…' : 'Denying…'); render();
         const r = await api(p.open ? '/api/answer-open' : '/api/decide', p.open ? { sessionId: sid, toolUseId: p.toolUseId, behavior: a } : { id: p.id, behavior: a });
         fuBusy.delete(sid); if (!r.ok) toast(r.error || 'That did not go through.', true); render();
-      }, a === 'allow', { title: HB.inlineAsk(p) ?? '' });
-      case 'answer': return b('Answer…', stop, !acts.includes('send'));
-      case 'open': return b('Open', () => openAgent(s), false);
+      }, a === 'allow' ? 'amber' : '', { title: HB.inlineAsk(p) ?? '' });
+      case 'answer': return b('Answer…', stop, acts.includes('send') ? '' : 'amber');
+      case 'open': return b('Open', () => openAgent(s));
       case 'send': return b(`Send “${(fuEdits.get(f.sessionId) ?? f.reply).replace(/\s+/g, ' ').slice(0, 28)}${(fuEdits.get(f.sessionId) ?? f.reply).length > 28 ? '…' : ''}”`,
-        (btn) => fuAct(f, 'send', btn, fuEdits.get(f.sessionId) ?? f.reply), true, { title: fuEdits.get(f.sessionId) ?? f.reply, 'data-send': f.sessionId });
-      case 'keep': return b('Keep going', (btn) => fuAct(f, 'send', btn, fuEdits.get(f.sessionId) ?? f.reply));
-      case 'fix': return b('Ask to fix', () => tellAgent(s, `The checks on PR #${pr.number} fail (${(pr.failing ?? []).join(', ') || 'see the PR'}). Fix them and push.`, 'Asked to fix.'));
-      case 'nudge': return b('Nudge', () => tellAgent(s, `You have shown no progress for ${Math.max(1, Math.floor((snap.now - lastActOf(s)) / 60_000))} minutes. Say where you are, and carry on.`, 'Nudged.'), false);
+        (btn) => fuAct(f, 'send', btn, fuEdits.get(f.sessionId) ?? f.reply), 'amber', { title: fuEdits.get(f.sessionId) ?? f.reply, 'data-send': f.sessionId });
+      case 'keep': return b('Keep going', (btn) => fuAct(f, 'send', btn, fuEdits.get(f.sessionId) ?? f.reply), 'amber');
+      case 'fix': return b('Ask to fix', (btn) => once(btn, () => tellAgent(s, `The checks on PR #${pr.number} fail (${(pr.failing ?? []).join(', ') || 'see the PR'}). Fix them and push.`, 'Asked to fix.')), 'red');
+      case 'nudge': return b('Nudge', (btn) => once(btn, () => tellAgent(s, `You have shown no progress for ${Math.max(1, Math.floor((snap.now - lastActOf(s)) / 60_000))} minutes. Say where you are, and carry on.`, 'Nudged.')));
       case 'merge': { const key = 'merge:' + sid, sure = armed?.key === key;
-        return b(sure ? `Confirm merge #${pr.number}` : `Merge #${pr.number}`, () => confirmOr(key, () => mergeSession(sid, pr)), true,
-          { 'data-key': key, title: `Merge pull request #${pr.number} with the repository’s default method. Click again to confirm.` }); }
-      case 'again': return b('Pick up again', async () => { const r = await isApi('back', { issue: issue.id, item: item.id }); if (r.ok) pickUp(issue, { ...item, state: 'todo' }); }, false);
-      case 'pickup': return b(isPickBusy.has(item.id) ? 'Starting…' : 'Pick up', () => pickUp(issue, item), false, { disabled: isPickBusy.has(item.id) });
-      case 'add': return b('Add the first part', () => showIsPop(true), false);
-      case 'wake': return b(s?.up ? 'Carry on' : 'Wake it', async (btn) => { btn.disabled = true; const r = await api('/api/main/wake', { space }); if (!r.ok) toast(r.error || 'It could not be sent.', true); });
+        return b(sure ? `Confirm merge #${pr.number}` : `Merge #${pr.number}`, () => confirmOr(key, () => mergeSession(sid, pr)), 'green',
+          { class: 'btn small gl-act' + (sure ? ' armed' : ''), 'data-key': key, title: `Merge pull request #${pr.number} with the repository’s default method. Click again to confirm.` }); }
+      case 'again': return b('Pick up again', async () => { const r = await isApi('back', { issue: issue.id, item: item.id }); if (r.ok) pickUp(issue, { ...item, state: 'todo' }); });
+      case 'pickup': return b(isPickBusy.has(item.id) ? 'Starting…' : 'Pick up', () => pickUp(issue, item), '', { disabled: isPickBusy.has(item.id) });
+      case 'add': return b('Add the first part', () => { showIsPop(true); isFold.delete(issue.id); saveIsFold(); startTyping({ kind: 'item', issue: issue.id }); });
+      case 'wake': return b(down ? 'Wake it' : 'Carry on', (btn) => once(btn, async () => { const r = await api('/api/main/wake', { space }); if (!r.ok) toast(r.error || 'It could not be sent.', true); }), 'amber');
       default: return null;
     }
   }).filter(Boolean);
 }
+/** Esc anywhere in a branch's panel (or on its name) closes it. */
+function closeOnEsc(node) {
+  node.addEventListener('keydown', (e) => { if (e.key === 'Escape' && goalStop) { e.preventDefault(); e.stopPropagation(); goalStop = null; render(); } });
+  return node;
+}
 /** A branch's open panel: what that stop needs (its request card or drafted reply; else tell it, interrupt, dismiss). */
-function stopPanel(key, s, tip) {
+const stopPanel = (key, s, tip) => closeOnEsc(stopBody(key, s, tip));
+function stopBody(key, s, tip) {
   if (!s) return el('div', { class: 'gl-stop' }, el('p', { class: 'quiet', text: tip.kind === 'starting' ? 'Its agent is starting. It shows here once it is on the board.'
     : tip.kind === 'wake' ? tip.words : 'Its agent is no longer on the board.' }));
   const reqs = reqsOf(s.sessionId), f = followOf(s.sessionId);
-  if (reqs.length) return el('div', { class: 'gl-stop' }, waitingRow({ s, kind: 'waiting', reqs }));
+  if (reqs.length) {
+    // A question, a plan or an edit opens straight to its own card: the branch already said what it asks.
+    if (!HB.plainAsk(reqs)) reqOpen.add(reqs[0].id);
+    return el('div', { class: 'gl-stop' }, waitingRow({ s, kind: 'waiting', reqs }));
+  }
   if (f) return el('div', { class: 'gl-stop' }, fuCard(f, s));
   const inp = el('input', { class: 'gl-tell', type: 'text', placeholder: `Tell ${label(s)}…`, 'aria-label': `Tell ${label(s)}`, value: goalTell.get(key) ?? '' });
   const send = async () => { const t = inp.value.trim(); if (!t) return; if (await tellAgent(s, t)) { goalTell.delete(key); inp.value = ''; } };
@@ -4104,10 +4134,10 @@ function branchNode(gkey, b, g) {
   const key = `${gkey}|${b.item?.id ?? b.s?.sessionId ?? b.space}`, on = goalStop === key, s = b.s;
   const name = b.item ? b.item.text : s ? label(s) : b.tip.words;
   return el('div', { class: 'gl-br', 'data-tone': b.tip.tone, 'data-open': on ? '1' : '0', 'data-bk': key },
-    el('button', { class: 'gl-br-name', type: 'button', title: s ? `${name} · ${label(s)}` : name, 'aria-expanded': String(on),
-      onclick: () => { goalStop = on ? null : key; render(); } }, dotOf(b.tip), el('span', { text: name })),
-    b.item || s ? el('span', { class: 'gl-br-words', 'data-tone': b.tip.tone, text: b.tip.words }) : null,
-    el('div', { class: 'gl-br-acts' }, ...goalActs(b.tip.acts, { g, item: b.item, s, stopKey: key, space: b.space })));
+    closeOnEsc(el('button', { class: 'gl-br-name', type: 'button', title: s ? `${name} · ${label(s)}` : name, 'aria-expanded': String(on),
+      onclick: () => { goalStop = on ? null : key; render(); } }, dotOf(b.tip), el('span', { text: name }))),
+    b.item || s ? el('span', { class: 'gl-br-words', 'data-tone': b.tip.tone, 'data-full': b.tip.acts.includes('allow') ? '1' : null, text: b.tip.words }) : null,
+    b.tip.acts.length ? el('div', { class: 'gl-br-acts' }, ...goalActs(b.tip.acts, { g, item: b.item, s, stopKey: key, space: b.space, down: b.down })) : null);
 }
 /** A goal: its line (collapsed: branch dots and its one move), and open: its tree running sideways, then what is ahead. */
 function goalNode(g, isOpen, outside = null) {
@@ -4116,13 +4146,13 @@ function goalNode(g, isOpen, outside = null) {
   const tone = outside ? branches[0]?.tip.tone ?? 'grey' : branches.find((b) => b.tip.rank === g.move.rank)?.tip.tone ?? (g.move.rank === 4 ? 'green' : 'grey');
   const toggle = () => toggleGoal(g, !isOpen); // for Outside any goal, `g` stands in: { id: 'outside', needSig }
   const line = el('div', { class: 'gl-line', onclick: (e) => { if (!e.target.closest('button:not(.gl-chev)')) toggle(); } },
-    el('button', { class: 'gl-chev', type: 'button', 'aria-expanded': String(isOpen), 'aria-label': `${isOpen ? 'Collapse' : 'Open'} ${outside ? 'Outside any goal' : g.title}` }, isOpen ? '▾' : '▸'),
+    el('button', { class: 'gl-chev', type: 'button', 'aria-expanded': String(isOpen), 'aria-label': `${isOpen ? 'Collapse' : 'Open'} ${outside ? 'Outside any goal' : g.title}` }, svgIcon('M9 6l6 6-6 6')),
     el('span', { class: 'gl-title', text: outside ? 'Outside any goal' : g.title }),
     !isOpen && branches.length ? el('span', { class: 'gl-dots' }, ...branches.slice(0, 8).map((b) => dotOf(b.tip))) : null,
     el('span', { class: 'gl-move', 'data-tone': isOpen ? 'grey' : tone, text: moveText(g, isOpen, outside) }),
     el('span', { class: 'grow' }),
-    !isOpen && !outside ? el('span', { class: 'gl-acts' }, ...goalActs(g.move.acts, { g, item: g.move.item, s: g.move.s, stopKey: g.move.item ? `${gkey}|${g.move.item.id}` : null })) : null,
-    !isOpen && outside && branches.length === 1 ? el('span', { class: 'gl-acts' }, ...goalActs(branches[0].tip.acts, { g, s: branches[0].s, stopKey: `${gkey}|${branches[0].s?.sessionId ?? branches[0].space}`, space: branches[0].space })) : null,
+    !isOpen && !outside ? el('span', { class: 'gl-acts' }, ...goalActs(lineActs(g.move.acts, g.move.s), { g, item: g.move.item, s: g.move.s, stopKey: g.move.item ? `${gkey}|${g.move.item.id}` : null })) : null,
+    !isOpen && outside && branches.length === 1 ? el('span', { class: 'gl-acts' }, ...goalActs(lineActs(branches[0].tip.acts, branches[0].s), { g, s: branches[0].s, stopKey: `${gkey}|${branches[0].s?.sessionId ?? branches[0].space}`, space: branches[0].space, down: branches[0].down })) : null,
     !outside ? el('span', { class: 'gl-prog', title: `${g.shipped} of ${g.total} parts shipped` },
       el('span', { class: 'gl-bar' }, el('i', { style: `width:${g.total ? Math.round((100 * g.shipped) / g.total) : 0}%` })), `${g.shipped}/${g.total}`) : null);
   const node = el('section', { class: 'gl', 'data-open': isOpen ? '1' : '0', 'aria-label': outside ? 'Outside any goal' : `Goal: ${g.title}` }, line);
@@ -4130,10 +4160,9 @@ function goalNode(g, isOpen, outside = null) {
   const tree = el('div', { class: 'gl-tree', 'data-outside': outside ? '1' : '0' },
     el('div', { class: 'gl-brs' }, ...branches.map((b) => branchNode(gkey, b, g))),
     !outside ? el('div', { class: 'gl-ahead', 'data-none': g.ahead.length ? '0' : '1' },
-      g.ahead.length ? [el('span', { class: 'gl-next' }, el('i', { class: 'gl-dot', 'data-tone': 'grey', 'data-ring': 'dash' }), `Next: ${g.ahead[0].text}`),
-        g.ahead.length > 1 ? el('span', { class: 'quiet', text: `+${g.ahead.length - 1} more` }) : null,
-        ...goalActs(['pickup'], { g, item: g.ahead[0] })]
-        : g.empty ? goalActs(['add'], { g }) : [el('span', { class: 'quiet', text: 'nothing ahead' })]) : null);
+      g.ahead.length ? [el('span', { class: 'gl-next' }, el('i', { class: 'gl-dot', 'data-tone': 'grey', 'data-ring': 'dash' }), 'Next: ', el('b', { text: g.ahead[0].text }),
+        g.ahead.length > 1 ? ` · ${g.ahead.length - 1} more` : ''), ...goalActs(['pickup'], { g, item: g.ahead[0] })]
+        : g.empty ? goalActs(['add'], { g }) : [el('span', { class: 'quiet', text: 'Nothing ahead' })]) : null);
   node.append(tree);
   return node;
 }
@@ -4204,11 +4233,12 @@ function renderGoals(vis) {
   const held = Object.entries(snap.mains ?? {}).filter(([, h]) => h).map(([space, h]) => ({ space, name: snap.spaces?.find((x) => x.id === space)?.name ?? 'a space',
     down: h.down, waiting: h.waiting, s: vis.find((x) => x.sessionId === mainOfSpace(space)?.sessionId) ?? null }));
   const outside = HB.outsideOf({ ...ctx, sessions: vis, workingIds, isMain: (s) => s.role === 'main', held });
+  const stand = outside.length ? { id: 'outside', needSig: JSON.stringify(outside.filter((r) => r.tip.rank <= 2).map((r) => [r.s?.sessionId ?? r.space, r.tip.kind, r.tip.need])) } : null;
   if (!box.firstChild) box.append(el('div', { class: 'h-lane' }, el('h3', { text: 'Goals' }), el('span', { class: 'grow' }), el('span', { class: 'gl-head' })), el('div', { class: 'gl-list' }));
-  const anyOpen = goals.some((g) => HB.isOpen(g, goalsCollapsed));
-  patch(box.firstChild.lastChild, JSON.stringify([goals.length, anyOpen, newGoal !== null]), () => [
-    goals.length ? el('button', { class: 'btn quiet small', type: 'button', text: anyOpen ? 'Collapse all' : 'Expand all', onclick: () => {
-      for (const g of goals) toggleGoal(g, !anyOpen); } }) : null,
+  const anyOpen = [...goals, ...(stand ? [stand] : [])].some((g) => HB.isOpen(g, goalsCollapsed));
+  patch(box.firstChild.lastChild, JSON.stringify([goals.length, Boolean(stand), anyOpen, newGoal !== null]), () => [
+    goals.length || stand ? el('button', { class: 'btn quiet small', type: 'button', text: anyOpen ? 'Collapse all' : 'Expand all', onclick: () => {
+      for (const g of [...goals, ...(stand ? [stand] : [])]) toggleGoal(g, !anyOpen); } }) : null,
     el('button', { class: 'btn quiet small', type: 'button', text: '+ New goal', onclick: () => { newGoal = ''; render(); requestAnimationFrame(() => $('gl-new')?.focus()); } })]);
   const want = [];
   if (newGoal !== null) {
@@ -4243,8 +4273,7 @@ function renderGoals(vis) {
     refreshGoal(put(`goal:${g.id}`, goalSig(g, o, null), () => goalNode(g, o)), g, o, null);
     stopUnder(`goal:${g.id}`, g.branches, o);
   }
-  if (outside.length) {
-    const stand = { id: 'outside', needSig: JSON.stringify(outside.filter((r) => r.tip.rank <= 2).map((r) => [r.s?.sessionId ?? r.space, r.tip.kind, r.tip.need])) };
+  if (stand) {
     const o = HB.isOpen(stand, goalsCollapsed);
     refreshGoal(put('outside', goalSig(null, o, outside), () => goalNode(stand, o, outside)), stand, o, outside);
     stopUnder('outside', outside, o);
