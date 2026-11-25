@@ -1780,8 +1780,9 @@ function claimSpaces(wsId) {
 const issues = createIssues({ file: path.join(dataDir, 'issues.json') });
 const issueIn = (wsId, id) => issues.list(wsId).find((x) => x.id === String(id ?? '')) ?? null;
 const ISSUE_GONE = { ok: false, error: 'That issue is gone.' }, ITEM_GONE = { ok: false, error: 'That item is gone.' };
-/** What an agent picking up an item is told: the item, then which issue it is part of. */
-const issuePrompt = (i, it) => `${it.text}\n\nThis is part of: ${i.title}.`;
+/** What an agent picking up an item is told: the item and its own note, which issue it is part of, and that issue's
+ *  notes as context. */
+const issuePrompt = (i, it) => [it.text, it.note || null, `This is part of: ${i.title}.`, i.notes ? `Context for this issue:\n${i.notes}` : null].filter(Boolean).join('\n\n');
 /** A pick-up's worktree: named after its item, and new each time (a second pick-up of an item gets a fresh one). */
 const issueWorktree = (item) => `issue-${item}-${Date.now().toString(36).slice(-5)}`;
 /** A launch name from an item's words: the characters a name may have, 40 at most. */
@@ -1841,6 +1842,8 @@ const issueRoutes = {
   delete: (b, c) => nudged(issues.remove(c.focus, String(b?.id ?? ''))),
   'item/add': (b, c) => nudged(issues.addItem(c.focus, String(b?.issue ?? ''), b?.text)),
   'item/edit': (b, c) => nudged(issues.editItem(c.focus, String(b?.issue ?? ''), String(b?.item ?? ''), b?.text)),
+  notes: (b, c) => nudged(issues.setNotes(c.focus, String(b?.issue ?? ''), b?.notes ?? '')),
+  'item/note': (b, c) => nudged(issues.setItemNote(c.focus, String(b?.issue ?? ''), String(b?.item ?? ''), b?.note ?? '')),
   'item/delete': (b, c) => nudged(issues.removeItem(c.focus, String(b?.issue ?? ''), String(b?.item ?? ''))),
   move: (b, c) => nudged(issues.move(c.focus, { issue: String(b?.issue ?? ''), item: b?.item == null ? undefined : String(b.item), before: b?.before == null ? undefined : String(b.before) })),
   tick: (b, c) => nudged(issues.tick(c.focus, String(b?.issue ?? ''), String(b?.item ?? ''), b?.on === true)),

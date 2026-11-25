@@ -8,7 +8,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 
-const TITLE_MAX = 120, TEXT_MAX = 300;
+const TITLE_MAX = 120, TEXT_MAX = 300, NOTES_MAX = 4000, NOTE_MAX = 1000;
+/** Notes: lines kept, each line's end and the whole trimmed, blank runs of lines made one. */
+const notesOf = (v) => String(v ?? '').replace(/\r\n?/g, '\n').split('\n').map((l) => l.trimEnd()).join('\n').replace(/\n{3,}/g, '\n\n').trim();
 const CHOICES = ['agentKind', 'login', 'model', 'effort', 'mode'];
 const blank = () => Object.create(null);
 const newId = () => randomBytes(4).toString('hex');
@@ -32,14 +34,14 @@ function itemIn(x) {
   return { id: x.id, text: x.text, state, sessionId: str(x.sessionId, 64), launchId: str(x.launchId, 64),
            branches: Array.isArray(x.branches) ? [...new Set(x.branches.filter((b) => str(b, 250)))] : [],
            doneBy: state === 'done' && ['merge', 'tick'].includes(x.doneBy) ? x.doneBy : null,
-           pr: state === 'done' && Number.isInteger(x.pr) ? x.pr : null, at: Number.isFinite(x.at) ? x.at : 0, startedAt: Number.isFinite(x.startedAt) ? x.startedAt : 0 };
+           pr: state === 'done' && Number.isInteger(x.pr) ? x.pr : null, at: Number.isFinite(x.at) ? x.at : 0, startedAt: Number.isFinite(x.startedAt) ? x.startedAt : 0, note: str(x.note, NOTE_MAX) ?? '' };
 }
 function issueIn(x) {
   if (!x || typeof x !== 'object' || !ID.test(x.id ?? '') || !str(x.title, TITLE_MAX)) return null;
   const items = (Array.isArray(x.items) ? x.items : []).map(itemIn).filter(Boolean);
   return { id: x.id, title: x.title, space: str(x.space, 64), owns: x.owns === true && Boolean(str(x.space, 64)),
            folder: typeof x.folder === 'string' && path.isAbsolute(x.folder) ? x.folder : null, choices: choicesIn(x.choices),
-           items: items.filter((it, i) => items.findIndex((y) => y.id === it.id) === i) };
+           notes: str(x.notes, NOTES_MAX) ?? '', items: items.filter((it, i) => items.findIndex((y) => y.id === it.id) === i) };
 }
 const copy = (v) => JSON.parse(JSON.stringify(v));
 
@@ -78,7 +80,7 @@ export function createIssues({ file, now = Date.now } = {}) {
       const t = titleOf(title);
       if (!t.ok) return t;
       const list = issuesOf(ws), id = fresh(list);
-      list.push({ id, title: t.t, space: null, owns: false, folder: null, choices: null, items: [] });
+      list.push({ id, title: t.t, space: null, owns: false, folder: null, choices: null, notes: '', items: [] });
       save();
       return { ok: true, id };
     },
@@ -98,7 +100,7 @@ export function createIssues({ file, now = Date.now } = {}) {
       if (!i) return NOISSUE;
       if (!t.ok) return t;
       const id = fresh(i.items);
-      i.items.push({ id, text: t.t, state: 'todo', sessionId: null, launchId: null, branches: [], doneBy: null, pr: null, at: now() });
+      i.items.push({ id, text: t.t, state: 'todo', sessionId: null, launchId: null, branches: [], doneBy: null, pr: null, at: now(), note: '' });
       save();
       return { ok: true, id };
     },
@@ -203,6 +205,21 @@ export function createIssues({ file, now = Date.now } = {}) {
       Object.assign(it, { state: 'done', doneBy: 'merge', pr: Number.isInteger(pr) ? pr : null });
       save();
       return OK;
+    },
+    /** An issue's notes: the context every pick-up from it is given. Empty clears them. */
+    setNotes(ws, issue, text) {
+      const i = find(ws, issue), t = notesOf(text);
+      if (!i) return NOISSUE;
+      if (t.length > NOTES_MAX) return no(`Notes are at most ${NOTES_MAX.toLocaleString('en')} characters.`);
+      i.notes = t; save(); return OK;
+    },
+    /** An item's own note, given with it when it is picked up. Empty clears it. */
+    setItemNote(ws, issue, item, text) {
+      const { i, it } = findItem(ws, issue, item), t = notesOf(text);
+      if (!i) return NOISSUE;
+      if (!it) return NOITEM;
+      if (t.length > NOTE_MAX) return no(`A note is at most ${NOTE_MAX.toLocaleString('en')} characters.`);
+      it.note = t; save(); return OK;
     },
     /** A workspace that goes takes its issues with it, so a new one by the same id never sees them. */
     dropWorkspace(ws) {

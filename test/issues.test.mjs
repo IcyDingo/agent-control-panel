@@ -99,6 +99,24 @@ test('an issue keeps its space (and whether it made it), its folder and its laun
   assert.deepEqual(s.list('w').map((x) => [x.space, x.owns]), [[null, false], [null, false]]);
 });
 
+test('notes: an issue\'s (4,000 characters, lines kept) and an item\'s (1,000); empty clears them; kept across a restart', () => {
+  const { file, s } = mk();
+  const i = s.create('w', 'Checkout').id, it = s.addItem('w', i, 'Cart page').id;
+  assert.equal(s.list('w')[0].notes, '');
+  assert.equal(s.setNotes('w', i, '  Use the v2 API.\nTotals come from /api/cart/totals.\n\n  ').ok, true);
+  assert.equal(s.list('w')[0].notes, 'Use the v2 API.\nTotals come from /api/cart/totals.', 'lines kept, ends trimmed');
+  assert.equal(s.setNotes('w', i, 'x'.repeat(4001)).ok, false);
+  assert.equal(s.setItemNote('w', i, it, 'Match the Figma frame "Cart v3".').ok, true);
+  assert.equal(s.list('w')[0].items[0].note, 'Match the Figma frame "Cart v3".');
+  assert.equal(s.setItemNote('w', i, it, 'x'.repeat(1001)).ok, false);
+  assert.equal(s.setNotes('w', 'nope', 'x').ok, false);
+  assert.equal(s.setItemNote('w', i, 'nope', 'x').ok, false);
+  const again = createIssues({ file }).list('w')[0];
+  assert.deepEqual([again.notes, again.items[0].note], ['Use the v2 API.\nTotals come from /api/cart/totals.', 'Match the Figma frame "Cart v3".']);
+  s.setNotes('w', i, '   '); s.setItemNote('w', i, it, '');
+  assert.deepEqual([s.list('w')[0].notes, s.list('w')[0].items[0].note], ['', '']);
+});
+
 test('a workspace that goes takes its issues with it: a new one by the same id starts with none', () => {
   const { file, s } = mk();
   s.addItem('w', s.create('w', 'Old work').id, 'x');

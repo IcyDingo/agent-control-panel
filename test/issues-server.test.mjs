@@ -183,6 +183,22 @@ test('two pick-ups of one item at once start one agent; the form cannot start a 
   assert.equal((await api('/api/issue/item/delete', { issue, item: c })).ok, true);
 });
 
+test('notes travel with a pick-up: the item, its note, which issue it is part of, then the issue\'s notes as context', async () => {
+  const d = (await api('/api/issue/item/add', { issue, text: 'Empty cart state' })).id;
+  assert.equal((await api('/api/issue/notes', { issue, notes: 'Use the v2 API.\nTotals come from /api/cart/totals.' })).ok, true);
+  assert.equal((await api('/api/issue/item/note', { issue, item: d, note: 'Match the Figma frame "Cart v3".' })).ok, true);
+  const got = await issueAt(issue);
+  assert.equal(got.notes, 'Use the v2 API.\nTotals come from /api/cart/totals.');
+  assert.equal(got.items.find((x) => x.id === d).note, 'Match the Figma frame "Cart v3".');
+  const p = await api('/api/issue/prepare', { issue, item: d });
+  const want = 'Empty cart state\n\nMatch the Figma frame "Cart v3".\n\nThis is part of: Checkout on the v2 API.\n\nContext for this issue:\nUse the v2 API.\nTotals come from /api/cart/totals.';
+  assert.equal(p.prompt, want);
+  assert.equal((await api('/api/issue/pickup', { issue, item: d })).ok, true);
+  assert.equal(launches().at(-1).args.at(-1), want, 'the agent gets the same');
+  assert.equal((await api('/api/issue/notes', { issue, notes: '' })).ok, true, 'notes can be cleared');
+  assert.equal((await api('/api/issue/item/delete', { issue, item: d })).ok, true);
+});
+
 test('when a pull request from its branch merges, after its agent left the board, the item is done', async () => {
   setPrs({ open: [{ number: 12, branch: 'feat-x' }], merged: [] });
   await api('/api/github/refresh', {});
