@@ -204,6 +204,11 @@ export function createIssues({ file, now = Date.now } = {}) {
       save();
       return OK;
     },
+    /** A workspace that goes takes its issues with it, so a new one by the same id never sees them. */
+    dropWorkspace(ws) {
+      if (!(ws in st)) return OK;
+      delete st[ws]; save(); return OK;
+    },
     /** Every item not done that an agent was started on, across workspaces: for linking, branches and merges. */
     openItems() {
       const out = [];

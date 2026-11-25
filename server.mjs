@@ -1786,8 +1786,12 @@ const issuePrompt = (i, it) => `${it.text}\n\nThis is part of: ${i.title}.`;
 const issueWorktree = (item) => `issue-${item}-${Date.now().toString(36).slice(-5)}`;
 /** A launch name from an item's words: the characters a name may have, 40 at most. */
 const issueName = (text) => String(text).replace(/[^\w .-]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40).trim() || 'issue';
-/** Whether an item may be picked up: to do, or its agent has finished or is gone. */
+/** Items whose pick-up is launching right now (`${ws}\0${item}`): a launch takes seconds, and a second click in that
+ *  time must not start a second agent. */
+const itemsPicking = new Set();
+/** Whether an item may be picked up: to do, or its agent has finished or is gone; never while one is launching. */
 function itemPickable(wsId, it) {
+  if (itemsPicking.has(`${wsId}\0${it.id}`)) return false;
   if (it.state === 'todo') return true;
   if (it.state !== 'working') return false;
   const s = it.sessionId ? sessions.get(it.sessionId) : null;
@@ -1875,7 +1879,10 @@ const issueRoutes = {
     const body = { prompt: issuePrompt(i, it), cwd: i.folder, space: sp.space, name: issueName(it.text), worktree: true, worktreeName: issueWorktree(it.id),
                    agentKind: ch.agentKind ?? (d.agent === 'opencode' ? 'opencode' : 'claude'), model: ch.model ?? d.model, effort: ch.effort ?? d.effort,
                    mode: ch.mode ?? d.mode, login: ch.login ?? undefined, ...(ch.agentKind === 'opencode' ? { model: ch.model ?? d.opencodeModel } : {}) };
-    const r = await launch(body, c.ws);
+    const key = `${c.focus}\0${it.id}`;
+    itemsPicking.add(key);
+    let r;
+    try { r = await launch(body, c.ws); } finally { itemsPicking.delete(key); }
     if (!r.ok) { loginFailed(r.error); return r.ask ? { ok: true, needsForm: true } : r; }
     if (r.id) { pendingSpace.set(String(r.id), { ws: c.focus, space: sp.space, at: Date.now() }); issues.startItem(c.focus, i.id, it.id, String(r.id)); }
     feed('launched', null, `You picked up "${it.text.slice(0, 80)}".`, c.focus);
@@ -1887,6 +1894,7 @@ const issueRoutes = {
 function issueLaunchBody(body, wsId) {
   const ref = body?.issue, i = ref ? issueIn(wsId, ref.issue) : null, it = i?.items.find((x) => x.id === String(ref?.item ?? ''));
   if (!it) return { body, link: null };
+  if (!itemPickable(wsId, it)) return { refused: it.state === 'done' ? 'That item is done.' : 'An agent is already on that item.' };
   return { body: { ...body, worktree: true, worktreeName: typeof body.worktreeName === 'string' && body.worktreeName.startsWith(`issue-${it.id}`) ? body.worktreeName : issueWorktree(it.id) },
            link: { issue: i.id, item: it.id } };
 }
@@ -1939,7 +1947,7 @@ function issueTargets() {
     if (!o.branches.length || !o.folder) continue;
     const p = gitPlace(o.folder);
     if (!p?.common) continue;
-    for (const branch of o.branches) out.push({ sessionId: `item:${o.item}`, ws: o.ws, common: p.common, branch, at: Date.now() });
+    for (const branch of o.branches) out.push({ sessionId: `item:${o.item}`, ws: o.ws, common: p.common, branch, at: o.startedAt ?? 0 }); // ranked by when it was picked up, never ahead of live agents
   }
   return out;
 }
@@ -2449,7 +2457,9 @@ function removeWorkspace(body) {
   const id = String(body?.id ?? '');
   if (!W.has(id)) return { ok: false, error: 'No such workspace.' };
   if ([...sessions.values()].some((s) => s.ws === id && isLive(s))) return { ok: false, error: `Sessions are still running in ${wsView(id).name}. End them first.` };
-  return loginsChanged(store.removeWorkspace(id));
+  const r = loginsChanged(store.removeWorkspace(id));
+  if (r.ok) issues.dropWorkspace(id); // its issues go with it: a new workspace by the same name starts with none
+  return r;
 }
 /** The routes Settings changes workspaces' logins with: `{ ws, id }` each. */
 const WS_LOGIN = {
@@ -4406,7 +4416,11 @@ async function handle(req, res) {
       const main = body?.main === true;
       // For an issue's item (the first pick-up's form): a worktree of its own, and the item linked once it started.
       const asIssue = main ? { body, link: null } : issueLaunchBody(body, focus);
-      const r = main ? await startMain(body, focus, ctx.ws) : await launch(asIssue.body, ctx.ws);
+      if (asIssue.refused) return send(res, 422, { ok: false, error: asIssue.refused });
+      const pickKey = asIssue.link ? `${focus}\0${asIssue.link.item}` : null;
+      if (pickKey) itemsPicking.add(pickKey);
+      let r;
+      try { r = main ? await startMain(body, focus, ctx.ws) : await launch(asIssue.body, ctx.ws); } finally { if (pickKey) itemsPicking.delete(pickKey); }
       if (r.refused) return send(res, 422, { ok: false, error: r.error });
       if (r.ok && !main && space && r.id) pendingSpace.set(String(r.id), { ws: focus, space, at: Date.now() });
       issueLaunched(focus, asIssue.link, asIssue.body, r);

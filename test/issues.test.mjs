@@ -99,6 +99,16 @@ test('an issue keeps its space (and whether it made it), its folder and its laun
   assert.deepEqual(s.list('w').map((x) => [x.space, x.owns]), [[null, false], [null, false]]);
 });
 
+test('a workspace that goes takes its issues with it: a new one by the same id starts with none', () => {
+  const { file, s } = mk();
+  s.addItem('w', s.create('w', 'Old work').id, 'x');
+  s.create('other', 'Stays');
+  s.dropWorkspace('w');
+  assert.deepEqual(s.list('w'), []);
+  assert.deepEqual(createIssues({ file }).list('w'), [], 'gone for good');
+  assert.deepEqual(s.list('other').map((x) => x.title), ['Stays']);
+});
+
 test('it survives a restart; a malformed file keeps what is valid', () => {
   const { file, s } = mk();
   const i = s.create('w', 'Checkout').id;

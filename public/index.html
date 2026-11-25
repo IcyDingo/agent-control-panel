@@ -1023,6 +1023,7 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
 .is-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .is-item[data-m="done"] .is-text { color: var(--fg-dim); text-decoration: line-through; text-decoration-color: var(--line-strong); }
 .is-pick { flex: none; height: 24px; }
+.is-right { flex: none; display: inline-flex; align-items: center; gap: 8px; }
 .is-agent { flex: none; max-width: 170px; padding: 0 4px; border: 0; background: none; color: var(--fg-dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .is-agent b { color: var(--fg); font-weight: 500; }
 .is-agent:hover b { text-decoration: underline; text-underline-offset: 2px; }
@@ -4695,6 +4696,8 @@ if (pref('acp.ghSide') === '1') { $('gh-pop').hidden = false; setAttr($('gh-btn'
 const IS_ICON = 'M9 6h11M9 12h11M9 18h11M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2';
 const isFold = new Set((() => { try { const v = JSON.parse(pref('acp.isFold') ?? '[]'); return Array.isArray(v) ? v.filter((k) => typeof k === 'string') : []; } catch { return []; } })());
 const saveIsFold = () => pref('acp.isFold', JSON.stringify([...isFold]));
+const isOpened = new Set();   // fully done issues you opened again (they fold away by themselves)
+const isPickBusy = new Set(); // items whose Pick up is on its way
 let isTyping = null;          // the line being typed: { kind: 'issue' } | { kind: 'item', issue } | { kind: 'title', issue } | { kind: 'text', issue, item }
 const isDrafts = new Map();   // what was typed in each line, kept across redraws (key of isTyping → text)
 let isSpacePick = null;       // the issue whose "Use space…" picker is open
@@ -4755,8 +4758,11 @@ function typingLine(t, placeholder) {
 }
 /** Pick up an item: at once in the issue's folder and space; the form first when it has none yet, or when asked. */
 async function pickUp(i, it, { form = false } = {}) {
+  if (isPickBusy.has(it.id)) return;
   if (!form) {
-    const r = await isApi('pickup', { issue: i.id, item: it.id });
+    isPickBusy.add(it.id); render();
+    let r;
+    try { r = await isApi('pickup', { issue: i.id, item: it.id }); } finally { isPickBusy.delete(it.id); render(); }
     if (!r.ok || !r.needsForm) return;
   }
   const p = await isApi('prepare', { issue: i.id, item: it.id });
@@ -4800,8 +4806,11 @@ function itemRow(i, it, items) {
   const v = HB.itemView(it, new Map(snap.sessions.map((s) => [s.sessionId, s])), stateOf, label);
   if (isTyping?.kind === 'text' && isTyping.item === it.id) return el('div', { class: 'is-item editing' }, el('span', { class: 'is-mark', 'data-m': v.mark }), typingLine(isTyping, 'The item'));
   const openAgent = () => { cancelAdvance(); open = it.sessionId; render(); };
-  const right = v.mark === 'todo' ? el('button', { class: 'btn small is-pick', type: 'button', text: 'Pick up', title: 'Start an agent on it (Shift-click: with options)',
-      onclick: (e) => pickUp(i, it, { form: e.shiftKey }) })
+  const busy = isPickBusy.has(it.id);
+  const right = v.mark === 'todo' || v.mark === 'finished' ? el('span', { class: 'is-right' },
+      v.mark === 'finished' ? el('span', { class: 'is-detail', text: v.label ? `${v.label} · ${v.detail}` : v.detail }) : null,
+      el('button', { class: 'btn small is-pick', type: 'button', disabled: busy, text: busy ? 'Starting…' : v.mark === 'finished' ? 'Pick up again' : 'Pick up',
+        title: 'Start an agent on it (Shift-click: with options)', onclick: (e) => pickUp(i, it, { form: e.shiftKey }) }))
     : v.mark === 'working' && it.sessionId ? el('button', { class: 'is-agent', type: 'button', title: 'Open its agent', onclick: openAgent }, el('b', { text: v.label }), ` · ${v.detail}`)
     : el('span', { class: 'is-detail', text: v.label && v.mark === 'finished' ? `${v.label} · ${v.detail}` : v.detail });
   return el('div', { class: 'is-item', 'data-m': v.mark, tabindex: '0', ...dragHandlers({ issue: i.id, item: it.id }, it.id),
@@ -4813,13 +4822,16 @@ function itemRow(i, it, items) {
     isMenu(`More for ${it.text}`, [
       ['Edit', () => startTyping({ kind: 'text', issue: i.id, item: it.id }, it.text)],
       v.mark === 'todo' || v.mark === 'finished' ? ['Pick up with options…', () => pickUp(i, it, { form: true })] : null,
-      v.mark === 'finished' ? ['Back to to do', () => isApi('back', { issue: i.id, item: it.id })] : null,
+      v.mark === 'finished' || (v.mark === 'working' && !it.sessionId) ? ['Back to to do', () => isApi('back', { issue: i.id, item: it.id })] : null,
       ['Delete', () => isApi('item/delete', { issue: i.id, item: it.id }), true],
     ]));
 }
 function issueBlock(i, list) {
-  const folded = isFold.has(i.id), todo = i.items.filter((x) => x.state === 'todo').length, sp = snap.spaces?.find((x) => x.id === i.space);
-  const toggle = () => { if (folded) isFold.delete(i.id); else isFold.add(i.id); saveIsFold(); render(); };
+  const folded = isFold.has(i.id) || (i.allDone && !isOpened.has(i.id)), todo = i.items.filter((x) => x.state === 'todo').length, sp = snap.spaces?.find((x) => x.id === i.space);
+  const toggle = () => {
+    if (i.allDone) { if (isOpened.has(i.id)) isOpened.delete(i.id); else isOpened.add(i.id); render(); return; }
+    if (folded) isFold.delete(i.id); else isFold.add(i.id); saveIsFold(); render();
+  };
   const head = isTyping?.kind === 'title' && isTyping.issue === i.id
     ? el('div', { class: 'is-head editing' }, typingLine(isTyping, 'The issue'))
     : el('div', { class: 'is-head', tabindex: '0', ...dragHandlers({ issue: i.id }, i.id),
@@ -4868,7 +4880,11 @@ function renderIssues() {
   // A line being typed keeps its focus and caret across the redraw.
   const act = document.activeElement, typing = act?.classList?.contains('is-input') && pop.contains(act) ? [act.selectionStart, act.selectionEnd] : null;
   const ordered = HB.issueOrder(list);
-  const sig = JSON.stringify([list, snap.spaces, snap.sessions.map((s) => [s.sessionId, stateOf(s), label(s)]), [...isFold], typingKey(isTyping), isSpacePick, isDeleting]);
+  // Redrawn only when something it shows changes: the agents its items name, not every agent of the workspace (a redraw
+  // closes an open ⋯ menu).
+  const named = new Set(list.flatMap((x) => x.items.map((it) => it.sessionId).filter(Boolean)));
+  const sig = JSON.stringify([list, snap.spaces, snap.sessions.filter((s) => named.has(s.sessionId)).map((s) => [s.sessionId, stateOf(s), label(s)]), [...isFold], [...isOpened],
+    typingKey(isTyping), isSpacePick, isDeleting, [...isPickBusy]]);
   patch(pop, sig, () => [
     el('div', { class: 'gh-pop-h is-pop-h' }, el('h3', { text: 'Issues' }), el('span', { class: 'grow' }),
       iconBtn(PLUS, { class: 'btn icon', title: 'New issue', 'aria-label': 'New issue', onclick: () => startTyping({ kind: 'issue' }) }),
@@ -5083,6 +5099,8 @@ function openLauncher(preset = null) {
   $('l-agents').replaceChildren(...[...types].map((t) => el('option', { value: t })));
   // A + fills in its folder and space; New agent afterwards gets back the ones it had before the + (none: as it was).
   let space = $('l-space').value;
+  // A pick-up's form that was cancelled leaves nothing behind in the next plain New agent.
+  if (launcherIssue && !preset?.issue) { $('l-prompt').value = ''; $('l-name').value = ''; $('l-wt-name').value = ''; }
   launcherIssue = preset?.issue ?? null;
   if (preset?.prompt) $('l-prompt').value = preset.prompt;
   if (preset?.issue) {

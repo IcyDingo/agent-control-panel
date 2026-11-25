@@ -171,6 +171,18 @@ test('a later pick-up starts at once, in the issue\'s folder and space, with the
   assert.match((await api('/api/issue/pickup', { issue, item: b })).error, /already/, 'not twice while its agent is on it');
 });
 
+test('two pick-ups of one item at once start one agent; the form cannot start a second one either', async () => {
+  const c = (await api('/api/issue/item/add', { issue, text: 'Coupons' })).id, n = launches().length;
+  const rs = await Promise.all([api('/api/issue/pickup', { issue, item: c }), api('/api/issue/pickup', { issue, item: c })]);
+  assert.equal(rs.filter((r) => r.ok && r.id).length, 1, JSON.stringify(rs));
+  assert.equal(launches().length, n + 1, 'one launch, not two');
+  const r = await api('/api/launch', { prompt: 'x', cwd: repo, model: '', mode: 'default', space, issue: { issue, item: c } });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /already/);
+  assert.equal(launches().length, n + 1);
+  assert.equal((await api('/api/issue/item/delete', { issue, item: c })).ok, true);
+});
+
 test('when a pull request from its branch merges, after its agent left the board, the item is done', async () => {
   setPrs({ open: [{ number: 12, branch: 'feat-x' }], merged: [] });
   await api('/api/github/refresh', {});
