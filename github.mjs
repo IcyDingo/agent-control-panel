@@ -663,11 +663,14 @@ export function createGithub({
     return { ok: true, method };
   }
 
+  /** The pull requests merged lately in `slug` (the last poll's list, newest first): `{ number, branch, mergedAt }`. */
+  const mergedOf = (slug) => (repos.get(slug)?.mergedAll ?? []).map(({ number, branch, mergedAt }) => ({ number, branch, mergedAt }));
+
   /** How many repositories workspace `ws`'s sessions work in that are not watched: its own count, never another's. */
   const moreIn = (ws) => moreBy.get(typeof ws === 'string' ? ws : '') ?? 0;
 
   /** Stop polling and write what is unsaved. */
   function stop() { stopped = true; save(); }
 
-  return { tick, refresh, state, forSession, failedLog, knows, merge, moreIn, stop };
+  return { tick, refresh, state, forSession, failedLog, knows, merge, mergedOf, moreIn, stop };
 }

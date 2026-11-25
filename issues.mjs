@@ -32,7 +32,7 @@ function itemIn(x) {
   return { id: x.id, text: x.text, state, sessionId: str(x.sessionId, 64), launchId: str(x.launchId, 64),
            branches: Array.isArray(x.branches) ? [...new Set(x.branches.filter((b) => str(b, 250)))] : [],
            doneBy: state === 'done' && ['merge', 'tick'].includes(x.doneBy) ? x.doneBy : null,
-           pr: state === 'done' && Number.isInteger(x.pr) ? x.pr : null, at: Number.isFinite(x.at) ? x.at : 0 };
+           pr: state === 'done' && Number.isInteger(x.pr) ? x.pr : null, at: Number.isFinite(x.at) ? x.at : 0, startedAt: Number.isFinite(x.startedAt) ? x.startedAt : 0 };
 }
 function issueIn(x) {
   if (!x || typeof x !== 'object' || !ID.test(x.id ?? '') || !str(x.title, TITLE_MAX)) return null;
@@ -178,7 +178,7 @@ export function createIssues({ file, now = Date.now } = {}) {
       const { i, it } = findItem(ws, issue, item);
       if (!i) return NOISSUE;
       if (!it) return NOITEM;
-      Object.assign(it, { state: 'working', launchId: str(String(launchId ?? ''), 64) || null, sessionId: null, branches: [], doneBy: null, pr: null });
+      Object.assign(it, { state: 'working', launchId: str(String(launchId ?? ''), 64) || null, sessionId: null, branches: [], doneBy: null, pr: null, startedAt: now() });
       save();
       return OK;
     },
@@ -208,7 +208,7 @@ export function createIssues({ file, now = Date.now } = {}) {
     openItems() {
       const out = [];
       for (const [ws, list] of Object.entries(st)) for (const i of list) for (const it of i.items) {
-        if (it.state === 'working') out.push({ ws, issue: i.id, item: it.id, sessionId: it.sessionId, launchId: it.launchId, branches: [...it.branches], folder: i.folder });
+        if (it.state === 'working') out.push({ ws, issue: i.id, item: it.id, sessionId: it.sessionId, launchId: it.launchId, branches: [...it.branches], folder: i.folder, startedAt: it.startedAt ?? 0 });
       }
       return out;
     },
