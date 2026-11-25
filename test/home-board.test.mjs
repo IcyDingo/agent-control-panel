@@ -159,3 +159,28 @@ test('pruneDismissed drops a dismissal only when its agent is on the board and h
   const many = Array.from({ length: 205 }, (_, i) => `${i}-x:failed:1`);
   assert.deepEqual(pruneDismissed(many, []), many.slice(5));
 });
+
+test('itemView: what an issue\'s item shows, from its state and its agent', () => {
+  const { itemView } = globalThis.HomeBoard;
+  const sessions = new Map([['s1', { sessionId: 's1', name: 'cart-ui', state: 'busy' }], ['s2', { sessionId: 's2', name: 'api', state: 'waiting' }],
+    ['s3', { sessionId: 's3', name: 'old', state: 'finished' }], ['s4', { sessionId: 's4', name: 'calm', state: 'idle' }]]);
+  const v = (it) => itemView(it, sessions, (s) => s.state, (s) => s.name);
+  assert.deepEqual(v({ state: 'todo' }), { mark: 'todo', label: '', detail: '' });
+  assert.deepEqual(v({ state: 'working', sessionId: 's1' }), { mark: 'working', label: 'cart-ui', detail: 'working' });
+  assert.deepEqual(v({ state: 'working', sessionId: 's2' }), { mark: 'working', label: 'api', detail: 'needs you' });
+  assert.deepEqual(v({ state: 'working', sessionId: 's4' }), { mark: 'working', label: 'calm', detail: 'idle' });
+  assert.deepEqual(v({ state: 'working', sessionId: 's3' }), { mark: 'finished', label: 'old', detail: 'agent finished' });
+  assert.deepEqual(v({ state: 'working', sessionId: 'gone' }), { mark: 'finished', label: '', detail: 'agent finished' });
+  assert.deepEqual(v({ state: 'working', sessionId: null, launchId: 'c1' }), { mark: 'working', label: '', detail: 'starting' });
+  assert.deepEqual(v({ state: 'done', pr: 91 }), { mark: 'done', label: '', detail: 'merged #91' });
+  assert.deepEqual(v({ state: 'done', pr: null }), { mark: 'done', label: '', detail: 'done' });
+});
+
+test('issueOrder puts fully done issues last, keeping the order; todoCount counts items to do', () => {
+  const { issueOrder, todoCount } = globalThis.HomeBoard;
+  const mkI = (id, states) => ({ id, items: states.map((state, i) => ({ id: `${id}${i}`, state })) });
+  const list = [mkI('a', ['done', 'done']), mkI('b', ['todo']), mkI('c', []), mkI('d', ['done']), mkI('e', ['working', 'done'])];
+  assert.deepEqual(issueOrder(list).map((x) => [x.id, x.allDone]), [['b', false], ['c', false], ['e', false], ['a', true], ['d', true]], 'an empty issue is not done');
+  assert.equal(todoCount(list), 1);
+  assert.equal(todoCount([]), 0);
+});

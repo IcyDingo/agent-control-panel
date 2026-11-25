@@ -995,18 +995,79 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
 .gh-btn[data-c="running"] svg { color: var(--run); }
 .gh-btn[data-c="passing"] svg { color: var(--ok); }
 .gh-btn[data-c="warn"] svg { color: var(--amber); }
+.is-n { min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--r-pill); background: var(--fill-strong); color: var(--fg); font: 600 11px/18px var(--mono); text-align: center; }
+.is-side .is-pop-h { display: flex; align-items: center; gap: 8px; }
+.is-side .is-pop-h h3 { margin: 0; font-size: 14px; }
+.is-empty { margin: 14px 0 4px; color: var(--fg-dim); font-size: 12.5px; line-height: 1.5; }
+.is-issue { margin-top: 12px; }
+.is-issue[data-done] { opacity: .55; }
+.is-head { display: flex; align-items: center; gap: 6px; min-height: 30px; border-radius: var(--r-1); }
+.is-head:focus-visible, .is-item:focus-visible { outline: 2px solid var(--run); outline-offset: -2px; }
+.is-fold { flex: none; width: 18px; height: 18px; padding: 0; border: 0; background: none; color: var(--fg-dim); font-size: 14px; line-height: 1; cursor: pointer; transition: transform .12s; }
+.is-fold.open { transform: rotate(90deg); }
+.is-title { min-width: 0; font-weight: 600; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.is-space { flex: none; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-faint); font-size: 11.5px; }
+.is-count { flex: none; color: var(--fg-dim); font-size: 12px; }
+.is-head .grow { flex: 1; }
+.is-head .btn.icon, .is-item .btn.icon { width: 24px; height: 24px; }
+.is-head:not(:hover, :focus-within) :is(.is-more, .is-add), .is-item:not(:hover, :focus-within) .is-more { opacity: .35; }
+.is-items { display: grid; padding-left: 14px; }
+.is-item { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 2px 0 4px; border-radius: var(--r-1); font-size: 13px; }
+.is-item:hover { background: var(--hover); }
+.is-item.drop, .is-head.drop { box-shadow: inset 0 2px 0 var(--run); }
+.is-item.dragging, .is-head.dragging { opacity: .5; }
+.is-mark { flex: none; width: 14px; height: 14px; padding: 0; border-radius: 50%; border: 1.5px solid var(--fg-faint); background: none; cursor: pointer; }
+.is-mark[data-m="working"] { border-color: var(--run); background: color-mix(in srgb, var(--run) 35%, transparent); }
+.is-mark[data-m="finished"] { border-color: var(--amber); }
+.is-mark[data-m="done"] { border-color: var(--ok); background: var(--ok); }
+.is-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.is-item[data-m="done"] .is-text { color: var(--fg-dim); text-decoration: line-through; text-decoration-color: var(--line-strong); }
+.is-pick { flex: none; height: 24px; }
+.is-right { flex: none; display: inline-flex; align-items: center; gap: 8px; }
+.is-notes { display: flex; align-items: center; gap: 4px; width: calc(100% - 24px); margin: 0 0 4px 24px; padding: 2px 6px; border: 0; border-radius: var(--r-1); background: none;
+  color: var(--fg-dim); font-size: 12px; text-align: left; cursor: pointer; }
+.is-notes:hover { background: var(--hover); color: var(--fg); }
+.is-notes-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.is-notes-edit { display: grid; gap: 6px; margin: 2px 0 8px 24px; }
+.is-items .is-notes-edit { margin-left: 22px; }
+.is-notes-in { width: 100%; min-height: 64px; resize: vertical; font: 12.5px/1.5 var(--sans); padding: 6px 8px; }
+.is-notes-acts { display: flex; align-items: center; gap: 6px; }
+.is-hint { color: var(--fg-faint); font-size: 11.5px; }
+.is-note-mark { flex: none; padding: 0 2px; border: 0; background: none; color: var(--fg-faint); font-size: 12px; cursor: pointer; }
+.is-note-mark:hover { color: var(--fg); }
+.is-agent { flex: none; max-width: 170px; padding: 0 4px; border: 0; background: none; color: var(--fg-dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.is-agent b { color: var(--fg); font-weight: 500; }
+.is-agent:hover b { text-decoration: underline; text-underline-offset: 2px; }
+.is-detail { flex: none; color: var(--fg-dim); font-size: 12px; white-space: nowrap; }
+.is-item[data-m="finished"] .is-detail { color: var(--amber); }
+.is-item[data-m="done"] .is-detail { color: var(--ok); }
+.is-input { flex: 1; min-width: 0; height: 28px; }
+.is-head.editing, .is-item.editing { padding-right: 2px; }
+.is-spacepick, .is-confirm { display: flex; align-items: center; gap: 8px; margin: 4px 0 6px 24px; font-size: 12.5px; color: var(--fg-dim); }
+.is-spacepick .field { height: 28px; flex: 1; min-width: 0; }
+.is-dot { position: relative; color: var(--fg-dim); }
+.is-dot svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.is-dot .is-n { position: absolute; top: -2px; right: -4px; min-width: 15px; height: 15px; font-size: 10px; line-height: 15px; padding: 0 3px; }
 .gh-n { min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--r-pill); background: var(--stop); color: var(--on-solid); font: 600 11px/18px var(--mono); text-align: center; }
-.gh-side { order: 1; flex: none; width: 400px; min-height: 0; overflow: auto; padding: 16px 20px 12px; border-radius: var(--r-3); background: var(--panel); outline: none; }
+.side-col { order: 1; flex: none; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.side-col[hidden] { display: none; }
+.gh-side, .is-side { flex: 0 1 auto; width: 400px; min-height: 120px; overflow: auto; padding: 16px 20px 12px; border-radius: var(--r-3); background: var(--panel); outline: none; }
+.side-col > [hidden] { display: none; }
+/* One open takes the whole column. Both open, Issues keeps the height it needs (at most 60%) and GitHub takes the rest. */
+.gh-side { flex-grow: 1; }
+.is-side:has(+ .gh-side[hidden]) { flex-grow: 1; }
+.is-side:has(+ .gh-side:not([hidden])) { max-height: 60%; }
 .gh-side .h-repo:first-of-type { padding-top: 10px; }
 .gh-pop-h h3 { flex: 1; min-width: 0; }
 .st-word[data-c="passing"] { background: var(--ok-fill); color: var(--ok); }
 .tci[data-c="open"], .tci[data-c="draft"], .h-li .tci[data-c="open"], .h-li .tci[data-c="draft"] { background: var(--fg-faint); }
 .h-li .tci[data-c="passing"] { background: var(--ok); }
-@media (max-width: 1180px) { .gh-side { width: 340px; } }
+@media (max-width: 1180px) { .gh-side, .is-side { width: 340px; } }
 /* Collapsed, the GitHub panel is a slim strip like the rail's: a state light per item, a hairline between repositories. */
 .gh-pop-h .gh-fold { margin-left: -8px; }
 .gh-fold::before { transform: scaleX(-1); }
-.gh-side.slim { width: 44px; padding: 4px 0 8px; overflow-x: hidden; scrollbar-width: none; }
+.gh-side.slim, .is-side.slim { width: 44px; min-height: 0; padding: 4px 0 8px; overflow-x: hidden; scrollbar-width: none; }
+.is-side.slim { flex-grow: 0; }
 .gh-side.slim::-webkit-scrollbar { display: none; }
 .gh-strip { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .gh-strip .gh-fold { margin-bottom: 4px; }
@@ -1293,7 +1354,8 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
   .home { display: none; }
   body.home-open .stage > .home:not([hidden]) { display: flex; position: absolute; inset: 0; z-index: 5; border-radius: 0; flex-direction: column; overflow: auto; }
   body.home-open .h-close { display: inline-flex; }
-  .stage > .gh-side:not([hidden]) { position: absolute; inset: 0; z-index: 7; width: auto; border-radius: 0; }
+  .stage > .side-col:not([hidden]) { position: absolute; inset: 0; z-index: 7; gap: 0; }
+  .side-col > .gh-side, .side-col > .is-side { width: auto; border-radius: 0; }
   .drawer { width: 100%; border-left: 0; }
   .stage > .drawer { position: absolute; inset: 0; margin: 0; width: auto; }
 }
@@ -1311,6 +1373,7 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
   <span class="grow"></span>
   <button class="paused" type="button" id="paused" title="Settings › Glue › Answering & alerts" hidden>Paused: the terminal answers everything</button>
   <button class="btn heat-btn" type="button" id="heat-btn" aria-haspopup="dialog" hidden></button>
+  <button class="btn gh-btn is-btn" type="button" id="is-btn" aria-expanded="false" aria-controls="is-pop"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></svg>Issues<span class="is-n" id="is-n" hidden></span></button>
   <div class="gh-wrap" id="gh-wrap" hidden>
     <button class="btn gh-btn" type="button" id="gh-btn" aria-expanded="false" aria-controls="gh-pop"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="18" r="2.2"/><path d="M6 8.2v7.6M18 15.8V10a3 3 0 0 0-3-3h-4"/><path d="M13 4.6 10.6 7 13 9.4"/></svg>GitHub<span class="gh-n" id="gh-n" hidden></span></button>
   </div>
@@ -1388,7 +1451,12 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
   </section>
   <!-- GitHub, docked on the right: your open pull requests and the agents', each with its state. The top bar's button opens
        and closes it; it stays open until you close it. -->
-  <aside class="gh-side" id="gh-pop" tabindex="-1" aria-label="GitHub" hidden></aside><!-- order: 1 keeps it rightmost, after the session panel too -->
+  <!-- The right-hand column (order: 1 keeps it rightmost, after the session panel too): Issues and GitHub, two
+       containers of their own; both open, they stack, Issues above. -->
+  <div class="side-col" id="side-col" hidden>
+    <aside class="is-side" id="is-pop" tabindex="-1" aria-label="Issues" hidden></aside>
+    <aside class="gh-side" id="gh-pop" tabindex="-1" aria-label="GitHub" hidden></aside>
+  </div>
   <aside class="drawer" id="drawer" aria-label="Session" hidden>
     <div class="d-grip" id="d-grip" role="separator" aria-orientation="vertical" aria-label="Panel width" tabindex="0" title="Drag to resize. Double-click for the default width."></div>
     <!-- The session in three bands: its name and facts on top, the conversation scrolling in the middle, and what needs you,
@@ -2186,7 +2254,7 @@ function railKeys(e) {
   else if (e.key === 'n' && !e.shiftKey) { e.preventDefault(); nextNeedsYou(); }
   else if (e.key === '/') { e.preventDefault(); if (slimShown()) setRailSlim(false); showFind(true); }
   else if (e.key === '[' && wideEnough.matches) { e.preventDefault(); setRailSlim(!railSlim); }
-  else if (e.key === ']' && wideEnough.matches && !$('gh-pop').hidden) { e.preventDefault(); setGhSlim(!ghSlim); }
+  else if (e.key === ']' && wideEnough.matches && !$('side-col').hidden) { e.preventDefault(); setGhSlim(!ghSlim); }
 }
 document.addEventListener('keydown', railKeys);
 function tileAction(s, st) {
@@ -4626,12 +4694,253 @@ function showGhPop(on) {
   pop.hidden = !on;
   if (on) pop._sig = null;
   setAttr($('gh-btn'), 'aria-expanded', String(on));
+  syncSideCol();
   if (snap) render();
   if (on) pop.focus({ preventScroll: true });
 }
 $('gh-btn').onclick = () => showGhPop($('gh-pop').hidden);
 $('gh-pop').addEventListener('keydown', (e) => { if (e.key === 'Escape' && !e.target.closest('textarea, input, select')) { e.preventDefault(); e.stopPropagation(); showGhPop(false); $('gh-btn').focus(); } });
 if (pref('acp.ghSide') === '1') { $('gh-pop').hidden = false; setAttr($('gh-btn'), 'aria-expanded', 'true'); }
+// ---------- Issues: the list of work on the right, beside GitHub ----------
+// Its own top-bar button and its own container, in the right-hand column with GitHub's: both open, they stack, Issues
+// above. Each issue a header with its items; Pick up starts an agent on an item (issues.mjs, /api/issue/*).
+const IS_ICON = 'M9 6h11M9 12h11M9 18h11M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2';
+const isFold = new Set((() => { try { const v = JSON.parse(pref('acp.isFold') ?? '[]'); return Array.isArray(v) ? v.filter((k) => typeof k === 'string') : []; } catch { return []; } })());
+const saveIsFold = () => pref('acp.isFold', JSON.stringify([...isFold]));
+const isOpened = new Set();   // fully done issues you opened again (they fold away by themselves)
+const isPickBusy = new Set(); // items whose Pick up is on its way
+let isTyping = null;          // the line being typed: { kind: 'issue' } | { kind: 'item', issue } | { kind: 'title', issue } | { kind: 'text', issue, item }
+const isDrafts = new Map();   // what was typed in each line, kept across redraws (key of isTyping → text)
+let isSpacePick = null;       // the issue whose "Use space…" picker is open
+let isDrag = null;            // what is being dragged: { issue, item? }
+let isDeleting = null;        // the issue whose Delete waits for its confirm
+const typingKey = (t) => (t ? [t.kind, t.issue ?? '', t.item ?? ''].join(':') : '');
+/** The right-hand column is there while GitHub's panel or Issues' is. */
+const syncSideCol = () => { $('side-col').hidden = $('gh-pop').hidden && $('is-pop').hidden; };
+/** Opens or closes the Issues panel. It stays as you leave it, across reloads. */
+function showIsPop(on) {
+  const pop = $('is-pop');
+  pref('acp.isSide', on ? '1' : '0');
+  if (on === !pop.hidden) return;
+  pop.hidden = !on;
+  if (on) pop._sig = null;
+  setAttr($('is-btn'), 'aria-expanded', String(on));
+  syncSideCol();
+  if (snap) render();
+  if (on) pop.focus({ preventScroll: true });
+}
+async function isApi(route, body) {
+  const r = await api(`/api/issue/${route}`, body);
+  if (!r.ok) toast(r.error || 'That did not go through.', true);
+  return r;
+}
+/** Start typing a line: a new issue, a new item of an issue, or editing a title or an item's text. */
+function startTyping(t, text = '') {
+  isTyping = t;
+  if (!isDrafts.has(typingKey(t))) isDrafts.set(typingKey(t), text);
+  render();
+  requestAnimationFrame(() => { const inp = $('is-pop').querySelector('.is-input'); if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); } });
+}
+function stopTyping() { if (isTyping) isDrafts.delete(typingKey(isTyping)); isTyping = null; render(); }
+/** Enter on a typed line: save it. A new item opens the next empty line; anything else stops. */
+async function saveTyping(value) {
+  const t = isTyping, text = value.trim();
+  if (!t) return;
+  if (!text && (t.kind === 'issue' || t.kind === 'item')) return stopTyping();
+  isDrafts.delete(typingKey(t));
+  if (t.kind === 'issue') { isTyping = null; const r = await isApi('create', { title: text }); if (r.ok) startTyping({ kind: 'item', issue: r.id }); return; }
+  if (t.kind === 'item') { const r = await isApi('item/add', { issue: t.issue, text }); if (r.ok) startTyping({ kind: 'item', issue: t.issue }); return; }
+  isTyping = null;
+  if (t.kind === 'title') await isApi('rename', { id: t.issue, title: text });
+  else if (t.kind === 'text') await isApi('item/edit', { issue: t.issue, item: t.item, text });
+  else if (t.kind === 'notes') await isApi('notes', { issue: t.issue, notes: value });
+  else if (t.kind === 'note') await isApi('item/note', { issue: t.issue, item: t.item, note: value });
+  render();
+}
+/** Notes being written: a box that grows with them, kept across redraws. Enter adds a line, ⌘↩ (Ctrl+Enter) saves,
+ *  Esc leaves them as they were. */
+function notesEditor(t, placeholder) {
+  const key = typingKey(t);
+  const ta = el('textarea', { class: 'field is-input is-notes-in', rows: 3, maxlength: t.kind === 'notes' ? 4000 : 1000, placeholder, spellcheck: 'true', 'aria-label': placeholder });
+  ta.value = isDrafts.get(key) ?? '';
+  ta.oninput = () => { isDrafts.set(key, ta.value); fit(ta); };
+  ta.onkeydown = (e) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); saveTyping(ta.value); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); stopTyping(); }
+  };
+  requestAnimationFrame(() => fit(ta));
+  return el('div', { class: 'is-notes-edit' }, ta, el('div', { class: 'is-notes-acts' },
+    el('button', { class: 'btn small primary', type: 'button', text: 'Save', title: 'Save (⌘↩)', onclick: () => saveTyping(ta.value) }),
+    el('button', { class: 'btn quiet small', type: 'button', text: 'Cancel', onclick: stopTyping }),
+    el('span', { class: 'is-hint', text: t.kind === 'notes' ? 'Given to every agent that picks up an item of this issue.' : 'Given to the agent that picks up this item.' })));
+}
+/** The line being typed: an input reused across redraws, so what is typed in it stays. */
+function typingLine(t, placeholder) {
+  const key = typingKey(t);
+  const inp = el('input', { class: 'field is-input', maxlength: t.kind === 'issue' || t.kind === 'title' ? 120 : 300, placeholder, spellcheck: 'true', autocomplete: 'off',
+    'aria-label': placeholder, value: isDrafts.get(key) ?? '' });
+  inp.oninput = () => isDrafts.set(key, inp.value);
+  inp.onkeydown = (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); saveTyping(inp.value); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); stopTyping(); }
+  };
+  return inp;
+}
+/** Pick up an item: at once in the issue's folder and space; the form first when it has none yet, or when asked. */
+async function pickUp(i, it, { form = false } = {}) {
+  if (isPickBusy.has(it.id)) return;
+  if (!form) {
+    isPickBusy.add(it.id); render();
+    let r;
+    try { r = await isApi('pickup', { issue: i.id, item: it.id }); } finally { isPickBusy.delete(it.id); render(); }
+    if (!r.ok || !r.needsForm) return;
+  }
+  const p = await isApi('prepare', { issue: i.id, item: it.id });
+  if (!p.ok) return;
+  // A space made just now reaches the page with the next update: wait for it (2 s at most), so the form can pick it.
+  for (let n = 0; n < 20 && p.space && !snap.spaces?.some((x) => x.id === p.space); n++) await new Promise((r) => setTimeout(r, 100));
+  openLauncher({ space: p.space, cwd: p.folder, where: i.title, prompt: p.prompt, issue: { issue: i.id, item: it.id }, worktreeName: p.worktreeName, name: p.name });
+}
+/** A small ⋯ menu of buttons. */
+function isMenu(label, items) {
+  return el('details', { class: 'more is-more' }, el('summary', { class: 'btn icon', title: 'More', 'aria-label': label, text: '⋯' }),
+    el('div', { class: 'more-m', role: 'menu' }, ...items.filter(Boolean).map(([text, run, danger]) => el('button', { type: 'button', role: 'menuitem', class: danger ? 'danger' : '',
+      text, onclick: (e) => { e.currentTarget.closest('details').open = false; run(); } }))));
+}
+/** Move with the keyboard: Alt+↑/↓ on an issue's head or an item. */
+function isKeyMove(e, list, id, move) {
+  if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+  e.preventDefault();
+  const at = list.findIndex((x) => x.id === id), to = e.key === 'ArrowUp' ? at - 1 : at + 2;
+  if (at < 0 || to < 0 || to > list.length) return;
+  move(list[to]?.id ?? null);
+}
+/** Drag to reorder: items within their issue, issues among issues. Dropped on itself, nothing happens. */
+function dragHandlers(what, beforeId) {
+  return {
+    draggable: 'true',
+    ondragstart: (e) => { isDrag = what; e.dataTransfer.effectAllowed = 'move'; e.currentTarget.classList.add('dragging'); },
+    ondragend: (e) => { isDrag = null; e.currentTarget.classList.remove('dragging'); },
+    ondragover: (e) => { if (isDrag && Boolean(isDrag.item) === Boolean(what.item) && isDrag.issue === (what.item ? what.issue : isDrag.issue)) { e.preventDefault(); e.currentTarget.classList.add('drop'); } },
+    ondragleave: (e) => e.currentTarget.classList.remove('drop'),
+    ondrop: (e) => {
+      e.preventDefault(); e.currentTarget.classList.remove('drop');
+      const d = isDrag; isDrag = null;
+      if (!d || (d.item ?? d.issue) === beforeId) return;
+      if (d.item && what.item && d.issue === what.issue) isApi('move', { issue: d.issue, item: d.item, before: beforeId });
+      else if (!d.item && !what.item) isApi('move', { issue: d.issue, before: beforeId });
+    },
+  };
+}
+function itemRow(i, it, items) {
+  const v = HB.itemView(it, new Map(snap.sessions.map((s) => [s.sessionId, s])), stateOf, label);
+  if (isTyping?.kind === 'text' && isTyping.item === it.id) return el('div', { class: 'is-item editing' }, el('span', { class: 'is-mark', 'data-m': v.mark }), typingLine(isTyping, 'The item'));
+  const openAgent = () => { cancelAdvance(); open = it.sessionId; render(); };
+  const busy = isPickBusy.has(it.id);
+  const right = v.mark === 'todo' || v.mark === 'finished' ? el('span', { class: 'is-right' },
+      v.mark === 'finished' ? el('span', { class: 'is-detail', text: v.label ? `${v.label} · ${v.detail}` : v.detail }) : null,
+      el('button', { class: 'btn small is-pick', type: 'button', disabled: busy, text: busy ? 'Starting…' : v.mark === 'finished' ? 'Pick up again' : 'Pick up',
+        title: 'Start an agent on it (Shift-click: with options)', onclick: (e) => pickUp(i, it, { form: e.shiftKey }) }))
+    : v.mark === 'working' && it.sessionId ? el('button', { class: 'is-agent', type: 'button', title: 'Open its agent', onclick: openAgent }, el('b', { text: v.label }), ` · ${v.detail}`)
+    : el('span', { class: 'is-detail', text: v.label && v.mark === 'finished' ? `${v.label} · ${v.detail}` : v.detail });
+  return el('div', { class: 'is-item', 'data-m': v.mark, tabindex: '0', ...dragHandlers({ issue: i.id, item: it.id }, it.id),
+    onkeydown: (e) => isKeyMove(e, items, it.id, (before) => isApi('move', { issue: i.id, item: it.id, ...(before ? { before } : {}) })) },
+    el('button', { class: 'is-mark', type: 'button', 'data-m': v.mark, 'aria-label': v.mark === 'done' ? `Not done: ${it.text}` : `Done: ${it.text}`,
+      title: v.mark === 'done' ? 'Done. Click to put it back to do' : 'Mark it done', onclick: () => isApi('tick', { issue: i.id, item: it.id, on: v.mark !== 'done' }) }),
+    el('span', { class: 'is-text', text: it.text, title: it.note ? `${it.text}\n\n${it.note}` : it.text, ondblclick: () => startTyping({ kind: 'text', issue: i.id, item: it.id }, it.text) }),
+    it.note ? el('button', { class: 'is-note-mark', type: 'button', text: '✎', title: it.note, 'aria-label': `Its note: ${it.note}`, onclick: () => startTyping({ kind: 'note', issue: i.id, item: it.id }, it.note) }) : null,
+    right,
+    isMenu(`More for ${it.text}`, [
+      ['Edit', () => startTyping({ kind: 'text', issue: i.id, item: it.id }, it.text)],
+      [it.note ? 'Edit note…' : 'Add a note…', () => startTyping({ kind: 'note', issue: i.id, item: it.id }, it.note ?? '')],
+      v.mark === 'todo' || v.mark === 'finished' ? ['Pick up with options…', () => pickUp(i, it, { form: true })] : null,
+      v.mark === 'finished' || (v.mark === 'working' && !it.sessionId) ? ['Back to to do', () => isApi('back', { issue: i.id, item: it.id })] : null,
+      ['Delete', () => isApi('item/delete', { issue: i.id, item: it.id }), true],
+    ]));
+}
+/** An issue's notes under its title: their first line, a click edits them; or the editor while they are written. */
+function notesRow(i) {
+  if (isTyping?.kind === 'notes' && isTyping.issue === i.id) return notesEditor(isTyping, 'Notes for this issue: background, links, constraints, what done means');
+  if (!i.notes) return null;
+  const first = i.notes.split('\n')[0], more = i.notes.includes('\n');
+  return el('button', { class: 'is-notes', type: 'button', title: i.notes, onclick: () => startTyping({ kind: 'notes', issue: i.id }, i.notes) },
+    el('span', { class: 'is-notes-t', text: first }), more ? el('span', { class: 'is-notes-more', text: '…' }) : null);
+}
+function issueBlock(i, list) {
+  const folded = isFold.has(i.id) || (i.allDone && !isOpened.has(i.id)), todo = i.items.filter((x) => x.state === 'todo').length, sp = snap.spaces?.find((x) => x.id === i.space);
+  const toggle = () => {
+    if (i.allDone) { if (isOpened.has(i.id)) isOpened.delete(i.id); else isOpened.add(i.id); render(); return; }
+    if (folded) isFold.delete(i.id); else isFold.add(i.id); saveIsFold(); render();
+  };
+  const head = isTyping?.kind === 'title' && isTyping.issue === i.id
+    ? el('div', { class: 'is-head editing' }, typingLine(isTyping, 'The issue'))
+    : el('div', { class: 'is-head', tabindex: '0', ...dragHandlers({ issue: i.id }, i.id),
+        onkeydown: (e) => isKeyMove(e, list, i.id, (before) => isApi('move', { issue: i.id, ...(before ? { before } : {}) })) },
+      el('button', { class: 'is-fold' + (folded ? '' : ' open'), type: 'button', 'aria-expanded': String(!folded), 'aria-label': folded ? `Show ${i.title}` : `Fold ${i.title}`, onclick: toggle, text: '›' }),
+      el('span', { class: 'is-title', text: i.title, title: i.title, ondblclick: () => startTyping({ kind: 'title', issue: i.id }, i.title) }),
+      // Its space by name, unless that is the issue's own name over again (a space the issue made).
+      sp && !i.title.toLowerCase().startsWith(sp.name.toLowerCase().replace(/ \d+$/, '')) ? el('span', { class: 'is-space', text: sp.name, title: `Its agents work in the space ${sp.name}` }) : null,
+      folded && todo ? el('span', { class: 'is-count', text: `${todo} to do` }) : null,
+      el('span', { class: 'grow' }),
+      isMenu(`More for ${i.title}`, [
+        ['Rename', () => startTyping({ kind: 'title', issue: i.id }, i.title)],
+        [i.notes ? 'Edit notes…' : 'Add notes…', () => { isFold.delete(i.id); isOpened.add(i.id); saveIsFold(); startTyping({ kind: 'notes', issue: i.id }, i.notes ?? ''); }],
+        ['Use space…', () => { isSpacePick = i.id; render(); }],
+        ['Delete…', () => { isDeleting = i.id; render(); }, true],
+      ]),
+      iconBtn(PLUS, { class: 'btn icon is-add', title: 'Add an item', 'aria-label': `Add an item to ${i.title}`, onclick: () => { isFold.delete(i.id); saveIsFold(); startTyping({ kind: 'item', issue: i.id }); } }));
+  const pick = isSpacePick === i.id ? el('div', { class: 'is-spacepick' }, (() => {
+    const sel = el('select', { class: 'field', 'aria-label': `Space for ${i.title}` }, el('option', { value: '', text: 'No space' }),
+      ...(snap.spaces ?? []).map((x) => el('option', { value: x.id, text: x.name })));
+    sel.value = i.space ?? '';
+    sel.onchange = async () => { isSpacePick = null; await isApi('link', { issue: i.id, space: sel.value || null }); render(); };
+    return sel;
+  })(), el('button', { class: 'btn quiet small', type: 'button', text: 'Cancel', onclick: () => { isSpacePick = null; render(); } })) : null;
+  const armedDel = isDeleting === i.id ? el('div', { class: 'is-confirm' }, el('span', { text: 'Delete the issue and its items? Its space and agents stay.' }),
+    el('button', { class: 'btn small danger', type: 'button', text: 'Delete', onclick: async () => { isDeleting = null; await isApi('delete', { id: i.id }); render(); } }),
+    el('button', { class: 'btn quiet small', type: 'button', text: 'Cancel', onclick: () => { isDeleting = null; render(); } })) : null;
+  return el('section', { class: 'is-issue', 'data-done': i.allDone ? '' : null }, head, pick, armedDel,
+    folded ? null : notesRow(i),
+    folded ? null : el('div', { class: 'is-items' }, ...i.items.flatMap((it) => [itemRow(i, it, i.items),
+      isTyping?.kind === 'note' && isTyping.item === it.id ? notesEditor(isTyping, 'A note for this item: what the agent should know') : null]),
+      isTyping?.kind === 'item' && isTyping.issue === i.id ? el('div', { class: 'is-item editing' }, el('span', { class: 'is-mark', 'data-m': 'todo' }), typingLine(isTyping, 'A new item')) : null));
+}
+/** The strip the panel folds to, with GitHub's: its icon and how many are to do. */
+const isStrip = (n) => el('div', { class: 'gh-strip' }, el('button', { class: 'gh-dot is-dot', type: 'button', title: n ? `${n} to do. Show the panel.` : 'Issues. Show the panel.', onclick: () => setGhSlim(false) },
+  svgIcon(IS_ICON), n ? el('span', { class: 'is-n', text: String(n) }) : null));
+/** The Issues button and panel. */
+function renderIssues() {
+  const list = snap.issues ?? [], n = HB.todoCount(list);
+  $('is-n').hidden = !n;
+  setText($('is-n'), String(n));
+  setAttr($('is-btn'), 'title', n ? `Issues: ${n} to do` : 'Issues: the work waiting for agents');
+  syncSideCol();
+  const pop = $('is-pop');
+  if (pop.hidden) return;
+  const slim = ghSlimShown();
+  pop.classList.toggle('slim', slim);
+  if (slim) { patch(pop, 'slim' + n, () => isStrip(n)); return; }
+  // A line being typed keeps its focus and caret across the redraw.
+  const act = document.activeElement, typing = act?.classList?.contains('is-input') && pop.contains(act) ? [act.selectionStart, act.selectionEnd] : null;
+  const ordered = HB.issueOrder(list);
+  // Redrawn only when something it shows changes: the agents its items name, not every agent of the workspace (a redraw
+  // closes an open ⋯ menu).
+  const named = new Set(list.flatMap((x) => x.items.map((it) => it.sessionId).filter(Boolean)));
+  const sig = JSON.stringify([list, snap.spaces, snap.sessions.filter((s) => named.has(s.sessionId)).map((s) => [s.sessionId, stateOf(s), label(s)]), [...isFold], [...isOpened],
+    typingKey(isTyping), isSpacePick, isDeleting, [...isPickBusy]]);
+  patch(pop, sig, () => [
+    el('div', { class: 'gh-pop-h is-pop-h' }, el('h3', { text: 'Issues' }), el('span', { class: 'grow' }),
+      iconBtn(PLUS, { class: 'btn icon', title: 'New issue', 'aria-label': 'New issue', onclick: () => startTyping({ kind: 'issue' }) }),
+      el('button', { class: 'btn icon', type: 'button', 'aria-label': 'Close Issues', title: 'Close (Esc)', onclick: () => { showIsPop(false); $('is-btn').focus(); } }, svgIcon('M6 6l12 12M18 6L6 18'))),
+    isTyping?.kind === 'issue' ? el('div', { class: 'is-head editing' }, typingLine(isTyping, 'A new issue')) : null,
+    ordered.length || isTyping?.kind === 'issue' ? null : el('p', { class: 'is-empty', text: 'No issues yet. + makes one: a title, then its items, one line each. Pick up starts an agent on an item.' }),
+    ...ordered.map((i) => issueBlock(i, list))]);
+  if (typing) { const inp = pop.querySelector('.is-input'); if (inp && inp !== document.activeElement) { inp.focus(); try { inp.setSelectionRange(typing[0], typing[1]); } catch {} } }
+}
+$('is-btn').onclick = () => showIsPop($('is-pop').hidden);
+$('is-pop').addEventListener('keydown', (e) => { if (e.key === 'Escape' && !e.target.closest('textarea, input, select')) { e.preventDefault(); e.stopPropagation(); showIsPop(false); $('is-btn').focus(); } });
+if (pref('acp.isSide') === '1') { $('is-pop').hidden = false; setAttr($('is-btn'), 'aria-expanded', 'true'); }
+
 
 // ---------- render ----------
 /** A 24-viewBox stroke icon from one path, for .btn.icon. */
@@ -4663,6 +4972,7 @@ function render() {
   renderHome(g);
   renderOld(snap.oldVersions ?? []);
   renderGhBtn();
+  renderIssues();
   // The app's Dock badge reads the count off the title. With several workspaces, everything that waits across all of
   // them, counted by the server the same way for each (so it does not change with the workspace in view); with one,
   // what waits here, as before workspaces.
@@ -4811,6 +5121,7 @@ function setQuick(on) {
   if (on) showQuick();
 }
 $('l-more').onclick = () => { setQuick(false); $('l-prompt').focus(); };
+let launcherIssue = null; // the issue's item New agent was opened for (Pick up), sent with the launch
 function openLauncher(preset = null) {
   launcherDefaults();
   loginOptions(); // after the defaults: a workspace without OpenCode never starts on it
@@ -4831,6 +5142,15 @@ function openLauncher(preset = null) {
   $('l-agents').replaceChildren(...[...types].map((t) => el('option', { value: t })));
   // A + fills in its folder and space; New agent afterwards gets back the ones it had before the + (none: as it was).
   let space = $('l-space').value;
+  // A pick-up's form that was cancelled leaves nothing behind in the next plain New agent.
+  if (launcherIssue && !preset?.issue) { $('l-prompt').value = ''; $('l-name').value = ''; $('l-wt-name').value = ''; }
+  launcherIssue = preset?.issue ?? null;
+  if (preset?.prompt) $('l-prompt').value = preset.prompt;
+  if (preset?.issue) {
+    $('l-wt').checked = true;
+    $('l-wt-name').value = preset.worktreeName ?? '';
+    if (preset.name) $('l-name').value = preset.name;
+  }
   if (preset) {
     fullForm ??= { cwd: $('l-cwd').value, space };
     if (preset.cwd) $('l-cwd').value = preset.cwd;
@@ -5011,6 +5331,7 @@ $('launch-form').addEventListener('submit', async (e) => {
     prompt: $('l-prompt').value, cwd: $('l-cwd').value, name, agentKind: ocKind ? 'opencode' : 'claude',
     ...(ocKind ? { model: $('l-oc-model').value } : { agent: $('l-agent').value.trim(), model: picked('l-model'), effort: EFFORT_STOPS[$('l-effort').value][0], login: $('l-login').value || undefined }),
     mode: picked('l-mode'), worktree, worktreeName, assign, space,
+    ...(launcherIssue ? { issue: launcherIssue } : {}), // an issue's item: the server links the agent to it
   });
   go.disabled = false;
   go.textContent = 'Launch agent';

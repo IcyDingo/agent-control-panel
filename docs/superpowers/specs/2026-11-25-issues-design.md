@@ -1,5 +1,9 @@
 # Issues: a list of work in the side panel that agents pick up
 
+> **Status: built (2026-11-25).** Lives on the right beside GitHub (see "On the right, beside GitHub"). Notes were added
+> while building (see "Notes"). The space goal is stored and set by Issues; its display on Home waits for the Home
+> overview build.
+
 ## Intent
 The owner asked (2026-11-25): "can we in the left side create a todo list for this that needs to be worked on and that
 we can set agents to work on can clicking somehting like pick up … maybe like issues Header and then sub items". Asked
@@ -78,6 +82,17 @@ ISSUES                                       +        ← folds to its header
 - The started agent is linked to the item by the launch id, as spaces link their sessions today, and the item becomes
   "being worked on". An item can be picked up again only once its agent has finished or is gone.
 - The prompt the agent gets: the item's text, then one line "This is part of: <issue title>." Nothing else is added.
+
+### Notes
+*(Added 2026-11-25: the owner asked "how context can be given?" and, offered notes, said "i like the note thing".)*
+- **An issue's notes:** free text, up to 4,000 characters, lines kept: background, links, constraints, what done means.
+  Under the issue's title, its first line shows (dim, one line; a click edits); written in a box that grows, Enter adds
+  a line, ⌘↩ saves, Esc leaves them as they were. "Add notes…" / "Edit notes…" in the issue's ⋯.
+- **An item's note:** up to 1,000 characters, for what applies to that item only. A small ✎ after the item's text (its
+  note as the tooltip; a click edits); "Add a note…" / "Edit note…" in the item's ⋯.
+- **What a pick-up sends:** the item, its note, "This is part of: <issue title>.", then "Context for this issue:" and
+  the issue's notes, each part only when there is one, separated by blank lines. The first pick-up's form is filled
+  with the same, to change before launching.
 
 ### An item's state
 - **To do** (○): not picked up, or the owner chose "Back to to do" in the item's ⋯ (shown once its agent has finished

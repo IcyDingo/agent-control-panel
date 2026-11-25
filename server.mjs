@@ -29,6 +29,7 @@ import { createWatcher } from './watcher.mjs';
 import { parseClaudeAuth, parseGhAuth, claudeLoginCommand, loginScript, LOGIN_ERROR } from './setup.mjs';
 import { migrateFolders } from './migrate.mjs';
 import { createStore, countOnly, repoKey, slugId, PROVIDERS, OPENCODE } from './workspaces.mjs';
+import { createIssues } from './issues.mjs';
 import { sanitizeGlue, mergeGlue } from './glue-prefs.mjs';
 import * as daemon from './daemon.mjs';
 import { terminalCommand } from './terminal.mjs';
@@ -1793,9 +1794,12 @@ function reorderWorkspaces(body) {
 // A space groups a workspace's sessions by what they work on. Every action is on the asking page's own workspace; a
 // session of another workspace is refused by the seal before it gets here, and another workspace's space id is unknown.
 const nudged = (r) => { if (r.ok) broadcast(); return r; };
-const createSpace = (body, ctx) => nudged(store.createSpace(ctx.focus, body?.name));
+const createSpace = (body, ctx) => nudged(store.createSpace(ctx.focus, body?.name, body?.goal ?? ''));
 const renameSpace = (body, ctx) => nudged(store.renameSpace(ctx.focus, String(body?.id ?? ''), body?.name));
-const deleteSpace = (body, ctx) => { const id = String(body?.id ?? ''), slot = store.mainOf(ctx.focus, id), r = nudged(store.deleteSpace(ctx.focus, id)); if (r.ok) dropMainFile(slot); return r; };
+/** `{ id, goal }`: a space's goal, one line; empty clears it. */
+const spaceGoal = (body, ctx) => nudged(store.setGoal(ctx.focus, String(body?.id ?? ''), body?.goal ?? ''));
+// A space that goes unlinks its issues: their next pick-up makes a new one.
+const deleteSpace = (body, ctx) => { const id = String(body?.id ?? ''), slot = store.mainOf(ctx.focus, id), r = nudged(store.deleteSpace(ctx.focus, id)); if (r.ok) { dropMainFile(slot); issues.unlinkSpace(ctx.focus, id); } return r; };
 /** `{ sessionId, space }`: put a session of this workspace in one of its spaces; null takes it out. */
 function moveToSpace(body, ctx) {
   const s = sessions.get(String(body?.sessionId ?? ''));
@@ -1808,6 +1812,7 @@ const PENDING_MS = 10 * 60_000;
 /** Whether a session is the one a launch that gave id `k` started. */
 const launchedAs = (s, k) => Boolean(k) && (s.sessionId === k || s.sessionId.startsWith(k) || s.id === k);
 function claimSpaces(wsId) {
+  issueTick(); // an item's agent, once it shows up; and the branches items' agents work on
   // A main agent just started takes the slot its space kept for it, and joins the space.
   for (const a of store.awaitedMains(wsId)) {
     const s = [...sessions.values()].find((x) => x.ws === wsId && launchedAs(x, a.launchId));
@@ -1823,6 +1828,189 @@ function claimSpaces(wsId) {
       if (launchedAs(s, k)) { store.setSpace(wsId, s.sessionId, p.space, now, p.role ?? null); pendingSpace.delete(k); break; }
     }
   }
+}
+
+// ---------------------------------------------------------------- issues
+// The owner's list of work, per workspace (issues.mjs), shown in the Issues panel. An item picked up starts an agent in
+// its issue's space, in a worktree of its own; the agent is linked to it by the launch id, the branches it works on are
+// recorded, and when a pull request from one of them merges the item is done (GitHub's poller keeps following those
+// branches after the agent has left the board).
+const issues = createIssues({ file: path.join(dataDir, 'issues.json') });
+const issueIn = (wsId, id) => issues.list(wsId).find((x) => x.id === String(id ?? '')) ?? null;
+const ISSUE_GONE = { ok: false, error: 'That issue is gone.' }, ITEM_GONE = { ok: false, error: 'That item is gone.' };
+/** What an agent picking up an item is told: the item and its own note, which issue it is part of, and that issue's
+ *  notes as context. */
+const issuePrompt = (i, it) => [it.text, it.note || null, `This is part of: ${i.title}.`, i.notes ? `Context for this issue:\n${i.notes}` : null].filter(Boolean).join('\n\n');
+/** A pick-up's worktree: named after its item, and new each time (a second pick-up of an item gets a fresh one). */
+const issueWorktree = (item) => `issue-${item}-${Date.now().toString(36).slice(-5)}`;
+/** A launch name from an item's words: the characters a name may have, 40 at most. */
+const issueName = (text) => String(text).replace(/[^\w .-]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40).trim() || 'issue';
+/** Items whose pick-up is launching right now (`${ws}\0${item}`): a launch takes seconds, and a second click in that
+ *  time must not start a second agent. */
+const itemsPicking = new Set();
+/** Whether an item may be picked up: to do, or its agent has finished or is gone; never while one is launching. */
+function itemPickable(wsId, it) {
+  if (itemsPicking.has(`${wsId}\0${it.id}`)) return false;
+  if (it.state === 'todo') return true;
+  if (it.state !== 'working') return false;
+  const s = it.sessionId ? sessions.get(it.sessionId) : null;
+  return it.sessionId ? !s || s.ws !== wsId || isEnded(s) : !it.launchId;
+}
+/** The issue's space: the one it has, else one made now and named after it, with its title as the goal. Synchronous, so
+ *  two calls at once make one. */
+function issueSpace(wsId, issueId) {
+  const i = issueIn(wsId, issueId);
+  if (!i) return ISSUE_GONE;
+  if (i.space && store.spacesOf(wsId).some((x) => x.id === i.space)) return { ok: true, space: i.space };
+  const taken = (n) => store.spacesOf(wsId).some((x) => x.name.toLowerCase() === n.toLowerCase());
+  const base = i.title.slice(0, 40).trim();
+  let name = base;
+  for (let n = 2; taken(name); n++) name = `${base.slice(0, 40 - String(n).length - 1).trim()} ${n}`;
+  const r = store.createSpace(wsId, name, i.title);
+  if (!r.ok) return r;
+  issues.setSpace(wsId, i.id, r.id, true);
+  broadcast();
+  return { ok: true, space: r.id };
+}
+/** Where a first pick-up starts, until the issue has a folder: the main checkout of its space's newest agent. */
+function issueFolder(wsId, i) {
+  if (i.folder) return i.folder;
+  const newest = [...sessions.values()].filter((s) => s.ws === wsId && i.space && store.spaceOf(wsId, s.sessionId) === i.space && s.cwd)
+    .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))[0];
+  if (!newest) return null;
+  const p = gitPlace(newest.cwd);
+  return p?.worktree ? p.repo : newest.cwd;
+}
+const issueRoutes = {
+  create: (b, c) => nudged(issues.create(c.focus, b?.title)),
+  rename(b, c) {
+    const r = issues.rename(c.focus, String(b?.id ?? ''), b?.title);
+    if (!r.ok) return r;
+    // A space the issue made follows it, name and goal; a linked one is never renamed by it.
+    const i = issueIn(c.focus, b.id);
+    if (i?.owns && i.space && store.spacesOf(c.focus).some((x) => x.id === i.space)) {
+      const base = i.title.slice(0, 40).trim(), taken = (n) => store.spacesOf(c.focus).some((x) => x.id !== i.space && x.name.toLowerCase() === n.toLowerCase());
+      let name = base;
+      for (let n = 2; taken(name); n++) name = `${base.slice(0, 40 - String(n).length - 1).trim()} ${n}`;
+      store.renameSpace(c.focus, i.space, name);
+      store.setGoal(c.focus, i.space, i.title);
+    }
+    return nudged(r);
+  },
+  delete: (b, c) => nudged(issues.remove(c.focus, String(b?.id ?? ''))),
+  'item/add': (b, c) => nudged(issues.addItem(c.focus, String(b?.issue ?? ''), b?.text)),
+  'item/edit': (b, c) => nudged(issues.editItem(c.focus, String(b?.issue ?? ''), String(b?.item ?? ''), b?.text)),
+  notes: (b, c) => nudged(issues.setNotes(c.focus, String(b?.issue ?? ''), b?.notes ?? '')),
+  'item/note': (b, c) => nudged(issues.setItemNote(c.focus, String(b?.issue ?? ''), String(b?.item ?? ''), b?.note ?? '')),
+  'item/delete': (b, c) => nudged(issues.removeItem(c.focus, String(b?.issue ?? ''), String(b?.item ?? ''))),
+  move: (b, c) => nudged(issues.move(c.focus, { issue: String(b?.issue ?? ''), item: b?.item == null ? undefined : String(b.item), before: b?.before == null ? undefined : String(b.before) })),
+  tick: (b, c) => nudged(issues.tick(c.focus, String(b?.issue ?? ''), String(b?.item ?? ''), b?.on === true)),
+  back: (b, c) => nudged(issues.back(c.focus, String(b?.issue ?? ''), String(b?.item ?? ''))),
+  /** `{ issue, space }`: use one of this workspace's spaces (null: none). Its goal takes the title only when it has none. */
+  link(b, c) {
+    const i = issueIn(c.focus, b?.issue);
+    if (!i) return ISSUE_GONE;
+    if (b?.space == null) return nudged(issues.setSpace(c.focus, i.id, null, false));
+    const sp = store.spacesOf(c.focus).find((x) => x.id === String(b.space));
+    if (!sp) return { ok: false, error: 'That space is gone.' };
+    if (!sp.goal) store.setGoal(c.focus, sp.id, i.title);
+    return nudged(issues.setSpace(c.focus, i.id, sp.id, false));
+  },
+  /** `{ issue, item }`: what the form of a first pick-up is filled with; makes the issue's space when it has none. */
+  prepare(b, c) {
+    const i = issueIn(c.focus, b?.issue), it = i?.items.find((x) => x.id === String(b?.item ?? ''));
+    if (!i) return ISSUE_GONE;
+    if (b?.item != null && !it) return ITEM_GONE;
+    const sp = issueSpace(c.focus, i.id);
+    if (!sp.ok) return sp;
+    return { ok: true, space: sp.space, folder: issueFolder(c.focus, issueIn(c.focus, i.id)), prompt: it ? issuePrompt(i, it) : null,
+             worktreeName: it ? issueWorktree(it.id) : null, name: it ? issueName(it.text) : null, choices: i.choices };
+  },
+  /** `{ issue, item }`: start an agent on it now, in the issue's folder and space with its kept choices; the form first
+   *  (`needsForm`) while the issue has no folder. */
+  async pickup(b, c) {
+    const i = issueIn(c.focus, b?.issue), it = i?.items.find((x) => x.id === String(b?.item ?? ''));
+    if (!i) return ISSUE_GONE;
+    if (!it) return ITEM_GONE;
+    if (!itemPickable(c.focus, it)) return { ok: false, error: it.state === 'done' ? 'It is done.' : 'An agent is already on it.' };
+    if (!i.folder) return { ok: true, needsForm: true };
+    const sp = issueSpace(c.focus, i.id);
+    if (!sp.ok) return sp;
+    const d = glue().agentDefaults, ch = i.choices ?? {};
+    const body = { prompt: issuePrompt(i, it), cwd: i.folder, space: sp.space, name: issueName(it.text), worktree: true, worktreeName: issueWorktree(it.id),
+                   agentKind: ch.agentKind ?? (d.agent === 'opencode' ? 'opencode' : 'claude'), model: ch.model ?? d.model, effort: ch.effort ?? d.effort,
+                   mode: ch.mode ?? d.mode, login: ch.login ?? undefined, ...(ch.agentKind === 'opencode' ? { model: ch.model ?? d.opencodeModel } : {}) };
+    const key = `${c.focus}\0${it.id}`;
+    itemsPicking.add(key);
+    let r;
+    try { r = await launch(body, c.ws); } finally { itemsPicking.delete(key); }
+    if (!r.ok) { loginFailed(r.error); return r.ask ? { ok: true, needsForm: true } : r; }
+    if (r.id) { pendingSpace.set(String(r.id), { ws: c.focus, space: sp.space, at: Date.now() }); issues.startItem(c.focus, i.id, it.id, String(r.id)); }
+    feed('launched', null, `You picked up "${it.text.slice(0, 80)}".`, c.focus);
+    broadcast();
+    return { ok: true, id: r.id ?? null };
+  },
+};
+/** A launch from the form for an item (`body.issue`): forced into a worktree of its own, before it runs. */
+function issueLaunchBody(body, wsId) {
+  const ref = body?.issue, i = ref ? issueIn(wsId, ref.issue) : null, it = i?.items.find((x) => x.id === String(ref?.item ?? ''));
+  if (!it) return { body, link: null };
+  if (!itemPickable(wsId, it)) return { refused: it.state === 'done' ? 'That item is done.' : 'An agent is already on that item.' };
+  return { body: { ...body, worktree: true, worktreeName: typeof body.worktreeName === 'string' && body.worktreeName.startsWith(`issue-${it.id}`) ? body.worktreeName : issueWorktree(it.id) },
+           link: { issue: i.id, item: it.id } };
+}
+/** After that launch: the item is being worked on, and the issue keeps its folder and choices for later pick-ups. */
+function issueLaunched(wsId, link, body, r) {
+  if (!link || !r?.ok || !r.id) return;
+  issues.startItem(wsId, link.issue, link.item, String(r.id));
+  const ch = { agentKind: body.agentKind === 'opencode' ? 'opencode' : 'claude', ...(typeof body.login === 'string' && body.login ? { login: body.login } : {}),
+               ...(typeof body.model === 'string' && body.model ? { model: body.model } : {}), ...(typeof body.effort === 'string' && body.effort ? { effort: body.effort } : {}),
+               ...(typeof body.mode === 'string' && body.mode ? { mode: body.mode } : {}) };
+  const folder = typeof r.cwd === 'string' && path.isAbsolute(r.cwd) ? r.cwd : undefined;
+  issues.setLaunch(wsId, link.issue, { ...(folder ? { folder } : {}), choices: ch });
+}
+/** The default branch of a session's repository: GitHub's word for it, else what its main checkout is on. */
+function defaultBranchOf(p) {
+  const slug = p?.common ? slugOf(p.common, small) : null;
+  return (slug && github.state().repos.find((r) => r.slug === slug)?.defaultBranch) || p?.main || null;
+}
+/** Link the sessions launches started to their items, and record the branches items' agents work on. */
+function issueTick() {
+  for (const o of issues.openItems()) {
+    if (!o.sessionId && o.launchId) {
+      const s = [...sessions.values()].find((x) => x.ws === o.ws && launchedAs(x, o.launchId));
+      if (s && issues.claimItem(o.ws, o.launchId, s.sessionId)) broadcast();
+      continue;
+    }
+    const s = o.sessionId ? sessions.get(o.sessionId) : null;
+    if (!s || s.ws !== o.ws || mismatched(s)) continue;
+    const p = placeOf(s), def = defaultBranchOf(p);
+    if (p?.branch && p.branch !== def && !o.branches.includes(p.branch)) { issues.addBranch(o.ws, o.issue, o.item, p.branch); broadcast(); }
+  }
+}
+/** An item whose branch had a pull request merged since it was picked up is done. */
+function issueMerges() {
+  let changed = false;
+  for (const o of issues.openItems()) {
+    if (!o.branches.length) continue;
+    const s = o.sessionId ? sessions.get(o.sessionId) : null, p = s && !mismatched(s) ? placeOf(s) : o.folder ? gitPlace(o.folder) : null;
+    const slug = p?.common ? slugOf(p.common, small) : null;
+    if (!slug) continue;
+    const m = github.mergedOf(slug).find((x) => o.branches.includes(x.branch) && (x.mergedAt ?? 0) >= (o.startedAt ?? 0));
+    if (m && issues.done(o.ws, o.issue, o.item, m.number).ok) changed = true;
+  }
+  if (changed) broadcast();
+}
+/** What GitHub's poller keeps following for items: their recorded branches, also after their agents have gone. */
+function issueTargets() {
+  const out = [];
+  for (const o of issues.openItems()) {
+    if (!o.branches.length || !o.folder) continue;
+    const p = gitPlace(o.folder);
+    if (!p?.common) continue;
+    for (const branch of o.branches) out.push({ sessionId: `item:${o.item}`, ws: o.ws, common: p.common, branch, at: o.startedAt ?? 0 }); // ranked by when it was picked up, never ahead of live agents
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------- main agents
@@ -2330,7 +2518,9 @@ function removeWorkspace(body) {
   const id = String(body?.id ?? '');
   if (!W.has(id)) return { ok: false, error: 'No such workspace.' };
   if ([...sessions.values()].some((s) => s.ws === id && isLive(s))) return { ok: false, error: `Sessions are still running in ${wsView(id).name}. End them first.` };
-  return loginsChanged(store.removeWorkspace(id));
+  const r = loginsChanged(store.removeWorkspace(id));
+  if (r.ok) issues.dropWorkspace(id); // its issues go with it: a new workspace by the same name starts with none
+  return r;
 }
 /** The routes Settings changes workspaces' logins with: `{ ws, id }` each. */
 const WS_LOGIN = {
@@ -2845,10 +3035,10 @@ const github = createGithub({
   targets: () => [...sessions.values()].filter((s) => s.inRoster || !isEnded(s)).map((s) => {
     const p = placeOf(s);
     return p?.common ? { sessionId: s.sessionId, ws: s.ws, common: p.common, branch: p.branch, at: s.lastEventAt ?? s.startedAt ?? 0 } : null;
-  }).filter(Boolean),
+  }).filter(Boolean).concat(issueTargets()), // and the branches of items not done yet, after their agents have gone too
   notify: (title, text, about) => notifyFor(about?.slug, title, text),
-  onEvent: (ev) => onGithubEvent(ev),
-  onChange: () => { broadcast(); watcherCheck(); },
+  onEvent: (ev) => { onGithubEvent(ev); if (ev?.type === 'pr-merged') issueMerges(); },
+  onChange: () => { issueMerges(); broadcast(); watcherCheck(); },
 });
 let onGithubEvent = () => {}, watcherCheck = () => {};
 
@@ -4096,6 +4286,7 @@ function snapshot(wsId) {
     profile: (logins.find((l) => !l.info.connected) ?? defaultLogin(wsId) ?? logins[0])?.info ?? null,
     workspace: wsView(wsId), workspaces: wsOrder().map((id) => ({ ...wsView(id), waiting: waitingOf(id) })),
     spaces: store.spacesOf(wsId), // this workspace's only: a space's name never reaches another workspace's page
+    issues: issues.list(wsId), // this workspace's only, as its spaces
     oldVersions: oldVersions.filter((o) => o.ws === wsId).map(({ ws: _, ...o }) => ({ ...o, shown: true })),
     sessions: [...sessions.values()].filter((s) => s.ws === wsId).map((whole) => {
       const { spawns, hereCwd, rosterCwd, ranCwd, editTops, ocStatus: _ocs, ocRead: _ocr, ...s } = whole, { ask, mismatch } = sortOf(whole);
@@ -4310,9 +4501,16 @@ async function handle(req, res) {
       if (space !== null && !store.spacesOf(focus).some((x) => x.id === space)) return send(res, 422, { ok: false, error: 'That space is gone. Pick another.' });
       // A main agent (the page turns one on with /api/main/watch; this is for a launch that says so itself).
       const main = body?.main === true;
-      const r = main ? await startMain(body, focus, ctx.ws) : await launch(body, ctx.ws);
+      // For an issue's item (the first pick-up's form): a worktree of its own, and the item linked once it started.
+      const asIssue = main ? { body, link: null } : issueLaunchBody(body, focus);
+      if (asIssue.refused) return send(res, 422, { ok: false, error: asIssue.refused });
+      const pickKey = asIssue.link ? `${focus}\0${asIssue.link.item}` : null;
+      if (pickKey) itemsPicking.add(pickKey);
+      let r;
+      try { r = main ? await startMain(body, focus, ctx.ws) : await launch(asIssue.body, ctx.ws); } finally { if (pickKey) itemsPicking.delete(pickKey); }
       if (r.refused) return send(res, 422, { ok: false, error: r.error });
       if (r.ok && !main && space && r.id) pendingSpace.set(String(r.id), { ws: focus, space, at: Date.now() });
+      issueLaunched(focus, asIssue.link, asIssue.body, r);
       if (!r.ok) loginFailed(r.error);
       if (r.ok) feed('launched', null, `You started a session in ${tilde(r.cwd ?? '')}.`, focus);
       return send(res, r.ok ? 200 : 422, r);
@@ -4327,7 +4525,8 @@ async function handle(req, res) {
                       '/api/folders': listFolders, '/api/folder': folderInfo, '/api/pick-folder': pickFolder,
                       '/api/workspace/focus': focusWorkspace, '/api/workspace/assign': assignRepo, '/api/workspace/update': updateWorkspace,
                       '/api/workspace/reorder': reorderWorkspaces, '/api/settings/assign': settingsAssign,
-                      '/api/space/create': createSpace, '/api/space/rename': renameSpace, '/api/space/delete': deleteSpace, '/api/space/move': moveToSpace,
+                      '/api/space/create': createSpace, '/api/space/rename': renameSpace, '/api/space/delete': deleteSpace, '/api/space/move': moveToSpace, '/api/space/goal': spaceGoal,
+                      ...Object.fromEntries(Object.entries(issueRoutes).map(([k, fn]) => [`/api/issue/${k}`, fn])),
                       // Any workspace's, from Settings' picker. The page routes (/api/watcher/enabled, /api/overseer/model)
                       // stay on the page's own workspace.
                       '/api/settings/autofix': (b) => (typeof b?.ws === 'string' && W.has(b.ws) ? nudgeIfOk(watcher.setEnabled(b?.on, b.ws)) : { ok: false, error: 'No such workspace.' }),
