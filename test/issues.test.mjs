@@ -117,6 +117,29 @@ test('notes: an issue\'s (4,000 characters, lines kept) and an item\'s (1,000); 
   assert.deepEqual([s.list('w')[0].notes, s.list('w')[0].items[0].note], ['', '']);
 });
 
+test('files: an issue and an item keep a list of attached files (name, size), 20 at most each, kept across a restart', () => {
+  const { file, s } = mk();
+  const i = s.create('w', 'Checkout').id, it = s.addItem('w', i, 'Cart page').id;
+  assert.deepEqual(s.list('w')[0].files, []);
+  assert.deepEqual(s.list('w')[0].items[0].files, []);
+  const a = s.addFile('w', i, null, { name: 'cart v3.png', size: 1234 });
+  assert.equal(a.ok, true);
+  assert.match(a.id, /^[0-9a-f]{8}$/);
+  const b = s.addFile('w', i, it, { name: '../../etc/passwd', size: 10 });
+  assert.equal(b.ok, true);
+  assert.deepEqual(s.list('w')[0].files.map((f) => [f.name, f.size]), [['cart v3.png', 1234]]);
+  assert.deepEqual(s.list('w')[0].items[0].files.map((f) => f.name), ['passwd'], 'a name, never a path');
+  assert.equal(s.addFile('w', i, null, { name: '', size: 1 }).ok, false);
+  assert.equal(s.addFile('w', 'nope', null, { name: 'x', size: 1 }).ok, false);
+  for (let n = 1; n < 20; n++) s.addFile('w', i, null, { name: `f${n}.txt`, size: 1 });
+  assert.equal(s.addFile('w', i, null, { name: 'one too many.txt', size: 1 }).ok, false);
+  assert.equal(createIssues({ file }).list('w')[0].files.length, 20);
+  const r = s.removeFile('w', i, it, b.id);
+  assert.deepEqual([r.ok, r.file.name], [true, 'passwd']);
+  assert.equal(s.removeFile('w', i, it, b.id).ok, false);
+  assert.deepEqual(s.list('w')[0].items[0].files, []);
+});
+
 test('a workspace that goes takes its issues with it: a new one by the same id starts with none', () => {
   const { file, s } = mk();
   s.addItem('w', s.create('w', 'Old work').id, 'x');

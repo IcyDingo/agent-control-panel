@@ -1033,8 +1033,20 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
 .is-notes-in { width: 100%; min-height: 64px; resize: vertical; font: 12.5px/1.5 var(--sans); padding: 6px 8px; }
 .is-notes-acts { display: flex; align-items: center; gap: 6px; }
 .is-hint { color: var(--fg-faint); font-size: 11.5px; }
-.is-note-mark { flex: none; padding: 0 2px; border: 0; background: none; color: var(--fg-faint); font-size: 12px; cursor: pointer; }
-.is-note-mark:hover { color: var(--fg); }
+.is-ic { flex: none; position: relative; width: 22px !important; height: 22px !important; color: var(--fg-faint); }
+.is-ic svg { width: 13px; height: 13px; }
+.is-ic.on { color: var(--fg-dim); }
+.is-ic:hover { color: var(--fg); }
+.is-head:not(:hover, :focus-within) .is-ic:not(.on), .is-item:not(:hover, :focus-within) .is-ic:not(.on) { opacity: 0; }
+.is-ic-n { position: absolute; right: -3px; bottom: -2px; font: 600 9.5px/1 var(--mono); color: var(--fg-dim); }
+.is-files { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 6px 24px; }
+.is-files.of-item { margin: -2px 0 4px 26px; }
+.is-file { display: inline-flex; align-items: center; gap: 2px; max-width: 100%; height: 22px; padding: 0 2px 0 8px; border-radius: var(--r-pill); background: var(--fill); font-size: 11.5px; }
+.is-file a { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-dim); text-decoration: none; }
+.is-file a:hover { color: var(--fg); text-decoration: underline; text-underline-offset: 2px; }
+.is-file-x { flex: none; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--fg-faint); cursor: pointer; }
+.is-file-x:hover { color: var(--fg); background: var(--hover); }
+.is-item.drop-files, .is-head.drop-files { box-shadow: inset 0 0 0 1.5px var(--run); background: color-mix(in srgb, var(--run) 8%, transparent); }
 .is-agent { flex: none; max-width: 170px; padding: 0 4px; border: 0; background: none; color: var(--fg-dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .is-agent b { color: var(--fg); font-weight: 500; }
 .is-agent:hover b { text-decoration: underline; text-underline-offset: 2px; }
@@ -4801,6 +4813,57 @@ async function pickUp(i, it, { form = false } = {}) {
   for (let n = 0; n < 20 && p.space && !snap.spaces?.some((x) => x.id === p.space); n++) await new Promise((r) => setTimeout(r, 100));
   openLauncher({ space: p.space, cwd: p.folder, where: i.title, prompt: p.prompt, issue: { issue: i.id, item: it.id }, worktreeName: p.worktreeName, name: p.name });
 }
+// Icons for a note and for files, on each issue and item: quiet until hovered, there to stay once used.
+const PEN = 'M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4', CLIP = 'M20 11.5l-8 8a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7L9.7 17.2a1.7 1.7 0 0 1-2.4-2.4L15 7';
+const FILE_MAX = 20 * 1024 * 1024;
+/** Send files to an issue (`item` null) or an item, one after another, each as it is: Glue keeps them in its own folder. */
+async function attachFiles(issue, item, files) {
+  for (const f of files) {
+    if (f.size > FILE_MAX) { toast(`${f.name} is over 20 MB.`, true); continue; }
+    const q = new URLSearchParams({ issue, name: f.name, ...(item ? { item } : {}) });
+    try {
+      const r = await (await fetch(`/api/issue/upload?${q}`, { method: 'POST', headers: { 'x-acp-token': TOKEN, 'x-acp-client': CLIENT, 'content-type': 'application/octet-stream' }, body: f })).json();
+      if (!r.ok) toast(r.error || `${f.name} was not attached.`, true);
+    } catch { toast(`${f.name} was not attached.`, true); }
+  }
+}
+/** Pick files from the computer for an issue or an item. */
+function pickFiles(issue, item) {
+  const inp = el('input', { type: 'file', multiple: true, hidden: true });
+  inp.onchange = () => { attachFiles(issue, item, [...inp.files]); inp.remove(); };
+  document.body.append(inp);
+  inp.click();
+}
+const fileUrl = (issue, f) => `/issue-file?${new URLSearchParams({ t: TOKEN, c: CLIENT, issue, file: f.id })}`;
+const sizeWord = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`);
+/** An issue's or an item's files: a chip each, opening it; × takes it off. */
+function fileChips(i, it) {
+  const list = (it ?? i).files ?? [];
+  if (!list.length) return null;
+  return el('div', { class: 'is-files' + (it ? ' of-item' : '') }, ...list.map((f) => el('span', { class: 'is-file' },
+    el('a', { href: fileUrl(i.id, f), target: '_blank', rel: 'noopener', text: f.name, title: `${f.name} · ${sizeWord(f.size)}. The agent that picks this up is given it.` }),
+    el('button', { class: 'is-file-x', type: 'button', 'aria-label': `Remove ${f.name}`, title: 'Remove', text: '×',
+      onclick: () => isApi('file/remove', { issue: i.id, ...(it ? { item: it.id } : {}), file: f.id }) }))));
+}
+/** Dropping files from the computer on an issue or an item attaches them; anything else is the reorder drag's. */
+function withFileDrop(h, issue, item) {
+  const files = (e) => [...(e.dataTransfer?.types ?? [])].includes('Files');
+  return { ...h,
+    ondragover: (e) => { if (files(e)) { e.preventDefault(); e.currentTarget.classList.add('drop-files'); } else h.ondragover?.(e); },
+    ondragleave: (e) => { e.currentTarget.classList.remove('drop-files'); h.ondragleave?.(e); },
+    ondrop: (e) => { if (files(e)) { e.preventDefault(); e.stopPropagation(); e.currentTarget.classList.remove('drop-files'); attachFiles(issue, item, [...e.dataTransfer.files]); } else h.ondrop?.(e); } };
+}
+/** The note and files icons of an issue or an item. */
+function noteFileIcons(i, it) {
+  const note = it ? it.note : i.notes, n = ((it ?? i).files ?? []).length;
+  const editNote = () => { if (!it) { isFold.delete(i.id); isOpened.add(i.id); saveIsFold(); } startTyping(it ? { kind: 'note', issue: i.id, item: it.id } : { kind: 'notes', issue: i.id }, note ?? ''); };
+  return [
+    iconBtn(PEN, { class: 'btn icon is-ic' + (note ? ' on' : ''), title: note ? (it ? `Its note: ${note}` : 'Edit notes') : (it ? 'Add a note' : 'Add notes'),
+      'aria-label': note ? 'Edit the note' : 'Add a note', onclick: editNote }),
+    el('button', { class: 'btn icon is-ic is-clip' + (n ? ' on' : ''), type: 'button', title: n ? `${n} ${n === 1 ? 'file' : 'files'}. Add more (or drop them here)` : 'Add files (or drop them here)',
+      'aria-label': 'Add files', onclick: () => pickFiles(i.id, it ? it.id : null) }, svgIcon(CLIP), n && it ? el('span', { class: 'is-ic-n', text: String(n) }) : null),
+  ];
+}
 /** A small ⋯ menu of buttons. */
 function isMenu(label, items) {
   return el('details', { class: 'more is-more' }, el('summary', { class: 'btn icon', title: 'More', 'aria-label': label, text: '⋯' }),
@@ -4843,12 +4906,12 @@ function itemRow(i, it, items) {
         title: 'Start an agent on it (Shift-click: with options)', onclick: (e) => pickUp(i, it, { form: e.shiftKey }) }))
     : v.mark === 'working' && it.sessionId ? el('button', { class: 'is-agent', type: 'button', title: 'Open its agent', onclick: openAgent }, el('b', { text: v.label }), ` · ${v.detail}`)
     : el('span', { class: 'is-detail', text: v.label && v.mark === 'finished' ? `${v.label} · ${v.detail}` : v.detail });
-  return el('div', { class: 'is-item', 'data-m': v.mark, tabindex: '0', ...dragHandlers({ issue: i.id, item: it.id }, it.id),
+  return el('div', { class: 'is-item', 'data-m': v.mark, tabindex: '0', ...withFileDrop(dragHandlers({ issue: i.id, item: it.id }, it.id), i.id, it.id),
     onkeydown: (e) => isKeyMove(e, items, it.id, (before) => isApi('move', { issue: i.id, item: it.id, ...(before ? { before } : {}) })) },
     el('button', { class: 'is-mark', type: 'button', 'data-m': v.mark, 'aria-label': v.mark === 'done' ? `Not done: ${it.text}` : `Done: ${it.text}`,
       title: v.mark === 'done' ? 'Done. Click to put it back to do' : 'Mark it done', onclick: () => isApi('tick', { issue: i.id, item: it.id, on: v.mark !== 'done' }) }),
     el('span', { class: 'is-text', text: it.text, title: it.note ? `${it.text}\n\n${it.note}` : it.text, ondblclick: () => startTyping({ kind: 'text', issue: i.id, item: it.id }, it.text) }),
-    it.note ? el('button', { class: 'is-note-mark', type: 'button', text: '✎', title: it.note, 'aria-label': `Its note: ${it.note}`, onclick: () => startTyping({ kind: 'note', issue: i.id, item: it.id }, it.note) }) : null,
+    ...noteFileIcons(i, it),
     right,
     isMenu(`More for ${it.text}`, [
       ['Edit', () => startTyping({ kind: 'text', issue: i.id, item: it.id }, it.text)],
@@ -4874,7 +4937,7 @@ function issueBlock(i, list) {
   };
   const head = isTyping?.kind === 'title' && isTyping.issue === i.id
     ? el('div', { class: 'is-head editing' }, typingLine(isTyping, 'The issue'))
-    : el('div', { class: 'is-head', tabindex: '0', ...dragHandlers({ issue: i.id }, i.id),
+    : el('div', { class: 'is-head', tabindex: '0', ...withFileDrop(dragHandlers({ issue: i.id }, i.id), i.id, null),
         onkeydown: (e) => isKeyMove(e, list, i.id, (before) => isApi('move', { issue: i.id, ...(before ? { before } : {}) })) },
       el('button', { class: 'is-fold' + (folded ? '' : ' open'), type: 'button', 'aria-expanded': String(!folded), 'aria-label': folded ? `Show ${i.title}` : `Fold ${i.title}`, onclick: toggle, text: '›' }),
       el('span', { class: 'is-title', text: i.title, title: i.title, ondblclick: () => startTyping({ kind: 'title', issue: i.id }, i.title) }),
@@ -4882,6 +4945,7 @@ function issueBlock(i, list) {
       sp && !i.title.toLowerCase().startsWith(sp.name.toLowerCase().replace(/ \d+$/, '')) ? el('span', { class: 'is-space', text: sp.name, title: `Its agents work in the space ${sp.name}` }) : null,
       folded && todo ? el('span', { class: 'is-count', text: `${todo} to do` }) : null,
       el('span', { class: 'grow' }),
+      ...noteFileIcons(i, null),
       isMenu(`More for ${i.title}`, [
         ['Rename', () => startTyping({ kind: 'title', issue: i.id }, i.title)],
         [i.notes ? 'Edit notes…' : 'Add notes…', () => { isFold.delete(i.id); isOpened.add(i.id); saveIsFold(); startTyping({ kind: 'notes', issue: i.id }, i.notes ?? ''); }],
@@ -4901,7 +4965,8 @@ function issueBlock(i, list) {
     el('button', { class: 'btn quiet small', type: 'button', text: 'Cancel', onclick: () => { isDeleting = null; render(); } })) : null;
   return el('section', { class: 'is-issue', 'data-done': i.allDone ? '' : null }, head, pick, armedDel,
     folded ? null : notesRow(i),
-    folded ? null : el('div', { class: 'is-items' }, ...i.items.flatMap((it) => [itemRow(i, it, i.items),
+    folded ? null : fileChips(i, null),
+    folded ? null : el('div', { class: 'is-items' }, ...i.items.flatMap((it) => [itemRow(i, it, i.items), fileChips(i, it),
       isTyping?.kind === 'note' && isTyping.item === it.id ? notesEditor(isTyping, 'A note for this item: what the agent should know') : null]),
       isTyping?.kind === 'item' && isTyping.issue === i.id ? el('div', { class: 'is-item editing' }, el('span', { class: 'is-mark', 'data-m': 'todo' }), typingLine(isTyping, 'A new item')) : null));
 }

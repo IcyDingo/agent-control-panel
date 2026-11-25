@@ -199,6 +199,43 @@ test('notes travel with a pick-up: the item, its note, which issue it is part of
   assert.equal((await api('/api/issue/item/delete', { issue, item: d })).ok, true);
 });
 
+test('files: attached to an issue and an item, served only with the token, listed in a pick-up\'s task, the agent may read their folder', async () => {
+  const up = (q, bytes, headers = {}) => fetch(`${BASE}/api/issue/upload?${new URLSearchParams(q)}`, { method: 'POST', headers: { origin: BASE, 'x-acp-token': token, 'content-type': 'application/octet-stream', ...headers }, body: bytes })
+    .then(async (r) => ({ status: r.status, ...(await r.json()) }));
+  const e = (await api('/api/issue/item/add', { issue, text: 'Totals row' })).id;
+  const a = await up({ issue, name: 'cart v3.png' }, Buffer.from('PNGDATA'));
+  assert.equal(a.ok, true, JSON.stringify(a));
+  const b = await up({ issue, item: e, name: '../spec.pdf' }, Buffer.from('%PDF-1.4'));
+  assert.equal(b.ok, true, JSON.stringify(b));
+  assert.equal((await up({ issue, name: 'x.txt' }, Buffer.from('x'), { 'x-acp-token': 'nope' })).status, 403, 'the page\'s token only');
+  assert.equal((await up({ issue: 'nope', name: 'x.txt' }, Buffer.from('x'))).ok, false);
+  const got = await issueAt(issue);
+  assert.deepEqual(got.files.map((f) => [f.name, f.size]), [['cart v3.png', 7]]);
+  assert.deepEqual(got.items.find((x) => x.id === e).files.map((f) => f.name), ['spec.pdf']);
+  // Served to the page with its token; nothing without it.
+  const served = await fetch(`${BASE}/issue-file?${new URLSearchParams({ t: token, issue, file: a.id })}`);
+  assert.equal(served.status, 200);
+  assert.equal(await served.text(), 'PNGDATA');
+  assert.match(served.headers.get('content-type'), /image\/png/);
+  assert.equal((await fetch(`${BASE}/issue-file?${new URLSearchParams({ issue, file: a.id })}`)).status, 403);
+  // A pick-up lists the files' paths, item's then issue's, and the agent may read their folder.
+  const p = await api('/api/issue/prepare', { issue, item: e });
+  const issuePath = p.prompt.match(/Files for this issue:\n- (.+)/)[1], itemPath = p.prompt.match(/Files for this item:\n- (.+)/)[1];
+  assert.equal(fs.readFileSync(issuePath, 'utf8'), 'PNGDATA');
+  assert.equal(fs.readFileSync(itemPath, 'utf8'), '%PDF-1.4');
+  assert.ok(itemPath.endsWith('spec.pdf') && !itemPath.includes('..'));
+  assert.equal((await api('/api/issue/pickup', { issue, item: e })).ok, true);
+  const args = launches().at(-1).args, dir = args[args.indexOf('--add-dir') + 1];
+  assert.ok(args.includes('--add-dir'), 'read access to the files');
+  assert.ok(issuePath.startsWith(dir + path.sep) && itemPath.startsWith(dir + path.sep), 'their folder');
+  assert.ok(args.indexOf('--add-dir') < args.indexOf('--'), 'before the task');
+  // Removing a file, or the item, takes its bytes too.
+  assert.equal((await api('/api/issue/file/remove', { issue, file: a.id })).ok, true);
+  assert.equal(fs.existsSync(issuePath), false);
+  assert.equal((await api('/api/issue/item/delete', { issue, item: e })).ok, true);
+  assert.equal(fs.existsSync(itemPath), false);
+});
+
 test('when a pull request from its branch merges, after its agent left the board, the item is done', async () => {
   setPrs({ open: [{ number: 12, branch: 'feat-x' }], merged: [] });
   await api('/api/github/refresh', {});

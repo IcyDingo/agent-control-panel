@@ -8,7 +8,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 
-const TITLE_MAX = 120, TEXT_MAX = 300, NOTES_MAX = 4000, NOTE_MAX = 1000;
+const TITLE_MAX = 120, TEXT_MAX = 300, NOTES_MAX = 4000, NOTE_MAX = 1000, FILES_MAX = 20;
+/** A file's name as kept: its last part only (never a path), without control characters, 120 characters at most. */
+export const fileName = (v) => String(v ?? '').split(/[\\/]/).pop().replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 120);
+const filesIn = (v) => (Array.isArray(v) ? v : []).filter((f) => f && ID.test(f.id ?? '') && fileName(f.name) && Number.isFinite(f.size))
+  .slice(0, FILES_MAX).map((f) => ({ id: f.id, name: fileName(f.name), size: Math.max(0, Math.floor(f.size)), at: Number.isFinite(f.at) ? f.at : 0 }));
 /** Notes: lines kept, each line's end and the whole trimmed, blank runs of lines made one. */
 const notesOf = (v) => String(v ?? '').replace(/\r\n?/g, '\n').split('\n').map((l) => l.trimEnd()).join('\n').replace(/\n{3,}/g, '\n\n').trim();
 const CHOICES = ['agentKind', 'login', 'model', 'effort', 'mode'];
@@ -34,14 +38,14 @@ function itemIn(x) {
   return { id: x.id, text: x.text, state, sessionId: str(x.sessionId, 64), launchId: str(x.launchId, 64),
            branches: Array.isArray(x.branches) ? [...new Set(x.branches.filter((b) => str(b, 250)))] : [],
            doneBy: state === 'done' && ['merge', 'tick'].includes(x.doneBy) ? x.doneBy : null,
-           pr: state === 'done' && Number.isInteger(x.pr) ? x.pr : null, at: Number.isFinite(x.at) ? x.at : 0, startedAt: Number.isFinite(x.startedAt) ? x.startedAt : 0, note: str(x.note, NOTE_MAX) ?? '' };
+           pr: state === 'done' && Number.isInteger(x.pr) ? x.pr : null, at: Number.isFinite(x.at) ? x.at : 0, startedAt: Number.isFinite(x.startedAt) ? x.startedAt : 0, note: str(x.note, NOTE_MAX) ?? '', files: filesIn(x.files) };
 }
 function issueIn(x) {
   if (!x || typeof x !== 'object' || !ID.test(x.id ?? '') || !str(x.title, TITLE_MAX)) return null;
   const items = (Array.isArray(x.items) ? x.items : []).map(itemIn).filter(Boolean);
   return { id: x.id, title: x.title, space: str(x.space, 64), owns: x.owns === true && Boolean(str(x.space, 64)),
            folder: typeof x.folder === 'string' && path.isAbsolute(x.folder) ? x.folder : null, choices: choicesIn(x.choices),
-           notes: str(x.notes, NOTES_MAX) ?? '', items: items.filter((it, i) => items.findIndex((y) => y.id === it.id) === i) };
+           notes: str(x.notes, NOTES_MAX) ?? '', files: filesIn(x.files), items: items.filter((it, i) => items.findIndex((y) => y.id === it.id) === i) };
 }
 const copy = (v) => JSON.parse(JSON.stringify(v));
 
@@ -80,7 +84,7 @@ export function createIssues({ file, now = Date.now } = {}) {
       const t = titleOf(title);
       if (!t.ok) return t;
       const list = issuesOf(ws), id = fresh(list);
-      list.push({ id, title: t.t, space: null, owns: false, folder: null, choices: null, notes: '', items: [] });
+      list.push({ id, title: t.t, space: null, owns: false, folder: null, choices: null, notes: '', files: [], items: [] });
       save();
       return { ok: true, id };
     },
@@ -100,7 +104,7 @@ export function createIssues({ file, now = Date.now } = {}) {
       if (!i) return NOISSUE;
       if (!t.ok) return t;
       const id = fresh(i.items);
-      i.items.push({ id, text: t.t, state: 'todo', sessionId: null, launchId: null, branches: [], doneBy: null, pr: null, at: now(), note: '' });
+      i.items.push({ id, text: t.t, state: 'todo', sessionId: null, launchId: null, branches: [], doneBy: null, pr: null, at: now(), note: '', files: [] });
       save();
       return { ok: true, id };
     },
@@ -220,6 +224,31 @@ export function createIssues({ file, now = Date.now } = {}) {
       if (!it) return NOITEM;
       if (t.length > NOTE_MAX) return no(`A note is at most ${NOTE_MAX.toLocaleString('en')} characters.`);
       it.note = t; save(); return OK;
+    },
+    /** A file attached to an issue (`item` null) or to one of its items: its name and size; the bytes are the server's
+     *  to keep. Returns its id. */
+    addFile(ws, issue, item, { name, size } = {}) {
+      const i = find(ws, issue), it = item == null ? null : i?.items.find((y) => y.id === item), n = fileName(name);
+      if (!i) return NOISSUE;
+      if (item != null && !it) return NOITEM;
+      if (!n) return no('A file needs a name.');
+      const list = (it ?? i).files;
+      if (list.length >= FILES_MAX) return no(`At most ${FILES_MAX} files each.`);
+      const id = fresh(list);
+      list.push({ id, name: n, size: Number.isFinite(size) ? Math.max(0, Math.floor(size)) : 0, at: now() });
+      save();
+      return { ok: true, id, name: n };
+    },
+    /** Take a file off; returns it, so its bytes can go too. */
+    removeFile(ws, issue, item, file) {
+      const i = find(ws, issue), it = item == null ? null : i?.items.find((y) => y.id === item);
+      if (!i) return NOISSUE;
+      if (item != null && !it) return NOITEM;
+      const list = (it ?? i).files, at = list.findIndex((f) => f.id === file);
+      if (at < 0) return no('That file is gone.');
+      const [f] = list.splice(at, 1);
+      save();
+      return { ok: true, file: f };
     },
     /** A workspace that goes takes its issues with it, so a new one by the same id never sees them. */
     dropWorkspace(ws) {
