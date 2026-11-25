@@ -10,7 +10,8 @@ Depends on the Home overview design (`2026-11-24-home-overview-design.md`) for a
 its space's goal. Build after it, or with it.
 
 ## Goals
-- An **Issues** section at the top of the side panel: each issue a header, its items one line each under it.
+- An **Issues** panel on the right, opened from its own button in the top bar, in the same column as GitHub's side bar
+  but a container of its own: each issue a header, its items one line each under it.
 - **Pick up** on an item starts an agent on it in the issue's space, in one click once the issue knows its folder.
 - Each item shows on its own whether it is to do, being worked on (by which agent), or done.
 - Typing an issue or an item is as quick as typing a line.
@@ -94,12 +95,25 @@ ISSUES                                       +        ← folds to its header
   the owner ticks it or picks it up again.
 - When every item of an issue is done, the issue folds and drops to the bottom of the list, dimmed; its ⋯ has Delete.
 
-### In the side panel
-- **Issues** is the first section, above Needs you, folded or open as the owner left it (kept like the other folds). Its
-  header shows only "Issues" and its +; folded, it also shows how many items are to do.
-- An open issue shows its items; a folded one shows "n to do". Issues fold one by one.
-- Items and issues can be dragged to reorder; the keyboard can move them with Alt+↑/↓.
-- On the slim rail the section is hidden.
+### On the right, beside GitHub
+*(Changed 2026-11-25, the owner's words: "this should live right side share github side bar so if both opeen stacked",
+"and have a button at top", "but they should be two different containers".)*
+- **Two containers:** Issues and GitHub are separate panels, each its own rounded card (as `.gh-side` is today) with its
+  own header, close and scrolling, with the page's usual gap between them. They share the column, never a card.
+- **A button in the top bar,** "Issues", next to the "GitHub" button and drawn like it, with how many items are to do
+  as its small count (none shown at 0). It opens and closes the Issues panel, which stays as the owner leaves it across
+  reloads, as GitHub's does.
+- **The same place as GitHub's side bar:** the right-hand column (`.gh-side`'s place, after the session panel). With one
+  of the two open, it takes the whole column. With both open, they stack in that column, **Issues above GitHub**, each
+  with its own header (title, its close ×) and its own scrolling; the split is half and half, and a panel that needs
+  less than its half gives the rest to the other. *(My call: which goes on top, and the split.)*
+- **Slim and narrow, as GitHub's:** the column's slim strip (GitHub's existing ‹ fold) folds both panels to the strip,
+  each showing its icon and count; under 860px the column covers the window, as GitHub's does, still stacked.
+- Esc closes the panel that has focus.
+- Inside the Issues panel: the issues, each a header with its +, its ⋯ and its fold; open, its items; folded, "n to
+  do". A + at the panel's head adds an issue. Items and issues can be dragged to reorder; the keyboard can move them
+  with Alt+↑/↓.
+- The left side panel is unchanged: no Issues section there.
 
 ## Constraints
 - The page is one file with `el()` and `patch()`; the deciding logic (an item's state from sessions and merged pull
