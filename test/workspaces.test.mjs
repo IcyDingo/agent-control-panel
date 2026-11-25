@@ -337,6 +337,22 @@ test('spaces survive a restart, and a malformed spaces part is ignored', () => {
   }
 });
 
+test('a space can have a goal: one line, 120 characters at most, set when made or later, kept across a restart', () => {
+  const file = tmp();
+  const s = createStore({ file, profiles: PROFILES });
+  const { id } = s.createSpace('default', 'Checkout', '  Rebuild the cart\non the v2 API ');
+  assert.deepEqual(s.spacesOf('default'), [{ id, name: 'Checkout', goal: 'Rebuild the cart on the v2 API' }]);
+  const plain = s.createSpace('default', 'Billing').id;
+  assert.deepEqual(s.spacesOf('default')[1], { id: plain, name: 'Billing' }, 'no goal, no field');
+  assert.equal(s.setGoal('default', plain, 'Monthly invoices').ok, true);
+  assert.equal(s.setGoal('default', plain, 'x'.repeat(121)).ok, false);
+  assert.equal(s.setGoal('default', 'nope', 'x').ok, false);
+  assert.equal(s.createSpace('default', 'Docs', 'x'.repeat(121)).ok, false);
+  assert.deepEqual(createStore({ file, profiles: PROFILES }).spacesOf('default').map((x) => x.goal ?? ''), ['Rebuild the cart on the v2 API', 'Monthly invoices']);
+  assert.equal(s.setGoal('default', plain, '  ').ok, true, 'empty clears it');
+  assert.equal(s.spacesOf('default')[1].goal, undefined);
+});
+
 test('members not seen for 14 days are dropped', () => {
   const s = createStore({ file: tmp(), profiles: PROFILES });
   const { id } = s.createSpace('default', 'Billing');

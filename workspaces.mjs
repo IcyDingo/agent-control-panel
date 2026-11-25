@@ -21,7 +21,7 @@ const OPENCODE_LOGIN = Object.freeze({ provider: 'opencode', label: 'OpenCode', 
 const PICK = ['blue', 'green', 'teal', 'rose', 'violet'];
 const NAME_MAX = 24, LABEL_MAX = 40;
 // A space's name, and how long a session gone from the board stays in its space (or remembered as placed).
-const SPACE_MAX = 40, HOUR = 3_600_000, KEEP_MS = 14 * 86_400_000;
+const SPACE_MAX = 40, GOAL_MAX = 120, HOUR = 3_600_000, KEEP_MS = 14 * 86_400_000;
 const isColor = (c) => typeof c === 'string' && Object.hasOwn(COLORS, c);
 const blank = () => Object.create(null); // no prototype: an id like `__proto__` is just an unknown name
 
@@ -106,7 +106,7 @@ export function createStore({ file, home = '', profiles = [], codex = null } = {
       if (!st.workspaces[ws] || !v || typeof v !== 'object') continue;
       const list = (Array.isArray(v.list) ? v.list : []).filter((x, i, a) => x && typeof x.id === 'string' && x.id
         && typeof x.name === 'string' && x.name && a.findIndex((y) => y?.id === x.id) === i)
-        .map((x) => { const main = mainIn(x.main); return main ? { id: x.id, name: x.name, main } : { id: x.id, name: x.name }; });
+        .map((x) => { const main = mainIn(x.main), goal = typeof x.goal === 'string' && x.goal.length <= GOAL_MAX ? x.goal : ''; return { id: x.id, name: x.name, ...(goal ? { goal } : {}), ...(main ? { main } : {}) }; });
       const members = blank();
       for (const [sid, m] of Object.entries(v.members && typeof v.members === 'object' ? v.members : {}))
         if (m && list.some((x) => x.id === m.space) && Number.isFinite(m.at)) members[sid] = { space: m.space, at: m.at, ...roleIn(m) };
@@ -213,6 +213,11 @@ export function createStore({ file, home = '', profiles = [], codex = null } = {
     if (n.length > SPACE_MAX) return { error: `A name is at most ${SPACE_MAX} characters.` };
     if ((st.spaces[ws]?.list ?? []).some((x) => x.id !== self && x.name.toLowerCase() === n.toLowerCase())) return { error: 'Another space has that name.' };
     return { name: n };
+  };
+  /** A space's goal: one line, GOAL_MAX characters at most; empty is no goal. */
+  const goalOf = (goal) => {
+    const g = String(goal ?? '').replace(/\s+/g, ' ').trim();
+    return g.length > GOAL_MAX ? { error: `A goal is at most ${GOAL_MAX} characters.` } : { goal: g };
   };
 
   return {
@@ -410,8 +415,8 @@ export function createStore({ file, home = '', profiles = [], codex = null } = {
 
     // ---- spaces
     /** A workspace's spaces, in the order they were made; one with a main agent says which session and its model. */
-    spacesOf: (ws) => (st.spaces[ws]?.list ?? []).map((x) => (x.main ? { id: x.id, name: x.name, main: { sessionId: x.main.sessionId, model: x.main.model, spawn: x.main.spawn !== false, started: x.main.started ?? 0 } }
-      : { id: x.id, name: x.name })),
+    spacesOf: (ws) => (st.spaces[ws]?.list ?? []).map((x) => ({ id: x.id, name: x.name, ...(x.goal ? { goal: x.goal } : {}),
+      ...(x.main ? { main: { sessionId: x.main.sessionId, model: x.main.model, spawn: x.main.spawn !== false, started: x.main.started ?? 0 } } : {}) })),
     /** A space's main-agent slot ({ sessionId, launchId, model, repo, at }), or null. */
     mainOf: (ws, id) => { const m = st.spaces[ws]?.list.find((y) => y.id === id)?.main; return m ? { ...m } : null; },
     /**
@@ -495,16 +500,27 @@ export function createStore({ file, home = '', profiles = [], codex = null } = {
     },
     /** The workers of a space: the ids of its members a main agent started. */
     workersOf: (ws, id) => Object.entries(st.spaces[ws]?.members ?? {}).filter(([, m]) => m.space === id && m.worker).map(([sid]) => sid),
-    createSpace(ws, name) {
+    createSpace(ws, name, goal = '') {
       if (!st.workspaces[ws]) return NOWS;
-      const n = spaceName(ws, name);
+      const n = spaceName(ws, name), g = goalOf(goal);
       if (n.error) return { ok: false, error: n.error };
+      if (g.error) return { ok: false, error: g.error };
       const at = spacesAt(ws);
       let id;
       do id = randomUUID().slice(0, 8); while (at.list.some((x) => x.id === id));
-      at.list.push({ id, name: n.name });
+      at.list.push({ id, name: n.name, ...(g.goal ? { goal: g.goal } : {}) });
       save();
       return { ok: true, id };
+    },
+    /** A space's goal: one line saying what it is for. Empty clears it. */
+    setGoal(ws, id, goal) {
+      if (!st.workspaces[ws]) return NOWS;
+      const x = st.spaces[ws]?.list.find((y) => y.id === id), g = goalOf(goal);
+      if (!x) return NOSPACE;
+      if (g.error) return { ok: false, error: g.error };
+      if (g.goal) x.goal = g.goal; else delete x.goal;
+      save();
+      return { ok: true };
     },
     renameSpace(ws, id, name) {
       if (!st.workspaces[ws]) return NOWS;
