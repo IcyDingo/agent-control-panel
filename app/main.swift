@@ -273,8 +273,40 @@ final class Panel: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
 
   func webView(_ w: WKWebView, createWebViewWith c: WKWebViewConfiguration, for action: WKNavigationAction,
                windowFeatures: WKWindowFeatures) -> WKWebView? {
-    if let url = action.request.url, ["http", "https"].contains(url.scheme ?? "") { NSWorkspace.shared.open(url) }
+    guard let url = action.request.url, ["http", "https"].contains(url.scheme ?? "") else { return nil }
+    // A file attached to an issue: fetched here and opened in its own app (Preview for a picture or a PDF), so its
+    // address, which carries the page's token, never goes to the browser.
+    if isPanel(url) && url.path == "/issue-file" { openAttached(url); return nil }
+    NSWorkspace.shared.open(url)
     return nil
+  }
+
+  // A page's <input type="file"> (Issues' 📎): WebKit opens no chooser of its own and asks the app; without this, a
+  // click on it does nothing. The Mac's open panel, as a sheet on the window.
+  func webView(_ w: WKWebView, runOpenPanelWith p: WKOpenPanelParameters, initiatedByFrame f: WKFrameInfo,
+               completionHandler done: @escaping ([URL]?) -> Void) {
+    let panel = NSOpenPanel()
+    panel.canChooseFiles = true
+    panel.canChooseDirectories = p.allowsDirectories
+    panel.allowsMultipleSelection = p.allowsMultipleSelection
+    panel.beginSheetModal(for: window) { r in done(r == .OK ? panel.urls : nil) }
+  }
+
+  /// Fetch an attached file from the panel and open it with the app the Mac picks for it, from a folder of the app's own.
+  func openAttached(_ url: URL) {
+    URLSession.shared.dataTask(with: url) { data, response, _ in
+      guard let data, (response as? HTTPURLResponse)?.statusCode == 200 else { return }
+      // Its name, as the panel gives it (Content-Disposition: …; filename*=UTF-8''<name>), else the file's id.
+      let disposition = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition") ?? ""
+      let given = disposition.components(separatedBy: "filename*=UTF-8''").dropFirst().first?.removingPercentEncoding ?? ""
+      let id = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "file" }?.value ?? "file"
+      let name = (given.isEmpty ? id : given).replacingOccurrences(of: "/", with: "_")
+      let dir = FileManager.default.temporaryDirectory.appendingPathComponent("glue-files/\(id)", isDirectory: true)
+      try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+      let file = dir.appendingPathComponent(name)
+      guard (try? data.write(to: file)) != nil else { return }
+      DispatchQueue.main.async { NSWorkspace.shared.open(file) }
+    }.resume()
   }
 
   // The server went away mid-load (a restart): wait for it, then load again.
