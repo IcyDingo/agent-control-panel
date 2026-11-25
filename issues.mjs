@@ -38,7 +38,7 @@ function itemIn(x) {
   return { id: x.id, text: x.text, state, sessionId: str(x.sessionId, 64), launchId: str(x.launchId, 64),
            branches: Array.isArray(x.branches) ? [...new Set(x.branches.filter((b) => str(b, 250)))] : [],
            doneBy: state === 'done' && ['merge', 'tick'].includes(x.doneBy) ? x.doneBy : null,
-           pr: state === 'done' && Number.isInteger(x.pr) ? x.pr : null, at: Number.isFinite(x.at) ? x.at : 0, startedAt: Number.isFinite(x.startedAt) ? x.startedAt : 0, note: str(x.note, NOTE_MAX) ?? '', files: filesIn(x.files) };
+           pr: state === 'done' && Number.isInteger(x.pr) ? x.pr : null, doneAt: state === 'done' && Number.isFinite(x.doneAt) ? x.doneAt : 0, at: Number.isFinite(x.at) ? x.at : 0, startedAt: Number.isFinite(x.startedAt) ? x.startedAt : 0, note: str(x.note, NOTE_MAX) ?? '', files: filesIn(x.files) };
 }
 function issueIn(x) {
   if (!x || typeof x !== 'object' || !ID.test(x.id ?? '') || !str(x.title, TITLE_MAX)) return null;
@@ -104,7 +104,7 @@ export function createIssues({ file, now = Date.now } = {}) {
       if (!i) return NOISSUE;
       if (!t.ok) return t;
       const id = fresh(i.items);
-      i.items.push({ id, text: t.t, state: 'todo', sessionId: null, launchId: null, branches: [], doneBy: null, pr: null, at: now(), note: '', files: [] });
+      i.items.push({ id, text: t.t, state: 'todo', sessionId: null, launchId: null, branches: [], doneBy: null, pr: null, doneAt: 0, at: now(), note: '', files: [] });
       save();
       return { ok: true, id };
     },
@@ -142,8 +142,8 @@ export function createIssues({ file, now = Date.now } = {}) {
       const { i, it } = findItem(ws, issue, item);
       if (!i) return NOISSUE;
       if (!it) return NOITEM;
-      if (on) Object.assign(it, { state: 'done', doneBy: 'tick', pr: null });
-      else Object.assign(it, { state: 'todo', doneBy: null, pr: null, sessionId: null, launchId: null, branches: [] });
+      if (on) Object.assign(it, { state: 'done', doneBy: 'tick', pr: null, doneAt: now() });
+      else Object.assign(it, { state: 'todo', doneBy: null, pr: null, doneAt: 0, sessionId: null, launchId: null, branches: [] });
       save();
       return OK;
     },
@@ -152,7 +152,7 @@ export function createIssues({ file, now = Date.now } = {}) {
       const { i, it } = findItem(ws, issue, item);
       if (!i) return NOISSUE;
       if (!it) return NOITEM;
-      Object.assign(it, { state: 'todo', doneBy: null, pr: null, sessionId: null, launchId: null, branches: [] });
+      Object.assign(it, { state: 'todo', doneBy: null, pr: null, doneAt: 0, sessionId: null, launchId: null, branches: [] });
       save();
       return OK;
     },
@@ -206,7 +206,7 @@ export function createIssues({ file, now = Date.now } = {}) {
       const { i, it } = findItem(ws, issue, item);
       if (!i) return NOISSUE;
       if (!it) return NOITEM;
-      Object.assign(it, { state: 'done', doneBy: 'merge', pr: Number.isInteger(pr) ? pr : null });
+      Object.assign(it, { state: 'done', doneBy: 'merge', pr: Number.isInteger(pr) ? pr : null, doneAt: now() });
       save();
       return OK;
     },
