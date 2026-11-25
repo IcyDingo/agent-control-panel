@@ -53,7 +53,7 @@ test('goalOf: shipped, branches, ahead, and the goal\'s one move', () => {
   assert.deepEqual([g.shipped, g.total, g.lastShippedAt, g.branches.length, g.ahead.length, g.reached, g.empty], [2, 5, 20, 2, 1, false, false]);
   assert.deepEqual(g.branches.map((b) => b.item.id), ['d', 'c'], 'the branch that needs you first');
   assert.deepEqual([g.move.rank, g.move.kind, g.move.item.id], [0, 'asks', 'd']);
-  assert.equal(g.needSig, JSON.stringify([['d', 'asks']]));
+  assert.equal(g.needSig, JSON.stringify([['d', 'asks', 'r1']]));
   assert.equal(goalOf({ id: 'i2', title: 'Empty', items: [] }, ctxOf([])).empty, true);
   const reached = goalOf({ id: 'i3', title: 'Done', items: [it('a', 'done', { doneAt: 5 })] }, ctxOf([]));
   assert.deepEqual([reached.reached, reached.move.rank], [true, 6]);
@@ -63,6 +63,18 @@ test('goalOf: shipped, branches, ahead, and the goal\'s one move', () => {
   assert.deepEqual([start.branches[0].tip.kind, start.move.rank], ['starting', 4]);
   const gone = goalOf({ id: 'i6', title: 'Gone', items: [it('a', 'working', { sessionId: 'x-gone' })] }, ctxOf([]));
   assert.equal(gone.branches[0].tip.kind, 'gone', 'its agent is no longer on the board');
+});
+
+test('a new ask on the same item changes what the goal needs, so a goal collapsed on the old ask opens again', () => {
+  const s = ag('e1', { state: 'waiting' });
+  const issue = { id: 'i1', title: 'G', items: [it('d', 'working', { sessionId: s.sessionId })] };
+  const first = goalOf(issue, ctxOf([s], { reqsOf: () => [bash] }));
+  const second = goalOf(issue, ctxOf([s], { reqsOf: () => [{ ...bash, id: 'r9', toolInput: { command: 'rm -rf dist' } }] }));
+  assert.notEqual(first.needSig, second.needSig);
+  assert.equal(isOpen(second, new Map([['i1', first.needSig]])), true);
+  const f1 = goalOf(issue, ctxOf([ag('e1')], { followOf: () => ({ verdict: 'needs-answer', ask: 'A?', reply: 'x', at: 1 }) }));
+  const f2 = goalOf(issue, ctxOf([ag('e1')], { followOf: () => ({ verdict: 'needs-answer', ask: 'B?', reply: 'y', at: 2 }) }));
+  assert.notEqual(f1.needSig, f2.needSig, 'a new follow-up is a new need');
 });
 
 test('goalsOrder: needs you, broken, ready, stalled, moving, nobody on it; stable within each', () => {

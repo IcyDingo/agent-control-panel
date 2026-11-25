@@ -92,7 +92,9 @@
   /** How pressing a branch is: 0 asks you, 1 broken, 2 ready to merge (or a main agent to wake), 3 stopped short or
    *  stalled, 4 working, 5 idle or gone. */
   const RANK = { asks: 0, follow: 0, failed: 1, fails: 1, merge: 2, wake: 2, short: 3, stalled: 3, busy: 4, starting: 4, idle: 5, gone: 5 };
-  const tip = (kind, tone, ring, words, acts) => ({ kind, tone, ring, words, acts, rank: RANK[kind] });
+  /** `need`: what this need is about (a request's id, a follow-up's time, a PR's commit), so a new one of the same
+   *  kind reads as new. */
+  const tip = (kind, tone, ring, words, acts, need = '') => ({ kind, tone, ring, words, acts, rank: RANK[kind], need: String(need) });
   const lastAct = (s) => Math.max(s.lastEventAt ?? 0, s.lastTool?.at ?? 0, s.lastMessageAt ?? 0);
   const firstSentence = (t) => { const s = String(t ?? '').replace(/\s+/g, ' ').trim(); const m = s.match(/^.*?[.!?](?=\s|$)/); return short(m ? m[0] : s, 90); };
   const goneTip = (inGoal) => tip('gone', 'grey', false, 'agent finished', inGoal ? ['again'] : []);
@@ -105,12 +107,12 @@
   function tipOf(s, { reqs = [], follow = null, failedShown = () => true, mergeable = () => false, stateOf, now = Date.now(), inGoal = true } = {}) {
     if (!s) return tip('starting', 'grey', true, 'starting', []);
     const st = stateOf(s), over = st === 'finished' || st === 'failed', pr = s.gh?.pr;
-    if (reqs.length) return tip('asks', 'amber', false, `asks: ${short(askWords(reqs[0]))}${reqs.length > 1 ? ` (+${reqs.length - 1})` : ''}`, plainAsk(reqs) ? ['allow', 'deny'] : ['answer']);
-    if (st === 'waiting') return tip('asks', 'amber', false, 'waits in its terminal', ['open']);
-    if (follow?.verdict === 'needs-answer') return tip('follow', 'amber', false, `asks: ${short(follow.ask)}`, ['send', 'answer']);
-    if (st === 'failed' && failedShown(s)) return tip('failed', 'red', false, `failed: ${firstSentence(s.lastMessage) || 'it stopped with an error'}`, inGoal ? ['again'] : ['open']);
-    if (pr?.checks === 'failing') { const k = pr.failing?.length || 1; return tip('fails', 'red', false, `PR #${pr.number} fails ${k} check${k === 1 ? '' : 's'}`, ['fix']); }
-    if (mergeable(s)) return tip('merge', 'green', false, `PR #${pr?.number ?? ''} green`.trim(), ['merge']);
+    if (reqs.length) return tip('asks', 'amber', false, `asks: ${short(askWords(reqs[0]))}${reqs.length > 1 ? ` (+${reqs.length - 1})` : ''}`, plainAsk(reqs) ? ['allow', 'deny'] : ['answer'], reqs[0].id);
+    if (st === 'waiting') return tip('asks', 'amber', false, 'waits in its terminal', ['open'], `term:${s.lastEventAt ?? ''}`);
+    if (follow?.verdict === 'needs-answer') return tip('follow', 'amber', false, `asks: ${short(follow.ask)}`, ['send', 'answer'], follow.at ?? follow.ask);
+    if (st === 'failed' && failedShown(s)) return tip('failed', 'red', false, `failed: ${firstSentence(s.lastMessage) || 'it stopped with an error'}`, inGoal ? ['again'] : ['open'], s.lastMessageAt ?? '');
+    if (pr?.checks === 'failing') { const k = pr.failing?.length || 1; return tip('fails', 'red', false, `PR #${pr.number} fails ${k} check${k === 1 ? '' : 's'}`, ['fix'], pr.sha ?? pr.number); }
+    if (mergeable(s)) return tip('merge', 'green', false, `PR #${pr?.number ?? ''} green`.trim(), ['merge'], pr?.sha ?? '');
     if (follow?.verdict === 'stopped-short') return tip('short', 'amber', true, `stopped: ${short(follow.ask)}`, ['keep']);
     if (over) return goneTip(inGoal);
     const quiet = now - lastAct(s);
@@ -145,7 +147,7 @@
     else if (reached) move = { rank: 6, kind: 'reached', words: 'all parts shipped', acts: [], item: null, s: null };
     else if (empty) move = { rank: 5, kind: 'empty', words: 'no parts yet', acts: ['add'], item: null, s: null };
     else move = { rank: 5, kind: 'quiet', words: 'nothing moving', acts: [], item: null, s: null };
-    const needSig = JSON.stringify(branches.filter((b) => b.tip.rank <= 2).map((b) => [b.item.id, b.tip.kind]));
+    const needSig = JSON.stringify(branches.filter((b) => b.tip.rank <= 2).map((b) => [b.item.id, b.tip.kind, b.tip.need]));
     return { id: issue.id, title: issue.title, issue, total: items.length, shipped: done.length, lastShippedAt, branches, ahead, move, reached, empty, needSig };
   }
 
@@ -167,7 +169,7 @@
     }
     for (const h of held) {
       const n = h.waiting ?? 0, w = n === 1 ? 'update waits' : 'updates wait';
-      rows.push({ s: h.s ?? null, space: h.space, tip: tip('wake', 'amber', false, h.down ? `main agent of ${h.name}: stopped, ${n} ${w}` : `main agent of ${h.name}: updates held, ${n} ${w}`, ['wake']) });
+      rows.push({ s: h.s ?? null, space: h.space, tip: tip('wake', 'amber', false, h.down ? `main agent of ${h.name}: stopped, ${n} ${w}` : `main agent of ${h.name}: updates held, ${n} ${w}`, ['wake'], `${h.down}:${n}`) });
     }
     return rows.map((r, i) => [r, i]).sort((a, b) => a[0].tip.rank - b[0].tip.rank || a[1] - b[1]).map(([r]) => r);
   }
