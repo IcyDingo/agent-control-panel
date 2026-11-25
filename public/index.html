@@ -1350,18 +1350,6 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
 @media (max-width: 520px) { .pair { grid-template-columns: 1fr; } }
 @media (hover: none) { .qstop { opacity: 1; } .tile-wrap.can-act .tage { visibility: hidden; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
-/* Every dot that says a state is the same small glassy dot: a little see-through, a soft light on its top left and a
-   fine bright rim, in its state's colour. One at work glows faint blue, one that needs you faint amber. Last in the
-   sheet, so it holds over each place's own colour rules, which set only the colour. (Not the red stop dot, the colour
-   swatches or switches: those are buttons and choices, not states.) */
-:is(.glyph, .sd, .tci, .pdot, .msg.feed .fd), .live::before {
-  opacity: .8; background-image: radial-gradient(circle at 32% 30%, rgba(255, 255, 255, .6), rgba(255, 255, 255, 0) 62%);
-  box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .28);
-}
-:is(.glyph:is([data-s="busy"], [data-s="running"]), .sub:is([data-state="running"], [data-state="stopping"]) .sd, .tci[data-c="running"]) {
-  box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .28), 0 0 5px rgba(126, 166, 230, .45);
-}
-:is(.glyph[data-s="waiting"], .sub[data-state="waiting"] .sd, .pdot[data-s="todo"]) { box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .28), 0 0 5px rgba(227, 171, 62, .4); }
 </style>
 </head>
 <body>
