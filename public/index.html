@@ -1205,46 +1205,12 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
   box-shadow: 0 0 0 1px var(--line-strong), 0 10px 28px -10px var(--shade); font-size: 12.5px; white-space: pre; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
 .hm-note { margin: 10px 0 0; color: var(--fg-faint); font-size: 12.5px; }
 /* Main agents: a card per space that has one. What its space is doing, at a glance; a click opens the main agent. */
-.h-counts { margin-left: 4px; color: var(--fg-dim); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.h-counts b { color: var(--amber); font-weight: 600; }
 /* A card per space (and per repository with agents in no space): a little tinted while its agents work. */
-.h-spaces { padding-bottom: 24px; }
-.hc-card { position: relative; display: grid; gap: 8px; min-width: 0; padding: 10px 10px 10px 14px; border-radius: var(--r-2); background: var(--raise); box-shadow: 0 0 0 1px var(--line); }
-.hc-card[data-working] { background: color-mix(in srgb, var(--run) 7%, var(--raise)); }
-.hc-head { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 28px; }
-.hc-head .grow { flex: 1; }
-.hc-title { margin: 0; min-width: 0; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hc-quiet { flex: none; color: var(--fg-faint); font-size: 12px; }
-.hc-head .btn.icon { width: 26px; height: 26px; }
-.hc-more { position: relative; }
-.hc-sum, .hc-prs { margin: -4px 0 0; font-size: 12.5px; color: var(--fg-dim); }
-.hc-sum b { color: var(--amber); font-weight: 500; }
-.hc-main { display: grid; gap: 8px; padding: 8px 10px; border-radius: var(--r-1); background: var(--fill); }
-.hc-report { padding: 0; border: 0; background: none; color: var(--fg); font-size: 13px; line-height: 1.45; text-align: left; cursor: pointer;
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.hc-report:hover { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-strong); }
-.hc-rows { display: grid; margin: 0 -4px; }
-.hc-row { display: flex; align-items: center; gap: 8px; min-width: 0; height: 28px; padding: 0 6px; border: 0; border-radius: var(--r-1); background: none; color: var(--fg); font-size: 13px; text-align: left; cursor: pointer; }
-.hc-row:hover { background: var(--hover); }
-.hc-row[aria-current="true"] { background: var(--fill-strong); }
-.hc-name { flex: 0 1 auto; min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hc-detail { flex: 1 1 0; min-width: 0; color: var(--fg-dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hc-row[data-need]:not([data-need=""]) .hc-detail { color: var(--amber); }
-.hc-pr { flex: none; font: 11.5px var(--mono); color: var(--fg-dim); }
-.hc-pr[data-c="failing"] { color: var(--stop); }
-.hc-pr[data-c="passing"] { color: var(--ok); }
-.hc-pr[data-c="running"] { color: var(--run); }
-.hc-more-rows { justify-self: start; padding: 0 2px; border: 0; background: none; color: var(--fg-dim); font-size: 12px; cursor: pointer; }
-.hc-more-rows:hover { color: var(--fg); }
 .ma-held { display: flex; align-items: center; gap: 10px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--amber); }
 .ma-held > span { flex: 1; min-width: 0; }
 /* Waiting on you: a card per agent that finished with a question, or with work left. */
-.h-board { padding-bottom: 24px; }
 /* Needs you: a row per agent, full width, one under the other. */
-.h-needs { display: grid; gap: 8px; }
-.h-bulk { display: flex; }
-.h-needs .fu-card { padding: 10px 12px 10px 16px; gap: 8px; }
-.h-needs .fu-card::before { top: 10px; bottom: 10px; }
 .fu-where { flex: none; color: var(--fg-dim); font-size: 12px; }
 .fu-card[data-k="failed"]::before { background: var(--stop); }
 .fu-card[data-k="merge"]::before { background: var(--ok); }
@@ -1254,7 +1220,70 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
 .need-ask { display: grid; gap: 4px; min-width: 0; }
 .need-tool { color: var(--fg-dim); font-size: 12px; }
 .need-cmd { margin: 0; padding: 6px 8px; border-radius: var(--r-1); background: var(--panel); font: 12.5px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 12em; overflow: auto; }
-.h-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 12px; align-items: start; }
+/* Home's goals: a line each (collapsed: its branches' dots and its one move), open: its tree running sideways. */
+.h-goals { padding-bottom: 24px; }
+.gl-head { display: flex; gap: 4px; }
+.gl-list { display: grid; }
+.gl { border-top: 1px solid var(--line); padding: 2px 0; }
+.gl:first-child { border-top: 0; }
+.gl-line { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 38px; cursor: pointer; }
+.gl-chev { flex: none; width: 18px; padding: 0; border: 0; background: none; color: var(--fg-faint); font-size: 11px; cursor: pointer; }
+.gl-title { flex: 0 1 auto; min-width: 0; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gl-dots { flex: none; display: inline-flex; gap: 3px; }
+.gl-move { flex: 0 1 auto; min-width: 0; font-size: 12.5px; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gl-move[data-tone="amber"], .gl-br-words[data-tone="amber"] { color: var(--amber); }
+.gl-move[data-tone="red"], .gl-br-words[data-tone="red"] { color: var(--stop); }
+.gl-move[data-tone="green"] { color: var(--fg-dim); }
+.gl-line .grow { flex: 1; }
+.gl-acts, .gl-br-acts { flex: none; display: inline-flex; gap: 6px; align-items: center; }
+.gl-busy { font-size: 12px; color: var(--fg-dim); }
+.gl-prog { flex: none; display: inline-flex; align-items: center; gap: 6px; width: 104px; justify-content: flex-end; font: 11.5px var(--mono); color: var(--fg-faint); }
+.gl-bar { width: 60px; height: 5px; border-radius: 3px; background: var(--fill-strong); overflow: hidden; }
+.gl-bar i { display: block; height: 100%; background: var(--ok); }
+.gl-dot { display: inline-block; flex: none; width: 9px; height: 9px; border-radius: 50%; box-sizing: border-box; background: var(--fg-faint); }
+.gl-dot[data-tone="green"] { background: var(--ok); }
+.gl-dot[data-tone="amber"] { background: var(--amber); }
+.gl-dot[data-tone="red"] { background: var(--stop); }
+.gl-dot[data-ring="1"] { background: none; border: 2px solid var(--fg-faint); }
+.gl-dot[data-ring="1"][data-tone="green"] { border-color: var(--ok); }
+.gl-dot[data-ring="1"][data-tone="amber"] { border-color: var(--amber); }
+.gl-dot[data-ring="dash"] { background: none; border: 1.5px dashed var(--fg-faint); }
+/* The tree: a main line left to right; each branch a column hanging off it; what is ahead ends the line, dashed. */
+.gl-tree { position: relative; display: flex; align-items: flex-start; gap: 16px; margin: 0 0 10px 28px; padding-top: 14px; }
+.gl-tree::before { content: ""; position: absolute; left: 0; right: 0; top: 4px; border-top: 2px solid color-mix(in srgb, var(--ok) 55%, transparent); }
+.gl-tree[data-outside="1"]::before { border-top-color: var(--line-strong); }
+.gl-brs { display: flex; flex-wrap: wrap; gap: 10px 4px; min-width: 0; flex: 1; }
+.gl-br { position: relative; display: grid; gap: 2px; align-content: start; width: 200px; padding: 2px 8px 0 12px; }
+.gl-br::before { content: ""; position: absolute; left: 3px; top: -12px; height: 18px; border-left: 2px solid var(--fg-faint); }
+.gl-br[data-tone="green"]::before { border-left-color: var(--ok); }
+.gl-br[data-tone="amber"]::before { border-left-color: var(--amber); }
+.gl-br[data-tone="red"]::before { border-left-color: var(--stop); }
+.gl-br-name { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 0; border: 0; background: none; color: var(--fg); font-size: 13px; text-align: left; cursor: pointer; }
+.gl-br-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gl-br-name:hover span, .gl-br[data-open="1"] .gl-br-name span { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-strong); }
+.gl-br-words { font-size: 12px; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gl-br-acts { margin-top: 4px; flex-wrap: wrap; }
+.gl-ahead { position: relative; flex: none; display: grid; gap: 4px; justify-items: start; width: 190px; padding: 0 0 0 10px; margin-top: -12px; background: var(--panel); font-size: 12px; color: var(--fg-dim); }
+.gl-ahead::before { content: ""; position: absolute; left: -24px; width: 24px; top: 6px; border-top: 2px dashed var(--line-strong); }
+.gl-next { display: flex; align-items: center; gap: 7px; color: var(--fg); }
+.gl-stop { margin: 0 0 12px 28px; max-width: 720px; }
+.gl-stop-row { display: flex; align-items: center; gap: 8px; }
+.gl-stop .gl-why { margin: 0 0 6px; font-size: 12px; color: var(--stop); }
+.gl-tell { flex: 1; min-width: 0; height: 30px; padding: 0 10px; border-radius: var(--r-1); border: 1px solid var(--line-strong); background: var(--raise); color: var(--fg); font: inherit; font-size: 13px; }
+.gl-new { padding: 8px 0; }
+.gl-new .gl-tell { width: 100%; }
+.gl-reached { margin: 10px 0 0; font-size: 12.5px; }
+@media (max-width: 720px) {
+  .gl-tree { display: grid; gap: 6px; padding-top: 0; margin-left: 22px; }
+  .gl-tree::before { display: none; }
+  .gl-brs { display: grid; gap: 6px; }
+  .gl-br { width: auto; padding-left: 16px; }
+  .gl-br::before { top: -6px; height: calc(100% + 6px); }
+  .gl-ahead { width: auto; margin: 0; padding-left: 16px; background: none; }
+  .gl-ahead::before { display: none; }
+  .gl-prog { width: auto; }
+  .gl-bar { width: 36px; }
+}
 .h-empty { grid-column: 1 / -1; margin: 0; padding: 22px 18px; border: 1px dashed var(--line-strong); border-radius: var(--r-2); color: var(--fg-dim); font-size: 13px; text-align: center; }
 .fu-card { position: relative; display: grid; gap: 10px; min-width: 0; padding: 14px 14px 12px 18px; border-radius: var(--r-2); background: var(--raise); box-shadow: 0 0 0 1px var(--line); }
 .fu-card::before { content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px; border-radius: 0 3px 3px 0; background: var(--amber); }
@@ -1422,14 +1451,12 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
       <div class="d-top-band"><div class="d-col h-col h-head">
         <span class="ov-mark" aria-hidden="true"></span><h2 class="d-name">Home</h2>
         <span class="d-meta" id="h-meta"></span>
-        <span class="h-counts" id="h-counts"></span>
         <button class="btn icon h-close" type="button" id="h-close" aria-label="Back to the sessions" title="Back to the sessions"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       </div></div>
       <!-- How much the agents worked this week, and the agents that stopped and wait on you: what the rail does not show. -->
       <div class="d-scroll" id="h-scroll">
         <div class="d-col h-col">
-          <section class="h-board" id="h-board" aria-label="Needs you"></section>
-          <section class="h-spaces" id="h-spaces" aria-label="Spaces" hidden></section>
+          <section class="h-goals" id="h-goals" aria-label="Goals"></section>
         </div>
       </div>
       <!-- The chat with the overseer, docked at the bottom: one line folded, the conversation when open. -->
@@ -2129,7 +2156,7 @@ function spaceSummary(spaceId, mine) {
 async function watchSpace(space, on) {
   const r = await api('/api/main/watch', { space, on });
   if (!r.ok) return toast(r.error || 'That did not change.', true);
-  toast(on ? 'Its main agent is starting. It reports on Home.' : 'Its main agent is off.');
+  toast(on ? 'Its main agent is starting. It reports in its conversation.' : 'Its main agent is off.');
 }
 /** The main agent a space has, as the snapshot gives it ({ sessionId, model }), or null. */
 const mainOfSpace = (id) => snap?.spaces?.find((x) => x.id === id)?.main ?? null;
@@ -2559,7 +2586,7 @@ function renderBoard(g, vis) {
     setAttr(c.more.firstChild, 'aria-label', `More for ${sec.title}`);
     patch(c.menu, JSON.stringify([renameBtn, mainOn, mainOff, bs.map((b) => [b.key, b.text, b.armed, armed?.key === b.key])]), () => [
       renameBtn ? el('button', { type: 'button', role: 'menuitem', text: 'Rename…', onclick: () => { c.more.open = false; renaming = sec.space; render(); } }) : null,
-      mainOn ? el('button', { type: 'button', role: 'menuitem', text: 'Turn on main agent', title: `${modelWord(glue?.mainAgents?.model) ?? 'Opus'} watches the agents in this space and reports on Home. It changes nothing.`,
+      mainOn ? el('button', { type: 'button', role: 'menuitem', text: 'Turn on main agent', title: `${modelWord(glue?.mainAgents?.model) ?? 'Opus'} watches the agents in this space and reports in its conversation. It changes nothing.`,
         onclick: () => { c.more.open = false; watchSpace(sec.space, true); } }) : null,
       mainOff ? el('button', { type: 'button', role: 'menuitem', text: 'Turn off main agent', title: 'It stops, and leaves the side panel. Its conversation is kept.',
         onclick: () => { c.more.open = false; watchSpace(sec.space, false); } }) : null,
@@ -3940,136 +3967,12 @@ const REVIEW_WORDS = { APPROVED: 'approved', CHANGES_REQUESTED: 'changes request
 const UNREADY_WORDS = { BLOCKED: 'blocked', DIRTY: 'has conflicts', BEHIND: 'behind its base', UNSTABLE: 'a check fails', UNKNOWN: 'checking' };
 /** Its pull request can be merged now, as the last poll saw it: not a draft, and GitHub calls it clean. */
 const mergeable = (pr) => Boolean(pr && !pr.draft && pr.sha && (pr.mergeState === 'CLEAN' || pr.mergeState === 'HAS_HOOKS'));
-/** The start of a main agent's last report, for its card: what needs you comes first in it. */
-const reportStart = (text) => { const t = String(text ?? '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[#*`_>]/g, '').replace(/\s+/g, ' ').trim(); return t.length > 320 ? `${t.slice(0, 319).trimEnd()}…` : t; };
 // ---------- Home: what needs you, then a card per space ----------
 // The deciding part is public/home-board.js (HomeBoard): who needs you and why, which card an agent is on, the counts.
 const HB = globalThis.HomeBoard;
-/** What a card's row says for an agent that needs you. */
-const NEED_WORD = { waiting: 'asks you', follow: 'reply drafted', failed: 'failed', merge: 'PR ready' };
 /** Failed agents you dismissed from Needs you, by HB.dismissKey: each holds until the agent does something new. */
 const dismissedNeeds = new Set((() => { try { const v = JSON.parse(pref('acp.homeDismissed')); return Array.isArray(v) ? v.filter((k) => typeof k === 'string') : []; } catch { return []; } })());
 const saveDismissed = () => pref('acp.homeDismissed', JSON.stringify([...dismissedNeeds]));
-let homeNeeds = [], homeKindMap = new Map();
-/** Work out what needs you, once per Home redraw. Returns the agents on the board. */
-function homeNeedsNow() {
-  const vis = visible(), ready = (s) => mergeable(s.gh?.pr);
-  homeNeeds = HB.needsList({ sessions: vis, stateOf, reqsOf, asking: asking(), follow: snap.overseer?.follow ?? [], mergeable: ready,
-    dismissed: (s) => dismissedNeeds.has(HB.dismissKey(s)) });
-  homeKindMap = HB.needKinds(homeNeeds);
-  // A dismissal goes once its agent has moved on (HB.pruneDismissed).
-  const kept = HB.pruneDismissed([...dismissedNeeds], vis);
-  if (kept.length !== dismissedNeeds.size) { dismissedNeeds.clear(); for (const k of kept) dismissedNeeds.add(k); saveDismissed(); }
-  return vis;
-}
-const homeKinds = () => homeKindMap;
-/** Home's head line: how many need you, work and are idle, and how many pull requests are ready. */
-function renderCounts(vis) {
-  const n = HB.headCounts({ sessions: vis, kinds: homeKindMap, colOf, stateOf, mergeable: (s) => mergeable(s.gh?.pr) });
-  patch($('h-counts'), JSON.stringify(n), () => [
-    n.need ? el('b', { text: `${n.need} need${n.need === 1 ? 's' : ''} you` }) : null, n.working ? `${n.working} working` : null,
-    n.idle ? `${n.idle} idle` : null, n.ready ? `${n.ready} ${n.ready === 1 ? 'PR' : 'PRs'} ready` : null].filter(Boolean).flatMap((b, i) => (i ? [' · ', b] : [b])));
-}
-const cardNodes = new Map(); // card key → { sig, node }
-const cardsOpen = new Set(); // cards whose every agent is listed (past the first six)
-let cardMenu = null;         // the card whose ⋯ is open, so a redraw keeps it open
-const CARD_ROWS = 6;
-/** What a card's row says after an agent's name: what it needs, else what it runs, else how long it has been idle. */
-function cardDetail(s) {
-  const kind = homeKindMap.get(s.sessionId);
-  if (kind) return NEED_WORD[kind];
-  const st = stateOf(s);
-  if (st === 'stopping') return 'stopping';
-  if (st === 'busy') return HB.busyLine(s) || 'working';
-  if (colOf(st) === 'finished') return LABEL[st]?.toLowerCase() ?? st;
-  return `idle ${ago(snap.now - (s.lastEventAt ?? s.startedAt ?? snap.now))}`;
-}
-/** A card's ⋯: its main agent on or off, Rename, and the side panel's actions for its agents. Never Delete. */
-function cardMenuItems(c) {
-  const out = [], sec = { key: c.key, kind: c.kind, space: c.kind === 'space' ? c.id : null, repo: c.kind === 'repo' ? c.id : null, title: c.title, list: c.all };
-  if (c.kind === 'space') {
-    const slot = mainOfSpace(c.id);
-    if (!slot && c.all.length) out.push(el('button', { type: 'button', role: 'menuitem', text: 'Turn on main agent', onclick: () => { cardMenu = null; watchSpace(c.id, true); } }));
-    if (slot?.sessionId) out.push(el('button', { type: 'button', role: 'menuitem', text: 'Turn off main agent', onclick: () => { cardMenu = null; watchSpace(c.id, false); } }));
-    out.push(el('button', { type: 'button', role: 'menuitem', text: 'Rename…', onclick: () => { cardMenu = null; renaming = c.id; if (isFolded(c.key)) toggleFold(c.key); else render(); } }));
-  }
-  for (const b of bulksOf(sec)) {
-    if (b.key.startsWith('spacedel:')) continue; // deleting a space stays in the side panel
-    out.push(el('button', { class: 'danger' + (armed?.key === b.key ? ' armed' : ''), type: 'button', role: 'menuitem', title: hintOf(b.key),
-      text: armed?.key === b.key ? (b.armed.endsWith('?') ? b.armed : `${b.armed}?`) : b.text, onclick: () => confirmOr(b.key, () => { cardMenu = null; b.run(); }) }));
-  }
-  return out;
-}
-/** One card: its name, its main agent, what it is doing, its pull requests, and its live agents in a row each. */
-function homeCard(c) {
-  const openIt = (s) => { cancelAdvance(); selectNow(); subFocus = null; open = s.sessionId; render(); };
-  const need = c.live.filter((s) => homeKindMap.has(s.sessionId)).length, working = c.all.filter((s) => colOf(stateOf(s)) === 'busy').length;
-  const total = c.all.length;
-  const sum = el('p', { class: 'hc-sum' }, total ? `${total} ${total === 1 ? 'agent' : 'agents'}` : 'No agents yet');
-  if (working) sum.append(` · ${working} working`);
-  if (need) sum.append(' · ', el('b', { text: `${need} need${need === 1 ? 's' : ''} you` }));
-  const p = c.prs, prBits = [p.failing && `${p.failing} failing`, p.running && `${p.running} running`, p.ready && `${p.ready} ready`].filter(Boolean);
-  const m = c.main, resting = m && m.up && stateOf(m) === 'finished';
-  const held = c.kind === 'space' ? snap.mains?.[c.id] : null, nWait = held?.waiting ?? 0;
-  const menu = el('details', { class: 'more col-more hc-more', ontoggle: (e) => { cardMenu = e.currentTarget.open ? c.key : cardMenu === c.key ? null : cardMenu; } },
-    el('summary', { class: 'btn icon', title: 'More', 'aria-label': `More for ${c.title}`, text: '⋯' }), el('div', { class: 'more-m', role: 'menu' }, ...cardMenuItems(c)));
-  if (cardMenu === c.key) menu.open = true;
-  const add = iconBtn(PLUS, { class: 'btn icon hc-add', title: `New agent in ${c.kind === 'repo' ? tilde(c.id) : c.title}`, 'aria-label': `New agent in ${c.title}`,
-    onclick: () => (c.kind === 'space' ? quickLaunch(c.key) : openLauncher({ space: '', cwd: c.kind === 'repo' ? c.id : null, where: c.kind === 'repo' ? tilde(c.id) : 'Other folders' })) });
-  const shown = cardsOpen.has(c.key) ? c.live : c.live.slice(0, CARD_ROWS), more = c.live.length - shown.length;
-  const card = el('section', { class: 'hc-card', 'data-key': c.key, 'aria-label': c.kind === 'space' ? `Space ${c.title}` : c.title },
-    el('div', { class: 'hc-head' },
-      el('h3', { class: 'hc-title', text: c.title }), c.kind !== 'space' ? el('span', { class: 'hc-quiet', text: c.kind === 'repo' ? 'no space' : '' }) : null,
-      m ? el('button', { class: 'col-main', type: 'button', 'aria-current': String(open === m.sessionId), title: `Main agent: ${label(m)} · ${resting ? 'watching' : LABEL[stateOf(m)]?.toLowerCase()}`,
-        onclick: () => openIt(m) }, glyph(resting ? 'idle' : stateOf(m)), 'Main') : null,
-      el('span', { class: 'grow' }), menu, add),
-    sum,
-    prBits.length ? el('p', { class: 'hc-prs', text: `PRs: ${prBits.join(' · ')}` }) : null,
-    m && (m.lastMessage || held) ? el('div', { class: 'hc-main' },
-      m.lastMessage ? el('button', { class: 'hc-report', type: 'button', title: `Open ${label(m)}`, onclick: () => openIt(m), text: reportStart(m.lastMessage) }) : null,
-      held ? el('span', { class: 'ma-held' },
-        el('span', { text: held.down ? `It is stopped. ${nWait} ${nWait === 1 ? 'update waits' : 'updates wait'} for it.` : `Updates from its space are held: many went with no word from you. ${nWait} ${nWait === 1 ? 'waits' : 'wait'}.` }),
-        el('button', { class: 'btn small', type: 'button', 'data-f': 'ma-wake', text: held.down ? 'Wake it' : 'Carry on', onclick: async (e) => {
-          e.currentTarget.disabled = true;
-          const r = await api('/api/main/wake', { space: c.id });
-          if (!r.ok) toast(r.error || 'It could not be sent.', true);
-        } })) : null) : null,
-    shown.length ? el('div', { class: 'hc-rows' }, ...shown.map((s) => {
-      const kind = homeKindMap.get(s.sessionId), pr = s.gh?.pr;
-      return el('button', { class: 'hc-row', type: 'button', 'data-need': kind ?? '', 'aria-current': String(open === s.sessionId), title: `Open ${label(s)}`, onclick: () => openIt(s) },
-        glyph(stateOf(s)), el('span', { class: 'hc-name', text: label(s) }), el('span', { class: 'hc-detail', text: cardDetail(s) }),
-        pr ? el('span', { class: 'hc-pr', 'data-c': pr.checks === 'failing' ? 'failing' : pr.checks === 'running' ? 'running' : pr.checks === 'passing' ? 'passing' : 'none', text: `#${pr.number}` }) : null);
-    })) : null,
-    more > 0 || (cardsOpen.has(c.key) && c.live.length > CARD_ROWS) ? el('button', { class: 'hc-more-rows', type: 'button', text: more > 0 ? `+${more} more` : 'Show fewer',
-      onclick: () => { if (cardsOpen.has(c.key)) cardsOpen.delete(c.key); else cardsOpen.add(c.key); render(); } }) : null);
-  if (working) card.dataset.working = '';
-  if (need) card.dataset.need = '';
-  return card;
-}
-/** Every space, then every repository with agents in no space, then Other folders: a card each, in a fixed order. */
-function renderCards(vis) {
-  const box = $('h-spaces');
-  const cards = HB.homeCards({ spaces: snap.spaces ?? [], sessions: vis, spaceIn, repoOf: (s) => s.git?.repo ?? null, colOf, stateOf, kinds: homeKindMap,
-    mainOf: (id) => { const m = mainOfSpace(id)?.sessionId; return m ? vis.find((x) => x.sessionId === m) ?? null : null; } });
-  box.hidden = !cards.length;
-  if (!box.firstChild) box.append(el('div', { class: 'h-lane' }, el('h3', { text: 'Spaces' }), el('span', { class: 'h-n' })), el('div', { class: 'h-cards' }));
-  setText(box.firstChild.lastChild, cards.length ? String(cards.length) : '');
-  const grid = box.lastChild;
-  const want = cards.map((c) => {
-    const row = (s) => [s.sessionId, label(s), stateOf(s), homeKindMap.get(s.sessionId) ?? '', cardDetail(s), s.gh?.pr?.number ?? 0, s.gh?.pr?.checks ?? '', open === s.sessionId];
-    const m = c.main;
-    const sig = JSON.stringify([c.key, c.title, c.live.map(row), c.all.map((s) => [s.sessionId, stateOf(s), s.kind]), c.prs, m ? [row(m), m.up, m.lastMessage] : null,
-      c.kind === 'space' ? [mainOfSpace(c.id), snap.mains?.[c.id] ?? null] : null, cardsOpen.has(c.key), cardMenu === c.key, armed?.key ?? null, glue?.mainAgents?.workers]);
-    let n = cardNodes.get(c.key);
-    if (!n || n.sig !== sig) { n = { sig, node: homeCard(c) }; cardNodes.set(c.key, n); }
-    return n.node;
-  });
-  for (const k of cardNodes.keys()) if (!cards.some((c) => c.key === k)) cardNodes.delete(k);
-  HB.syncChildren(grid, want); // a row that stays is never moved: a box being typed in keeps its focus
-}
-
-let fuEmpty = null;
-const needNodes = new Map(); // `${kind}:${sessionId}` → { sig, node }
 const reqCards = new Map();  // request id → its answer card, kept so what you typed in it survives a redraw
 const reqOpen = new Set();   // request ids whose answer card is unfolded under their row
 const reqErr = new Map();    // sessionId → why an Allow or Deny did not go through
@@ -4119,72 +4022,195 @@ function waitingRow(r) {
     busy ? el('div', { class: 'fu-busy', role: 'status' }, glyph('busy'), busy)
       : el('div', { class: 'fu-acts' }, ...acts, el('span', { class: 'grow' }), openBtn(s)));
 }
-/** An agent that failed: its last line, Open, and Dismiss (until it does something new). */
-function failedRow(r) {
-  const s = r.s, said = reportStart(s.lastMessage) || (typeof lineOf(s)?.[0] === 'string' ? lineOf(s)[0] : '');
-  return el('article', { class: 'fu-card need-row', 'data-k': 'failed', 'aria-label': `${label(s)} failed` },
-    needHead(s, 'Failed', 'failed', s.lastMessageAt),
-    said ? el('p', { class: 'fu-ask', text: said }) : null,
-    el('div', { class: 'fu-acts' }, el('button', { class: 'btn small', type: 'button', text: 'Dismiss', title: 'Hide it here until it does something new',
-      onclick: () => { dismissedNeeds.add(HB.dismissKey(s)); saveDismissed(); render(); } }), el('span', { class: 'grow' }), openBtn(s)));
+// ---------- Home: the goals (each issue), a tree each, collapsible ----------
+// The side panel is the workers; Home is the work. What each goal shows is decided in home-board.js (goalOf, tipOf,
+// outsideOf); here it is drawn and acted on. Each goal's node is rebuilt only when what it shows changes.
+/** Goals the owner collapsed or opened: id → the needs it was collapsed on, or 'open' (HB.isOpen). */
+const goalsCollapsed = new Map((() => { try { const v = JSON.parse(pref('acp.goalsCollapsed')); return v && typeof v === 'object' ? Object.entries(v).filter(([, x]) => typeof x === 'string') : []; } catch { return []; } })());
+const saveCollapsed = () => pref('acp.goalsCollapsed', JSON.stringify(Object.fromEntries([...goalsCollapsed].slice(-200))));
+const goalNodes = new Map(); // goal key → { sig, node }
+let goalStop = null;         // the branch whose panel is open: `${goal key}|${item id or session id}`
+const goalTell = new Map();  // stop key → what you are typing to that agent
+let newGoal = null;          // the title being typed for a new goal, or null
+/** Ask Glue's follow-up for a session (its id may be a prefix of the session's). */
+const followOf = (sid) => (snap.overseer?.follow ?? []).find((f) => sid.startsWith(f.sessionId)) ?? null;
+const lastActOf = (s) => Math.max(s?.lastEventAt ?? 0, s?.lastTool?.at ?? 0, s?.lastMessageAt ?? 0);
+const openAgent = (s) => { cancelAdvance(); selectNow(); subFocus = null; open = s.sessionId; render(); };
+async function tellAgent(s, text, done = 'Sent.') {
+  const r = await api('/api/reply', { sessionId: s.sessionId, text });
+  if (!r.ok) { toast(r.error || 'It could not be sent.', true); return false; }
+  toast(r.queued ? `${label(s)} gets it when it is done with what it is doing.` : done);
+  return true;
 }
-/** An agent whose pull request is green, with no follow-up of its own: Merge, two clicks. */
-function mergeRow(r) {
-  const s = r.s, pr = s.gh.pr, key = 'merge:' + s.sessionId, sure = armed?.key === key, busy = fuBusy.get(s.sessionId);
-  return el('article', { class: 'fu-card need-row', 'data-k': 'merge', 'aria-label': `${label(s)}: pull request #${pr.number} is ready` },
-    needHead(s, 'PR ready', 'merge', null),
-    el('div', { class: 'fu-pr' }, prChip(s), REVIEW_WORDS[pr.review] ? el('span', { text: REVIEW_WORDS[pr.review] }) : null),
-    busy ? el('div', { class: 'fu-busy', role: 'status' }, glyph('busy'), busy)
-      : el('div', { class: 'fu-acts' }, el('button', { class: 'btn small primary fu-merge' + (sure ? ' armed' : ''), type: 'button', text: sure ? `Confirm merge #${pr.number}` : `Merge #${pr.number}`,
-        title: `Merge pull request #${pr.number} with the repository’s default method. Click again to confirm.`, onclick: () => confirmOr(key, () => mergeSession(s.sessionId, pr)) }),
-      el('span', { class: 'grow' }), openBtn(s)));
+function toggleGoal(g, open) {
+  if (open) { if (g.needSig === '[]') goalsCollapsed.delete(g.id); else goalsCollapsed.set(g.id, g.needSig); }
+  else if (g.needSig === '[]') goalsCollapsed.set(g.id, 'open'); else goalsCollapsed.delete(g.id);
+  saveCollapsed(); render();
 }
-/** Whether sending a follow-up's reply would close Claude in its terminal: "Send all" leaves those out. */
-const closesTerminal = (r) => HB.closesTerminal(r, fuSure);
-/** Send every reply "Send all" may send, one after another, each as its own Send would. */
-async function sendAll(rows) {
-  for (const r of rows) {
-    if (fuBusy.has(r.s.sessionId)) continue;
-    await fuAct(r.follow, 'send', el('button'), fuEdits.get(r.follow.sessionId) ?? r.follow.reply);
-  }
-}
-/** "Needs you": a row per agent that needs you, acted on in place; "Send N replies" at its head. Each row is rebuilt
- *  only when it changes, so a reply you are editing survives a broadcast. */
-function renderNeeds() {
-  const list = homeNeeds, box = $('h-board');
-  if (!box.firstChild) box.append(el('div', { class: 'h-lane' }, el('h3', { text: 'Needs you' }), el('span', { class: 'h-n' }), el('span', { class: 'grow' }), el('span', { class: 'h-bulk' })),
-    el('div', { class: 'h-needs' }));
-  const lane = box.firstChild;
-  setText(lane.children[1], list.length ? String(list.length) : '');
-  const bulk = HB.bulkReplies(list, closesTerminal), key = 'sendall:', sure = armed?.key === key;
-  patch(lane.lastChild, JSON.stringify([bulk.send.map((r) => r.s.sessionId), bulk.left.length, sure]), () => bulk.send.length < 2 ? [] : [
-    el('button', { class: 'btn small' + (sure ? ' primary armed' : ''), type: 'button', 'data-f': 'send-all',
-      text: sure ? `Confirm: send ${bulk.send.length} replies${bulk.left.length ? ` · ${bulk.left.length} left out: it would close Claude in its terminal` : ''}` : `Send ${bulk.send.length} replies`,
-      title: 'Send every drafted reply as it stands in its box. Never a merge, never a permission. Click again to confirm.',
-      onclick: () => confirmOr(key, () => sendAll(bulk.send)) })]);
-  const grid = box.lastChild;
-  const want = list.map((r) => {
-    const s = r.s, k = `${r.kind}:${s.sessionId}`, p = r.reqs[0];
-    const sig = JSON.stringify([r.kind, label(s), needWhere(s), r.kind === 'follow' ? '' : stateOf(s), s.lastMessage, r.kind === 'follow' ? 0 : s.lastMessageAt, s.gh?.pr, r.follow, r.reqs.map((x) => x.id), p ? reqOpen.has(p.id) : false,
-      fuSure.has(s.sessionId), armed?.key === 'merge:' + s.sessionId, fuBusy.get(s.sessionId), reqErr.get(s.sessionId)]);
-    let n = needNodes.get(k);
-    if (!n || n.sig !== sig) {
-      const node = r.kind === 'follow' ? fuCard(r.follow, s) : r.kind === 'waiting' ? waitingRow(r) : r.kind === 'failed' ? failedRow(r) : mergeRow(r);
-      n = { sig, node }; needNodes.set(k, n);
+/** The buttons a branch (or a goal's move) offers, each acting on its own agent or item. */
+function goalActs(acts, { g = null, item = null, s = null, stopKey = null, space = null }) {
+  const sid = s?.sessionId, busy = sid ? fuBusy.get(sid) ?? (followOf(sid)?.sending ? 'Sending…' : null) : null;
+  if (busy) return [el('span', { class: 'gl-busy', role: 'status', text: busy })];
+  const issue = g?.issue, f = sid ? followOf(sid) : null, pr = s?.gh?.pr, p = sid ? reqsOf(sid)[0] : null;
+  const b = (text, run, primary = true, extra = {}) => el('button', { class: 'btn small gl-act' + (primary ? ' primary' : ''), type: 'button', text, ...extra,
+    onclick: (e) => { e.stopPropagation(); run(e.currentTarget); } });
+  const stop = () => { goalStop = goalStop === stopKey ? null : stopKey; if (goalStop && p && !HB.plainAsk(reqsOf(sid))) reqOpen.add(p.id); render(); };
+  return acts.map((a) => {
+    switch (a) {
+      case 'allow': case 'deny': return b(a === 'allow' ? 'Allow' : 'Deny', async () => {
+        fuBusy.set(sid, a === 'allow' ? 'Allowing…' : 'Denying…'); render();
+        const r = await api(p.open ? '/api/answer-open' : '/api/decide', p.open ? { sessionId: sid, toolUseId: p.toolUseId, behavior: a } : { id: p.id, behavior: a });
+        fuBusy.delete(sid); if (!r.ok) toast(r.error || 'That did not go through.', true); render();
+      }, a === 'allow', { title: HB.inlineAsk(p) ?? '' });
+      case 'answer': return b('Answer…', stop, !acts.includes('send'));
+      case 'open': return b('Open', () => openAgent(s), false);
+      case 'send': return b(`Send “${(fuEdits.get(f.sessionId) ?? f.reply).replace(/\s+/g, ' ').slice(0, 28)}${(fuEdits.get(f.sessionId) ?? f.reply).length > 28 ? '…' : ''}”`,
+        (btn) => fuAct(f, 'send', btn, fuEdits.get(f.sessionId) ?? f.reply), true, { title: fuEdits.get(f.sessionId) ?? f.reply });
+      case 'keep': return b('Keep going', (btn) => fuAct(f, 'send', btn, fuEdits.get(f.sessionId) ?? f.reply));
+      case 'fix': return b('Ask to fix', () => tellAgent(s, `The checks on PR #${pr.number} fail (${(pr.failing ?? []).join(', ') || 'see the PR'}). Fix them and push.`, 'Asked to fix.'));
+      case 'nudge': return b('Nudge', () => tellAgent(s, `You have shown no progress for ${Math.max(1, Math.floor((snap.now - lastActOf(s)) / 60_000))} minutes. Say where you are, and carry on.`, 'Nudged.'), false);
+      case 'merge': { const key = 'merge:' + sid, sure = armed?.key === key;
+        return b(sure ? `Confirm merge #${pr.number}` : `Merge #${pr.number}`, () => confirmOr(key, () => mergeSession(sid, pr)), true,
+          { 'data-key': key, title: `Merge pull request #${pr.number} with the repository’s default method. Click again to confirm.` }); }
+      case 'again': return b('Pick up again', async () => { const r = await isApi('back', { issue: issue.id, item: item.id }); if (r.ok) pickUp(issue, { ...item, state: 'todo' }); }, false);
+      case 'pickup': return b(isPickBusy.has(item.id) ? 'Starting…' : 'Pick up', () => pickUp(issue, item), false, { disabled: isPickBusy.has(item.id) });
+      case 'add': return b('Add the first part', () => showIsPop(true), false);
+      case 'wake': return b(s?.up ? 'Carry on' : 'Wake it', async (btn) => { btn.disabled = true; const r = await api('/api/main/wake', { space }); if (!r.ok) toast(r.error || 'It could not be sent.', true); });
+      default: return null;
     }
-    return n.node;
-  });
-  // What left the list takes its row, its edits and its state along.
-  const keep = new Set(list.map((r) => `${r.kind}:${r.s.sessionId}`)), ids = new Set(list.map((r) => r.s.sessionId));
-  for (const k of needNodes.keys()) if (!keep.has(k)) needNodes.delete(k);
-  for (const k of [...fuEdits.keys(), ...fuSure, ...fuBusy.keys(), ...reqErr.keys()]) if (!ids.has(k)) { fuEdits.delete(k); fuSure.delete(k); fuBusy.delete(k); reqErr.delete(k); }
-  const pend = new Set(snap.pending.map((p) => p.id));
-  for (const id of [...reqCards.keys()]) if (!pend.has(id)) { reqCards.delete(id); reqOpen.delete(id); }
-  if (!want.length) want.push(fuEmpty ??= el('p', { class: 'h-empty', text: 'Nothing needs you.' }));
-  HB.syncChildren(grid, want); // a row that stays is never moved: a box being typed in keeps its focus
-  // A reply drawn while the page was hidden never got its height: it gets it once it shows.
-  for (const ta of grid.querySelectorAll('.fu-reply')) if (!ta.style.height) fit(ta);
+  }).filter(Boolean);
 }
+/** A branch's open panel: what that stop needs (its request card or drafted reply; else tell it, interrupt, dismiss). */
+function stopPanel(key, s, tip) {
+  if (!s) return el('div', { class: 'gl-stop' }, el('p', { class: 'quiet', text: 'Its agent is starting. It shows here once it is on the board.' }));
+  const reqs = reqsOf(s.sessionId), f = followOf(s.sessionId);
+  if (reqs.length) return el('div', { class: 'gl-stop' }, waitingRow({ s, kind: 'waiting', reqs }));
+  if (f) return el('div', { class: 'gl-stop' }, fuCard(f, s));
+  const inp = el('input', { class: 'gl-tell', type: 'text', placeholder: `Tell ${label(s)}…`, 'aria-label': `Tell ${label(s)}`, value: goalTell.get(key) ?? '' });
+  const send = async () => { const t = inp.value.trim(); if (!t) return; if (await tellAgent(s, t)) { goalTell.delete(key); inp.value = ''; } };
+  inp.oninput = () => goalTell.set(key, inp.value);
+  inp.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); send(); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); goalStop = null; render(); } };
+  const st = stateOf(s), pr = s.gh?.pr;
+  return el('div', { class: 'gl-stop' },
+    tip.kind === 'fails' && pr?.failing?.length ? el('p', { class: 'gl-why', text: `Failing: ${pr.failing.join(', ')}` }) : null,
+    el('div', { class: 'gl-stop-row' }, inp, el('button', { class: 'btn small primary', type: 'button', text: 'Send', onclick: send }),
+      st === 'busy' ? el('button', { class: 'btn small', type: 'button', text: 'Interrupt', onclick: async () => { const r = await api('/api/interrupt', { sessionId: s.sessionId }); if (!r.ok) toast(r.error || 'It was not interrupted.', true); } }) : null,
+      tip.kind === 'failed' ? el('button', { class: 'btn small', type: 'button', text: 'Dismiss', title: 'Hide it here until it does something new',
+        onclick: () => { dismissedNeeds.add(HB.dismissKey(s)); saveDismissed(); goalStop = null; render(); } }) : null,
+      el('span', { class: 'grow' }), el('button', { class: 'btn quiet small', type: 'button', text: 'Open agent →', onclick: () => openAgent(s) })));
+}
+const dotOf = (t) => el('i', { class: 'gl-dot', 'data-tone': t.tone, 'data-ring': t.ring ? '1' : '0', 'aria-hidden': 'true' });
+/** One branch hanging off a goal's main line: its dot and name (a click opens its panel), where it stands, its buttons. */
+function branchNode(gkey, b, g) {
+  const key = `${gkey}|${b.item?.id ?? b.s?.sessionId ?? b.space}`, on = goalStop === key, s = b.s;
+  const name = b.item ? b.item.text : s ? label(s) : b.tip.words;
+  return el('div', { class: 'gl-br', 'data-tone': b.tip.tone, 'data-open': on ? '1' : '0' },
+    el('button', { class: 'gl-br-name', type: 'button', title: s ? `${name} · ${label(s)}` : name, 'aria-expanded': String(on),
+      onclick: () => { goalStop = on ? null : key; render(); } }, dotOf(b.tip), el('span', { text: name })),
+    b.item || s ? el('span', { class: 'gl-br-words', 'data-tone': b.tip.tone, text: b.tip.words }) : null,
+    el('div', { class: 'gl-br-acts' }, ...goalActs(b.tip.acts, { g, item: b.item, s, stopKey: key, space: b.space })));
+}
+/** A goal: its line (collapsed: branch dots and its one move), and open: its tree running sideways, then what is ahead. */
+function goalNode(g, isOpen, outside = null) {
+  const gkey = outside ? 'outside' : `goal:${g.id}`, branches = outside ?? g.branches;
+  const move = outside ? (branches[0] ? { words: branches.length === 1 ? branches[0].tip.words : `${branches.length} agents`, tone: branches[0].tip.tone } : null) : g.move;
+  const tone = outside ? branches[0]?.tip.tone ?? 'grey' : branches.find((b) => b.tip.rank === g.move.rank)?.tip.tone ?? (g.move.rank === 4 ? 'green' : 'grey');
+  const toggle = () => toggleGoal(g, !isOpen); // for Outside any goal, `g` stands in: { id: 'outside', needSig }
+  const line = el('div', { class: 'gl-line', onclick: (e) => { if (!e.target.closest('button:not(.gl-chev)')) toggle(); } },
+    el('button', { class: 'gl-chev', type: 'button', 'aria-expanded': String(isOpen), 'aria-label': `${isOpen ? 'Collapse' : 'Open'} ${outside ? 'Outside any goal' : g.title}` }, isOpen ? '▾' : '▸'),
+    el('span', { class: 'gl-title', text: outside ? 'Outside any goal' : g.title }),
+    !isOpen && branches.length ? el('span', { class: 'gl-dots' }, ...branches.slice(0, 8).map((b) => dotOf(b.tip))) : null,
+    el('span', { class: 'gl-move', 'data-tone': isOpen ? 'grey' : tone,
+      text: isOpen ? (outside ? '' : g.lastShippedAt ? `last shipped ${HB.agoWords(snap.now - g.lastShippedAt)}` : g.shipped ? '' : 'nothing shipped yet') : move?.words ?? '' }),
+    el('span', { class: 'grow' }),
+    !isOpen && !outside ? el('span', { class: 'gl-acts' }, ...goalActs(g.move.acts, { g, item: g.move.item, s: g.move.s, stopKey: g.move.item ? `${gkey}|${g.move.item.id}` : null })) : null,
+    !isOpen && outside && branches.length === 1 ? el('span', { class: 'gl-acts' }, ...goalActs(branches[0].tip.acts, { s: branches[0].s, stopKey: `${gkey}|${branches[0].s?.sessionId ?? branches[0].space}`, space: branches[0].space })) : null,
+    !outside ? el('span', { class: 'gl-prog', title: `${g.shipped} of ${g.total} parts shipped` },
+      el('span', { class: 'gl-bar' }, el('i', { style: `width:${g.total ? Math.round((100 * g.shipped) / g.total) : 0}%` })), `${g.shipped}/${g.total}`) : null);
+  const node = el('section', { class: 'gl', 'data-open': isOpen ? '1' : '0', 'aria-label': outside ? 'Outside any goal' : `Goal: ${g.title}` }, line);
+  if (!isOpen) return node;
+  const stopB = branches.find((b) => goalStop === `${gkey}|${b.item?.id ?? b.s?.sessionId ?? b.space}`);
+  const tree = el('div', { class: 'gl-tree', 'data-outside': outside ? '1' : '0' },
+    el('div', { class: 'gl-brs' }, ...branches.map((b) => branchNode(gkey, b, g))),
+    !outside ? el('div', { class: 'gl-ahead', 'data-none': g.ahead.length ? '0' : '1' },
+      g.ahead.length ? [el('span', { class: 'gl-next' }, el('i', { class: 'gl-dot', 'data-tone': 'grey', 'data-ring': 'dash' }), `Next: ${g.ahead[0].text}`),
+        g.ahead.length > 1 ? el('span', { class: 'quiet', text: `+${g.ahead.length - 1} more` }) : null,
+        ...goalActs(['pickup'], { g, item: g.ahead[0] })]
+        : g.empty ? goalActs(['add'], { g }) : [el('span', { class: 'quiet', text: 'nothing ahead' })]) : null);
+  node.append(tree);
+  if (stopB) node.append(stopPanel(`${gkey}|${stopB.item?.id ?? stopB.s?.sessionId ?? stopB.space}`, stopB.s, stopB.tip));
+  return node;
+}
+/** What a goal's node shows, so it is rebuilt only when that changes. */
+function goalSig(g, isOpen, outside) {
+  const bs = (outside ?? g.branches).map((b) => { const sid = b.s?.sessionId; const f = sid ? followOf(sid) : null;
+    return [b.item?.id, b.item?.text, sid, b.s && label(b.s), b.tip.kind, b.tip.words, b.tip.acts, b.s?.gh?.pr?.number, sid && fuBusy.get(sid), f?.reply, f?.sending, sid && fuEdits.get(sid),
+      sid && armed?.key === 'merge:' + sid, sid && reqsOf(sid).map((p) => [p.id, reqOpen.has(p.id)]), sid && reqErr.get(sid), b.space]; });
+  return JSON.stringify([isOpen, goalStop, bs, outside ? null : [g.title, g.shipped, g.total, g.lastShippedAt && HB.agoWords(snap.now - g.lastShippedAt), g.move.words, g.move.acts,
+    g.move.item?.id, g.ahead.slice(0, 1).map((x) => [x.id, x.text, isPickBusy.has(x.id)]), g.ahead.length]]);
+}
+/** Home's goals: the head, a node per goal (most pressing first), Outside any goal, and the reached line. */
+function renderGoals(vis) {
+  const box = $('h-goals');
+  // A dismissal goes once its agent has moved on (HB.pruneDismissed).
+  const kept = HB.pruneDismissed([...dismissedNeeds], vis);
+  if (kept.length !== dismissedNeeds.size) { dismissedNeeds.clear(); for (const k of kept) dismissedNeeds.add(k); saveDismissed(); }
+  const ctx = { sessions: new Map(vis.map((s) => [s.sessionId, s])), reqsOf, followOf, failedShown: (s) => !dismissedNeeds.has(HB.dismissKey(s)),
+    mergeable: (s) => mergeable(s.gh?.pr), stateOf, now: snap.now };
+  const issues = snap.issues ?? [];
+  const all = HB.goalsOrder(issues.map((i) => HB.goalOf(i, ctx))), goals = all.filter((g) => !g.reached);
+  const workingIds = new Set(issues.flatMap((i) => i.items.filter((x) => x.state === 'working' && x.sessionId).map((x) => x.sessionId)));
+  const held = Object.entries(snap.mains ?? {}).filter(([, h]) => h).map(([space, h]) => ({ space, name: snap.spaces?.find((x) => x.id === space)?.name ?? 'a space',
+    down: h.down, waiting: h.waiting, s: vis.find((x) => x.sessionId === mainOfSpace(space)?.sessionId) ?? null }));
+  const outside = HB.outsideOf({ sessions: vis, workingIds, isMain: (s) => s.role === 'main', ...ctx, held });
+  if (!box.firstChild) box.append(el('div', { class: 'h-lane' }, el('h3', { text: 'Goals' }), el('span', { class: 'grow' }), el('span', { class: 'gl-head' })), el('div', { class: 'gl-list' }));
+  const anyOpen = goals.some((g) => HB.isOpen(g, goalsCollapsed));
+  patch(box.firstChild.lastChild, JSON.stringify([goals.length, anyOpen, newGoal !== null]), () => [
+    goals.length ? el('button', { class: 'btn quiet small', type: 'button', text: anyOpen ? 'Collapse all' : 'Expand all', onclick: () => {
+      for (const g of goals) toggleGoal(g, !anyOpen); } }) : null,
+    el('button', { class: 'btn quiet small', type: 'button', text: '+ New goal', onclick: () => { newGoal = ''; render(); requestAnimationFrame(() => $('gl-new')?.focus()); } })]);
+  const want = [];
+  if (newGoal !== null) {
+    let n = goalNodes.get('new');
+    if (!n) {
+      const inp = el('input', { id: 'gl-new', class: 'gl-tell', type: 'text', maxlength: '120', placeholder: 'The outcome, e.g. “Pages load in under 2 seconds”', 'aria-label': 'New goal' });
+      inp.oninput = () => { newGoal = inp.value; };
+      inp.onkeydown = async (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); newGoal = null; goalNodes.delete('new'); render(); return; }
+        if (e.key !== 'Enter' || !inp.value.trim()) return;
+        e.preventDefault();
+        const r = await isApi('create', { title: inp.value.trim() });
+        if (r.ok) { newGoal = null; goalNodes.delete('new'); render(); }
+      };
+      n = { sig: '', node: el('div', { class: 'gl gl-new' }, inp) };
+      goalNodes.set('new', n);
+    }
+    want.push(n.node);
+  }
+  const keep = new Set(newGoal !== null ? ['new'] : []);
+  const put = (key, sig, build) => { keep.add(key); let n = goalNodes.get(key); if (!n || n.sig !== sig) { n = { sig, node: build() }; goalNodes.set(key, n); } want.push(n.node); };
+  for (const g of goals) { const o = HB.isOpen(g, goalsCollapsed); put(`goal:${g.id}`, goalSig(g, o, null), () => goalNode(g, o)); }
+  if (outside.length) {
+    const stand = { id: 'outside', needSig: JSON.stringify(outside.filter((r) => r.tip.rank <= 2).map((r) => [r.s?.sessionId ?? r.space, r.tip.kind])) };
+    const o = HB.isOpen(stand, goalsCollapsed);
+    put('outside', goalSig(null, o, outside), () => goalNode(stand, o, outside));
+  }
+  const reached = HB.reachedToday(all, snap.now);
+  if (reached.length) put('reached', JSON.stringify(reached), () => el('p', { class: 'gl-reached' }, el('span', { class: 'quiet', text: 'Reached today: ' }), reached.join(' · ')));
+  if (!want.length) put('empty', 'empty', () => el('p', { class: 'h-empty', text: 'No goals yet. A goal is an outcome you want; its parts are picked up by agents. Add one with + New goal.' }));
+  for (const k of goalNodes.keys()) if (!keep.has(k)) goalNodes.delete(k);
+  HB.syncChildren(box.lastChild, want); // a node that stays is never moved: a box being typed in keeps its focus
+  for (const ta of box.querySelectorAll('.fu-reply')) if (!ta.style.height) fit(ta);
+}
+// j/k move between Home's buttons; Enter presses the one in focus (a button's own behaviour).
+document.addEventListener('keydown', (e) => {
+  if ($('home').hidden || e.metaKey || e.ctrlKey || e.altKey || (e.key !== 'j' && e.key !== 'k') || e.target.closest('input, textarea, select, [contenteditable]')) return;
+  const list = [...document.querySelectorAll('#h-goals .gl-act:not([disabled]), #h-goals .gl-chev')];
+  if (!list.length) return;
+  e.preventDefault();
+  const i = list.indexOf(document.activeElement);
+  list[i < 0 ? 0 : Math.min(list.length - 1, Math.max(0, i + (e.key === 'j' ? 1 : -1)))].focus();
+});
 window.addEventListener('resize', () => { for (const ta of document.querySelectorAll('.fu-reply')) fit(ta); });
 /** One agent waiting on you: what it asks or left, its pull request, what it said, a drafted reply you can change, and
  *  Merge (when its pull request is green), Send or Keep going, and Open. */
@@ -4498,10 +4524,7 @@ function renderHome(g) {
   if (ovProposedWas != null && proposed > ovProposedWas && !dockOpen) { ovProposedWas = proposed; setDock(true); return; }
   ovProposedWas = proposed;
   setText($('h-meta'), st ? `${ovModelName(st.model)} · proposes, you confirm` : '');
-  const vis = homeNeedsNow();
-  renderCounts(vis);
-  renderNeeds();
-  renderCards(vis);
+  renderGoals(visible());
   setAttr($('h-dock'), 'data-open', dockOpen ? '1' : '0');
   setAttr($('h-dock-tog'), 'aria-expanded', String(dockOpen));
   setAttr($('h-dock-tog'), 'title', dockOpen ? 'Fold the chat' : 'Open the chat with Glue');
@@ -6899,7 +6922,7 @@ function setGlueAgents(box, g) {
     const counts = (list, n) => [...new Set([...list, n])].sort((x, y) => x - y).map((v) => [String(v), String(v)]);
     const mainAgents = [
       el('h4', { class: 'rule', text: 'Main agents' }),
-      el('p', { class: 'set-quiet set-sub', text: 'A space’s main agent watches the agents in it and reports on Home: what needs you, and what the space is doing. It changes no files. Turn one on from a space’s ⋯ menu; no space has one until you do.' }),
+      el('p', { class: 'set-quiet set-sub', text: 'A space’s main agent watches the agents in it and reports in its conversation: what needs you, and what the space is doing. It changes no files. Turn one on from a space’s ⋯ menu; no space has one until you do.' }),
       setOpt('Main agent’s model', 'What a main agent runs on.',
         setSelect('ma-model', 'Model a main agent starts on', [['opus', 'Opus'], ['opus[1m]', 'Opus 1M'], ['fable', 'Fable'], ['sonnet', 'Sonnet']], m.model, (v) => setMain({ model: v }))),
       setOpt('Start workers', 'Off, a main agent only watches. On, it may also start workers of its own, each in a worktree, with the permissions a new agent starts with (above).',
