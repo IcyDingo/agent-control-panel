@@ -107,7 +107,10 @@
   function tipOf(s, { reqs = [], follow = null, failedShown = () => true, mergeable = () => false, stateOf, now = Date.now(), inGoal = true } = {}) {
     if (!s) return tip('starting', 'grey', true, 'starting', []);
     const st = stateOf(s), over = st === 'finished' || st === 'failed', pr = s.gh?.pr;
-    if (reqs.length) return tip('asks', 'amber', false, `asks: ${short(askWords(reqs[0]))}${reqs.length > 1 ? ` (+${reqs.length - 1})` : ''}`, plainAsk(reqs) ? ['allow', 'deny'] : ['answer'], reqs[0].id);
+    if (reqs.length) {
+      const plain = plainAsk(reqs); // what one click allows is shown whole, never cut
+      return tip('asks', 'amber', false, `asks: ${plain ? askWords(reqs[0]) : short(askWords(reqs[0]))}${reqs.length > 1 ? ` (+${reqs.length - 1})` : ''}`, plain ? ['allow', 'deny'] : ['answer'], reqs[0].id);
+    }
     if (st === 'waiting') return tip('asks', 'amber', false, 'waits in its terminal', ['open'], `term:${s.lastEventAt ?? ''}`);
     if (follow?.verdict === 'needs-answer') return tip('follow', 'amber', false, `asks: ${short(follow.ask)}`, ['send', 'answer'], follow.at ?? follow.ask);
     if (st === 'failed' && failedShown(s)) return tip('failed', 'red', false, `failed: ${firstSentence(s.lastMessage) || 'it stopped with an error'}`, inGoal ? ['again'] : ['open'], s.lastMessageAt ?? '');
@@ -160,16 +163,17 @@
    * `{ s, tip, space? }`, most pressing first.
    */
   function outsideOf({ sessions, workingIds, isMain, reqsOf, followOf, failedShown, mergeable, stateOf, now = Date.now(), held = [] }) {
-    const rows = [];
+    const rows = [], heldIds = new Set(held.map((h) => h.s?.sessionId).filter(Boolean));
     for (const s of sessions) {
       if (workingIds.has(s.sessionId)) continue;
       const t = tipOf(s, { reqs: reqsOf(s.sessionId) ?? [], follow: followOf(s.sessionId), failedShown, mergeable, stateOf, now, inGoal: false });
+      if (heldIds.has(s.sessionId) && t.rank > 1) continue; // its wake row stands for it
       const st = stateOf(s);
       if (t.rank <= 3 || (!isMain(s) && st !== 'finished' && st !== 'failed')) rows.push({ s, tip: t });
     }
     for (const h of held) {
       const n = h.waiting ?? 0, w = n === 1 ? 'update waits' : 'updates wait';
-      rows.push({ s: h.s ?? null, space: h.space, tip: tip('wake', 'amber', false, h.down ? `main agent of ${h.name}: stopped, ${n} ${w}` : `main agent of ${h.name}: updates held, ${n} ${w}`, ['wake'], `${h.down}:${n}`) });
+      rows.push({ s: h.s ?? null, space: h.space, down: Boolean(h.down), tip: tip('wake', 'amber', false, h.down ? `main agent of ${h.name}: stopped, ${n} ${w}` : `main agent of ${h.name}: updates held, ${n} ${w}`, ['wake'], `${h.down}:${n}`) });
     }
     return rows.map((r, i) => [r, i]).sort((a, b) => a[0].tip.rank - b[0].tip.rank || a[1] - b[1]).map(([r]) => r);
   }
