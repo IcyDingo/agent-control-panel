@@ -1840,7 +1840,26 @@ const issueIn = (wsId, id) => issues.list(wsId).find((x) => x.id === String(id ?
 const ISSUE_GONE = { ok: false, error: 'That issue is gone.' }, ITEM_GONE = { ok: false, error: 'That item is gone.' };
 /** What an agent picking up an item is told: the item and its own note, which issue it is part of, and that issue's
  *  notes as context. */
-const issuePrompt = (i, it) => [it.text, it.note || null, `This is part of: ${i.title}.`, i.notes ? `Context for this issue:\n${i.notes}` : null].filter(Boolean).join('\n\n');
+const issuePrompt = (wsId, i, it) => [it.text, it.note || null, filesLines('item', it.files.map((f) => issueFilePath(wsId, i.id, f))), `This is part of: ${i.title}.`,
+  i.notes ? `Context for this issue:\n${i.notes}` : null, filesLines('issue', i.files.map((f) => issueFilePath(wsId, i.id, f)))].filter(Boolean).join('\n\n');
+/** "Files for this item:" and a line per path, or nothing. */
+const filesLines = (of, paths) => (paths.length ? `Files for this ${of}:\n${paths.map((p) => `- ${p}`).join('\n')}` : null);
+// Files attached to issues and items: kept in Glue's own folder, one folder per workspace and issue, never in a
+// repository. A pick-up names their paths in the agent's task, and lets it read that folder (--add-dir).
+const ISSUE_FILES = path.join(dataDir, 'issue-files');
+const ISSUE_FILE_MAX = Number(process.env.ACP_ISSUE_FILE_MAX ?? 20 * 1024 * 1024);
+const safeSeg = (v) => String(v).replace(/[^\w.-]+/g, '_').replace(/^\.+/, '_').slice(0, 120) || '_';
+const issueFilesDir = (wsId, issueId) => path.join(ISSUE_FILES, safeSeg(wsId), safeSeg(issueId));
+const issueFilePath = (wsId, issueId, f) => path.join(issueFilesDir(wsId, issueId), `${f.id}-${safeSeg(f.name)}`);
+/** What a pick-up of an issue adds to its launch: read access to the issue's files, when it has any. */
+function issueExtra(wsId, i) {
+  const any = i.files.length || i.items.some((x) => x.files.length);
+  return any ? { extra: ['--add-dir', issueFilesDir(wsId, i.id)] } : undefined;
+}
+const rmQuiet = (p, o = {}) => { try { fs.rmSync(p, { force: true, ...o }); } catch {} };
+/** How a file is served to the page: shown in place only for kinds that run nothing; anything else is downloaded. */
+const SHOWN = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.pdf': 'application/pdf',
+                '.txt': 'text/plain; charset=utf-8', '.md': 'text/plain; charset=utf-8', '.csv': 'text/plain; charset=utf-8', '.json': 'text/plain; charset=utf-8', '.log': 'text/plain; charset=utf-8' };
 /** A pick-up's worktree: named after its item, and new each time (a second pick-up of an item gets a fresh one). */
 const issueWorktree = (item) => `issue-${item}-${Date.now().toString(36).slice(-5)}`;
 /** A launch name from an item's words: the characters a name may have, 40 at most. */
@@ -1897,12 +1916,27 @@ const issueRoutes = {
     }
     return nudged(r);
   },
-  delete: (b, c) => nudged(issues.remove(c.focus, String(b?.id ?? ''))),
+  delete(b, c) {
+    const r = issues.remove(c.focus, String(b?.id ?? ''));
+    if (r.ok) rmQuiet(issueFilesDir(c.focus, String(b.id)), { recursive: true }); // its files go with it
+    return nudged(r);
+  },
+  /** `{ issue, item?, file }`: take an attached file off, its bytes too. */
+  'file/remove'(b, c) {
+    const issueId = String(b?.issue ?? ''), r = issues.removeFile(c.focus, issueId, b?.item == null ? null : String(b.item), String(b?.file ?? ''));
+    if (r.ok) rmQuiet(issueFilePath(c.focus, issueId, r.file));
+    return nudged(r.ok ? { ok: true } : r);
+  },
   'item/add': (b, c) => nudged(issues.addItem(c.focus, String(b?.issue ?? ''), b?.text)),
   'item/edit': (b, c) => nudged(issues.editItem(c.focus, String(b?.issue ?? ''), String(b?.item ?? ''), b?.text)),
   notes: (b, c) => nudged(issues.setNotes(c.focus, String(b?.issue ?? ''), b?.notes ?? '')),
   'item/note': (b, c) => nudged(issues.setItemNote(c.focus, String(b?.issue ?? ''), String(b?.item ?? ''), b?.note ?? '')),
-  'item/delete': (b, c) => nudged(issues.removeItem(c.focus, String(b?.issue ?? ''), String(b?.item ?? ''))),
+  'item/delete'(b, c) {
+    const issueId = String(b?.issue ?? ''), it = issueIn(c.focus, issueId)?.items.find((x) => x.id === String(b?.item ?? ''));
+    const r = issues.removeItem(c.focus, issueId, String(b?.item ?? ''));
+    if (r.ok) for (const f of it?.files ?? []) rmQuiet(issueFilePath(c.focus, issueId, f)); // its files go with it
+    return nudged(r);
+  },
   move: (b, c) => nudged(issues.move(c.focus, { issue: String(b?.issue ?? ''), item: b?.item == null ? undefined : String(b.item), before: b?.before == null ? undefined : String(b.before) })),
   tick: (b, c) => nudged(issues.tick(c.focus, String(b?.issue ?? ''), String(b?.item ?? ''), b?.on === true)),
   back: (b, c) => nudged(issues.back(c.focus, String(b?.issue ?? ''), String(b?.item ?? ''))),
@@ -1923,7 +1957,7 @@ const issueRoutes = {
     if (b?.item != null && !it) return ITEM_GONE;
     const sp = issueSpace(c.focus, i.id);
     if (!sp.ok) return sp;
-    return { ok: true, space: sp.space, folder: issueFolder(c.focus, issueIn(c.focus, i.id)), prompt: it ? issuePrompt(i, it) : null,
+    return { ok: true, space: sp.space, folder: issueFolder(c.focus, issueIn(c.focus, i.id)), prompt: it ? issuePrompt(c.focus, i, it) : null,
              worktreeName: it ? issueWorktree(it.id) : null, name: it ? issueName(it.text) : null, choices: i.choices };
   },
   /** `{ issue, item }`: start an agent on it now, in the issue's folder and space with its kept choices; the form first
@@ -1937,13 +1971,13 @@ const issueRoutes = {
     const sp = issueSpace(c.focus, i.id);
     if (!sp.ok) return sp;
     const d = glue().agentDefaults, ch = i.choices ?? {};
-    const body = { prompt: issuePrompt(i, it), cwd: i.folder, space: sp.space, name: issueName(it.text), worktree: true, worktreeName: issueWorktree(it.id),
+    const body = { prompt: issuePrompt(c.focus, i, it), cwd: i.folder, space: sp.space, name: issueName(it.text), worktree: true, worktreeName: issueWorktree(it.id),
                    agentKind: ch.agentKind ?? (d.agent === 'opencode' ? 'opencode' : 'claude'), model: ch.model ?? d.model, effort: ch.effort ?? d.effort,
                    mode: ch.mode ?? d.mode, login: ch.login ?? undefined, ...(ch.agentKind === 'opencode' ? { model: ch.model ?? d.opencodeModel } : {}) };
     const key = `${c.focus}\0${it.id}`;
     itemsPicking.add(key);
     let r;
-    try { r = await launch(body, c.ws); } finally { itemsPicking.delete(key); }
+    try { r = await launch(body, c.ws, issueExtra(c.focus, i)); } finally { itemsPicking.delete(key); }
     if (!r.ok) { loginFailed(r.error); return r.ask ? { ok: true, needsForm: true } : r; }
     if (r.id) { pendingSpace.set(String(r.id), { ws: c.focus, space: sp.space, at: Date.now() }); issues.startItem(c.focus, i.id, it.id, String(r.id)); }
     feed('launched', null, `You picked up "${it.text.slice(0, 80)}".`, c.focus);
@@ -2519,7 +2553,7 @@ function removeWorkspace(body) {
   if (!W.has(id)) return { ok: false, error: 'No such workspace.' };
   if ([...sessions.values()].some((s) => s.ws === id && isLive(s))) return { ok: false, error: `Sessions are still running in ${wsView(id).name}. End them first.` };
   const r = loginsChanged(store.removeWorkspace(id));
-  if (r.ok) issues.dropWorkspace(id); // its issues go with it: a new workspace by the same name starts with none
+  if (r.ok) { issues.dropWorkspace(id); rmQuiet(path.join(ISSUE_FILES, safeSeg(id)), { recursive: true }); } // its issues and their files go with it
   return r;
 }
 /** The routes Settings changes workspaces' logins with: `{ ws, id }` each. */
@@ -4481,6 +4515,48 @@ async function handle(req, res) {
     return send(res, 200, { ok: true, repos: unsortedRepos(focusOf(hdrClient)) });
   }
 
+  // A file attached to an issue or an item: its bytes as the body (20 MB at most), what it is about in the query. The
+  // page's own token and origin, on the page's workspace, as every action.
+  if (req.method === 'POST' && url.pathname === '/api/issue/upload') {
+    if (!ORIGINS.has(req.headers.origin) || req.headers['x-acp-token'] !== TOKEN) return send(res, 403, { error: 'forbidden' });
+    const focus = focusOf(hdrClient), issueId = String(url.searchParams.get('issue') ?? ''), item = url.searchParams.get('item'), name = url.searchParams.get('name') ?? '';
+    const chunks = [];
+    let size = 0, over = false;
+    try {
+      await new Promise((resolve, reject) => {
+        req.on('data', (c) => { size += c.length; if (size > ISSUE_FILE_MAX) over = true; else chunks.push(c); });
+        req.on('end', resolve); req.on('error', reject);
+      });
+    } catch { return send(res, 400, { ok: false, error: 'The file did not arrive whole.' }); }
+    if (over) return send(res, 413, { ok: false, error: `A file is at most ${Math.round(ISSUE_FILE_MAX / 1048576)} MB.` });
+    const r = issues.addFile(focus, issueId, item || null, { name, size });
+    if (!r.ok) return send(res, 422, r);
+    try {
+      fs.mkdirSync(issueFilesDir(focus, issueId), { recursive: true, mode: 0o700 });
+      fs.writeFileSync(issueFilePath(focus, issueId, { id: r.id, name: r.name }), Buffer.concat(chunks), { mode: 0o600 });
+    } catch (e) {
+      issues.removeFile(focus, issueId, item || null, r.id);
+      return send(res, 500, { ok: false, error: `The file could not be kept: ${e.code ?? e.message}` });
+    }
+    broadcast();
+    return send(res, 200, { ok: true, id: r.id, name: r.name });
+  }
+  // An attached file, for the page that has the token: shown in place only when it runs nothing, else downloaded; and
+  // sandboxed either way, so a file never runs as Glue's page.
+  if (req.method === 'GET' && url.pathname === '/issue-file') {
+    if (url.searchParams.get('t') !== TOKEN) return send(res, 403, { error: 'token' });
+    const client = CLIENT.test(url.searchParams.get('c') ?? '') ? url.searchParams.get('c') : hdrClient;
+    const focus = focusOf(client), issueId = String(url.searchParams.get('issue') ?? ''), fileId = String(url.searchParams.get('file') ?? '');
+    const i = issueIn(focus, issueId), f = i ? [...i.files, ...i.items.flatMap((x) => x.files)].find((x) => x.id === fileId) : null;
+    if (!f) return send(res, 404, { error: 'not found' });
+    let body;
+    try { body = fs.readFileSync(issueFilePath(focus, issueId, f)); } catch { return send(res, 404, { error: 'not found' }); }
+    const type = SHOWN[path.extname(f.name).toLowerCase()];
+    res.writeHead(200, { 'content-type': type ?? 'application/octet-stream', 'x-content-type-options': 'nosniff', 'content-security-policy': 'sandbox',
+      'content-disposition': `${type ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(f.name)}`, 'cache-control': 'no-store' });
+    return res.end(body);
+  }
+
   if (req.method === 'POST' && url.pathname.startsWith('/api/')) {
     if (!ORIGINS.has(req.headers.origin) || req.headers['x-acp-token'] !== TOKEN) return send(res, 403, { error: 'forbidden' });
     let body;
@@ -4507,7 +4583,8 @@ async function handle(req, res) {
       const pickKey = asIssue.link ? `${focus}\0${asIssue.link.item}` : null;
       if (pickKey) itemsPicking.add(pickKey);
       let r;
-      try { r = main ? await startMain(body, focus, ctx.ws) : await launch(asIssue.body, ctx.ws); } finally { if (pickKey) itemsPicking.delete(pickKey); }
+      const extra = asIssue.link ? issueExtra(focus, issueIn(focus, asIssue.link.issue)) : undefined;
+      try { r = main ? await startMain(body, focus, ctx.ws) : await launch(asIssue.body, ctx.ws, extra); } finally { if (pickKey) itemsPicking.delete(pickKey); }
       if (r.refused) return send(res, 422, { ok: false, error: r.error });
       if (r.ok && !main && space && r.id) pendingSpace.set(String(r.id), { ws: focus, space, at: Date.now() });
       issueLaunched(focus, asIssue.link, asIssue.body, r);

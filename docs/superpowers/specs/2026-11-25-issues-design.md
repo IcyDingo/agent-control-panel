@@ -94,6 +94,19 @@ ISSUES                                       +        ← folds to its header
   the issue's notes, each part only when there is one, separated by blank lines. The first pick-up's form is filled
   with the same, to change before launching.
 
+### Icons and files
+*(Added 2026-11-25: "can we add icon to add note and or add files?", then "yes".)*
+- Each issue and each item has a ✎ (note) and a 📎 (files) icon, hidden until hovered, shown for good once there is a
+  note or a file. ✎ opens the note editor; 📎 picks files from the computer. Files can also be dropped from the
+  computer onto an issue or an item.
+- **Files:** any kind, 20 MB at most each, 20 at most per issue or item. Glue keeps them in its own folder
+  (`issue-files/<workspace>/<issue>/`), never in a repository. They show as chips under their issue or item (click
+  opens, × removes). Removing an item or an issue, or the workspace, removes its files.
+- **Serving:** only with the page's token; images, PDFs and plain text open in place, anything else downloads; always
+  with `Content-Security-Policy: sandbox` and `nosniff`, so a file never runs as Glue's page.
+- **A pick-up:** the task lists the paths ("Files for this item:" after the item's note, "Files for this issue:" after
+  the issue's notes), and the agent is started with `--add-dir <the issue's folder>`, so it may read them without asking.
+
 ### An item's state
 - **To do** (○): not picked up, or the owner chose "Back to to do" in the item's ⋯ (shown once its agent has finished
   or is gone; the agent itself is left as it is).
