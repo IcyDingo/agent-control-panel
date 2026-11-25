@@ -599,10 +599,10 @@ function textProblem(t) {
 }
 
 const FOLLOW_KEEP = 50;
-/** The follow-ups kept for a profile: sessionId → { key, at, verdict, ask, reply, closed? } or { key, at, error }, the
+/** The follow-ups kept for a profile: sessionId → { key, at, saidAt?, verdict, ask, reply, closed? } or { key, at, error }, the
  *  newest fifty. */
 function cleanFollow(raw) {
-  const ok = (f) => f && typeof f === 'object' && typeof f.key === 'string' && Number.isFinite(f.at)
+  const ok = (f) => f && typeof f === 'object' && typeof f.key === 'string' && Number.isFinite(f.at) && (f.saidAt === undefined || Number.isFinite(f.saidAt))
     && (f.error || (VERDICTS.includes(f.verdict) && typeof f.ask === 'string' && typeof f.reply === 'string'));
   const list = Object.entries(raw && typeof raw === 'object' ? raw : {}).filter(([id, f]) => id.length <= 64 && ok(f));
   // A send caught on its way by a restart is not kept as sending: the card is open again.
@@ -995,7 +995,9 @@ export function createOverseer({
     if (checking.get(sessionId) !== job) return; // a newer message took its place
     checking.delete(sessionId);
     const res = readFollow(r ?? {}), p = prof();
-    if (res.ok) p.follow[sessionId] = { key, at: now(), ...res.value };
+    // When it said it, so a prompt you send after that closes the card (else when it was checked).
+    const saidAt = Number.isFinite(s.saidAt) ? s.saidAt : null;
+    if (res.ok) p.follow[sessionId] = { key, at: now(), ...(saidAt != null ? { saidAt } : {}), ...res.value };
     else { p.follow[sessionId] = { key, at: now(), error: true }; log(`overseer: no follow-up check for ${sessionId.slice(0, 8)}: ${res.error}`); }
     p.follow = cleanFollow(p.follow);
     changed();
@@ -1003,7 +1005,8 @@ export function createOverseer({
   }
 
   /** The cards open now: an agent that asks you something or stopped short, still at its prompt (or ended) with the
-   *  message that was checked. One that works again, waits on a request, or said something since, has none. */
+   *  message that was checked. One that works again, waits on a request, said something since, or got a prompt from
+   *  you after it said it (answered in the agent itself), has none. */
   function followUps(sessions = null) {
     const open = Object.entries(prof().follow).filter(([, f]) => !f.closed && !f.error && f.verdict !== 'done');
     if (!open.length) return [];
@@ -1011,6 +1014,7 @@ export function createOverseer({
     return open.flatMap(([sessionId, f]) => {
       const s = sessionNow(sessionId, all);
       if (!s || !STOPPED.has(s.state) || saidKey(saidOf(s)) !== f.key) return [];
+      if (Number.isFinite(s.promptAt) && s.promptAt > (f.saidAt ?? f.at)) return [];
       return [{ sessionId, at: f.at, verdict: f.verdict, ask: f.ask, reply: f.reply, how: effectOf(sessionId), sending: Boolean(f.sending) }];
     }).sort((a, b) => b.at - a.at);
   }

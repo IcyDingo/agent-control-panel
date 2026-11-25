@@ -752,6 +752,20 @@ test('a stopped agent that asks something gets a card with a drafted reply; one 
   assert.deepEqual(d.o.status().follow, []);
 });
 
+test('a card goes once you have written to the agent after what it said, even before it answers', async () => {
+  const k = mk();
+  const at = (promptAt) => () => ({ sessions: [session({ said: QUESTION, saidAt: 5_000, promptAt })], folders: [REPO] });
+  k.fx.board = at(null);
+  k.answers.push(verdict('needs-answer', 'Migrate the old sessions table?', 'Yes, migrate it.'));
+  k.o.check(A);
+  await k.o.settled();
+  assert.equal(k.o.status().follow.length, 1);
+  k.fx.board = at(4_000);
+  assert.equal(k.o.status().follow.length, 1, 'what you wrote before it asked is not an answer');
+  k.fx.board = at(6_000);
+  assert.equal(k.o.status().follow.length, 0, 'answered in the agent');
+});
+
 test('a card goes when the agent works again, says something new, or is dismissed', async () => {
   const k = mk();
   k.fx.board = boardWith(QUESTION);
