@@ -1249,10 +1249,10 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
 .gl-dot[data-ring="1"][data-tone="amber"] { border-color: var(--amber); }
 .gl-dot[data-ring="dash"] { background: none; border: 1.5px dashed var(--fg-faint); }
 /* The tree: a main line left to right; each branch a column hanging off it; what is ahead ends the line, dashed. */
-.gl-tree { position: relative; display: flex; align-items: flex-start; gap: 16px; margin: 0 0 10px 28px; padding-top: 14px; }
+.gl-tree { position: relative; display: flex; align-items: flex-start; gap: 34px; width: fit-content; max-width: calc(100% - 28px); margin: 0 0 12px 28px; padding-top: 14px; }
 .gl-tree::before { content: ""; position: absolute; left: 0; right: 0; top: 4px; border-top: 2px solid color-mix(in srgb, var(--ok) 55%, transparent); }
 .gl-tree[data-outside="1"]::before { border-top-color: var(--line-strong); }
-.gl-brs { display: flex; flex-wrap: wrap; gap: 10px 4px; min-width: 0; flex: 1; }
+.gl-brs { display: flex; flex-wrap: wrap; gap: 10px 4px; min-width: 0; flex: 0 1 auto; }
 .gl-br { position: relative; display: grid; gap: 2px; align-content: start; width: 200px; padding: 2px 8px 0 12px; }
 .gl-br::before { content: ""; position: absolute; left: 3px; top: -12px; height: 18px; border-left: 2px solid var(--fg-faint); }
 .gl-br[data-tone="green"]::before { border-left-color: var(--ok); }
@@ -1263,7 +1263,7 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
 .gl-br-name:hover span, .gl-br[data-open="1"] .gl-br-name span { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-strong); }
 .gl-br-words { font-size: 12px; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gl-br-acts { margin-top: 4px; flex-wrap: wrap; }
-.gl-ahead { position: relative; flex: none; display: grid; gap: 4px; justify-items: start; width: 190px; padding: 0 0 0 10px; margin-top: -12px; background: var(--panel); font-size: 12px; color: var(--fg-dim); }
+.gl-ahead { position: relative; flex: none; display: grid; gap: 4px; justify-items: start; width: 240px; padding: 0 0 0 10px; margin-top: -12px; background: var(--panel); font-size: 12px; color: var(--fg-dim); }
 .gl-ahead::before { content: ""; position: absolute; left: -24px; width: 24px; top: 6px; border-top: 2px dashed var(--line-strong); }
 .gl-next { display: flex; align-items: center; gap: 7px; color: var(--fg); }
 .gl-stop { margin: 0 0 12px 28px; max-width: 720px; }
@@ -4043,8 +4043,8 @@ async function tellAgent(s, text, done = 'Sent.') {
   return true;
 }
 function toggleGoal(g, open) {
-  if (open) { if (g.needSig === '[]') goalsCollapsed.delete(g.id); else goalsCollapsed.set(g.id, g.needSig); }
-  else if (g.needSig === '[]') goalsCollapsed.set(g.id, 'open'); else goalsCollapsed.delete(g.id);
+  if (open) { if (g.needSig === '[]') goalsCollapsed.set(g.id, 'open'); else goalsCollapsed.delete(g.id); }
+  else if (g.needSig === '[]') goalsCollapsed.delete(g.id); else goalsCollapsed.set(g.id, g.needSig);
   saveCollapsed(); render();
 }
 /** The buttons a branch (or a goal's move) offers, each acting on its own agent or item. */
@@ -4162,7 +4162,7 @@ function renderGoals(vis) {
   const workingIds = new Set(issues.flatMap((i) => i.items.filter((x) => x.state === 'working' && x.sessionId).map((x) => x.sessionId)));
   const held = Object.entries(snap.mains ?? {}).filter(([, h]) => h).map(([space, h]) => ({ space, name: snap.spaces?.find((x) => x.id === space)?.name ?? 'a space',
     down: h.down, waiting: h.waiting, s: vis.find((x) => x.sessionId === mainOfSpace(space)?.sessionId) ?? null }));
-  const outside = HB.outsideOf({ sessions: vis, workingIds, isMain: (s) => s.role === 'main', ...ctx, held });
+  const outside = HB.outsideOf({ ...ctx, sessions: vis, workingIds, isMain: (s) => s.role === 'main', held });
   if (!box.firstChild) box.append(el('div', { class: 'h-lane' }, el('h3', { text: 'Goals' }), el('span', { class: 'grow' }), el('span', { class: 'gl-head' })), el('div', { class: 'gl-list' }));
   const anyOpen = goals.some((g) => HB.isOpen(g, goalsCollapsed));
   patch(box.firstChild.lastChild, JSON.stringify([goals.length, anyOpen, newGoal !== null]), () => [
