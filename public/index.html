@@ -1011,22 +1011,26 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
 .is-head .grow { flex: 1; }
 .is-head .btn.icon, .is-item .btn.icon { width: 24px; height: 24px; }
 .is-head:not(:hover, :focus-within) :is(.is-more, .is-add), .is-item:not(:hover, :focus-within) .is-more { opacity: .35; }
-.is-items { display: grid; padding-left: 14px; }
-.is-item { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 2px 0 4px; border-radius: var(--r-1); font-size: 13px; }
+.is-items { display: grid; grid-template-columns: minmax(0, 1fr); padding-left: 14px; }
+.is-item { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 30px; padding: 0 2px 0 4px; border-radius: var(--r-1); font-size: 13px; }
 .is-item:hover { background: var(--hover); }
 .is-item.drop, .is-head.drop { box-shadow: inset 0 2px 0 var(--run); }
 .is-item.dragging, .is-head.dragging { opacity: .5; }
-.is-mark { flex: none; width: 14px; height: 14px; padding: 0; border-radius: 50%; border: 1.5px solid var(--fg-faint); background: none; cursor: pointer; }
+.is-mark { flex: none; display: grid; place-items: center; width: 14px; height: 14px; padding: 0; border-radius: 50%; border: 1.5px solid var(--fg-faint); background: none; cursor: pointer; }
+.is-mark:hover { border-color: var(--fg-dim); }
 .is-mark[data-m="working"] { border-color: var(--run); background: color-mix(in srgb, var(--run) 35%, transparent); }
 .is-mark[data-m="finished"] { border-color: var(--amber); }
-.is-mark[data-m="done"] { border-color: var(--ok); background: var(--ok); }
+.is-mark[data-m="done"] { border-color: var(--ok); background: var(--ok-fill); }
+.is-mark[data-m="done"]::after { content: ""; width: 4px; height: 7px; margin-top: -2px; border: solid var(--ok); border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); }
 .is-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .is-item[data-m="done"] .is-text { color: var(--fg-dim); text-decoration: line-through; text-decoration-color: var(--line-strong); }
-.is-pick { flex: none; height: 24px; }
+.is-pick { flex: none; height: 24px; background: none; color: var(--fg-dim); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.is-pick:hover { background: var(--fill); color: var(--fg); }
 .is-right { flex: none; display: inline-flex; align-items: center; gap: 8px; }
 .is-notes { display: flex; align-items: center; gap: 4px; width: calc(100% - 24px); margin: 0 0 4px 24px; padding: 2px 6px; border: 0; border-radius: var(--r-1); background: none;
   color: var(--fg-dim); font-size: 12px; text-align: left; cursor: pointer; }
 .is-notes:hover { background: var(--hover); color: var(--fg); }
+.is-notes.of-item { width: calc(100% - 26px); margin: -4px 0 4px 26px; padding: 1px 6px; color: var(--fg-faint); font-size: 11.5px; }
 .is-notes-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .is-notes-edit { display: grid; gap: 6px; margin: 2px 0 8px 24px; }
 .is-items .is-notes-edit { margin-left: 22px; }
@@ -1039,18 +1043,23 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
 .is-ic:hover { color: var(--fg); }
 .is-head:not(:hover, :focus-within) .is-ic:not(.on), .is-item:not(:hover, :focus-within) .is-ic:not(.on) { opacity: 0; }
 .is-ic-n { position: absolute; right: -3px; bottom: -2px; font: 600 9.5px/1 var(--mono); color: var(--fg-dim); }
-.is-files { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 6px 24px; }
-.is-files.of-item { margin: -2px 0 4px 26px; }
-.is-file { display: inline-flex; align-items: center; gap: 2px; max-width: 100%; height: 22px; padding: 0 2px 0 8px; border-radius: var(--r-pill); background: var(--fill); font-size: 11.5px; }
-.is-file a { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-dim); text-decoration: none; }
-.is-file a:hover { color: var(--fg); text-decoration: underline; text-underline-offset: 2px; }
-.is-file-x { flex: none; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--fg-faint); cursor: pointer; }
-.is-file-x:hover { color: var(--fg); background: var(--hover); }
+.is-files { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 8px 24px; }
+.is-files.of-item { margin: 0 0 6px 28px; }
+.is-file { position: relative; flex: none; width: 40px; height: 40px; border-radius: var(--r-1); background: var(--fill); overflow: hidden; }
+.is-file a { display: grid; place-items: center; width: 100%; height: 100%; color: var(--fg-dim); text-decoration: none; }
+.is-file img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.is-file-kind { font: 600 9.5px/1 var(--mono); letter-spacing: .02em; }
+.is-file:hover { box-shadow: 0 0 0 1px var(--line-strong); }
+.is-file:hover .is-file-kind { color: var(--fg); }
+.is-file-x { position: absolute; top: 2px; right: 2px; display: grid; place-items: center; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 50%;
+  background: color-mix(in srgb, var(--bg) 75%, transparent); color: var(--fg); font-size: 12px; line-height: 1; cursor: pointer; opacity: 0; }
+.is-file:hover .is-file-x, .is-file-x:focus-visible { opacity: 1; }
 .is-item.drop-files, .is-head.drop-files { box-shadow: inset 0 0 0 1.5px var(--run); background: color-mix(in srgb, var(--run) 8%, transparent); }
 .is-agent { flex: none; max-width: 170px; padding: 0 4px; border: 0; background: none; color: var(--fg-dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .is-agent b { color: var(--fg); font-weight: 500; }
 .is-agent:hover b { text-decoration: underline; text-underline-offset: 2px; }
 .is-detail { flex: none; color: var(--fg-dim); font-size: 12px; white-space: nowrap; }
+.is-head, .is-right { min-width: 0; }
 .is-item[data-m="finished"] .is-detail { color: var(--amber); }
 .is-item[data-m="done"] .is-detail { color: var(--ok); }
 .is-input { flex: 1; min-width: 0; height: 28px; }
@@ -4942,13 +4951,18 @@ function pickFiles(issue, item) {
 }
 const fileUrl = (issue, f) => `/issue-file?${new URLSearchParams({ t: TOKEN, c: CLIENT, issue, file: f.id })}`;
 const sizeWord = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`);
-/** An issue's or an item's files: a chip each, opening it; × takes it off. */
+const PICTURE = /\.(png|jpe?g|gif|webp|avif|bmp)$/i;
+/** What a file is, in a few letters for its square: its extension, else "file". */
+const fileKind = (name) => { const m = String(name).match(/\.([a-z0-9]{1,5})$/i); return m ? m[1].toUpperCase() : 'FILE'; };
+/** An issue's or an item's files: a small square each (a picture shows itself; anything else its kind), its full name
+ *  on hover; a click opens it, × takes it off. */
 function fileChips(i, it) {
   const list = (it ?? i).files ?? [];
   if (!list.length) return null;
-  return el('div', { class: 'is-files' + (it ? ' of-item' : '') }, ...list.map((f) => el('span', { class: 'is-file' },
-    el('a', { href: fileUrl(i.id, f), target: '_blank', rel: 'noopener', text: f.name, title: `${f.name} · ${sizeWord(f.size)}. The agent that picks this up is given it.` }),
-    el('button', { class: 'is-file-x', type: 'button', 'aria-label': `Remove ${f.name}`, title: 'Remove', text: '×',
+  return el('div', { class: 'is-files' + (it ? ' of-item' : '') }, ...list.map((f) => el('span', { class: 'is-file', title: `${f.name} · ${sizeWord(f.size)}\nThe agent that picks this up is given it.` },
+    el('a', { href: fileUrl(i.id, f), target: '_blank', rel: 'noopener', 'aria-label': `Open ${f.name}` },
+      PICTURE.test(f.name) ? el('img', { src: fileUrl(i.id, f), alt: '', loading: 'lazy', decoding: 'async' }) : el('span', { class: 'is-file-kind', text: fileKind(f.name) })),
+    el('button', { class: 'is-file-x', type: 'button', 'aria-label': `Remove ${f.name}`, title: `Remove ${f.name}`, text: '×',
       onclick: () => isApi('file/remove', { issue: i.id, ...(it ? { item: it.id } : {}), file: f.id }) }))));
 }
 /** Dropping files from the computer on an issue or an item attaches them; anything else is the reorder drag's. */
@@ -5072,7 +5086,11 @@ function issueBlock(i, list) {
   return el('section', { class: 'is-issue', 'data-done': i.allDone ? '' : null }, head, pick, armedDel,
     folded ? null : notesRow(i),
     folded ? null : fileChips(i, null),
-    folded ? null : el('div', { class: 'is-items' }, ...i.items.flatMap((it) => [itemRow(i, it, i.items), fileChips(i, it),
+    folded ? null : el('div', { class: 'is-items' }, ...i.items.flatMap((it) => [itemRow(i, it, i.items),
+      // Its note under it, faint, its first line: the context the agent that picks it up is given. A click edits it.
+      it.note && !(isTyping?.kind === 'note' && isTyping.item === it.id) ? el('button', { class: 'is-notes of-item', type: 'button', title: it.note,
+        onclick: () => startTyping({ kind: 'note', issue: i.id, item: it.id }, it.note) }, el('span', { class: 'is-notes-t', text: it.note.split('\n')[0] })) : null,
+      fileChips(i, it),
       isTyping?.kind === 'note' && isTyping.item === it.id ? notesEditor(isTyping, 'A note for this item: what the agent should know') : null]),
       isTyping?.kind === 'item' && isTyping.issue === i.id ? el('div', { class: 'is-item editing' }, el('span', { class: 'is-mark', 'data-m': 'todo' }), typingLine(isTyping, 'A new item')) : null));
 }
