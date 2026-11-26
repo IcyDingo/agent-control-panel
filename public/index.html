@@ -1056,6 +1056,38 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
 .is-ic-n { position: absolute; right: -3px; bottom: -2px; font: 600 9.5px/1 var(--mono); color: var(--fg-dim); }
 .is-files { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 6px 24px; }
 .is-files.of-item { margin: 0 0 4px 34px; }
+/* A goal's page: the Issues panel's goal with room. */
+.h-goal { max-width: 860px; padding-bottom: 32px; }
+.gp-top { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.gp-back { gap: 4px; padding-left: 6px; }
+.gp-back svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.is-page .is-issue { margin: 0; padding: 0; border: 0; }
+.is-page .is-head { min-height: 40px; }
+.is-page .is-head > .is-fold { display: none; }
+.is-page .is-title { font-size: 22px; font-weight: 650; letter-spacing: -0.01em; white-space: normal; }
+.is-page .is-head:not(:hover, :focus-within) .is-ic:not(.on) { opacity: .4; }
+.gp-notes { display: block; width: 100%; margin: 8px 0 14px; padding: 10px 12px; border-radius: var(--r-2); background: var(--fill); color: var(--fg); font-size: 13.5px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.gp-notes.empty { color: var(--fg-faint); background: none; box-shadow: inset 0 0 0 1px dashed var(--line-strong); border: 1px dashed var(--line-strong); }
+.gp-notes:hover { background: var(--hover); }
+.is-page .is-notes-edit { margin: 8px 0 14px; }
+.is-page .is-notes-in { min-height: 140px; font-size: 13.5px; }
+.gp-files { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 18px; }
+.gp-files .is-files { margin: 0; }
+.gp-files .is-file { width: 40px; height: 40px; }
+.gp-drop { height: 40px; padding: 0 14px; border: 1px dashed var(--line-strong); border-radius: var(--r-1); background: none; color: var(--fg-faint); font-size: 12.5px; cursor: pointer; }
+.gp-drop:hover, .gp-drop.drop-files { color: var(--fg); border-color: var(--fg-dim); }
+.gp-h { margin: 6px 0 6px; font-size: 11.5px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; color: var(--fg-dim); }
+.is-page .is-items { padding-left: 0; }
+.is-page .is-item { min-height: 36px; font-size: 14px; }
+.is-page .is-notes.of-item { margin: -6px 0 6px 38px; font-size: 12.5px; color: var(--fg-dim); }
+.is-page .is-files.of-item { margin: 0 0 8px 38px; }
+.is-page .is-pick { display: inline-flex !important; }
+.is-issue[data-paged] .is-head { background: var(--fill); }
+.is-open-page.on { color: var(--fg) !important; opacity: 1 !important; }
+.gl-open { flex: none; width: 24px; height: 24px; color: var(--fg-faint); opacity: 0; }
+.gl-open svg { width: 13px; height: 13px; }
+.gl-line:hover .gl-open, .gl-open:focus-visible { opacity: 1; }
+.gl-open:hover { color: var(--fg); }
 .is-file { position: relative; flex: none; width: 28px; height: 28px; border-radius: 5px; background: var(--fill); overflow: hidden; }
 .is-file a { display: grid; place-items: center; width: 100%; height: 100%; color: var(--fg-dim); text-decoration: none; }
 .is-file img { display: block; width: 100%; height: 100%; object-fit: cover; }
@@ -1484,6 +1516,7 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
       <div class="d-scroll" id="h-scroll">
         <div class="d-col h-col">
           <section class="h-goals" id="h-goals" aria-label="Goals"></section>
+          <section class="h-goal is-page" id="h-goal" aria-label="Goal" hidden></section>
         </div>
       </div>
       <!-- The chat with the overseer, docked at the bottom: one line folded, the conversation when open. -->
@@ -3744,7 +3777,7 @@ async function syncOverseer() {
   }
 }
 const ovRow = el('button', { class: 'srow ov', type: 'button', title: 'Home: what waits on you, and Glue to ask about your agents',
-  onclick: () => { cancelAdvance(); selectNow(); subFocus = null; open = null; homeOpen = true; render(); $('h-say').focus({ preventScroll: true }); } },
+  onclick: () => { cancelAdvance(); selectNow(); subFocus = null; open = null; homeOpen = true; if (goalOpen) { goalOpen = null; pref('acp.goalOpen', ''); } render(); $('h-say').focus({ preventScroll: true }); } },
   el('span', { class: 'chev-slot', 'aria-hidden': 'true' }), el('span', { class: 'ov-mark', 'aria-hidden': 'true' }), el('span', { class: 'tname', text: 'Home' }), el('span', { class: 'tdetail' }));
 function renderOvRow() {
   const st = snap.overseer, n = st?.proposed ?? 0, fu = st?.follow?.length ?? 0;
@@ -4173,6 +4206,7 @@ function goalNode(g, isOpen, outside = null) {
     el('span', { class: 'grow' }),
     !isOpen && !outside ? el('span', { class: 'gl-acts' }, ...goalActs(lineActs(g.move.acts, g.move.s), { g, item: g.move.item, s: g.move.s, stopKey: g.move.item ? `${gkey}|${g.move.item.id}` : null })) : null,
     !isOpen && outside && branches.length === 1 ? el('span', { class: 'gl-acts' }, ...goalActs(lineActs(branches[0].tip.acts, branches[0].s), { g, s: branches[0].s, stopKey: `${gkey}|${branches[0].s?.sessionId ?? branches[0].space}`, space: branches[0].space, down: branches[0].down })) : null,
+    !outside ? iconBtn(EXPAND, { class: 'btn icon gl-open', title: 'Open this goal, with room to work on it', 'aria-label': `Open ${g.title}`, onclick: (e) => { e.stopPropagation(); openGoal(g.id); } }) : null,
     !outside ? el('span', { class: 'gl-prog', title: `${g.shipped} of ${g.total} parts shipped` },
       el('span', { class: 'gl-bar' }, el('i', { style: `width:${g.total ? Math.round((100 * g.shipped) / g.total) : 0}%` })), `${g.shipped}/${g.total}`) : null);
   const node = el('section', { class: 'gl', 'data-open': isOpen ? '1' : '0', 'aria-label': outside ? 'Outside any goal' : `Goal: ${g.title}` }, line);
@@ -4628,6 +4662,7 @@ function renderHome(g) {
   ovProposedWas = proposed;
   setText($('h-meta'), st ? `${ovModelName(st.model)} · proposes, you confirm` : '');
   renderGoals(visible());
+  renderGoalPage();
   setAttr($('h-dock'), 'data-open', dockOpen ? '1' : '0');
   setAttr($('h-dock-tog'), 'aria-expanded', String(dockOpen));
   setAttr($('h-dock-tog'), 'title', dockOpen ? 'Fold the chat' : 'Open the chat with Glue');
@@ -5030,7 +5065,7 @@ function dragHandlers(what, beforeId) {
     },
   };
 }
-function itemRow(i, it, items) {
+function itemRow(i, it, items, page = false) {
   const v = HB.itemView(it, new Map(snap.sessions.map((s) => [s.sessionId, s])), stateOf, label);
   if (isTyping?.kind === 'text' && isTyping.item === it.id) return el('div', { class: 'is-item editing' }, el('span', { class: 'is-mark', 'data-m': v.mark }), typingLine(isTyping, 'The item'));
   const openAgent = () => { cancelAdvance(); open = it.sessionId; render(); };
@@ -5041,7 +5076,7 @@ function itemRow(i, it, items) {
         title: 'Start an agent on it (Shift-click: with options)', onclick: (e) => pickUp(i, it, { form: e.shiftKey }) }))
     : v.mark === 'working' && it.sessionId ? el('button', { class: 'is-agent', type: 'button', title: 'Open its agent', onclick: openAgent }, el('b', { text: v.label }), ` · ${v.detail}`)
     : el('span', { class: 'is-detail', text: v.label && v.mark === 'finished' ? `${v.label} · ${v.detail}` : v.detail });
-  const extra = Boolean(it.note) || (it.files ?? []).length > 0, shown = isItemOpen.has(it.id);
+  const extra = !page && (Boolean(it.note) || (it.files ?? []).length > 0), shown = isItemOpen.has(it.id);
   return el('div', { class: 'is-item', 'data-m': v.mark, tabindex: '0', ...withFileDrop(dragHandlers({ issue: i.id, item: it.id }, it.id), i.id, it.id),
     onkeydown: (e) => isKeyMove(e, items, it.id, (before) => isApi('move', { issue: i.id, item: it.id, ...(before ? { before } : {}) })) },
     extra ? el('button', { class: 'is-fold is-part-fold' + (shown ? ' open' : ''), type: 'button', 'aria-expanded': String(shown),
@@ -5061,13 +5096,56 @@ function itemRow(i, it, items) {
     ]));
 }
 /** An issue's notes under its title: their first line, a click edits them; or the editor while they are written. */
-function notesRow(i) {
+function notesRow(i, page = false) {
   if (isTyping?.kind === 'notes' && isTyping.issue === i.id) return notesEditor(isTyping, 'Notes for this issue: background, links, constraints, what done means');
+  if (page) return el('button', { class: 'is-notes gp-notes' + (i.notes ? '' : ' empty'), type: 'button', title: 'Edit the notes', onclick: () => startTyping({ kind: 'notes', issue: i.id }, i.notes ?? '') },
+    i.notes || 'Add notes: background, links, constraints, what done means. The agent that picks up a part is given them.');
   if (!i.notes) return null;
   const first = i.notes.split('\n')[0], more = i.notes.includes('\n');
   return el('button', { class: 'is-notes', type: 'button', title: i.notes, onclick: () => startTyping({ kind: 'notes', issue: i.id }, i.notes) },
     el('span', { class: 'is-notes-t', text: first }), more ? el('span', { class: 'is-notes-more', text: '…' }) : null);
 }
+// ---------- a goal's page: one goal opened in the middle, with room to work on it ----------
+let goalOpen = pref('acp.goalOpen') || null; // the issue whose page is open in the middle, or null
+const EXPAND = 'M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7';
+function openGoal(id) {
+  goalOpen = id; pref('acp.goalOpen', id ?? '');
+  if (id) { cancelAdvance(); selectNow(); subFocus = null; open = null; homeOpen = true; }
+  render();
+  if (id) requestAnimationFrame(() => $('h-scroll')?.scrollTo({ top: 0 }));
+}
+/** The open goal's page: back to the goals, its title, how far it is, then the goal as the Issues panel shows it, with
+ *  its notes in full and every part's note and files shown. Hidden (the goals list shows) when no goal is open. */
+function renderGoalPage() {
+  const i = goalOpen ? (snap.issues ?? []).find((x) => x.id === goalOpen) : null;
+  if (goalOpen && !i && snap.issues) { goalOpen = null; pref('acp.goalOpen', ''); }
+  const page = $('h-goal');
+  $('h-goals').hidden = Boolean(i);
+  page.hidden = !i;
+  if (!i) return;
+  const list = snap.issues, ordered = HB.issueOrder(list), it = ordered.find((x) => x.id === i.id) ?? i;
+  const act = document.activeElement, typing = act?.classList?.contains('is-input') && page.contains(act) ? [act.selectionStart, act.selectionEnd] : null;
+  const named = new Set(i.items.map((x) => x.sessionId).filter(Boolean));
+  const done = i.items.filter((x) => x.state === 'done').length, next = i.items.find((x) => x.state === 'todo');
+  const sig = JSON.stringify([i, snap.spaces, snap.sessions.filter((s) => named.has(s.sessionId)).map((s) => [s.sessionId, stateOf(s), label(s)]), [...isDoneOpen],
+    typingKey(isTyping), isSpacePick, isDeleting, [...isPickBusy]]);
+  patch(page, sig, () => [
+    el('div', { class: 'gp-top' },
+      el('button', { class: 'btn quiet small gp-back', type: 'button', title: 'Back to the goals (Esc)', onclick: () => openGoal(null) }, svgIcon('M15 6l-6 6 6 6'), 'Goals'),
+      el('span', { class: 'grow' }),
+      i.items.length ? el('span', { class: 'gl-prog', title: `${done} of ${i.items.length} parts done` },
+        el('span', { class: 'gl-bar' }, el('i', { style: `width:${Math.round((100 * done) / i.items.length)}%` })), `${done}/${i.items.length}`) : null,
+      next ? el('button', { class: 'btn small gl-act', type: 'button', disabled: isPickBusy.has(next.id), text: isPickBusy.has(next.id) ? 'Starting…' : 'Pick up next',
+        title: `Start an agent on “${next.text}”`, onclick: () => pickUp(i, next) }) : null),
+    issueBlock(it, list, true)]);
+  if (typing) { const inp = page.querySelector('.is-input'); if (inp && inp !== document.activeElement) { inp.focus(); try { inp.setSelectionRange(typing[0], typing[1]); } catch {} } }
+}
+// Esc on the page (not while typing) goes back to the goals.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !goalOpen || $('h-goal').hidden || $('home').hidden || e.target.closest('input, textarea, select, details[open]')) return;
+  if (!$('h-goal').contains(e.target) && e.target !== document.body) return;
+  e.preventDefault(); openGoal(null);
+});
 const DONE_LINE = Symbol('done');
 /** A goal's parts as listed: the open ones in order, then the done ones folded behind one line (opened: listed after it). */
 function partsOf(i) {
@@ -5082,8 +5160,9 @@ function doneLine(i) {
     onclick: () => { if (isDoneOpen.has(i.id)) isDoneOpen.delete(i.id); else isDoneOpen.add(i.id); saveIsOpen(); render(); } },
     el('span', { class: 'is-fold' + (on ? ' open' : ''), 'aria-hidden': 'true', text: '›' }), el('span', { class: 'is-done-tick', 'aria-hidden': 'true' }), `${n} done`);
 }
-function issueBlock(i, list) {
-  const folded = isFold.has(i.id) || (i.allDone && !isOpened.has(i.id)), todo = i.items.filter((x) => x.state === 'todo').length, sp = snap.spaces?.find((x) => x.id === i.space);
+function issueBlock(i, list, page = false) {
+  // On its page a goal is never folded; in the panel, the goal open in the middle folds to its head.
+  const folded = !page && (isFold.has(i.id) || (i.allDone && !isOpened.has(i.id)) || goalOpen === i.id), todo = i.items.filter((x) => x.state === 'todo').length, sp = snap.spaces?.find((x) => x.id === i.space);
   const toggle = () => {
     if (i.allDone) { if (isOpened.has(i.id)) isOpened.delete(i.id); else isOpened.add(i.id); render(); return; }
     if (folded) isFold.delete(i.id); else isFold.add(i.id); saveIsFold(); render();
@@ -5093,12 +5172,14 @@ function issueBlock(i, list) {
     : el('div', { class: 'is-head', tabindex: '0', ...withFileDrop(dragHandlers({ issue: i.id }, i.id), i.id, null),
         onkeydown: (e) => isKeyMove(e, list, i.id, (before) => isApi('move', { issue: i.id, ...(before ? { before } : {}) })) },
       el('button', { class: 'is-fold' + (folded ? '' : ' open'), type: 'button', 'aria-expanded': String(!folded), 'aria-label': folded ? `Show ${i.title}` : `Fold ${i.title}`, onclick: toggle, text: '›' }),
-      el('span', { class: 'is-title', text: i.title, title: i.title, ondblclick: () => startTyping({ kind: 'title', issue: i.id }, i.title) }),
+      el('span', { class: 'is-title', text: i.title, title: page ? 'Double-click to rename' : i.title, ondblclick: () => startTyping({ kind: 'title', issue: i.id }, i.title) }),
       // Its space by name, unless that is the issue's own name over again (a space the issue made).
       sp && !i.title.toLowerCase().startsWith(sp.name.toLowerCase().replace(/ \d+$/, '')) ? el('span', { class: 'is-space', text: sp.name, title: `Its agents work in the space ${sp.name}` }) : null,
       folded && todo ? el('span', { class: 'is-count', text: `${todo} to do` }) : null,
       el('span', { class: 'grow' }),
       ...noteFileIcons(i, null),
+      page ? null : iconBtn(EXPAND, { class: 'btn icon is-ic is-open-page' + (goalOpen === i.id ? ' on' : ''), title: 'Open in the middle, with room to work on it', 'aria-label': `Open ${i.title}`,
+        onclick: () => openGoal(goalOpen === i.id ? null : i.id) }),
       isMenu(`More for ${i.title}`, [
         ['Rename', () => startTyping({ kind: 'title', issue: i.id }, i.title)],
         [i.notes ? 'Edit notes…' : 'Add notes…', () => { isFold.delete(i.id); isOpened.add(i.id); saveIsFold(); startTyping({ kind: 'notes', issue: i.id }, i.notes ?? ''); }],
@@ -5116,14 +5197,16 @@ function issueBlock(i, list) {
   const armedDel = isDeleting === i.id ? el('div', { class: 'is-confirm' }, el('span', { text: 'Delete the issue and its items? Its space and agents stay.' }),
     el('button', { class: 'btn small danger', type: 'button', text: 'Delete', onclick: async () => { isDeleting = null; await isApi('delete', { id: i.id }); render(); } }),
     el('button', { class: 'btn quiet small', type: 'button', text: 'Cancel', onclick: () => { isDeleting = null; render(); } })) : null;
-  return el('section', { class: 'is-issue', 'data-done': i.allDone ? '' : null }, head, pick, armedDel,
-    folded ? null : notesRow(i),
-    folded ? null : fileChips(i, null),
-    folded ? null : el('div', { class: 'is-items' }, ...partsOf(i).flatMap((it) => it === DONE_LINE ? [doneLine(i)] : [itemRow(i, it, i.items),
+  return el('section', { class: 'is-issue', 'data-done': i.allDone ? '' : null, 'data-paged': !page && goalOpen === i.id ? '' : null }, head, pick, armedDel,
+    folded ? null : notesRow(i, page),
+    folded ? null : page ? el('div', { class: 'gp-files' }, fileChips(i, null), el('button', { class: 'gp-drop', type: 'button', onclick: () => pickFiles(i.id, null), ...withFileDrop({}, i.id, null) },
+      'Drop files here, or click to add')) : fileChips(i, null),
+    folded ? null : page ? el('h4', { class: 'gp-h', text: 'Parts' }) : null,
+    folded ? null : el('div', { class: 'is-items' }, ...partsOf(i).flatMap((it) => it === DONE_LINE ? [doneLine(i)] : [itemRow(i, it, i.items, page),
       // Opened: its note (its first line, faint; a click edits it) and its files. The context its agent is given.
-      isItemOpen.has(it.id) && it.note && !(isTyping?.kind === 'note' && isTyping.item === it.id) ? el('button', { class: 'is-notes of-item', type: 'button', title: it.note,
+      (page || isItemOpen.has(it.id)) && it.note && !(isTyping?.kind === 'note' && isTyping.item === it.id) ? el('button', { class: 'is-notes of-item', type: 'button', title: it.note,
         onclick: () => startTyping({ kind: 'note', issue: i.id, item: it.id }, it.note) }, el('span', { class: 'is-notes-t', text: it.note.split('\n')[0] })) : null,
-      isItemOpen.has(it.id) ? fileChips(i, it) : null,
+      page || isItemOpen.has(it.id) ? fileChips(i, it) : null,
       isTyping?.kind === 'note' && isTyping.item === it.id ? notesEditor(isTyping, 'A note for this item: what the agent should know') : null]),
       isTyping?.kind === 'item' && isTyping.issue === i.id ? el('div', { class: 'is-item editing' }, el('span', { class: 'is-mark', 'data-m': 'todo' }), typingLine(isTyping, 'A new item')) : null));
 }
@@ -5148,7 +5231,7 @@ function renderIssues() {
   // Redrawn only when something it shows changes: the agents its items name, not every agent of the workspace (a redraw
   // closes an open ⋯ menu).
   const named = new Set(list.flatMap((x) => x.items.map((it) => it.sessionId).filter(Boolean)));
-  const sig = JSON.stringify([list, snap.spaces, snap.sessions.filter((s) => named.has(s.sessionId)).map((s) => [s.sessionId, stateOf(s), label(s)]), [...isFold], [...isOpened], [...isItemOpen], [...isDoneOpen],
+  const sig = JSON.stringify([list, snap.spaces, snap.sessions.filter((s) => named.has(s.sessionId)).map((s) => [s.sessionId, stateOf(s), label(s)]), [...isFold], [...isOpened], [...isItemOpen], [...isDoneOpen], goalOpen,
     typingKey(isTyping), isSpacePick, isDeleting, [...isPickBusy]]);
   patch(pop, sig, () => [
     el('div', { class: 'gh-pop-h is-pop-h' }, el('h3', { text: 'Issues' }), el('span', { class: 'grow' }),
