@@ -872,6 +872,7 @@ dialog.settings::backdrop { background: rgba(0, 0, 0, .45); }
 .set-block { border-radius: var(--r-2); background: var(--raise); }
 .set-block-h { display: flex; align-items: center; gap: 8px; padding: 12px 16px 4px; font-size: 13.5px; font-weight: 600; }
 .set-line { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 2px 10px; padding: 10px 16px; }
+.set-acts { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 16px 12px; }
 .set-line + .set-line { border-top: 1px solid var(--line); }
 .set-mark { grid-row: span 2; font-size: 13px; font-weight: 650; line-height: 20px; text-align: center; color: var(--fg-faint); }
 .set-line[data-s="ok"] .set-mark { color: var(--ok); }
@@ -6772,12 +6773,13 @@ async function setGlue(change) {
 function setGithubTab(panel) {
   if (!panel.firstChild) panel.append(
     el('h3', { text: 'GitHub, alerts & Auto-fix' }),
-    el('p', { class: 'set-lead', text: 'Glue reads pull requests and CI through the GitHub CLI, on gh’s own login: it stores no token. One sign-in serves every workspace. Auto-fix is each workspace’s own.' }),
+    el('p', { class: 'set-lead', text: 'Glue reads pull requests and CI through the GitHub CLI, on gh’s own logins: it stores no token. gh can hold several GitHub accounts; each workspace uses one of them. Auto-fix is each workspace’s own.' }),
     el('div', { class: 'set-blocks' }));
   const box = panel.children[2];
   if (!setReady(box)) return;
   const gh = setData.github ?? { state: 'unknown' }, list = setData.workspaces, several = list.length > 1;
-  setPatch(box, JSON.stringify([gh, list.map((w) => [w.id, w.name, w.autofix])]), () => {
+  setPatch(box, JSON.stringify([gh, list.map((w) => [w.id, w.name, w.autofix, w.github])]), () => {
+    const accounts = gh.accounts ?? [], active = accounts.find((a) => a.active)?.login ?? gh.login ?? null;
     const login = gh.state === 'ok' ? setLine('ok', '✓', gh.login ? `Signed in as ${gh.login}` : 'Signed in', 'Pull requests and CI show for the repositories your agents work in.')
       : gh.state === 'signed-out' ? setLine('todo', '✗', 'Not signed in', 'Sign the GitHub CLI in to see pull requests and CI here, and to let Auto-fix tell an agent when its checks fail.',
         [el('button', { class: 'btn primary small', type: 'button', text: 'Sign in in Terminal…', 'data-f': 'gh-login', onclick: (e) => openLogin('gh', e.currentTarget) }), cmdChip('gh auth login')])
@@ -6785,8 +6787,17 @@ function setGithubTab(panel) {
         [IS_MAC ? cmdChip('brew install gh') : el('span', { class: 'set-quiet', text: 'It is in most package managers as gh; cli.github.com has the rest.' })])
       : gh.state === 'off' ? setLine('off', '·', 'Turned off', 'GitHub is turned off for this panel (ACP_GITHUB=off).')
       : setLine('wait', '·', 'Checking…', 'Looking at whether the GitHub CLI is signed in.');
+    // Every account gh is signed in to: which is gh's own active one, which workspaces use each.
+    const users = (a) => list.filter((w) => (w.github ?? active) === a.login).map((w) => w.name);
+    const accountLines = accounts.length > 1 || accounts.some((a) => !a.ok) ? accounts.map((a) => setLine(a.ok ? 'ok' : 'todo', a.ok ? '✓' : '✗', a.login,
+      [a.ok ? (a.active ? 'gh’s active account.' : 'Signed in.') : 'Signed out: run gh auth login for it.', users(a).length ? ` Used by ${users(a).join(', ')}.` : ' No workspace uses it.'].join(''))) : [];
+    const pickers = gh.state === 'ok' && accounts.length > 1 ? el('div', { class: 'set-opts' }, ...list.map((w) => setOpt(several ? w.name : 'This workspace', 'Its pull requests, CI, merges, and the agents it starts, as this account.',
+      setSelect('gh-acct-' + w.id, `GitHub account for ${w.name}`, [['', `gh’s active account${active ? ` (${active})` : ''}`], ...accounts.filter((a) => a.ok).map((a) => [a.login, a.login])],
+        w.github ?? '', async (v) => { const r = await api('/api/workspace/github', { id: w.id, login: v || null }); if (!r.ok) toast(r.error || 'It did not change.', true); })))) : null;
+    const add = gh.state === 'ok' ? el('div', { class: 'set-acts' }, el('button', { class: 'btn small', type: 'button', text: 'Add a GitHub account…', 'data-f': 'gh-add',
+      title: 'Signs gh in to another account (gh auth login). Each workspace then picks the one it uses.', onclick: (e) => openLogin('gh', e.currentTarget) }), cmdChip('gh auth login')) : null;
     return [
-      el('section', { class: 'set-block', 'aria-label': 'GitHub CLI' }, setBlockHead(null, 'GitHub CLI'), login),
+      el('section', { class: 'set-block', 'aria-label': 'GitHub CLI' }, setBlockHead(null, 'GitHub CLI'), accountLines.length ? null : login, ...accountLines, pickers, add),
       // Each workspace's own switch, a row each: the same switch as its GitHub panel's.
       el('section', { class: 'set-block', 'aria-label': 'Auto-fix' }, setBlockHead(null, 'Auto-fix'),
         el('p', { class: 'set-lead set-in', text: 'When a pull request on an agent’s branch fails, conflicts, gets changes requested or has checks stuck, the PR watcher asks that agent to fix it and push again, at most 3 times. The GitHub panel has the same switch.' }),

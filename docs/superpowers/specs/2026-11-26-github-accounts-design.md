@@ -42,6 +42,13 @@ repositories belong to the other account shows nothing, or the wrong thing. Aske
 - Tests: the poller given two workspaces with two accounts runs each workspace's gh calls with its own GH_TOKEN; the
   account list parsed from `gh auth status`; a signed-out account reported on its own.
 
+## As built (builder's calls)
+- The per-workspace picker sits in Settings › GitHub (with the accounts), not in Workspaces: everything GitHub in one
+  place. It shows once gh holds more than one account.
+- A repository two workspaces share is read as the account of the workspace whose sessions were in it last.
+- Agents: Claude Code jobs Glue starts or resumes get `GH_TOKEN`. OpenCode sessions run inside OpenCode's own service,
+  whose environment Glue does not set per session, so they use gh's active account.
+
 ## Left to the builder
 - How long a token is held before it is read again (minutes, not hours).
 - Exact wording on the rows.

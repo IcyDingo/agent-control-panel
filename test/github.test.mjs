@@ -947,3 +947,21 @@ test('without mine, nothing is searched', async () => {
   await h.tick();
   assert.ok(!h.calls.some((c) => c.args[0] === 'search'));
 });
+
+test('several GitHub accounts: each repository is read and merged as its workspace\'s account', async () => {
+  const priv = checkout({ slug: 'me/private' }).common, work = checkout({ slug: 'acme/app' }).common;
+  const targets = [{ sessionId: 'P1', ws: 'Privat', common: priv, branch: 'fix/login', at: 10 }, { sessionId: 'C1', ws: 'CHAI', common: work, branch: 'fix/login', at: 11 }];
+  const h = harness({ targets, accountOf: (ws) => (ws === 'CHAI' ? 'work-user' : null), envFor: (account) => (account === 'work-user' ? { GH_TOKEN: 'tok-work' } : {}),
+    world: { open: [pr()], hook: (args) => (args[0] === 'repo' && args.includes('viewerDefaultMergeMethod') ? ok({ viewerDefaultMergeMethod: 'SQUASH' })
+      : args[0] === 'pr' && args[1] === 'merge' ? { err: null, stdout: '', stderr: '' } : null) } });
+  await h.tick();
+  const tokenFor = (slug) => [...new Set(h.calls.filter((c) => slugIn(c.args) === slug).map((c) => c.opts.env.GH_TOKEN ?? null))];
+  assert.deepEqual(tokenFor('acme/app'), ['tok-work'], 'the work repository is read as the work account');
+  assert.deepEqual(tokenFor('me/private'), [null], 'the private one as gh\'s own active account');
+  const before = h.calls.length;
+  const r = await h.gh.merge({ slug: 'acme/app', number: 7, sha: 'aaa111' });
+  assert.equal(r.ok, true, r.error);
+  const merges = h.calls.slice(before).filter((c) => c.args[0] === 'pr' && c.args[1] === 'merge');
+  assert.equal(merges.length, 1);
+  assert.equal(merges[0].opts.env.GH_TOKEN, 'tok-work', 'a merge goes as the repository\'s account');
+});

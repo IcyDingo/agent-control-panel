@@ -872,7 +872,7 @@ function launch(body, ws = shownWs(), { extra = [] } = {}) {
     // On the login picked in New agent, if this workspace uses it, else on its default.
     const login = launchLogin(ws.id, body.login);
     if (!login) return fail(NO_LOGIN);
-    run('claude', args, { cwd, timeout: 30_000, env: envOf(login) }).then((r) => {
+    run('claude', args, { cwd, timeout: 30_000, env: agentEnv(login, ws.id) }).then((r) => {
       const id = `${r.stdout}\n${r.stderr}`.match(/backgrounded · (\w+)/)?.[1];
       if (id) { launchedIn.set(id, ws.id); setTimeout(() => pollRoster(login), 400); return resolve({ ok: true, id, cwd }); }
       const why = firstLine(r);
@@ -1433,7 +1433,7 @@ async function reply(body) {
     if (keyFile && fs.existsSync(keyFile)) args.push(...MAIN_FLAGS(keyFile));
   }
   args.push('--', text);
-  const r = await run('claude', args, { cwd, timeout: 30_000, env: envOf(login) });
+  const r = await run('claude', args, { cwd, timeout: 30_000, env: agentEnv(login, s.ws) });
   const id = `${r.stdout}\n${r.stderr}`.match(/backgrounded · (\w+)/)?.[1];
   if (!id) return fail(firstLine(r));
   const copy = Boolean(tree);
@@ -1772,6 +1772,18 @@ function settingsAssign(body) {
 }
 
 /** `{ id, name?, color? }`: rename or recolour any workspace (Settings lists them all). Every page's switch follows. */
+/** `{ id, login }`: workspace `id` uses GitHub account `login` (one gh knows), or gh's active one (null). */
+async function setWorkspaceGithub(body) {
+  const id = String(body?.id ?? ''), login = body?.login == null || body.login === '' ? null : String(body.login);
+  if (!store.get(id)) return { ok: false, error: 'No such workspace.' };
+  if (login && !(await ghAccounts(true)).some((a) => a.login === login)) return { ok: false, error: `gh is not signed in to ${login}. Add the account first.` };
+  const r = store.setGithub(id, login);
+  if (!r.ok) return r;
+  await refreshGhTokens().catch(() => {});
+  github.refresh();
+  broadcast(); settingsChanged();
+  return { ok: true };
+}
 function updateWorkspace(body) {
   const id = String(body?.id ?? '');
   if (!store.get(id)) return { ok: false, error: 'No such workspace.' };
@@ -2666,7 +2678,7 @@ function settingsFor(focus, about = {}) {
     workspaces: wsOrder().map((id, order) => ({ ...wsView(id), order, here: id === focus,
       logins: store.loginsOf(id), defaults: { claude: store.defaultOf(id, 'claude'), codex: store.defaultOf(id, 'codex') },
       // Its settings, not its content: Settings' workspace picker shows and changes them from any workspace.
-      autofix: Boolean(watcher.status(id).enabled), overseerModel: overseerOf(id)?.status().model ?? g.overseerModel })),
+      autofix: Boolean(watcher.status(id).enabled), overseerModel: overseerOf(id)?.status().model ?? g.overseerModel, github: store.githubOf(id) })),
     logins: store.logins().map((l) => {
       const users = store.usersOf(l.id), x = L.get(l.id);
       const out = { id: l.id, provider: l.provider, label: l.label, users, home: store.homeOf(l.id), where: l.dir ? tilde(l.dir) : null,
@@ -2680,7 +2692,7 @@ function settingsFor(focus, about = {}) {
     hidden: store.hiddenCount(),
     repos: settingsRepos(),
     glue: g,
-    github: { state: setup.github.state, login: setup.github.login ?? null },
+    github: { state: setup.github.state, login: setup.github.login ?? null, accounts: ghAccountList.list },
     watcher: { enabled: watcher.status(focus).enabled },
     overseer: { model: overseerOf(focus)?.status().model ?? g.overseerModel, models: overseerModels() },
     about,
@@ -3061,8 +3073,52 @@ const ghPath = () => [...String(baseEnv.PATH ?? '').split(':').filter(Boolean).m
   .find((f) => { try { fs.accessSync(f, fs.constants.X_OK); return fs.statSync(f).isFile(); } catch { return false; } }) ?? null;
 /** Where a session works, as git sees it: the checkout its tools ran in, else the one it started in. */
 const placeOf = (s) => gitPlace(s.ranCwd ?? s.hereCwd ?? s.cwd);
+// ---------------------------------------------------------------- several GitHub accounts
+// gh keeps the accounts (gh auth login adds one). Each workspace picks one (store.githubOf; none: gh's active one).
+// Glue asks gh for an account's token when it needs one, keeps it in memory for a few minutes, never on disk or in a
+// page, and hands it to gh (and to the agents that workspace starts) as GH_TOKEN.
+const GH_ENV = { ...baseEnv, GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1', NO_COLOR: '1' };
+let ghAccountList = { at: -Infinity, list: [] }; // [{ login, active, ok }]: what gh auth status says
+const ghTokens = new Map();                       // login → { token, at }
+/** gh's accounts on github.com, read again after a minute. */
+async function ghAccounts(force = false) {
+  if (!force && Date.now() - ghAccountList.at < 60_000) return ghAccountList.list;
+  const bin = ghPath();
+  if (!bin) { ghAccountList = { at: Date.now(), list: [] }; return []; }
+  const r = await run(bin, ['auth', 'status', '--json', 'hosts'], { cwd: dataDir, env: GH_ENV, timeout: 10_000 });
+  let list = [];
+  try {
+    list = (JSON.parse(r.stdout)?.hosts?.['github.com'] ?? []).filter((a) => typeof a?.login === 'string')
+      .map((a) => ({ login: a.login, active: Boolean(a.active), ok: a.state === 'success' }));
+  } catch { list = ghAccountList.list; } // an older gh without --json, or a hiccup: keep what was known
+  const changed = JSON.stringify(list) !== JSON.stringify(ghAccountList.list);
+  ghAccountList = { at: Date.now(), list };
+  if (changed) settingsChanged();
+  return list;
+}
+/** The tokens of the accounts workspaces use (not gh's active one, which needs none), read again after ten minutes. */
+async function refreshGhTokens() {
+  const accounts = await ghAccounts(), want = new Set(wsOrder().map((id) => store.githubOf(id)).filter(Boolean));
+  for (const login of [...ghTokens.keys()]) if (!want.has(login)) ghTokens.delete(login);
+  for (const login of want) {
+    const a = accounts.find((x) => x.login === login);
+    if (!a || a.active || !a.ok) { ghTokens.delete(login); continue; }
+    if (Date.now() - (ghTokens.get(login)?.at ?? -Infinity) < 10 * 60_000) continue;
+    const r = await run(ghPath(), ['auth', 'token', '--hostname', 'github.com', '--user', login], { cwd: dataDir, env: GH_ENV, timeout: 10_000 });
+    const token = r.err ? '' : r.stdout.trim();
+    if (/^[\w-]{20,255}$/.test(token)) ghTokens.set(login, { token, at: Date.now() }); else ghTokens.delete(login);
+  }
+}
+/** What to add to a process's environment to act as GitHub account `login` ({} for none, or gh's active one). */
+const ghEnvFor = (login) => { const t = login ? ghTokens.get(login)?.token : null; return t ? { GH_TOKEN: t } : {}; };
+/** An agent's environment in workspace `wsId`: its login's, and its workspace's GitHub account. */
+const agentEnv = (login, wsId) => ({ ...envOf(login), ...ghEnvFor(store.githubOf(wsId)) });
+/** A poll round: the tokens first, so each repository is read as its workspace's account. */
+const githubTick = (watched) => refreshGhTokens().catch((e) => console.error('github accounts:', e?.message ?? e)).finally(() => github.tick({ watched }));
+
 const github = createGithub({
   file: path.join(dataDir, 'github.json'), run, read: small, ghPath, cwd: dataDir, env: baseEnv,
+  accountOf: (ws) => store.githubOf(ws), envFor: ghEnvFor,
   off: process.env.ACP_GITHUB === 'off', mine: true, // your own open pull requests too, in any repository
   // Every session on the board, a finished background job waiting on its checks included, with its workspace: each
   // workspace has its own share of the repositories watched.
@@ -4466,7 +4522,7 @@ async function handle(req, res) {
     clients.set(res, client);
     if (client) clientRes.set(client, res);
     if (DAEMON && setRosterPace(true)) pollAll().then(checkVersions); // back from idle: catch up at once
-    github.tick({ watched: true }); // a page that opens sees checks as fresh as the next poll
+    githubTick(true); // a page that opens sees checks as fresh as the next poll
     clearTimeout(releaseTimer);
     releaseTimer = null;
     const ping = setInterval(() => res.write(': ping\n\n'), 20_000);
@@ -4602,7 +4658,7 @@ async function handle(req, res) {
     const ACTIONS = { '/api/end': end, '/api/remove': remove, '/api/reply': (b) => { ownerWrote(b?.sessionId); return reply(b); },
                       '/api/main/spawn': mainSpawn, '/api/main/wake': mainWake, '/api/main/watch': mainWatch, '/api/unqueue': unqueue, '/api/mode': switchMode,
                       '/api/folders': listFolders, '/api/folder': folderInfo, '/api/pick-folder': pickFolder,
-                      '/api/workspace/focus': focusWorkspace, '/api/workspace/assign': assignRepo, '/api/workspace/update': updateWorkspace,
+                      '/api/workspace/focus': focusWorkspace, '/api/workspace/assign': assignRepo, '/api/workspace/update': updateWorkspace, '/api/workspace/github': setWorkspaceGithub,
                       '/api/workspace/reorder': reorderWorkspaces, '/api/settings/assign': settingsAssign,
                       '/api/space/create': createSpace, '/api/space/rename': renameSpace, '/api/space/delete': deleteSpace, '/api/space/move': moveToSpace, '/api/space/goal': spaceGoal,
                       ...Object.fromEntries(Object.entries(issueRoutes).map(([k, fn]) => [`/api/issue/${k}`, fn])),
@@ -4678,7 +4734,7 @@ server.listen(PORT, '127.0.0.1', () => {
   setInterval(() => { if (looking()) refreshOcModels(); }, 60_000);
   setInterval(() => { prune(); broadcast(); }, 10_000);
   // GitHub: one beat every 15 s, each repository on its own pace; the first a little after start, once the roster is in.
-  setTimeout(() => { github.tick({ watched: clients.size > 0 }); setInterval(() => github.tick({ watched: clients.size > 0 }), 15_000); }, 20_000);
+  setTimeout(() => { githubTick(clients.size > 0); setInterval(() => githubTick(clients.size > 0), 15_000); }, 20_000);
   setInterval(() => { if (mains.tick()) broadcast(); }, Number(process.env.ACP_NOTICE_TICK_MS ?? 5000)); // a main agent hears of the workers that stopped
   setInterval(() => watcherCheck(), 60_000); // checks that stick become a problem with time, with nothing new from GitHub
   setInterval(() => { if (clients.size > 0) checkSetup(false); }, 3 * 60_000); // a login that lapses later shows as the banner
