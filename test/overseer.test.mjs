@@ -752,6 +752,30 @@ test('a stopped agent that asks something gets a card with a drafted reply; one 
   assert.deepEqual(d.o.status().follow, []);
 });
 
+test('with an OpenCode model picked, follow-up checks run on it through OpenCode, not on Claude', async () => {
+  const oc = [];
+  const k = mk({ models: () => [...MODELS, 'opencode:openai/gpt-6'],
+    askOpenCode: async (q) => { oc.push(q); return { text: '```json\n' + JSON.stringify({ verdict: 'needs-answer', ask: 'Migrate the old table?', reply: 'Yes, migrate it.' }) + '\n```' }; } });
+  assert.equal(k.o.setModel('opencode:openai/gpt-6').ok, true);
+  k.fx.board = boardWith(QUESTION);
+  k.o.check(A);
+  await k.o.settled();
+  assert.equal(k.asks.length, 0, 'Claude is not asked');
+  assert.equal(oc.length, 1);
+  assert.equal(oc[0].model, 'openai/gpt-6');
+  assert.match(oc[0].system, /JSON Schema/);
+  assert.match(oc[0].prompt, /Should I also migrate/);
+  const [card] = k.o.status().follow;
+  assert.deepEqual([card.verdict, card.ask, card.reply], ['needs-answer', 'Migrate the old table?', 'Yes, migrate it.']);
+  // A Claude model keeps the quick Haiku check.
+  const c = mk();
+  c.fx.board = boardWith(QUESTION);
+  c.answers.push(verdict('done'));
+  c.o.check(A);
+  await c.o.settled();
+  assert.equal(c.asks[0].args[c.asks[0].args.indexOf('--model') + 1], FOLLOW_MODEL);
+});
+
 test('a card goes once you have written to the agent after what it said, even before it answers', async () => {
   const k = mk();
   const at = (promptAt) => () => ({ sessions: [session({ said: QUESTION, saidAt: 5_000, promptAt })], folders: [REPO] });

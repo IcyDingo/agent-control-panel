@@ -4516,7 +4516,7 @@ $('h-close').onclick = () => { homeOpen = false; render(); };
 $('h-dock-tog').onclick = () => setDock(!dockOpen);
 const MODEL_NAMES = { haiku: 'Haiku', sonnet: 'Sonnet', opus: 'Opus', fable: 'Fable' };
 /** The overseer's model in words: Claude's by name, an OpenCode one (opencode:provider/model) as OpenCode's. */
-const ovModelName = (m) => MODEL_NAMES[m] ?? (String(m).startsWith('opencode:') ? `${m.slice(9)} (OpenCode)` : m);
+const ovModelName = (m) => MODEL_NAMES[m] ?? (String(m).startsWith('opencode:') ? snap?.modelNames?.[m] ?? `${m.slice(9)} (OpenCode)` : m);
 /** The overseer's models by provider: Claude, then each OpenCode provider; the one it uses is kept even when OpenCode
  *  isn't answering now. */
 function ovModelOptions(models, now) {
@@ -4525,7 +4525,7 @@ function ovModelOptions(models, now) {
   const claude = list.filter((m) => !m.startsWith('opencode:')), oc = new Map();
   for (const m of list.filter((x) => x.startsWith('opencode:'))) { const p = m.slice(9).split('/')[0]; oc.set(p, [...(oc.get(p) ?? []), m]); }
   return [el('optgroup', { label: 'Claude' }, ...claude.map((m) => el('option', { value: m, text: MODEL_NAMES[m] ?? m }))),
-    ...[...oc].map(([p, ms]) => el('optgroup', { label: `OpenCode · ${p}` }, ...ms.map((m) => el('option', { value: m, text: m.slice(9 + p.length + 1) }))))];
+    ...[...oc].map(([p, ms]) => el('optgroup', { label: `OpenCode · ${p}` }, ...ms.map((m) => el('option', { value: m, text: snap?.modelNames?.[m] ?? m.slice(9 + p.length + 1) }))))];
 }
 
 // ---------- sign-ins, and the first run ----------
@@ -6476,9 +6476,10 @@ function setFirstRunFoot() {
   const foot = $('set-foot'), on = setupPending();
   foot.hidden = !on;
   if (!on) { patch(foot, '', () => null); return; }
-  const ready = snap.setup.claude?.state === 'ok' && Boolean(snap.profile?.connected);
+  // Ready once the workspace can run an agent: a Claude login signed in and live, or OpenCode.
+  const ready = (snap.setup.claude?.state === 'ok' && Boolean(snap.profile?.connected)) || Boolean(snap.opencode);
   patch(foot, String(ready), () => [
-    el('span', { text: ready ? 'Signed in, with live updates on: Glue has what it needs.' : 'Glue needs two things for this workspace: its Claude sign-in, and live updates turned on.' }),
+    el('span', { text: ready ? 'Signed in: Glue has what it needs.' : 'Glue needs one sign-in for this workspace (Claude, OpenAI or OpenCode, under Providers), and for a Claude login, live updates turned on.' }),
     el('button', { class: 'btn quiet small', type: 'button', text: 'Skip for now', onclick: finishFirstRun }),
     el('button', { class: 'btn small' + (ready ? ' primary' : ''), type: 'button', text: 'Done', onclick: finishFirstRun })]);
 }
@@ -6658,7 +6659,7 @@ async function setAssign(key, ws) {
 function setLoginsTab(panel) {
   if (!panel.firstChild) panel.append(
     el('h3', { text: 'Live updates' }),
-    el('p', { class: 'set-lead', text: 'With live updates on, the Claude Code sessions of a login report here as they run: you see their tools and subagents, and answer their permission requests from Glue. Off, they still show, but they ask in their own terminal.' }),
+    el('p', { class: 'set-lead', text: 'Live updates let an agent\u2019s sessions report here as they run. OpenCode reports through its own service, always. A Claude Code login needs them turned on below. With them on, its sessions report here as they run: you see their tools and subagents, and answer their permission requests from Glue. Off, they still show, but they ask in their own terminal.' }),
     el('div', { class: 'set-blocks' }));
   const box = panel.children[2];
   if (!setReady(box)) return;
@@ -6666,6 +6667,9 @@ function setLoginsTab(panel) {
   const first = setupPending();
   patch(box, JSON.stringify([first, list, setData.workspaces.map((w) => [w.id, w.name])]),
     () => [...list.map((l) => setLoginBlock(l, first && l.users.includes(here))),
+      // OpenCode needs nothing here: Glue follows its service, so its sessions are always live.
+      ...provLogins('opencode').map((l) => el('section', { class: 'set-block', 'aria-label': l.label }, setBlockHead(null, l.label),
+        setLine('ok', '✓', 'Always live', 'Glue follows OpenCode\u2019s own service: its sessions, tools and requests show here as they run. Nothing to turn on.'))),
       el('p', { class: 'set-note' }, 'Signing in to Claude, OpenAI and OpenCode is under ',
         el('button', { class: 'linkish', type: 'button', text: 'Providers', 'data-f': 'to-providers', onclick: () => showSetTab('providers') }), '.')]);
 }
@@ -6810,7 +6814,7 @@ function setOverseerTab(panel) {
   setPatch(box, JSON.stringify([models, list.map((w) => [w.id, w.name, w.overseerModel]), setData.glue?.overseerModel, setData.glue?.followUps]), () => [
     el('section', { class: 'set-block', 'aria-label': 'Follow up' }, setBlockHead(null, 'Follow up'),
       el('div', { class: 'set-opts' },
-        setOpt('Check agents when they stop', 'When an agent ends its turn, Glue reads its last message with Haiku, on the workspace’s Claude login. One that asks you something or stopped before the work was done gets a card on Home, with a reply drafted for you to send.',
+        setOpt('Check agents when they stop', 'When an agent ends its turn, Glue reads its last message on the assistant’s provider: with its OpenCode model when one is picked below, else with Claude’s quick Haiku. One that asks you something or stopped before the work was done gets a card on Home, with a reply drafted for you to send.',
           setSwitch('follow-ups', 'Check agents when they stop', setData.glue?.followUps !== false, (on) => setGlue({ followUps: on }))))),
     // Each workspace's own overseer, a row each: the same choice sits under its composer.
     el('section', { class: 'set-block', 'aria-label': 'Model' }, setBlockHead(null, 'Model'),
@@ -7191,7 +7195,7 @@ function setGlueAgents(box, g) {
     const mainAgents = [
       el('h4', { class: 'rule', text: 'Main agents' }),
       el('p', { class: 'set-quiet set-sub', text: 'A space’s main agent watches the agents in it and reports in its conversation: what needs you, and what the space is doing. It changes no files. Turn one on from a space’s ⋯ menu; no space has one until you do.' }),
-      setOpt('Main agent’s model', 'What a main agent runs on.',
+      setOpt('Main agent’s model', 'What a main agent runs on. Main agents run on Claude Code: they read their space through Glue’s tools there.',
         setSelect('ma-model', 'Model a main agent starts on', [['opus', 'Opus'], ['opus[1m]', 'Opus 1M'], ['fable', 'Fable'], ['sonnet', 'Sonnet']], m.model, (v) => setMain({ model: v }))),
       setOpt('Start workers', 'Off, a main agent only watches. On, it may also start workers of its own, each in a worktree, with the permissions a new agent starts with (above).',
         setSwitch('ma-workers', 'Main agents may start workers', m.workers, (on) => setMain({ workers: on }))),
