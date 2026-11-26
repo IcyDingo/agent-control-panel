@@ -1837,7 +1837,7 @@ function claimSpaces(wsId) {
 // branches after the agent has left the board).
 const issues = createIssues({ file: path.join(dataDir, 'issues.json') });
 const issueIn = (wsId, id) => issues.list(wsId).find((x) => x.id === String(id ?? '')) ?? null;
-const ISSUE_GONE = { ok: false, error: 'That issue is gone.' }, ITEM_GONE = { ok: false, error: 'That item is gone.' };
+const ISSUE_GONE = { ok: false, error: 'That goal is gone.' }, ITEM_GONE = { ok: false, error: 'That part is gone.' };
 /** What an agent picking up an item is told: the item and its own note, which issue it is part of, and that issue's
  *  notes as context. */
 const issuePrompt = (wsId, i, it) => [it.text, it.note || null, filesLines('item', it.files.map((f) => issueFilePath(wsId, i.id, f))), `This is part of: ${i.title}.`,

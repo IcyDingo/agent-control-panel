@@ -73,9 +73,9 @@ export function createIssues({ file, now = Date.now } = {}) {
   const find = (ws, id) => (st[ws] ?? []).find((x) => x.id === id) ?? null;
   const findItem = (ws, issue, item) => { const i = find(ws, issue); return i ? { i, it: i.items.find((y) => y.id === item) ?? null } : { i: null, it: null }; };
   const fresh = (list) => { let id; do id = newId(); while (list.some((x) => x.id === id)); return id; };
-  const titleOf = (v) => { const t = line(v); return !t ? no('An issue needs a title.') : t.length > TITLE_MAX ? no(`A title is at most ${TITLE_MAX} characters.`) : { ok: true, t }; };
-  const textOf = (v) => { const t = line(v); return !t ? no('An item needs some text.') : t.length > TEXT_MAX ? no(`An item is at most ${TEXT_MAX} characters.`) : { ok: true, t }; };
-  const NOISSUE = no('That issue is gone.'), NOITEM = no('That item is gone.');
+  const titleOf = (v) => { const t = line(v); return !t ? no('A goal needs a title.') : t.length > TITLE_MAX ? no(`A title is at most ${TITLE_MAX} characters.`) : { ok: true, t }; };
+  const textOf = (v) => { const t = line(v); return !t ? no('A part needs some text.') : t.length > TEXT_MAX ? no(`A part is at most ${TEXT_MAX} characters.`) : { ok: true, t }; };
+  const NOISSUE = no('That goal is gone.'), NOITEM = no('That part is gone.');
 
   return {
     /** A workspace's issues, in order (copies). */

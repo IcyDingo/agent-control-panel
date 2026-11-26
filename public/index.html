@@ -1077,7 +1077,7 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
 .is-ic-n { position: absolute; right: -3px; bottom: -2px; font: 600 9.5px/1 var(--mono); color: var(--fg-dim); }
 .is-files { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 6px 24px; }
 .is-files.of-item { margin: 0 0 4px 34px; }
-/* A goal's page: the Issues panel's goal with room. */
+/* A goal's page: the goal with room to work on it. */
 .h-goal { max-width: 860px; padding-bottom: 32px; }
 .gp-top { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .gp-back { gap: 4px; padding-left: 6px; }
@@ -1103,6 +1103,9 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
 .is-page .is-notes.of-item { margin: -6px 0 6px 38px; font-size: 12.5px; color: var(--fg-dim); }
 .is-page .is-files.of-item { margin: 0 0 8px 38px; }
 .is-page .is-pick { display: inline-flex !important; }
+/* On a goal's page each part's note and files buttons are always there (dim until used or pointed at). */
+.is-page .is-item .is-ic:not(.on) { opacity: .45 !important; }
+.is-page .is-item .is-ic:hover { opacity: 1 !important; }
 .is-issue[data-paged] .is-head { background: var(--fill); }
 .is-open-page.on { color: var(--fg) !important; opacity: 1 !important; }
 .gl-open { flex: none; width: 24px; height: 24px; color: var(--fg-faint); opacity: 0; }
@@ -1494,7 +1497,7 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
   <span class="grow"></span>
   <button class="paused" type="button" id="paused" title="Settings › Glue › Answering & alerts" hidden>Paused: the terminal answers everything</button>
   <button class="btn heat-btn" type="button" id="heat-btn" aria-haspopup="dialog" hidden></button>
-  <button class="btn gh-btn is-btn" type="button" id="is-btn" aria-expanded="false" aria-controls="is-pop"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></svg>Issues<span class="is-n" id="is-n" hidden></span></button>
+  <button class="btn gh-btn is-btn" type="button" id="is-btn" aria-expanded="false" aria-controls="is-pop"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></svg>Goals<span class="is-n" id="is-n" hidden></span></button>
   <div class="gh-wrap" id="gh-wrap" hidden>
     <button class="btn gh-btn" type="button" id="gh-btn" aria-expanded="false" aria-controls="gh-pop"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="18" r="2.2"/><path d="M6 8.2v7.6M18 15.8V10a3 3 0 0 0-3-3h-4"/><path d="M13 4.6 10.6 7 13 9.4"/></svg>GitHub<span class="gh-n" id="gh-n" hidden></span></button>
   </div>
@@ -1574,7 +1577,7 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
   <!-- The right-hand column (order: 1 keeps it rightmost, after the session panel too): Issues and GitHub, two
        containers of their own; both open, they stack, Issues above. -->
   <div class="side-col" id="side-col" hidden>
-    <aside class="is-side" id="is-pop" tabindex="-1" aria-label="Issues" hidden></aside>
+    <aside class="is-side" id="is-pop" tabindex="-1" aria-label="Goals" hidden></aside>
     <aside class="gh-side" id="gh-pop" tabindex="-1" aria-label="GitHub" hidden></aside>
   </div>
   <aside class="drawer" id="drawer" aria-label="Session" hidden>
@@ -4170,7 +4173,7 @@ function goalActs(acts, { g = null, item = null, s = null, stopKey = null, space
           { class: 'btn small gl-act' + (sure ? ' armed' : ''), 'data-key': key, title: `Merge pull request #${pr.number} with the repository’s default method. Click again to confirm.` }); }
       case 'again': return b('Pick up again', async () => { const r = await isApi('back', { issue: issue.id, item: item.id }); if (r.ok) pickUp(issue, { ...item, state: 'todo' }); });
       case 'pickup': return b(isPickBusy.has(item.id) ? 'Starting…' : 'Pick up', () => pickUp(issue, item), '', { disabled: isPickBusy.has(item.id) });
-      case 'add': return b('Add the first part', () => { showIsPop(true); isFold.delete(issue.id); saveIsFold(); startTyping({ kind: 'item', issue: issue.id }); });
+      case 'add': return b('Add the first part', () => { openGoal(issue.id); startTyping({ kind: 'item', issue: issue.id }); });
       case 'wake': return b(down ? 'Wake it' : 'Carry on', (btn) => once(btn, async () => { const r = await api('/api/main/wake', { space }); if (!r.ok) toast(r.error || 'It could not be sent.', true); }), 'amber');
       default: return null;
     }
@@ -4330,7 +4333,7 @@ function renderGoals(vis) {
         if (e.key !== 'Enter' || !inp.value.trim()) return;
         e.preventDefault();
         const r = await isApi('create', { title: inp.value.trim() });
-        if (r.ok) { newGoal = null; goalNodes.delete('new'); render(); }
+        if (r.ok) { newGoal = null; goalNodes.delete('new'); openGoal(r.id); startTyping({ kind: 'item', issue: r.id }); }
       };
       n = { sig: '', node: el('div', { class: 'gl gl-new' }, inp) };
       goalNodes.set('new', n);
@@ -4974,7 +4977,7 @@ function notesEditor(t, placeholder) {
   return el('div', { class: 'is-notes-edit' }, ta, el('div', { class: 'is-notes-acts' },
     el('button', { class: 'btn small primary', type: 'button', text: 'Save', title: 'Save (⌘↩)', onclick: () => saveTyping(ta.value) }),
     el('button', { class: 'btn quiet small', type: 'button', text: 'Cancel', onclick: stopTyping }),
-    el('span', { class: 'is-hint', text: t.kind === 'notes' ? 'Given to every agent that picks up an item of this issue.' : 'Given to the agent that picks up this item.' })));
+    el('span', { class: 'is-hint', text: t.kind === 'notes' ? 'Given to every agent that picks up a part of this goal.' : 'Given to the agent that picks up this part.' })));
 }
 /** The line being typed: an input reused across redraws, so what is typed in it stays. */
 function typingLine(t, placeholder) {
@@ -5092,7 +5095,7 @@ function dragHandlers(what, beforeId) {
 }
 function itemRow(i, it, items, page = false) {
   const v = HB.itemView(it, new Map(snap.sessions.map((s) => [s.sessionId, s])), stateOf, label);
-  if (isTyping?.kind === 'text' && isTyping.item === it.id) return el('div', { class: 'is-item editing' }, el('span', { class: 'is-mark', 'data-m': v.mark }), typingLine(isTyping, 'The item'));
+  if (isTyping?.kind === 'text' && isTyping.item === it.id) return el('div', { class: 'is-item editing' }, el('span', { class: 'is-mark', 'data-m': v.mark }), typingLine(isTyping, 'The part'));
   const openAgent = () => { cancelAdvance(); open = it.sessionId; render(); };
   const busy = isPickBusy.has(it.id);
   const right = v.mark === 'todo' || v.mark === 'finished' ? el('span', { class: 'is-right' },
@@ -5122,7 +5125,7 @@ function itemRow(i, it, items, page = false) {
 }
 /** An issue's notes under its title: their first line, a click edits them; or the editor while they are written. */
 function notesRow(i, page = false) {
-  if (isTyping?.kind === 'notes' && isTyping.issue === i.id) return notesEditor(isTyping, 'Notes for this issue: background, links, constraints, what done means');
+  if (isTyping?.kind === 'notes' && isTyping.issue === i.id) return notesEditor(isTyping, 'Notes for this goal: background, links, constraints, what done means');
   if (page) return el('button', { class: 'is-notes gp-notes' + (i.notes ? '' : ' empty'), type: 'button', title: 'Edit the notes', onclick: () => startTyping({ kind: 'notes', issue: i.id }, i.notes ?? '') },
     i.notes || 'Add notes: background, links, constraints, what done means. The agent that picks up a part is given them.');
   if (!i.notes) return null;
@@ -5193,7 +5196,7 @@ function issueBlock(i, list, page = false) {
     if (folded) isFold.delete(i.id); else isFold.add(i.id); saveIsFold(); render();
   };
   const head = isTyping?.kind === 'title' && isTyping.issue === i.id
-    ? el('div', { class: 'is-head editing' }, typingLine(isTyping, 'The issue'))
+    ? el('div', { class: 'is-head editing' }, typingLine(isTyping, 'The goal'))
     : el('div', { class: 'is-head', tabindex: '0', ...withFileDrop(dragHandlers({ issue: i.id }, i.id), i.id, null),
         onkeydown: (e) => isKeyMove(e, list, i.id, (before) => isApi('move', { issue: i.id, ...(before ? { before } : {}) })) },
       el('button', { class: 'is-fold' + (folded ? '' : ' open'), type: 'button', 'aria-expanded': String(!folded), 'aria-label': folded ? `Show ${i.title}` : `Fold ${i.title}`, onclick: toggle, text: '›' }),
@@ -5213,7 +5216,7 @@ function issueBlock(i, list, page = false) {
         ['Use space…', () => { isSpacePick = i.id; render(); }],
         ['Delete…', () => { isDeleting = i.id; render(); }, true],
       ]),
-      iconBtn(PLUS, { class: 'btn icon is-add', title: 'Add an item', 'aria-label': `Add an item to ${i.title}`, onclick: () => { isFold.delete(i.id); saveIsFold(); startTyping({ kind: 'item', issue: i.id }); } }));
+      iconBtn(PLUS, { class: 'btn icon is-add', title: 'Add a part', 'aria-label': `Add a part to ${i.title}`, onclick: () => { isFold.delete(i.id); saveIsFold(); startTyping({ kind: 'item', issue: i.id }); } }));
   const pick = isSpacePick === i.id ? el('div', { class: 'is-spacepick' }, (() => {
     const sel = el('select', { class: 'field', 'aria-label': `Space for ${i.title}` }, el('option', { value: '', text: 'No space' }),
       ...(snap.spaces ?? []).map((x) => el('option', { value: x.id, text: x.name })));
@@ -5221,7 +5224,7 @@ function issueBlock(i, list, page = false) {
     sel.onchange = async () => { isSpacePick = null; await isApi('link', { issue: i.id, space: sel.value || null }); render(); };
     return sel;
   })(), el('button', { class: 'btn quiet small', type: 'button', text: 'Cancel', onclick: () => { isSpacePick = null; render(); } })) : null;
-  const armedDel = isDeleting === i.id ? el('div', { class: 'is-confirm' }, el('span', { text: 'Delete the issue and its items? Its space and agents stay.' }),
+  const armedDel = isDeleting === i.id ? el('div', { class: 'is-confirm' }, el('span', { text: 'Delete the goal and its parts? Its space and agents stay.' }),
     el('button', { class: 'btn small danger', type: 'button', text: 'Delete', onclick: async () => { isDeleting = null; await isApi('delete', { id: i.id }); render(); } }),
     el('button', { class: 'btn quiet small', type: 'button', text: 'Cancel', onclick: () => { isDeleting = null; render(); } })) : null;
   return el('section', { class: 'is-issue', 'data-done': i.allDone ? '' : null, 'data-paged': !page && goalOpen === i.id ? '' : null }, head, pick, armedDel,
@@ -5234,8 +5237,8 @@ function issueBlock(i, list, page = false) {
       (page || isItemOpen.has(it.id)) && it.note && !(isTyping?.kind === 'note' && isTyping.item === it.id) ? el('button', { class: 'is-notes of-item', type: 'button', title: it.note,
         onclick: () => startTyping({ kind: 'note', issue: i.id, item: it.id }, it.note) }, el('span', { class: 'is-notes-t', text: it.note.split('\n')[0] })) : null,
       page || isItemOpen.has(it.id) ? fileChips(i, it) : null,
-      isTyping?.kind === 'note' && isTyping.item === it.id ? notesEditor(isTyping, 'A note for this item: what the agent should know') : null]),
-      isTyping?.kind === 'item' && isTyping.issue === i.id ? el('div', { class: 'is-item editing' }, el('span', { class: 'is-mark', 'data-m': 'todo' }), typingLine(isTyping, 'A new item')) : null));
+      isTyping?.kind === 'note' && isTyping.item === it.id ? notesEditor(isTyping, 'A note for this part: what the agent should know') : null]),
+      isTyping?.kind === 'item' && isTyping.issue === i.id ? el('div', { class: 'is-item editing' }, el('span', { class: 'is-mark', 'data-m': 'todo' }), typingLine(isTyping, 'A new part')) : null));
 }
 /** A goal in the panel: its dot (what most needs doing), its title, how far it is; under it, what is going on, in a few
  *  words. A click opens it in the middle, where it is worked on. Drag to reorder. */
@@ -5245,24 +5248,24 @@ function goalStatusRow(i, list) {
   const g = HB.goalOf(i, ctx), done = g.shipped, total = g.total;
   const working = g.branches.filter((b) => b.tip.rank === 4).length, next = g.ahead[0];
   const tone = g.move.rank <= 3 ? (g.branches.find((b) => b.tip.rank === g.move.rank)?.tip.tone ?? 'amber') : working ? 'green' : g.reached ? 'done' : 'grey';
-  const words = g.move.rank <= 3 ? g.move.words : g.reached ? 'all parts done' : g.empty ? 'no parts yet'
+  const words = g.move.rank <= 3 ? g.move.words : g.reached ? 'all parts done' : g.empty ? ''
     : [working ? `${working} working` : 'nobody on it', next ? `next: ${next.text}` : null].filter(Boolean).join(' · ');
   return el('button', { class: 'is-row', type: 'button', 'data-tone': tone, 'aria-current': String(goalOpen === i.id), title: `Open ${i.title}`,
       ...dragHandlers({ issue: i.id }, i.id), onclick: () => openGoal(goalOpen === i.id ? null : i.id),
       onkeydown: (e) => isKeyMove(e, list, i.id, (before) => isApi('move', { issue: i.id, ...(before ? { before } : {}) })) },
     el('span', { class: 'is-row-top' }, el('i', { class: 'is-row-dot', 'aria-hidden': 'true' }), el('span', { class: 'is-row-title', text: i.title }),
       total ? el('span', { class: 'gl-prog' }, el('span', { class: 'gl-bar' }, el('i', { style: `width:${Math.round((100 * done) / total)}%` })), `${done}/${total}`) : null),
-    el('span', { class: 'is-row-words', text: words }));
+    words ? el('span', { class: 'is-row-words', text: words }) : null);
 }
 /** The strip the panel folds to, with GitHub's: its icon and how many are to do. */
-const isStrip = (n) => el('div', { class: 'gh-strip' }, el('button', { class: 'gh-dot is-dot', type: 'button', title: n ? `${n} to do. Show the panel.` : 'Issues. Show the panel.', onclick: () => setGhSlim(false) },
+const isStrip = (n) => el('div', { class: 'gh-strip' }, el('button', { class: 'gh-dot is-dot', type: 'button', title: n ? `${n} to do. Show the panel.` : 'Goals. Show the panel.', onclick: () => setGhSlim(false) },
   svgIcon(IS_ICON), n ? el('span', { class: 'is-n', text: String(n) }) : null));
 /** The Issues button and panel. */
 function renderIssues() {
   const list = snap.issues ?? [], n = HB.todoCount(list);
   $('is-n').hidden = !n;
   setText($('is-n'), String(n));
-  setAttr($('is-btn'), 'title', n ? `Issues: ${n} to do` : 'Issues: the work waiting for agents');
+  setAttr($('is-btn'), 'title', n ? `Goals: ${n} parts to do` : 'Goals: the work waiting for agents');
   syncSideCol();
   const pop = $('is-pop');
   if (pop.hidden) return;
@@ -5279,10 +5282,10 @@ function renderIssues() {
       followOf(s.sessionId)?.verdict ?? null]), goalOpen, Math.floor(snap.now / 60_000),
     typingKey(isTyping), isSpacePick, isDeleting, [...isPickBusy]]);
   patch(pop, sig, () => [
-    el('div', { class: 'gh-pop-h is-pop-h' }, el('h3', { text: 'Issues' }), el('span', { class: 'grow' }),
-      iconBtn(PLUS, { class: 'btn icon', title: 'New issue', 'aria-label': 'New issue', onclick: () => startTyping({ kind: 'issue' }) }),
-      el('button', { class: 'btn icon', type: 'button', 'aria-label': 'Close Issues', title: 'Close (Esc)', onclick: () => { showIsPop(false); $('is-btn').focus(); } }, svgIcon('M6 6l12 12M18 6L6 18'))),
-    isTyping?.kind === 'issue' ? el('div', { class: 'is-head editing' }, typingLine(isTyping, 'A new issue')) : null,
+    el('div', { class: 'gh-pop-h is-pop-h' }, el('h3', { text: 'Goals' }), el('span', { class: 'grow' }),
+      iconBtn(PLUS, { class: 'btn icon', title: 'New goal', 'aria-label': 'New goal', onclick: () => startTyping({ kind: 'issue' }) }),
+      el('button', { class: 'btn icon', type: 'button', 'aria-label': 'Close Goals', title: 'Close (Esc)', onclick: () => { showIsPop(false); $('is-btn').focus(); } }, svgIcon('M6 6l12 12M18 6L6 18'))),
+    isTyping?.kind === 'issue' ? el('div', { class: 'is-head editing' }, typingLine(isTyping, 'A new goal: the outcome you want')) : null,
     ordered.length || isTyping?.kind === 'issue' ? null : el('p', { class: 'is-empty', text: 'No goals yet. + makes one: an outcome you want. It opens in the middle, where you add its parts; Pick up starts an agent on a part.' }),
     ...ordered.map((i) => goalStatusRow(i, list))]);
   if (typing) { const inp = pop.querySelector('.is-input'); if (inp && inp !== document.activeElement) { inp.focus(); try { inp.setSelectionRange(typing[0], typing[1]); } catch {} } }
