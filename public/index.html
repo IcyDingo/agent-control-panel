@@ -1084,15 +1084,18 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
 .is-page .is-head > .is-fold { display: none; }
 .is-page .is-title { font-size: 22px; font-weight: 650; letter-spacing: -0.01em; white-space: normal; }
 .is-page .is-head:not(:hover, :focus-within) .is-ic:not(.on) { opacity: .4; }
-.gp-notes { display: block; width: 100%; margin: 8px 0 14px; padding: 10px 12px; border-radius: var(--r-2); background: var(--fill); color: var(--fg); font-size: 13.5px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* The notes and the files side by side; one under the other on a narrow window. */
+.gp-context { display: grid; grid-template-columns: minmax(0, 1fr) 232px; gap: 12px; align-items: stretch; margin: 8px 0 18px; }
+.gp-context > * { margin: 0 !important; }
+.gp-notes { display: flex; align-items: flex-start; width: 100%; min-height: 96px; margin: 8px 0 14px; padding: 10px 12px; text-align: left; border-radius: var(--r-2); background: var(--fill); color: var(--fg); font-size: 13.5px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 .gp-notes.empty { color: var(--fg-faint); background: none; box-shadow: inset 0 0 0 1px dashed var(--line-strong); border: 1px dashed var(--line-strong); }
 .gp-notes:hover { background: var(--hover); }
 .is-page .is-notes-edit { margin: 8px 0 14px; }
 .is-page .is-notes-in { min-height: 140px; font-size: 13.5px; }
-.gp-files { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 18px; }
-.gp-files .is-files { margin: 0; }
+.gp-files { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
+.gp-files .is-files { margin: 0; gap: 6px; }
 .gp-files .is-file { width: 40px; height: 40px; }
-.gp-drop { height: 40px; padding: 0 14px; border: 1px dashed var(--line-strong); border-radius: var(--r-1); background: none; color: var(--fg-faint); font-size: 12.5px; cursor: pointer; }
+.gp-drop { flex: 1; min-height: 40px; padding: 8px 12px; border: 1px dashed var(--line-strong); border-radius: var(--r-1); background: none; color: var(--fg-faint); font-size: 12.5px; cursor: pointer; }
 .gp-drop:hover, .gp-drop.drop-files { color: var(--fg); border-color: var(--fg-dim); }
 .gp-h { margin: 6px 0 6px; font-size: 11.5px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; color: var(--fg-dim); }
 .is-page .is-items { padding-left: 0; }
@@ -1355,6 +1358,7 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
 .gl-new .gl-tell { width: 100%; }
 .gl-reached { margin: 10px 0 0; font-size: 12.5px; }
 @media (max-width: 720px) {
+  .gp-context { grid-template-columns: 1fr; }
   .gl-tree { margin-left: 22px; }
   .gl-br { width: 100%; }
   .gl-prog { width: auto; }
@@ -5225,9 +5229,11 @@ function issueBlock(i, list, page = false) {
     el('button', { class: 'btn small danger', type: 'button', text: 'Delete', onclick: async () => { isDeleting = null; await isApi('delete', { id: i.id }); render(); } }),
     el('button', { class: 'btn quiet small', type: 'button', text: 'Cancel', onclick: () => { isDeleting = null; render(); } })) : null;
   return el('section', { class: 'is-issue', 'data-done': i.allDone ? '' : null, 'data-paged': !page && goalOpen === i.id ? '' : null }, head, pick, armedDel,
-    folded ? null : notesRow(i, page),
-    folded ? null : page ? el('div', { class: 'gp-files' }, fileChips(i, null), el('button', { class: 'gp-drop', type: 'button', onclick: () => pickFiles(i.id, null), ...withFileDrop({}, i.id, null) },
-      'Drop files here, or click to add')) : fileChips(i, null),
+    // On its page: the notes and the files side by side, the notes taking the room.
+    folded ? null : page ? el('div', { class: 'gp-context' }, notesRow(i, true),
+      el('div', { class: 'gp-files' }, fileChips(i, null), el('button', { class: 'gp-drop', type: 'button', onclick: () => pickFiles(i.id, null), ...withFileDrop({}, i.id, null) },
+        'Drop files here, or click to add'))) : notesRow(i),
+    folded || page ? null : fileChips(i, null),
     folded ? null : page ? el('h4', { class: 'gp-h', text: 'Parts' }) : null,
     folded ? null : el('div', { class: 'is-items' }, ...partsOf(i).flatMap((it) => it === DONE_LINE ? [doneLine(i)] : [itemRow(i, it, i.items, page),
       // Opened: its note (its first line, faint; a click edits it) and its files. The context its agent is given.
