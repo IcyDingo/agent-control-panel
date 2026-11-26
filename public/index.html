@@ -2282,7 +2282,11 @@ function sections(g) {
   const done = (s) => (colOf(stateOf(s)) === 'finished' ? 1 : 0), ended = (s) => s.leftRosterAt ?? s.lastEventAt ?? 0;
   // Its main agent is in the card's title, not a row: a row still while searching, or on the slim rail, which has no title.
   const led = (s) => (s.role === 'main' ? 0 : 1), rowOf = (s) => s.role !== 'main' || Boolean(railQuery) || slimShown();
-  for (const x of spaces) out.push({ key: 'space:' + x.id, kind: 'space', space: x.id, title: x.name, asks: spaceAsks.get(x.id) ?? 0,
+  // A goal's space shows only while agents are in it (Home and the Issues panel show the goal itself). A space you made
+  // yourself stays, empty or not, so its + is there to start one.
+  const goalSpaces = new Set((snap.issues ?? []).map((i) => i.space).filter(Boolean));
+  const shown = (x) => !goalSpaces.has(x.id) || inSpace.get(x.id).length > 0 || spaceAsks.has(x.id) || renaming === x.id;
+  for (const x of spaces.filter(shown)) out.push({ key: 'space:' + x.id, kind: 'space', space: x.id, title: x.name, asks: spaceAsks.get(x.id) ?? 0,
     list: inSpace.get(x.id).filter(rowOf).sort((a, b) => led(a) - led(b) || done(a) - done(b) || (done(a) ? ended(b) - ended(a) : working(a) - working(b) || (b.startedAt ?? 0) - (a.startedAt ?? 0))
       || a.sessionId.localeCompare(b.sessionId)) });
   for (const r of [...repos.keys()].sort((a, b) => base(a).localeCompare(base(b)) || a.localeCompare(b))) {
