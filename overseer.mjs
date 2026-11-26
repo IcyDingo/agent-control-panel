@@ -235,11 +235,28 @@ export function followPrompt(s) {
   return `<agent name="${attr(s.name)}"${where ? ` where="${attr(where)}"` : ''}${role}>\n${plain(s.said, 3000)}\n</agent>`;
 }
 
-/** A check's answer from what `ask` gave back, or why there is none. */
-export const readFollow = (r) => readStructured(r, (v) => (VERDICTS.includes(v.verdict) ? {
+/** A check's verdict, cleaned; null when it has no known verdict. */
+const followValue = (v) => (VERDICTS.includes(v?.verdict) ? {
   verdict: v.verdict, ask: flat(v.ask, 200),
   reply: v.verdict === 'done' ? '' : clip(String(v.reply ?? '').trim().replace(/^[/!]+\s*/, ''), 1000),
-} : null));
+} : null);
+/** A check's answer from what `ask` gave back, or why there is none. */
+export const readFollow = (r) => readStructured(r, followValue);
+/** The check on an OpenCode model: told the schema in its system prompt, as the overseer is. */
+export const FOLLOW_OC_SYSTEM = `${FOLLOW_SYSTEM}
+
+Answer with one JSON object and nothing else (no Markdown fence, no words before or after it), matching this JSON Schema:
+${JSON.stringify(FOLLOW_SCHEMA)}`;
+/** A check's answer from the text an OpenCode model gave back, or why there is none. */
+export function readFollowText(text) {
+  const t = String(text ?? '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  const a = t.indexOf('{'), b = t.lastIndexOf('}');
+  if (a < 0 || b < a) return fail(t ? `The check didn't answer in the form asked for: ${firstLine(t)}` : 'The check gave no answer.');
+  let v;
+  try { v = JSON.parse(t.slice(a, b + 1)); } catch { return fail("The check's answer wasn't valid JSON."); }
+  const value = followValue(v);
+  return value ? { ok: true, value } : fail("The check's answer had no known verdict.");
+}
 
 // ---------------------------------------------------------------- the digest
 
@@ -987,14 +1004,29 @@ export function createOverseer({
     const working = s.role === 'main' ? all.filter((w) => w.role === 'worker' && w.space === s.space && w.state === 'busy').length : 0;
     const job = { key, controller: new AbortController() }, id = uuid();
     checking.set(sessionId, job);
-    let r;
-    try {
-      r = await ask(overseerArgs({ id, model: FOLLOW_MODEL, system: FOLLOW_SYSTEM, schema: FOLLOW_SCHEMA }),
-        { id, input: followPrompt({ ...s, said, working }), timeout: FOLLOW_MS, signal: job.controller.signal });
-    } catch (e) { r = { err: e, stdout: '', stderr: String(e?.message ?? e) }; }
+    // The check runs on the assistant's provider: an OpenCode model checks on itself, through OpenCode; on Claude, the
+    // quick Haiku check.
+    const onOc = String(data.model ?? '').startsWith(OC_PREFIX), input = followPrompt({ ...s, said, working });
+    let res;
+    if (onOc) {
+      let r;
+      if (!askOpenCode) r = { error: 'OpenCode is not set up here.' };
+      else {
+        try { r = await askOpenCode({ model: data.model.slice(OC_PREFIX.length), system: FOLLOW_OC_SYSTEM, prompt: input, timeout: FOLLOW_MS, signal: job.controller.signal }); }
+        catch (e) { r = { error: String(e?.message ?? e) }; }
+      }
+      res = r?.error ? fail(firstLine(r.error)) : readFollowText(r?.text);
+    } else {
+      let r;
+      try {
+        r = await ask(overseerArgs({ id, model: FOLLOW_MODEL, system: FOLLOW_SYSTEM, schema: FOLLOW_SCHEMA }),
+          { id, input, timeout: FOLLOW_MS, signal: job.controller.signal });
+      } catch (e) { r = { err: e, stdout: '', stderr: String(e?.message ?? e) }; }
+      res = readFollow(r ?? {});
+    }
     if (checking.get(sessionId) !== job) return; // a newer message took its place
     checking.delete(sessionId);
-    const res = readFollow(r ?? {}), p = prof();
+    const p = prof();
     // When it said it, so a prompt you send after that closes the card (else when it was checked).
     const saidAt = Number.isFinite(s.saidAt) ? s.saidAt : null;
     if (res.ok) p.follow[sessionId] = { key, at: now(), ...(saidAt != null ? { saidAt } : {}), ...res.value };

@@ -4337,7 +4337,9 @@ function snapshot(wsId) {
     // A held request's folder stays here: the page never reads it, and for a session in another workspace's repository
     // it would be that repository's.
     pending: requestsOf(wsId).map(({ res, timer, cwd, ...p }) => p),
-    github: githubFor(wsId), overseer: overseerOf(wsId)?.status() ?? null, watcher: watcherOf(wsId),
+    github: githubFor(wsId), overseer: overseerOf(wsId)?.status() ?? null,
+    // OpenCode's models by their own names (opencode:provider/model → "GLM-5.3"), for the pickers.
+    modelNames: Object.fromEntries(ocModelCache.map((m) => [OVERSEER_OC + m.ref, m.name])), watcher: watcherOf(wsId),
     mains: mains.view(wsId), // per space: what waits for its main agent while it is stopped or its notices are held
     _ts: now,
   };
