@@ -6363,7 +6363,8 @@ document.addEventListener('keydown', (e) => {
 // ---------- Settings: one dialog for every workspace and for Glue ----------
 // What it shows of a workspace this page isn't on (its order, sign-in, hooks, the command that signs it in, and the
 // repositories it holds) comes only from GET /api/settings: fetched when it opens and again on each empty `settings`
-// event, and kept in setData, which nothing outside the dialog reads. Closing it drops it.
+// event, and kept in setData, which nothing outside the dialog reads. Closing it keeps it: opening again draws what it
+// showed at once and puts the fresh answer in place, rather than "Loading…" and then the whole tab popping in.
 const setDlg = $('settings');
 const SET_TABS = [
   { id: 'workspaces', name: 'Workspaces', build: setWorkspacesTab }, // shows every workspace at once: no picker
@@ -6376,8 +6377,8 @@ const SET_TABS = [
   { id: 'glue', name: 'Glue', build: setGlueTab },
 ];
 let setTab = 'workspaces'; // the tab it shows, and opens on next time (within this page)
-let setData = null;        // GET /api/settings while it is open: null loading, false could not be read
-let setOc = null, setOcAsked = false; // /api/opencode for the Providers tab: asked again each time Settings opens
+let setData = null;        // GET /api/settings, its latest answer: null not yet in, false could not be read
+let setOc = null, setOcAsked = false; // /api/opencode for the Providers tab: asked again each time Settings opens (the last answer shows meanwhile)
 let setCx = null, setCxAsked = false; // /api/codex for Providers › OpenAI: the same, and again after a sign-in
 let setCxKey = null;       // Providers › OpenAI's API-key form: { ws, input } while it is open (the input kept across redraws)
 let setAddName = '';       // Providers' new login name, as typed, kept across redraws
@@ -6400,8 +6401,9 @@ function openSettings(tab, group = null) {
   setScrollTo = group;
   if (setDlg.open) { showSetTab(setTab); return; }
   setBack = document.activeElement;
-  setData = null; setMoving = null; setAskedFor = null; setRestart = null;
-  setOc = null; setOcAsked = false; setCx = null; setCxAsked = false; setCxKey = null;
+  if (setData === false) setData = null; // could not be read last time: "Loading…" while it asks again, not the error
+  setMoving = null; setAskedFor = null; setRestart = null;
+  setOcAsked = false; setCxAsked = false; setCxKey = null;
   closeThemes();
   renderSettings();
   setDlg.showModal();
@@ -6417,7 +6419,10 @@ function showSetTab(id) {
   $('set-tab-' + id).focus();
 }
 setDlg.addEventListener('close', () => {
-  setData = null; setSeq++; setMoving = null; setRows.clear(); setAskedFor = null; setRestart = null; setScrollTo = null; clearTimeout(setRestartTimer);
+  // The close event comes a moment after close(): opened again meanwhile (closed and opened in one go), it is that new
+  // dialog now, and none of this is for it.
+  if (setDlg.open) return;
+  setSeq++; setMoving = null; setRows.clear(); setAskedFor = null; setRestart = null; setScrollTo = null; clearTimeout(setRestartTimer);
   closeSignIn(); setCxKey = null; setRenaming = null; setReposSeen.clear(); // what was open in Providers or Repositories ends with the dialog
   const panel = $('set-panel');
   panel.replaceChildren(); panel._tab = null;
@@ -6507,7 +6512,8 @@ function setWorkspacesTab(panel) {
     el('h3', { text: 'Workspaces' }), el('p', { class: 'set-lead' }), el('div', { class: 'set-rows' }), el('div', {}),
     el('div', { class: 'set-more' }, el('h4', { class: 'set-h4' }), el('div', { class: 'set-box' })));
   const [, lead, rowsBox, addBox, logs] = panel.children;
-  const list = setData?.workspaces ?? [], several = list.length > 1;
+  // How many there are is in the snapshot too: the lead says it from the start, rather than growing once the data is in.
+  const list = setData?.workspaces ?? [], several = (setData ? list.length : snap?.workspaces?.length ?? 0) > 1;
   setText(lead, 'A workspace is how you work: its repositories, agents and assistant. Name each one, pick its colour, and tick the logins it may use.'
     + (several ? ' The order is the switch’s, and ⌃1, ⌃2… follow it.' : ''));
   if (!setReady(rowsBox)) { addBox.hidden = logs.hidden = true; return; }
