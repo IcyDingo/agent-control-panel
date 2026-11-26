@@ -999,6 +999,25 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
 .is-side .is-pop-h { display: flex; align-items: center; gap: 8px; }
 .is-side .is-pop-h h3 { margin: 0; font-size: 14px; }
 .is-empty { margin: 14px 0 4px; color: var(--fg-dim); font-size: 12.5px; line-height: 1.5; }
+/* The panel's goals: a short status each. */
+.is-row { display: grid; gap: 2px; width: 100%; margin-top: 2px; padding: 8px 10px; border: 0; border-radius: var(--r-1); background: none; color: var(--fg); text-align: left; cursor: pointer; }
+.is-row:hover { background: var(--hover); }
+.is-row[aria-current="true"] { background: var(--fill); }
+.is-row.drop { box-shadow: inset 0 2px 0 var(--run); }
+.is-row.dragging { opacity: .5; }
+.is-row-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.is-row-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--fg-faint); }
+.is-row[data-tone="green"] .is-row-dot { background: var(--ok); }
+.is-row[data-tone="amber"] .is-row-dot { background: var(--amber); }
+.is-row[data-tone="red"] .is-row-dot { background: var(--stop); }
+.is-row[data-tone="done"] .is-row-dot { background: none; box-shadow: inset 0 0 0 1.5px var(--ok); }
+.is-row[data-tone="done"] { opacity: .6; }
+.is-row-title { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.is-row .gl-prog { width: auto; }
+.is-row .gl-bar { width: 44px; }
+.is-row-words { padding-left: 16px; font-size: 12px; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.is-row[data-tone="amber"] .is-row-words { color: var(--amber); }
+.is-row[data-tone="red"] .is-row-words { color: var(--stop); }
 .is-issue { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .is-issue:first-of-type { border-top: 0; padding-top: 0; }
 .is-issue[data-done] { opacity: .55; }
@@ -4927,7 +4946,7 @@ async function saveTyping(value) {
   if (!t) return;
   if (!text && (t.kind === 'issue' || t.kind === 'item')) return stopTyping();
   isDrafts.delete(typingKey(t));
-  if (t.kind === 'issue') { isTyping = null; const r = await isApi('create', { title: text }); if (r.ok) startTyping({ kind: 'item', issue: r.id }); return; }
+  if (t.kind === 'issue') { isTyping = null; const r = await isApi('create', { title: text }); if (r.ok) { openGoal(r.id); startTyping({ kind: 'item', issue: r.id }); } return; }
   if (t.kind === 'item') { const r = await isApi('item/add', { issue: t.issue, text }); if (r.ok) startTyping({ kind: 'item', issue: t.issue }); return; }
   isTyping = null;
   if (t.kind === 'title') await isApi('rename', { id: t.issue, title: text });
@@ -5214,6 +5233,23 @@ function issueBlock(i, list, page = false) {
       isTyping?.kind === 'note' && isTyping.item === it.id ? notesEditor(isTyping, 'A note for this item: what the agent should know') : null]),
       isTyping?.kind === 'item' && isTyping.issue === i.id ? el('div', { class: 'is-item editing' }, el('span', { class: 'is-mark', 'data-m': 'todo' }), typingLine(isTyping, 'A new item')) : null));
 }
+/** A goal in the panel: its dot (what most needs doing), its title, how far it is; under it, what is going on, in a few
+ *  words. A click opens it in the middle, where it is worked on. Drag to reorder. */
+function goalStatusRow(i, list) {
+  const ctx = { sessions: new Map(snap.sessions.map((x) => [x.sessionId, x])), reqsOf, followOf, failedShown: (x) => !dismissedNeeds.has(HB.dismissKey(x)),
+    mergeable: (x) => mergeable(x.gh?.pr), stateOf, now: snap.now };
+  const g = HB.goalOf(i, ctx), done = g.shipped, total = g.total;
+  const working = g.branches.filter((b) => b.tip.rank === 4).length, next = g.ahead[0];
+  const tone = g.move.rank <= 3 ? (g.branches.find((b) => b.tip.rank === g.move.rank)?.tip.tone ?? 'amber') : working ? 'green' : g.reached ? 'done' : 'grey';
+  const words = g.move.rank <= 3 ? g.move.words : g.reached ? 'all parts done' : g.empty ? 'no parts yet'
+    : [working ? `${working} working` : 'nobody on it', next ? `next: ${next.text}` : null].filter(Boolean).join(' · ');
+  return el('button', { class: 'is-row', type: 'button', 'data-tone': tone, 'aria-current': String(goalOpen === i.id), title: `Open ${i.title}`,
+      ...dragHandlers({ issue: i.id }, i.id), onclick: () => openGoal(goalOpen === i.id ? null : i.id),
+      onkeydown: (e) => isKeyMove(e, list, i.id, (before) => isApi('move', { issue: i.id, ...(before ? { before } : {}) })) },
+    el('span', { class: 'is-row-top' }, el('i', { class: 'is-row-dot', 'aria-hidden': 'true' }), el('span', { class: 'is-row-title', text: i.title }),
+      total ? el('span', { class: 'gl-prog' }, el('span', { class: 'gl-bar' }, el('i', { style: `width:${Math.round((100 * done) / total)}%` })), `${done}/${total}`) : null),
+    el('span', { class: 'is-row-words', text: words }));
+}
 /** The strip the panel folds to, with GitHub's: its icon and how many are to do. */
 const isStrip = (n) => el('div', { class: 'gh-strip' }, el('button', { class: 'gh-dot is-dot', type: 'button', title: n ? `${n} to do. Show the panel.` : 'Issues. Show the panel.', onclick: () => setGhSlim(false) },
   svgIcon(IS_ICON), n ? el('span', { class: 'is-n', text: String(n) }) : null));
@@ -5235,15 +5271,16 @@ function renderIssues() {
   // Redrawn only when something it shows changes: the agents its items name, not every agent of the workspace (a redraw
   // closes an open ⋯ menu).
   const named = new Set(list.flatMap((x) => x.items.map((it) => it.sessionId).filter(Boolean)));
-  const sig = JSON.stringify([list, snap.spaces, snap.sessions.filter((s) => named.has(s.sessionId)).map((s) => [s.sessionId, stateOf(s), label(s)]), [...isFold], [...isOpened], [...isItemOpen], [...isDoneOpen], goalOpen,
+  const sig = JSON.stringify([list, snap.spaces, snap.sessions.filter((s) => named.has(s.sessionId)).map((s) => [s.sessionId, stateOf(s), label(s), s.gh?.pr?.checks, reqsOf(s.sessionId).length,
+      followOf(s.sessionId)?.verdict ?? null]), goalOpen, Math.floor(snap.now / 60_000),
     typingKey(isTyping), isSpacePick, isDeleting, [...isPickBusy]]);
   patch(pop, sig, () => [
     el('div', { class: 'gh-pop-h is-pop-h' }, el('h3', { text: 'Issues' }), el('span', { class: 'grow' }),
       iconBtn(PLUS, { class: 'btn icon', title: 'New issue', 'aria-label': 'New issue', onclick: () => startTyping({ kind: 'issue' }) }),
       el('button', { class: 'btn icon', type: 'button', 'aria-label': 'Close Issues', title: 'Close (Esc)', onclick: () => { showIsPop(false); $('is-btn').focus(); } }, svgIcon('M6 6l12 12M18 6L6 18'))),
     isTyping?.kind === 'issue' ? el('div', { class: 'is-head editing' }, typingLine(isTyping, 'A new issue')) : null,
-    ordered.length || isTyping?.kind === 'issue' ? null : el('p', { class: 'is-empty', text: 'No issues yet. + makes one: a title, then its items, one line each. Pick up starts an agent on an item.' }),
-    ...ordered.map((i) => issueBlock(i, list))]);
+    ordered.length || isTyping?.kind === 'issue' ? null : el('p', { class: 'is-empty', text: 'No goals yet. + makes one: an outcome you want. It opens in the middle, where you add its parts; Pick up starts an agent on a part.' }),
+    ...ordered.map((i) => goalStatusRow(i, list))]);
   if (typing) { const inp = pop.querySelector('.is-input'); if (inp && inp !== document.activeElement) { inp.focus(); try { inp.setSelectionRange(typing[0], typing[1]); } catch {} } }
 }
 $('is-btn').onclick = () => showIsPop($('is-pop').hidden);
