@@ -541,7 +541,9 @@ const at = new Date(Date.now() - 30000).toISOString(), began = new Date(Date.now
 const failing = (n) => ({ number: n, title: 'Feature ' + n, url: 'https://github.com/o/p/pull/' + n, isDraft: false, headRefName: 'feat/p', headRefOid: 'abc' + n,
   baseRefName: 'main', isCrossRepository: false, mergeable: 'MERGEABLE', mergeStateStatus: 'UNSTABLE', reviewDecision: '', updatedAt: at, author: { login: 'someone' },
   statusCheckRollup: [{ __typename: 'CheckRun', name: 'build', status: 'COMPLETED', conclusion: 'FAILURE', detailsUrl: 'https://github.com/o/p/actions/runs/' + n + '1/job/' + n + '2', workflowName: 'CI', completedAt: at, startedAt: began }] });
-if (a[0] === 'auth') { process.stderr.write('Logged in to github.com account me\\n'); process.exit(0); }
+const accounts = () => { try { return JSON.parse(fs.readFileSync(${JSON.stringify(path.join(h, 'accounts.json'))}, 'utf8')); } catch { return ['me']; } };
+if (a[0] === 'auth' && a.includes('--json')) out({ hosts: { 'github.com': accounts().map((login, i) => ({ state: 'success', active: i === 0, host: 'github.com', login })) } });
+if (a[0] === 'auth') { process.stderr.write('Logged in to github.com account ' + accounts()[0] + '\\n'); process.exit(0); }
 if (a[0] === 'repo' && a[1] === 'view') out({ defaultBranchRef: { name: 'main' } });
 if (a[0] === 'search' && a[1] === 'prs') out([]);
 if (a[0] === 'pr' && a[1] === 'list' && after('--state') === 'open') out(JSON.parse(fs.readFileSync(${JSON.stringify(path.join(h, 'open.json'))}, 'utf8')).map(failing));
@@ -625,6 +627,24 @@ test('the notification toggles silence their events', async () => {
     const told = await until(() => calledOf(s.home, NOTE).find((a) => a.at(-2) === 'Glue · CI failed'), 20_000);
     assert.ok(told, 'it logs as before: ' + JSON.stringify(calledOf(s.home, NOTE)) + srv.log);
     assert.match(told.at(-1), /#4/);
+  } finally { await s.done(); }
+});
+
+test('an account added to gh shows in Settings as soon as the page looks again', async () => {
+  const s = solo({ gh: true });
+  try {
+    const srv = await s.start(), page = srv.page();
+    const settings = async () => (await (await fetch(srv.base + '/api/settings', { headers: { 'x-acp-token': srv.token, 'x-acp-client': 'solo-page' } })).json()).github;
+    assert.ok(await until(async () => (await settings()).accounts.length === 1, 20_000), 'gh\'s one account: ' + srv.log);
+    // gh auth login in the Terminal: the new account is gh's active one now. Back in Glue, the page asks for a look.
+    fs.writeFileSync(path.join(s.home, 'accounts.json'), JSON.stringify(['work', 'me']));
+    await pause(3500); // the look is spaced 3 s apart; a sign-in in Terminal takes longer than that
+    const nudges = () => (page.raw.match(/^event: settings$/gm) ?? []).length, was = nudges();
+    assert.equal((await srv.api('/api/setup/check')).ok, true);
+    const gh = await settings();
+    assert.deepEqual(gh.accounts.map((a) => a.login), ['work', 'me'], 'both accounts, at once: ' + JSON.stringify(gh));
+    assert.equal(gh.login, 'work');
+    assert.ok(await until(() => nudges() > was), 'an open Settings is told to look again');
   } finally { await s.done(); }
 });
 

@@ -2791,6 +2791,8 @@ function checkSetup(force) {
     Promise.all(list.map((l) => run('claude', ['auth', 'status', '--json'], { env: envOf(l), timeout: 8000 }).then((r) => parseClaudeAuth(r.stdout)))),
     setup.github.state === 'off' ? setup.github
       : gh ? run(gh, ['auth', 'status', '--hostname', 'github.com'], { env: baseEnv, cwd: path.dirname(PREFS), timeout: 8000 }).then(parseGhAuth) : { state: 'missing' },
+    // and gh's account list too, so an account just added in Terminal shows in Settings now, not after the poller's minute
+    setup.github.state === 'off' || !gh ? null : ghAccounts(true).catch(() => null),
   ]).then(([claudes, gh]) => {
     const seen = () => JSON.stringify([list.map((l) => l.setup.claude), setup.github]), was = seen();
     const signedWas = list.map(signedInOf).join(), ghWas = JSON.stringify([setup.github.state, setup.github.login ?? null]);
