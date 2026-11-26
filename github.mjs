@@ -244,10 +244,14 @@ const worst = (states) => (states.includes('failing') ? 'failing' : states.inclu
  * @param {Function} [deps.onEvent] ({ type, slug, text, branch?, pr?, runId?, url, sessions }) => void
  * @param {Function} [deps.onChange] () => void: state() or forSession() would now say something else
  * @param {string} [deps.cwd]    a folder outside any repository, so gh never looks at a repo's own config. If it is gone, calls fail as 'no-cwd', not as gh missing.
+ * @param {Function} [deps.accountOf] (ws) => the GitHub account (gh login) workspace `ws` uses, or null for gh's active one
+ * @param {Function} [deps.envFor]    (account) => what to add to gh's environment to act as that account ({ GH_TOKEN }),
+ *                                    or {} for gh's own active account. Each repository is read as its workspace's account.
  */
 export function createGithub({
   file, run, read, ghPath = () => 'gh', targets = () => [], notify = () => {}, onEvent = () => {}, onChange = () => {},
   cwd, env = process.env, now = Date.now, log = (m) => console.error(m), off = false, mine = false,
+  accountOf = () => null, envFor = () => ({}),
 } = {}) {
   const ghEnv = { ...env, GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1', NO_COLOR: '1' };
   const repos = new Map();     // slug → what the last poll found
@@ -260,7 +264,8 @@ export function createGithub({
   let more = 0, order = [], cached = null;
   let moreBy = new Map();      // workspace → how many of its repositories are not watched
   // With `mine`: your own open pull requests across GitHub, by repository, from one search every few minutes, and your login.
-  let mineMap = new Map(), mineAt = -Infinity, me = null;
+  let mineMap = new Map(), mineAt = -Infinity;
+  const mes = new Set();       // your logins: one per account searched
 
   if (file && !off) {
     try {
@@ -291,9 +296,10 @@ export function createGithub({
   const mark = (key) => { if (!seen.has(key)) { seen.set(key, now()); seenDirty = true; } };
   const tell = (fn, ...args) => { try { fn(...args); } catch (e) { log(`github: ${e?.message ?? e}`); } };
 
-  const gh = (args, opts = {}) => run(bin, args, { cwd, env: ghEnv, timeout: 12_000, ...opts });
-  async function ghJson(args) {
-    const r = await gh(args), bad = classify(r, { cwd });
+  /** gh, as `account` (null: gh's own active account). */
+  const gh = (args, { account = null, ...opts } = {}) => run(bin, args, { cwd, env: account ? { ...ghEnv, ...(envFor(account) ?? {}) } : ghEnv, timeout: 12_000, ...opts });
+  async function ghJson(args, account = null) {
+    const r = await gh(args, { account }), bad = classify(r, { cwd });
     if (bad) return { bad };
     try { return { data: JSON.parse(r.stdout) }; } catch { return { bad: { kind: 'error', text: 'The GitHub CLI answered with something the panel could not read.' } }; }
   }
@@ -321,10 +327,12 @@ export function createGithub({
       const slug = slugFor(t?.common);
       if (!slug) continue;
       let g = groups.get(slug);
-      if (!g) groups.set(slug, g = { slug, commons: new Set(), branches: new Map(), at: 0 });
+      if (!g) groups.set(slug, g = { slug, commons: new Set(), branches: new Map(), at: 0, account: null });
       g.commons.add(t.common);
-      g.at = Math.max(g.at, Number(t.at) || 0);
       const w = typeof t.ws === 'string' ? t.ws : '';
+      // A repository is read as the account of the workspace whose sessions were in it last.
+      if ((Number(t.at) || 0) >= g.at) g.account = accountOf(w) ?? null;
+      g.at = Math.max(g.at, Number(t.at) || 0);
       let inWs = byWs.get(w);
       if (!inWs) byWs.set(w, inWs = new Map());
       inWs.set(slug, Math.max(inWs.get(slug) ?? 0, Number(t.at) || 0));
@@ -343,10 +351,11 @@ export function createGithub({
     const by = new Map([...byWs].map(([w, inWs]) => [w, [...inWs.keys()].filter((slug) => !kept.has(slug)).length]));
     // Then the repositories where your own pull requests are open and no agent works.
     if (mine) keep.push(...[...mineMap.keys()].filter((slug) => !keep.some((g) => g.slug === slug)).sort().slice(0, MAX_MINE)
-      .map((slug) => groups.get(slug) ?? { slug, commons: new Set(), branches: new Map(), at: 0, mineOnly: true }));
+      .map((slug) => groups.get(slug) ?? { slug, commons: new Set(), branches: new Map(), at: 0, mineOnly: true, account: mineMap.get(slug)?.account ?? null }));
     const names = keep.map((g) => g.slug);
     for (const slug of [...repos.keys()]) if (!names.includes(slug)) repos.delete(slug);
     for (const slug of names) if (!repos.has(slug)) repos.set(slug, newRepo(slug));
+    for (const g of keep) repos.get(g.slug).account = g.account ?? null;
     if (names.join('\n') !== order.join('\n') || more !== over || JSON.stringify([...by]) !== JSON.stringify([...moreBy])) { order = names; more = over; moreBy = by; touch(); }
     return keep;
   }
@@ -401,20 +410,25 @@ export function createGithub({
     const t = now();
     if (t - mineAt < (watched ? 3 * MIN : 15 * MIN)) return;
     mineAt = t;
-    const r = await ghJson(['search', 'prs', '--author', '@me', '--state', 'open', '--limit', '100', '--json', 'repository,number,author']);
-    if (r.bad) {
-      if (r.bad.kind === 'missing') { bin = null; binAt = now(); setStatus('missing'); }
-      else if (r.bad.kind === 'signed-out') { authAt = now(); setStatus('signed-out'); }
-      return; // anything else: keep what the last search found, and ask again on the next round
-    }
-    if (!Array.isArray(r.data)) return;
+    // Each account in use is searched as itself: your own pull requests in each.
+    const accounts = [...new Set([null, ...(targets() ?? []).map((x) => accountOf(typeof x?.ws === 'string' ? x.ws : '') ?? null)])];
     const next = new Map();
-    for (const p of r.data) {
-      const slug = String(p?.repository?.nameWithOwner ?? ''), [o, n, extra] = slug.split('/');
-      if (extra !== undefined || !OWNER.test(o ?? '') || !NAME.test(n ?? '') || n === '.' || n === '..' || !Number.isInteger(p.number)) continue;
-      if (!me && typeof p.author?.login === 'string') me = p.author.login;
-      if (!next.has(slug)) next.set(slug, new Set());
-      next.get(slug).add(p.number);
+    for (const account of accounts) {
+      const r = await ghJson(['search', 'prs', '--author', '@me', '--state', 'open', '--limit', '100', '--json', 'repository,number,author'], account);
+      if (r.bad) {
+        if (r.bad.kind === 'missing') { bin = null; binAt = now(); setStatus('missing'); return; }
+        if (r.bad.kind === 'signed-out' && !account) { authAt = now(); setStatus('signed-out'); return; }
+        for (const [slug, v] of mineMap) if (v.account === account) next.set(slug, v); // keep what the last search found
+        continue;
+      }
+      if (!Array.isArray(r.data)) continue;
+      for (const p of r.data) {
+        const slug = String(p?.repository?.nameWithOwner ?? ''), [o, n, extra] = slug.split('/');
+        if (extra !== undefined || !OWNER.test(o ?? '') || !NAME.test(n ?? '') || n === '.' || n === '..' || !Number.isInteger(p.number)) continue;
+        if (typeof p.author?.login === 'string') mes.add(p.author.login);
+        if (!next.has(slug)) next.set(slug, Object.assign(new Set(), { account }));
+        next.get(slug).add(p.number);
+      }
     }
     const sig = (m) => [...m].map(([k, v]) => `${k}:${[...v].sort().join(',')}`).sort().join(' ');
     if (sig(next) !== sig(mineMap)) touch();
@@ -445,11 +459,11 @@ export function createGithub({
   }
 
   async function poll(repo, g) {
-    const R = `github.com/${repo.slug}`, slug = repo.slug;
+    const R = `github.com/${repo.slug}`, slug = repo.slug, as = repo.account ?? null;
     if (!repo.defaultBranch) {
       repo.defaultBranch = fileDefault(g.commons);
       if (!repo.defaultBranch) {
-        const r = await ghJson(['repo', 'view', R, '--json', 'defaultBranchRef']);
+        const r = await ghJson(['repo', 'view', R, '--json', 'defaultBranchRef'], as);
         if (r.bad) return failed(repo, r.bad);
         repo.defaultBranch = r.data?.defaultBranchRef?.name || null; // an empty repository has none
       }
@@ -457,10 +471,10 @@ export function createGithub({
     }
     const [open, runs] = await Promise.all([
       ghJson(['pr', 'list', '-R', R, '--state', 'open', '--limit', String(OPEN_LIMIT), '--json',
-        'number,title,url,isDraft,headRefName,headRefOid,baseRefName,isCrossRepository,mergeable,mergeStateStatus,reviewDecision,statusCheckRollup,updatedAt' + (mine ? ',author' : '')]),
+        'number,title,url,isDraft,headRefName,headRefOid,baseRefName,isCrossRepository,mergeable,mergeStateStatus,reviewDecision,statusCheckRollup,updatedAt' + (mine ? ',author' : '')], as),
       // A repository watched only for your pull requests has no agent on its default branch: its runs are not asked for.
       repo.defaultBranch && !g.mineOnly ? ghJson(['run', 'list', '-R', R, '--branch', repo.defaultBranch, '--limit', '30', '--json',
-        'databaseId,workflowName,displayTitle,status,conclusion,headBranch,headSha,event,url,createdAt,updatedAt,attempt']) : { data: [] },
+        'databaseId,workflowName,displayTitle,status,conclusion,headBranch,headSha,event,url,createdAt,updatedAt,attempt'], as) : { data: [] },
     ]);
     const bad = open.bad ?? runs.bad ?? (Array.isArray(open.data) && Array.isArray(runs.data) ? null
       : { kind: 'error', text: 'The GitHub CLI answered with something the panel could not read.' });
@@ -474,7 +488,7 @@ export function createGithub({
     // the same name, unless it is yours.
     const prs = [], seenOpen = new Set(open.data.map((p) => p.number)), myNums = mineMap.get(slug) ?? new Set();
     for (const p of open.data) {
-      const agent = !p.isCrossRepository && g.branches.has(p.headRefName), own = mine && (myNums.has(p.number) || (me != null && p.author?.login === me));
+      const agent = !p.isCrossRepository && g.branches.has(p.headRefName), own = mine && (myNums.has(p.number) || mes.has(p.author?.login));
       if (!agent && !own) continue;
       const roll = rollup(p.statusCheckRollup), sessions = agent ? g.branches.get(p.headRefName) : [];
       const pr = { number: p.number, title: clip(p.title, 120), url: p.url, branch: p.headRefName, sha: p.headRefOid, draft: Boolean(p.isDraft),
@@ -505,10 +519,10 @@ export function createGithub({
     const gone = open.data.length < OPEN_LIMIT ? [...repo.known.keys()].filter((n) => !seenOpen.has(n)) : [];
     for (const [n, k] of repo.known) if (seenOpen.has(n) && !g.branches.has(k.branch) && !k.mine) repo.known.delete(n); // its agent moved on
     if (repo.polls % 5 === 0 || gone.length) {
-      const m = await ghJson(['pr', 'list', '-R', R, '--state', 'merged', '--limit', '15', '--json', 'number,title,url,headRefName,baseRefName,mergedAt,mergeCommit' + (mine ? ',author' : '')]);
+      const m = await ghJson(['pr', 'list', '-R', R, '--state', 'merged', '--limit', '15', '--json', 'number,title,url,headRefName,baseRefName,mergedAt,mergeCommit' + (mine ? ',author' : '')], as);
       if (!m.bad && Array.isArray(m.data)) {
         repo.mergedAll = m.data.map((p) => ({ number: p.number, title: clip(p.title, 120), url: p.url, branch: p.headRefName, mergedAt: ms(p.mergedAt), sha: p.mergeCommit?.oid ?? null,
-                                              mine: me != null && p.author?.login === me }))
+                                              mine: mes.has(p.author?.login) }))
           .sort((a, b) => (b.mergedAt ?? 0) - (a.mergedAt ?? 0));
         for (const n of gone) {
           const k = repo.known.get(n), merged = repo.mergedAll.some((p) => p.number === n);
@@ -616,7 +630,7 @@ export function createGithub({
     const what = repos.get(slug)?.info.get(String(runId));
     if (off || !what) return { ok: false, error: 'That run is not one the panel is showing as failed.' };
     if (!bin) return { ok: false, error: HINTS.missing };
-    const R = `github.com/${slug}`, url = what.url, opts = { timeout: 60_000, maxBuffer: 64 << 20 };
+    const R = `github.com/${slug}`, url = what.url, opts = { timeout: 60_000, maxBuffer: 64 << 20, account: repos.get(slug)?.account ?? null };
     const job = Number.isSafeInteger(Number(jobId ?? what.jobId)) && Number(jobId ?? what.jobId) > 0 ? String(Number(jobId ?? what.jobId)) : null;
     const whole = ['run', 'view', String(Number(runId)), '-R', R, '--log-failed'];
     let r = await gh(job ? ['run', 'view', '-R', R, '--job', job, '--log-failed'] : whole, opts);
@@ -652,10 +666,11 @@ export function createGithub({
     if (typeof sha !== 'string' || !sha || p.sha !== sha) return { ok: false, error: `#${p.number} has new commits since you looked. Check them, then merge.` };
     if (!bin) return { ok: false, error: HINTS.missing };
     const R = `github.com/${slug}`;
-    const v = await ghJson(['repo', 'view', R, '--json', 'viewerDefaultMergeMethod']);
+    const as = repos.get(slug)?.account ?? null;
+    const v = await ghJson(['repo', 'view', R, '--json', 'viewerDefaultMergeMethod'], as);
     if (v.bad) return { ok: false, error: v.bad.text };
     const method = METHODS[v.data?.viewerDefaultMergeMethod] ?? 'merge';
-    const r = await gh(['pr', 'merge', String(p.number), '-R', R, `--${method}`, '--match-head-commit', p.sha], { timeout: 60_000 });
+    const r = await gh(['pr', 'merge', String(p.number), '-R', R, `--${method}`, '--match-head-commit', p.sha], { timeout: 60_000, account: as });
     const bad = classify(r, { cwd });
     if (bad) return { ok: false, error: bad.kind === 'error' ? `GitHub did not merge #${p.number}: ${bad.text}` : bad.text };
     refreshedAt = -Infinity;
