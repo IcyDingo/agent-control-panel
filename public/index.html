@@ -1015,9 +1015,6 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
 .is-row-title { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .is-row .gl-prog { width: auto; }
 .is-row .gl-bar { width: 44px; }
-.is-row-words { padding-left: 16px; font-size: 12px; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.is-row[data-tone="amber"] .is-row-words { color: var(--amber); }
-.is-row[data-tone="red"] .is-row-words { color: var(--stop); }
 .is-issue { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .is-issue:first-of-type { border-top: 0; padding-top: 0; }
 .is-issue[data-done] { opacity: .55; }
@@ -5250,12 +5247,12 @@ function goalStatusRow(i, list) {
   const tone = g.move.rank <= 3 ? (g.branches.find((b) => b.tip.rank === g.move.rank)?.tip.tone ?? 'amber') : working ? 'green' : g.reached ? 'done' : 'grey';
   const words = g.move.rank <= 3 ? g.move.words : g.reached ? 'all parts done' : g.empty ? ''
     : [working ? `${working} working` : 'nobody on it', next ? `next: ${next.text}` : null].filter(Boolean).join(' · ');
-  return el('button', { class: 'is-row', type: 'button', 'data-tone': tone, 'aria-current': String(goalOpen === i.id), title: `Open ${i.title}`,
+  // One clean line: the dot says what it needs; what is going on, in words, only on hover.
+  return el('button', { class: 'is-row', type: 'button', 'data-tone': tone, 'aria-current': String(goalOpen === i.id), title: words ? `${i.title}: ${words}` : `Open ${i.title}`,
       ...dragHandlers({ issue: i.id }, i.id), onclick: () => openGoal(goalOpen === i.id ? null : i.id),
       onkeydown: (e) => isKeyMove(e, list, i.id, (before) => isApi('move', { issue: i.id, ...(before ? { before } : {}) })) },
     el('span', { class: 'is-row-top' }, el('i', { class: 'is-row-dot', 'aria-hidden': 'true' }), el('span', { class: 'is-row-title', text: i.title }),
-      total ? el('span', { class: 'gl-prog' }, el('span', { class: 'gl-bar' }, el('i', { style: `width:${Math.round((100 * done) / total)}%` })), `${done}/${total}`) : null),
-    words ? el('span', { class: 'is-row-words', text: words }) : null);
+      total ? el('span', { class: 'gl-prog' }, el('span', { class: 'gl-bar' }, el('i', { style: `width:${Math.round((100 * done) / total)}%` })), `${done}/${total}`) : null));
 }
 /** The strip the panel folds to, with GitHub's: its icon and how many are to do. */
 const isStrip = (n) => el('div', { class: 'gh-strip' }, el('button', { class: 'gh-dot is-dot', type: 'button', title: n ? `${n} to do. Show the panel.` : 'Goals. Show the panel.', onclick: () => setGhSlim(false) },
