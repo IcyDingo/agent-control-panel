@@ -23,6 +23,8 @@ const NAME_MAX = 24, LABEL_MAX = 40;
 // A space's name, and how long a session gone from the board stays in its space (or remembered as placed).
 const SPACE_MAX = 40, GOAL_MAX = 120, HOUR = 3_600_000, KEEP_MS = 14 * 86_400_000;
 const isColor = (c) => typeof c === 'string' && Object.hasOwn(COLORS, c);
+/** A GitHub login as gh shows it: letters, digits and single dashes, 39 at most. */
+const GH_LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/;
 const blank = () => Object.create(null); // no prototype: an id like `__proto__` is just an unknown name
 
 /** What a repository is called in the store: its GitHub slug, else its git common dir, else its folder. */
@@ -93,7 +95,7 @@ export function createStore({ file, home = '', profiles = [], codex = null } = {
       const logins = saved.v === 2 ? (Array.isArray(w.logins) ? w.logins : []).filter((l, i, a) => st.logins[l] && a.indexOf(l) === i) : [];
       const defaults = { claude: null, codex: null };
       for (const p of PROVIDERS) if (logins.includes(w.defaults?.[p]) && st.logins[w.defaults[p]].provider === p) defaults[p] = w.defaults[p];
-      st.workspaces[id] = { name: w.name, color: w.color, logins, defaults };
+      st.workspaces[id] = { name: w.name, color: w.color, logins, defaults, ...(GH_LOGIN.test(w.github ?? '') ? { github: w.github } : {}) };
     }
     st.order = (Array.isArray(saved.order) ? saved.order : []).filter((id, i, a) => st.workspaces[id] && a.indexOf(id) === i);
     for (const id of Object.keys(st.workspaces)) if (!st.order.includes(id)) st.order.push(id);
@@ -363,6 +365,17 @@ export function createStore({ file, home = '', profiles = [], codex = null } = {
     loginsOf: (ws) => [...(st.workspaces[ws]?.logins ?? [])],
     /** A workspace's default login for a provider, or null. */
     defaultOf: (ws, provider) => st.workspaces[ws]?.defaults[provider] ?? null,
+    /** The GitHub account (gh login) a workspace uses, or null for gh's own active one. */
+    githubOf: (ws) => st.workspaces[ws]?.github ?? null,
+    /** Use GitHub account `login` in workspace `ws`; null goes back to gh's own active one. */
+    setGithub(ws, login) {
+      const w = st.workspaces[ws];
+      if (!w) return NOWS;
+      if (login != null && !GH_LOGIN.test(String(login))) return { ok: false, error: 'That is not a GitHub login.' };
+      if (login == null) delete w.github; else w.github = String(login);
+      save();
+      return { ok: true };
+    },
     /** The workspaces that use a login, in switch order. */
     usersOf: (id) => st.order.filter((ws) => st.workspaces[ws].logins.includes(id)),
     /** Where a login's sessions go when nothing else places them: the first workspace using it, in switch order. */

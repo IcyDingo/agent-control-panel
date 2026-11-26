@@ -158,7 +158,7 @@ test('settings shows both workspaces and every login, an email only for a login 
   assert.equal(Object.hasOwn(login.contract, 'account'), false, 'no account for a login only another workspace uses');
   assert.equal(login.default.account?.email, EMAIL_D);
   // Nothing but the allowed fields, for every workspace and login.
-  for (const w of r.workspaces) for (const k of Object.keys(w)) assert.ok(['id', 'name', 'color', 'order', 'here', 'logins', 'defaults', 'autofix', 'overseerModel'].includes(k), k);
+  for (const w of r.workspaces) for (const k of Object.keys(w)) assert.ok(['id', 'name', 'color', 'order', 'here', 'logins', 'defaults', 'autofix', 'overseerModel', 'github'].includes(k), k);
   for (const l of r.logins) for (const k of Object.keys(l)) assert.ok(['id', 'provider', 'label', 'users', 'home', 'where', 'running', 'signedIn', 'connected', 'loginCommand', 'account'].includes(k), k);
   // Each workspace's own settings (for Settings' picker): Auto-fix on or off, and its overseer's model.
   for (const w of r.workspaces) {
@@ -171,7 +171,8 @@ test('settings shows both workspaces and every login, an email only for a login 
   assert.deepEqual(Object.keys(r.about).sort(), ['commit', 'dataDir', 'logDir', 'platform', 'service', 'uninstall', 'update', 'version']);
   assert.equal(typeof r.watcher.enabled, 'boolean');
   assert.ok(Array.isArray(r.overseer.models) && r.overseer.models.includes(r.overseer.model), JSON.stringify(r.overseer));
-  assert.deepEqual(Object.keys(r.github).sort(), ['login', 'state']);
+  assert.deepEqual(Object.keys(r.github).sort(), ['accounts', 'login', 'state']);
+  assert.ok(Array.isArray(r.github.accounts), 'gh\'s accounts (logins only, never a token)');
   const text = JSON.stringify(r);
   assert.ok(text.includes(EMAIL_D), 'the focus\'s own email');
   for (const bit of [EMAIL_C, 'Contract Org', SID_C, SID_C.slice(0, 8), 'contract job']) assert.equal(text.includes(bit), false, `settings carries ${bit}: ${text}`);

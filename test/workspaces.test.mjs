@@ -498,3 +498,16 @@ test('a main agent\'s key, switch and count are kept with its slot, and its key 
   again.deleteSpace('default', a);
   assert.equal(again.mainByKey('c'.repeat(64)), null);
 });
+
+test('a workspace keeps the GitHub account it uses: none (gh\'s own) until picked, kept across a restart', () => {
+  const file = tmp(), s = createStore({ file, home: '/h', profiles: PROFILES });
+  assert.equal(s.githubOf('default'), null);
+  assert.deepEqual(s.setGithub('default', 'work-user'), { ok: true });
+  assert.equal(s.githubOf('default'), 'work-user');
+  assert.equal(s.githubOf('contract'), null, 'each workspace its own');
+  assert.equal(createStore({ file, home: '/h', profiles: PROFILES }).githubOf('default'), 'work-user');
+  assert.equal(s.setGithub('default', 'not a login!').ok, false, 'a GitHub login is letters, digits and dashes');
+  assert.deepEqual(s.setGithub('default', null), { ok: true });
+  assert.equal(s.githubOf('default'), null);
+  assert.equal(s.setGithub('nope', 'x').ok, false);
+});

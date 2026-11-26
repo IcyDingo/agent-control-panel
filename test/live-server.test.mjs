@@ -36,7 +36,8 @@ async function setup(t) {
   t.after(async () => {
     for (const s of streams) s.close();
     if (child.exitCode === null && child.signalCode === null) await new Promise((r) => { child.once('exit', r); child.kill(); });
-    fs.rmSync(home, { recursive: true, force: true });
+    // A file the server was writing as it stopped can land while the folder is removed (ENOTEMPTY): try again briefly.
+    fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
   const base = `http://127.0.0.1:${port}`;
   const html = await until(() => fetch(base + '/').then((r) => (r.ok ? r.text() : null), () => null), 8000);
