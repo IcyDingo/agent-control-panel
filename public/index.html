@@ -1357,22 +1357,22 @@ dialog.heat-dlg .h-heat { margin-bottom: 0; }
 .gl-tell { flex: 1; min-width: 0; height: 30px; padding: 0 10px; border-radius: var(--r-1); border: 1px solid var(--line-strong); background: var(--raise); color: var(--fg); font: inherit; font-size: 13px; }
 .gl-new { padding: 8px 0; }
 .gl-new .gl-tell { width: 100%; }
-/* Paste goals: the text, what it splits into, and the buttons. Calm: a tinted box, no coloured outline. */
+/* Paste a goal: the text, the goal and parts it makes, and the buttons. Calm: a tinted box, no coloured outline. */
 .gl-paste { display: grid; gap: 10px; margin: 6px 0 12px; padding: 12px; border-radius: var(--r-2); background: var(--fill); }
 .gl-paste.drop { box-shadow: inset 0 0 0 1px var(--line-strong); }
 .gl-paste-in { width: 100%; height: auto; min-height: 96px; padding: 8px 10px; resize: vertical; line-height: 1.45; font: inherit; font-size: 13px; }
 .gl-paste-in[readonly] { opacity: .6; }
 .gl-paste-prev { display: grid; gap: 6px; max-height: 320px; overflow: auto; }
 .gl-paste-prev:empty { display: none; }
-.gl-paste-goal { display: grid; gap: 2px; padding: 6px 10px; border-radius: var(--r-1); background: color-mix(in srgb, var(--ok) 6%, var(--panel)); }
-.gl-paste-goal[data-off="1"] { background: none; opacity: .5; }
-.gl-paste-title { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; font-weight: 500; cursor: pointer; }
+.gl-paste-goal { display: grid; gap: 6px; padding: 8px 10px; border-radius: var(--r-1); background: color-mix(in srgb, var(--ok) 6%, var(--panel)); }
+.gl-paste-title { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; font-weight: 500; }
 .gl-paste-title span:not(.quiet) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gl-paste-title .quiet { flex: none; font-size: 12px; font-weight: 400; }
-.gl-paste-parts { margin: 0; padding: 0 0 0 26px; list-style: none; font-size: 12px; color: var(--fg-dim); }
-.gl-paste-parts li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gl-paste-parts li::before { content: "– "; color: var(--fg-faint); }
-.gl-paste-parts li.quiet::before { content: ""; }
+.gl-paste-parts { display: grid; gap: 2px; margin: 0; padding: 0 0 0 2px; list-style: none; font-size: 12.5px; color: var(--fg-dim); }
+.gl-paste-parts label { display: flex; align-items: center; gap: 8px; min-width: 0; cursor: pointer; }
+.gl-paste-parts label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gl-paste-parts li[data-off="1"] { opacity: .5; }
+.gl-paste-parts li[data-off="1"] span { text-decoration: line-through; }
 .gl-paste-acts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .gl-paste-keys { font-size: 11.5px; }
 @media (max-width: 720px) { .gl-paste-keys { display: none; } }
@@ -4145,10 +4145,11 @@ const goalNodes = new Map(); // goal key → { sig, node }
 let goalStop = null;         // the branch whose panel is open: `${goal key}|${item id or session id}`
 const goalTell = new Map();  // stop key → what you are typing to that agent
 let newGoal = null;          // the title being typed for a new goal, or null
-// Paste goals: a box on Home that takes pasted or dropped text, splits it into goals and their parts as you type
-// (HB.outlineOf) and shows them before anything is made. "Let Claude sort it" writes Claude's goals back into the box
-// as an outline, so its answer is checked and edited the same way. What was in the box is kept when it closes.
-let pasteGoals = null;       // the open box: { skip: goal indexes left out, busy: Claude is sorting }, or null
+// Paste a goal: a box on Home that takes pasted or dropped text and makes one goal of it: the first line is the goal,
+// every line under it a part (HB.pastedGoal). It shows them as you type, each part with a tick to leave it out, before
+// anything is made. "Let Claude sort it" writes Claude's goal back into the box as text, so its answer is checked and
+// edited the same way. What was in the box is kept when it closes.
+let pasteGoals = null;       // the open box: { skip: part indexes left out, busy: Claude is sorting }, or null
 let pasteDraft = '';
 const PASTE_FILE = /\.(md|markdown|txt|text|org)$/i;
 function openPaste(text) {
@@ -4160,43 +4161,42 @@ function openPaste(text) {
 }
 function closePaste() { pasteGoals = null; goalNodes.delete('paste'); render(); }
 function pasteNode() {
-  const ta = el('textarea', { id: 'gl-paste', class: 'field gl-paste-in', rows: 5, spellcheck: 'true', 'aria-label': 'Text to make goals from',
-    placeholder: 'Paste or drop notes, a list or a plan. # headings or top lines become goals; indented or bulleted lines under them become parts.' });
+  const ta = el('textarea', { id: 'gl-paste', class: 'field gl-paste-in', rows: 5, spellcheck: 'true', 'aria-label': 'Text to make a goal from',
+    placeholder: 'Paste or drop notes, a list or a plan. The first line is the goal; every line under it becomes one of its parts.' });
   ta.value = pasteDraft;
   const prev = el('div', { class: 'gl-paste-prev', 'aria-live': 'polite' });
   const make = el('button', { class: 'btn small gl-act', 'data-tone': 'green', type: 'button' });
-  const sort = el('button', { class: 'btn small gl-act', type: 'button', title: 'Claude reads the text and writes it back as goals and parts, for you to check' });
+  const sort = el('button', { class: 'btn small gl-act', type: 'button', title: 'Claude reads the text and writes it back as one goal and its parts, for you to check' });
   const box = el('div', { class: 'gl gl-paste' }, ta, prev, el('div', { class: 'gl-paste-acts' }, make, sort, el('span', { class: 'grow' }),
     el('span', { class: 'quiet gl-paste-keys', text: '⌘↩ creates · Esc closes' }),
     el('button', { class: 'btn small quiet', type: 'button', text: 'Cancel', onclick: closePaste })));
-  let goals = [];
-  const picked = () => goals.filter((_, i) => !pasteGoals?.skip.has(i));
+  let goal = null;
+  const parts = () => (goal?.items ?? []).filter((_, i) => !pasteGoals?.skip.has(i));
   const draw = () => {
-    goals = HB.outlineOf(ta.value);
-    const n = picked().length, busy = Boolean(pasteGoals?.busy);
-    make.textContent = n ? `Create ${n} goal${n === 1 ? '' : 's'}` : 'Create';
-    make.disabled = !n || busy;
+    goal = HB.pastedGoal(ta.value);
+    const n = parts().length, busy = Boolean(pasteGoals?.busy);
+    make.textContent = !goal ? 'Create goal' : n ? `Create goal with ${n} part${n === 1 ? '' : 's'}` : 'Create goal';
+    make.disabled = !goal || busy;
     sort.textContent = busy ? 'Claude is sorting…' : 'Let Claude sort it';
     sort.disabled = busy || !ta.value.trim();
     ta.readOnly = busy;
-    prev.replaceChildren(...goals.map((g, i) => {
-      const off = pasteGoals?.skip.has(i), more = g.items.length - 4;
-      return el('div', { class: 'gl-paste-goal', 'data-off': off ? '1' : null },
-        el('label', { class: 'gl-paste-title' },
-          el('input', { type: 'checkbox', checked: !off, 'aria-label': `Make “${g.title}”`, onchange: (e) => { pasteGoals?.skip[e.target.checked ? 'delete' : 'add'](i); draw(); } }),
-          el('span', { text: g.title }), g.items.length ? el('span', { class: 'quiet', text: `${g.items.length} part${g.items.length === 1 ? '' : 's'}` }) : null),
-        g.items.length ? el('ul', { class: 'gl-paste-parts' }, g.items.slice(0, 4).map((t) => el('li', { text: t })), more > 0 ? el('li', { class: 'quiet', text: `+${more} more` }) : null) : null);
-    }));
+    prev.replaceChildren(...(goal ? [el('div', { class: 'gl-paste-goal' },
+      el('div', { class: 'gl-paste-title' }, el('span', { text: goal.title }), el('span', { class: 'quiet', text: goal.items.length ? `${n} of ${goal.items.length} parts` : 'no parts' })),
+      goal.items.length ? el('ul', { class: 'gl-paste-parts' }, goal.items.map((t, i) => {
+        const off = pasteGoals?.skip.has(i);
+        return el('li', { 'data-off': off ? '1' : null }, el('label', {},
+          el('input', { type: 'checkbox', checked: !off, 'aria-label': `Make “${t}” a part`, onchange: (e) => { pasteGoals?.skip[e.target.checked ? 'delete' : 'add'](i); draw(); } }),
+          el('span', { text: t })));
+      })) : null)] : []));
   };
   const create = async () => {
-    const want = picked();
-    if (!want.length || pasteGoals?.busy) return;
+    if (!goal || pasteGoals?.busy) return;
     make.disabled = true;
-    const r = await isApi('import', { goals: want });
+    const r = await isApi('import', { title: goal.title, items: parts() });
     if (!r.ok) { draw(); return; }
     pasteDraft = '';
-    toast(`Made ${want.length} goal${want.length === 1 ? '' : 's'}.`);
     closePaste();
+    openGoal(r.id);
   };
   make.onclick = create;
   sort.onclick = async () => {
@@ -4206,7 +4206,7 @@ function pasteNode() {
     const r = await isApi('sort', { text: ta.value });
     mine.busy = false;
     if (pasteGoals !== mine) return; // closed, or opened afresh, meanwhile
-    if (r.ok) { ta.value = pasteDraft = HB.outlineText(r.goals); mine.skip.clear(); fit(ta); }
+    if (r.ok) { ta.value = pasteDraft = HB.pastedText(r.goal); mine.skip.clear(); fit(ta); }
     draw();
   };
   ta.oninput = () => { pasteDraft = ta.value; pasteGoals?.skip.clear(); fit(ta); draw(); };
@@ -4429,8 +4429,8 @@ function renderGoals(vis) {
   patch(box.firstChild.lastChild, JSON.stringify([goals.length, Boolean(stand), anyOpen, newGoal !== null, pasteGoals !== null]), () => [
     goals.length || stand ? el('button', { class: 'btn quiet small', type: 'button', text: anyOpen ? 'Collapse all' : 'Expand all', onclick: () => {
       for (const g of [...goals, ...(stand ? [stand] : [])]) toggleGoal(g, !anyOpen); } }) : null,
-    el('button', { class: 'btn quiet small', type: 'button', text: 'Paste goals', 'aria-expanded': String(pasteGoals !== null),
-      title: 'Make goals and their parts from pasted text', onclick: () => (pasteGoals ? closePaste() : openPaste()) }),
+    el('button', { class: 'btn quiet small', type: 'button', text: 'Paste a goal', 'aria-expanded': String(pasteGoals !== null),
+      title: 'Make a goal and its parts from pasted text', onclick: () => (pasteGoals ? closePaste() : openPaste()) }),
     el('button', { class: 'btn quiet small', type: 'button', text: '+ New goal', onclick: () => { if (pasteGoals) { pasteGoals = null; goalNodes.delete('paste'); } newGoal = ''; render(); requestAnimationFrame(() => $('gl-new')?.focus()); } })]);
   const want = [];
   if (pasteGoals !== null) {
@@ -5258,8 +5258,11 @@ function notesRow(i, page = false) {
 // ---------- a goal's page: one goal opened in the middle, with room to work on it ----------
 let goalOpen = pref('acp.goalOpen') || null; // the issue whose page is open in the middle, or null
 const EXPAND = 'M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7';
+// A goal just made is opened before the update that carries it arrives: it is given a few seconds to show up before
+// the page forgets it as gone.
+let goalOpenAt = 0;
 function openGoal(id) {
-  goalOpen = id; pref('acp.goalOpen', id ?? '');
+  goalOpen = id; goalOpenAt = Date.now(); pref('acp.goalOpen', id ?? '');
   if (id) { cancelAdvance(); selectNow(); subFocus = null; open = null; homeOpen = true; }
   render();
   if (id) requestAnimationFrame(() => $('h-scroll')?.scrollTo({ top: 0 }));
@@ -5268,7 +5271,7 @@ function openGoal(id) {
  *  its notes in full and every part's note and files shown. Hidden (the goals list shows) when no goal is open. */
 function renderGoalPage() {
   const i = goalOpen ? (snap.issues ?? []).find((x) => x.id === goalOpen) : null;
-  if (goalOpen && !i && snap.issues) { goalOpen = null; pref('acp.goalOpen', ''); }
+  if (goalOpen && !i && snap.issues && Date.now() - goalOpenAt > 5000) { goalOpen = null; pref('acp.goalOpen', ''); }
   const page = $('h-goal');
   $('h-goals').hidden = Boolean(i);
   page.hidden = !i;
