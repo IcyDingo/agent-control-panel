@@ -529,7 +529,7 @@ function solo({ gh = false, daemon = false } = {}) {
 const fs = require('fs'), a = process.argv.slice(2);
 if (a[0] === 'agents') { try { process.stdout.write(fs.readFileSync(${JSON.stringify(path.join(h, 'roster.json'))}, 'utf8')); } catch { process.stdout.write('[]'); } process.exit(0); }
 if (a[0] === 'auth') { console.log('{}'); process.exit(0); }
-if (a[0] === '--bg') { console.log('backgrounded · deadbeef'); process.exit(0); }
+if (a[0] === '--bg') { fs.appendFileSync(${JSON.stringify(path.join(h, 'claude.log'))}, JSON.stringify({ args: a, gh: process.env.GH_TOKEN ?? null }) + '\\n'); console.log('backgrounded · deadbeef'); process.exit(0); }
 process.exit(1);
 `, { mode: 0o755 });
   standIns(b, h);
@@ -543,6 +543,7 @@ const failing = (n) => ({ number: n, title: 'Feature ' + n, url: 'https://github
   statusCheckRollup: [{ __typename: 'CheckRun', name: 'build', status: 'COMPLETED', conclusion: 'FAILURE', detailsUrl: 'https://github.com/o/p/actions/runs/' + n + '1/job/' + n + '2', workflowName: 'CI', completedAt: at, startedAt: began }] });
 const accounts = () => { try { return JSON.parse(fs.readFileSync(${JSON.stringify(path.join(h, 'accounts.json'))}, 'utf8')); } catch { return ['me']; } };
 if (a[0] === 'auth' && a.includes('--json')) out({ hosts: { 'github.com': accounts().map((login, i) => ({ state: 'success', active: i === 0, host: 'github.com', login })) } });
+if (a[0] === 'auth' && a[1] === 'token') out('tok-' + after('--user') + '-0123456789abcdef');
 if (a[0] === 'auth') { process.stderr.write('Logged in to github.com account ' + accounts()[0] + '\\n'); process.exit(0); }
 if (a[0] === 'repo' && a[1] === 'view') out({ defaultBranchRef: { name: 'main' } });
 if (a[0] === 'search' && a[1] === 'prs') out([]);
@@ -556,9 +557,10 @@ process.exit(1);
   const prefsFile = path.join(h, 'panel', 'prefs.json');
   fs.mkdirSync(path.dirname(prefsFile));
   fs.writeFileSync(prefsFile, JSON.stringify({ profile: 'default', setupDone: true }));
-  return { home: h, dir, bin: b, prefs: prefsFile, running: null, async start() {
-    const port = await freePort(), base = `http://127.0.0.1:${port}`;
-    const e = { ...env, HOME: h, PATH: `${b}:${env.PATH}`, ACP_PORT: String(port), ACP_PREFS: prefsFile, ...(gh ? {} : { ACP_GITHUB: 'off' }), ...(daemon ? { ACP_DAEMON: '1' } : {}) };
+  return { home: h, dir, bin: b, prefs: prefsFile, running: null, async start(fixed = null) {
+    const port = fixed ?? await freePort(), base = `http://127.0.0.1:${port}`;
+    const { GH_TOKEN: _gt, ...clean } = env; // this machine's own GitHub token never reaches the stand-ins
+    const e = { ...clean, HOME: h, PATH: `${b}:${env.PATH}`, ACP_PORT: String(port), ACP_PREFS: prefsFile, ...(gh ? {} : { ACP_GITHUB: 'off' }), ...(daemon ? { ACP_DAEMON: '1' } : {}) };
     const proc = spawn(process.execPath, [SERVER], { env: e, stdio: ['ignore', 'pipe', 'pipe'] });
     process.on('exit', () => { try { proc.kill(); } catch {} });
     const s = { port, base, proc, log: '', pages: [] };
@@ -645,6 +647,60 @@ test('an account added to gh shows in Settings as soon as the page looks again',
     assert.deepEqual(gh.accounts.map((a) => a.login), ['work', 'me'], 'both accounts, at once: ' + JSON.stringify(gh));
     assert.equal(gh.login, 'work');
     assert.ok(await until(() => nudges() > was), 'an open Settings is told to look again');
+  } finally { await s.done(); }
+});
+
+test('every Claude Code session acts as its workspace\'s GitHub account, from its very start', async () => {
+  const s = solo({ gh: true }), SID = 'eeeeeeee-9999-4999-8999-999999999999';
+  // gh holds two accounts and work is its active one, as on a machine with a private and a work account. The one picked
+  // is named as an enterprise-managed account is (handle_shortcode).
+  fs.writeFileSync(path.join(s.home, 'accounts.json'), JSON.stringify(['work', 'me_corp']));
+  const wanted = JSON.parse(fs.readFileSync(fileURLToPath(new URL('../hooks.example.json', import.meta.url)), 'utf8')).hooks;
+  try {
+    let srv = await s.start();
+    const hook = (body) => fetch(srv.base + '/hook/gh-account', { method: 'POST', body: JSON.stringify(body) }).then((r) => r.text());
+    assert.equal(await hook({ session_id: SID, cwd: s.dir }), '', 'no pick: gh\'s active account, which needs nothing');
+    const wsId = (await (await fetch(srv.base + '/api/settings', { headers: { 'x-acp-token': srv.token, 'x-acp-client': 'solo-page' } })).json()).workspaces[0].id;
+    assert.equal((await srv.api('/api/workspace/github', { id: wsId, login: 'me_corp' })).ok, true);
+    assert.equal(await hook({ session_id: SID, cwd: s.dir }), 'me_corp', 'the workspace\'s pick');
+    for (const cwd of ['relative/dir', null, 42]) assert.equal(await hook({ cwd }), '', JSON.stringify(cwd));
+    const refused = await fetch(srv.base + '/hook/gh-account', { method: 'POST', body: '{}', headers: { origin: 'https://example.com' } });
+    assert.equal(refused.status, 403, 'never a browser');
+
+    // The hook itself, run as Claude Code runs it: it writes a command into the session's environment file, never a
+    // token, and that command gives every later Bash call the workspace's account.
+    const command = wanted.SessionStart[0].hooks[0].command.replaceAll('127.0.0.1:4747/', `127.0.0.1:${srv.port}/`);
+    const envFile = path.join(s.home, 'session-env.sh'), shellEnv = { PATH: `${s.bin}:${process.env.PATH}`, CLAUDE_ENV_FILE: envFile };
+    execFileSync('/bin/sh', ['-c', command], { input: JSON.stringify({ session_id: SID, cwd: s.dir, hook_event_name: 'SessionStart', source: 'startup' }), env: shellEnv });
+    const written = fs.readFileSync(envFile, 'utf8');
+    assert.equal(written.includes('tok-'), false, 'no token on disk: ' + written);
+    assert.equal(execFileSync('/bin/sh', ['-c', `. "${envFile}"; printf %s "$GH_TOKEN"`], { env: shellEnv }).toString(), 'tok-me_corp-0123456789abcdef');
+    // Glue down (nothing on the port): the hook writes nothing and still succeeds.
+    fs.rmSync(envFile);
+    execFileSync('/bin/sh', ['-c', command.replaceAll(`127.0.0.1:${srv.port}/`, `127.0.0.1:${await freePort()}/`)], { input: '{}', env: shellEnv });
+    assert.equal(fs.existsSync(envFile), false);
+
+    // The profile was connected before the hook existed (live updates only): the next start adds the hook, after a copy
+    // of the file as it was. Nothing else in the file changes.
+    await srv.stop();
+    const settingsFile = path.join(s.home, '.claude', 'settings.json'), port = await freePort();
+    const live = Object.fromEntries(Object.entries(wanted).filter(([k]) => k !== 'SessionStart'));
+    fs.writeFileSync(settingsFile, JSON.stringify({ model: 'x', hooks: live }).replaceAll('127.0.0.1:4747/', `127.0.0.1:${port}/`));
+    srv = await s.start(port);
+    const now = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+    assert.equal(now.model, 'x');
+    assert.match(now.hooks.SessionStart?.[0]?.hooks?.[0]?.command ?? '', new RegExp(`127\\.0\\.0\\.1:${port}/hook/gh-account`), JSON.stringify(now) + srv.log);
+    assert.equal(fs.readdirSync(path.join(s.home, '.claude')).filter((f) => f.startsWith('settings.json.before-glue-')).length, 1, 'one copy of the file before');
+    // An agent started at once, before the first poll fetched any token, gets the workspace's account.
+    const r = await srv.api('/api/launch', { prompt: 'go', cwd: s.dir, model: '', mode: 'default' });
+    assert.equal(r.ok, true, JSON.stringify(r) + srv.log);
+    assert.equal(calledOf(s.home, 'claude').find((c) => c.args[0] === '--bg')?.gh, 'tok-me_corp-0123456789abcdef', srv.log);
+    // Its details say which account it acts as, once its hook has run; never a token.
+    const page = srv.page();
+    assert.equal(await hook({ session_id: SID, cwd: s.dir }), 'me_corp');
+    const seen = await until(() => page.latest()?.sessions?.find((x) => x.sessionId === SID)?.ghAs);
+    assert.deepEqual(seen, { login: 'me_corp', active: false });
+    assert.equal(JSON.stringify(page.latest()).includes('tok-'), false);
   } finally { await s.done(); }
 });
 

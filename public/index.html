@@ -2768,6 +2768,11 @@ function renderOld(list) {
   ]);
 }
 const subNows = new Map(); // agentId → its "now" line in the subagent tree
+/** A session's GitHub account, as its details say it: the one set when it started (its workspace's, Settings › GitHub),
+ *  or gh's active one when none was. */
+const ghAsText = (g) => (g.active
+  ? { text: `${g.login} (gh’s active account)`, title: 'Its gh and git push act as gh’s active account. Settings › GitHub picks an account per workspace.' }
+  : { class: 'mono', text: g.login, title: 'Its gh and git push act as this account, set when it started from its workspace’s pick in Settings › GitHub.' });
 function renderDrawer(vis) {
   const d = $('drawer');
   const s = open ? vis.find((x) => x.sessionId === open) : null;
@@ -2848,10 +2853,11 @@ function renderDrawer(vis) {
   renderCompose(s, st);
 
   // The column: where it works, how to reopen it, its subagents, and the buttons that stop it.
-  patch($('d-info'), JSON.stringify([s.sessionId, s.cwd, here, s.git, s.mismatch, s.kind, s.id, Boolean(s.leftRosterAt), sessLogin(s)?.command, sharers, elsewhere, spaceIn(s), snap.spaces, s.role, glue?.mainAgents]), () => el('dl', { class: 'kv' },
+  patch($('d-info'), JSON.stringify([s.sessionId, s.cwd, here, s.git, s.mismatch, s.kind, s.id, Boolean(s.leftRosterAt), sessLogin(s)?.command, sharers, elsewhere, spaceIn(s), snap.spaces, s.role, glue?.mainAgents, s.ghAs]), () => el('dl', { class: 'kv' },
     s.mismatch ? null : [el('dt', { text: 'Space' }), el('dd', {}, spacePicker(s))],
     s.role === 'main' && spaceIn(s) && glue?.mainAgents?.workers ? [el('dt', { text: 'Workers' }), el('dd', {}, mainWorkers(s))] : null,
     snap.logins?.length > 1 && s.login && !isOcS(s) ? [el('dt', { text: 'Login' }), el('dd', { text: sessLogin(s)?.label ?? s.login })] : null,
+    s.ghAs?.login ? [el('dt', { text: 'GitHub' }), el('dd', ghAsText(s.ghAs))] : null,
     s.mismatch ? [el('dt', { text: 'Folder' }), el('dd', { class: 'mismatch', text: mismatchText(s), title: MISMATCH_WHY })]
       : [el('dt', { text: 'Folder' }), el('dd', { class: 'mono', text: here || 'unknown', title: here !== s.cwd && s.cwd ? `Started in ${s.cwd}` : null })],
     where ? [el('dt', { text: 'Branch' }), el('dd', { class: 'mono' + (s.git.worktree ? ' where-b wt' : ' where-b'), text: where.on, title: where.long }), el('dt', { text: 'Checkout' }), el('dd', { text: where.at[0].toUpperCase() + where.at.slice(1) })] : null,

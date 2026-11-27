@@ -24,7 +24,8 @@ const NAME_MAX = 24, LABEL_MAX = 40;
 const SPACE_MAX = 40, GOAL_MAX = 120, HOUR = 3_600_000, KEEP_MS = 14 * 86_400_000;
 const isColor = (c) => typeof c === 'string' && Object.hasOwn(COLORS, c);
 /** A GitHub login as gh shows it: letters, digits and single dashes, 39 at most. */
-const GH_LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/;
+// Letters, digits and dashes, and an underscore: an enterprise-managed account is named like handle_shortcode.
+const GH_LOGIN = /^[A-Za-z0-9][\w-]{0,99}$/;
 const blank = () => Object.create(null); // no prototype: an id like `__proto__` is just an unknown name
 
 /** What a repository is called in the store: its GitHub slug, else its git common dir, else its folder. */
