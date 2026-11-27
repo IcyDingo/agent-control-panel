@@ -27,7 +27,7 @@ export function parseGhAuth({ err, stdout, stderr } = {}) {
   if (err?.code === 'ENOENT') return { state: 'missing' };
   const text = `${stdout ?? ''}\n${stderr ?? ''}`;
   if (err) return { state: 'signed-out' };
-  const m = /Logged in to github\.com (?:account|as) ([A-Za-z0-9-]+)/.exec(text);
+  const m = /Logged in to github\.com (?:account|as) ([\w-]+)/.exec(text);
   return { state: 'ok', login: m?.[1] ?? null };
 }
 

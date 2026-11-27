@@ -27,6 +27,9 @@
     "Stop": [
       { "hooks": [{ "type": "http", "url": "http://127.0.0.1:4747/hook/event", "timeout": 2 }] }
     ],
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "l=$(curl -fsS --max-time 5 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4747/hook/gh-account 2>/dev/null) || exit 0; case \"$l\" in ''|*[!A-Za-z0-9_-]*) exit 0;; esac; [ -n \"$CLAUDE_ENV_FILE\" ] && printf 't=$(gh auth token --user %s 2>/dev/null) && export GH_TOKEN=\"$t\"\\n' \"$l\" >> \"$CLAUDE_ENV_FILE\"; exit 0", "timeout": 10 }] }
+    ],
     "SessionEnd": [
       { "hooks": [{ "type": "http", "url": "http://127.0.0.1:4747/hook/event", "timeout": 2 }] }
     ]

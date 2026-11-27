@@ -317,8 +317,8 @@ the last tab while the page is open. It has six tabs, seven with two or more wor
   permission requests), and **Turn on live updates** when they don't (Glue adds its hooks to that profile's
   `settings.json` and keeps a dated copy). Off, sessions still show, but ask in their own terminal. Sign-ins are under
   **Providers**; on a first run the Claude sign-in the workspace in view still needs shows here too.
-- **GitHub, alerts & Auto-fix.** The GitHub CLI sign-in (shared: one `gh` login), then **Auto-fix**, a switch per
-  workspace. Each is the same switch as that workspace's GitHub panel's, and shows the same state.
+- **GitHub, alerts & Auto-fix.** The GitHub CLI sign-in, the GitHub account each workspace uses (shown once `gh` holds
+  more than one), then **Auto-fix**, a switch per workspace. Each is the same switch as that workspace's GitHub panel's, and shows the same state.
 - **Assistant.** What Ask Glue does, the switch for checking agents when they stop, then each workspace's **model**, a row
   each (the same select as the one under its box, showing the same state), and the **model a new workspace starts with** (kept with
   Glue's own settings in `prefs.json`).
@@ -460,6 +460,15 @@ token: when `gh` is missing or signed out, it says so once and shows nothing els
 
 - A repository is found from `origin` in its git config (github.com only); the panel never runs git
   in it, and calls `gh` with `-R github.com/<owner>/<repo>` from its own folder.
+- **Several accounts.** `gh` keeps them (`gh auth login` adds one); each workspace picks the one it uses in Settings ›
+  GitHub. Glue reads each repository as its workspace's account, and every Claude Code session acts as it too: agents
+  Glue starts or resumes get it in their environment, and a `SessionStart` hook (in `hooks.example.json`) gives it to
+  every other session on that login, started from Terminal or the desktop app as well. The hook asks Glue which account
+  the session's repository belongs to and writes `gh auth token --user <account>` into the session's environment file, a
+  command, never a token, so `gh` and `git push` work without switching `gh`'s active account. With no pick, a `gh`
+  account named like the repository's owner is used; otherwise `gh`'s active one. A session's Details say which.
+  A profile whose sessions already report here gets the hook added at Glue's next start (with a dated copy of the file).
+  OpenCode sessions run in OpenCode's own shared service, so they use `gh`'s active account.
 - It watches open pull requests on the branches agents are on, and every open pull request of yours in
   any repository (one `gh search prs --author @me` every few minutes), the latest runs on the default
   branch, and the last few merges.

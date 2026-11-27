@@ -141,11 +141,16 @@ const cliOf = (p) => (p.plain ? 'claude' : `CLAUDE_CONFIG_DIR=~/${path.basename(
 /** The hook entries hooks.example.json asks for, pointed at this panel's port. */
 const wantedHooks = () => structuredClone(wantedMemo ??= JSON.parse(fs.readFileSync(new URL('./hooks.example.json', import.meta.url), 'utf8').replaceAll('127.0.0.1:4747/', HOOK_URL.replace(/hook\/$/, ''))).hooks);
 let wantedMemo = null;
-/** Whether a settings object's `hooks` already has an entry for `event` that posts to this panel. */
-const hookPresent = (hooks, event) => (Array.isArray(hooks?.[event]) ? hooks[event] : []).some((m) => (m?.hooks ?? []).some((h) => typeof h?.url === 'string' && h.url.includes(HOOK_URL)));
-/** Whether a settings object is connected to this panel: every event hooks.example.json asks for has such an entry
- *  (what connectProfile adds until nothing is left to add). Mentioning the URL anywhere else in the file doesn't count. */
-const hooksConnected = (settings) => Object.keys(wantedHooks()).every((event) => hookPresent(settings?.hooks, event));
+/** The one command hook Glue adds: at SessionStart it sets the session's GitHub account (/hook/gh-account). */
+const GH_HOOK_EVENT = 'SessionStart';
+/** Whether a settings object's `hooks` already has an entry for `event` that posts to this panel (for the GitHub
+ *  account, a command that asks this panel's /hook/gh-account). */
+const hookPresent = (hooks, event) => (Array.isArray(hooks?.[event]) ? hooks[event] : []).some((m) => (m?.hooks ?? []).some((h) =>
+  (typeof h?.url === 'string' && h.url.includes(HOOK_URL)) || (h?.type === 'command' && typeof h.command === 'string' && h.command.includes(HOOK_URL + 'gh-account'))));
+/** Whether a settings object is connected to this panel: every live-update event hooks.example.json asks for has such
+ *  an entry (what connectProfile adds until nothing is left to add). Mentioning the URL anywhere else doesn't count. The
+ *  GitHub-account hook is not one of them: a profile connected before it existed is still connected (ensureGhHook). */
+const hooksConnected = (settings) => Object.keys(wantedHooks()).every((event) => event === GH_HOOK_EVENT || hookPresent(settings?.hooks, event));
 /** A Claude login's profile, from its folder: plain `claude` keeps its config file in the home folder. */
 const profileAt = (id, dir) => { const plain = dir === path.join(HOME, '.claude'); return { id, dir, plain, config: plain ? path.join(HOME, '.claude.json') : path.join(dir, '.claude.json') }; };
 /** What Settings and the banners show of a Claude login: whose account it is, and whether its sessions report here. */
@@ -181,7 +186,7 @@ const L = new Map();
 const makeLogin = (l) => { const p = profileAt(l.id, l.dir); return { id: l.id, label: l.label, profile: p, env: envFor(p), info: { ...describeProfile(p), label: l.label },
   setup: { claude: { state: 'unknown' }, checkedAt: 0 }, rosterSeeded: false, rosterError: null, polls: 0 }; };
 /** Reads a login's account, hooks and effort again (they change outside the panel). */
-const refreshInfo = (login) => { login.info = { ...describeProfile(login.profile), label: login.label }; };
+const refreshInfo = (login) => { login.info = { ...describeProfile(login.profile), label: login.label }; if (serverUp) ensureGhHook(login); };
 const wsById = (id) => W.get(id) ?? null;
 /** The environment a login's processes run under; null (and so refused by run) without one. */
 const envOf = (login) => login?.env ?? null;
@@ -205,7 +210,7 @@ function syncAll() {
   for (const id of [...W.keys()]) if (!wsIds.includes(id)) { dropWorkspace(id); changed = true; }
   for (const l of logins) {
     const was = L.get(l.id);
-    if (was?.profile.dir !== l.dir) { L.set(l.id, makeLogin(l)); changed = true; }
+    if (was?.profile.dir !== l.dir) { const made = makeLogin(l); L.set(l.id, made); if (serverUp) ensureGhHook(made); changed = true; }
     else if (was.label !== l.label) { was.label = l.label; refreshInfo(was); changed = true; }
   }
   for (const id of [...L.keys()]) if (!logins.some((l) => l.id === id)) { dropLogin(id); changed = true; }
@@ -884,7 +889,8 @@ function launch(body, ws = shownWs(), { extra = [] } = {}) {
     // On the login picked in New agent, if this workspace uses it, else on its default.
     const login = launchLogin(ws.id, body.login);
     if (!login) return fail(NO_LOGIN);
-    run('claude', args, { cwd, timeout: 30_000, env: agentEnv(login, ws.id) }).then((r) => {
+    // Its workspace's GitHub token first: the poll that otherwise fetches it runs only 20 s after a start.
+    refreshGhTokens().catch(() => {}).then(() => run('claude', args, { cwd, timeout: 30_000, env: agentEnv(login, ws.id) })).then((r) => {
       const id = `${r.stdout}\n${r.stderr}`.match(/backgrounded · (\w+)/)?.[1];
       if (id) { launchedIn.set(id, ws.id); setTimeout(() => pollRoster(login), 400); return resolve({ ok: true, id, cwd }); }
       const why = firstLine(r);
@@ -1445,6 +1451,7 @@ async function reply(body) {
     if (keyFile && fs.existsSync(keyFile)) args.push(...MAIN_FLAGS(keyFile));
   }
   args.push('--', text);
+  await refreshGhTokens().catch(() => {}); // as at a launch: the token even before the first poll
   const r = await run('claude', args, { cwd, timeout: 30_000, env: agentEnv(login, s.ws) });
   const id = `${r.stdout}\n${r.stderr}`.match(/backgrounded · (\w+)/)?.[1];
   if (!id) return fail(firstLine(r));
@@ -2502,9 +2509,9 @@ function focusWorkspace(body, ctx = {}) {
  * Points a profile's hooks at this panel: adds the entries of hooks.example.json that its settings.json lacks, after
  * copying the file aside. Nothing else in it changes. Its sessions pick the hooks up as Claude Code reloads settings.
  */
-function connectProfile(body) {
-  const login = L.get(String(body?.id ?? '')), p = login?.profile;
-  if (!p) return { ok: false, error: 'There is no such login.' };
+/** Adds to profile `p`'s settings.json the entries hooks.example.json asks for (only `events`, when given) that it lacks,
+ *  after a copy of the file as it was. Nothing else in the file changes. `{ ok, added, backup }`, or `{ ok: false, error }`. */
+function addHooks(p, events = null) {
   fs.mkdirSync(p.dir, { recursive: true, mode: 0o700 }); // a login not signed in yet may have no folder
   const file = path.join(p.dir, 'settings.json');
   let settings = {};
@@ -2513,17 +2520,16 @@ function connectProfile(body) {
     if (!settings || typeof settings !== 'object' || Array.isArray(settings)) return { ok: false, error: `${tilde(file)} isn't a settings object, so it was left as it is.` };
   }
   if (settings.hooks != null && (typeof settings.hooks !== 'object' || Array.isArray(settings.hooks))) return { ok: false, error: `Its "hooks" setting isn't an object, so it was left as it is.` };
-  const want = wantedHooks();
   settings.hooks ??= {};
   let added = 0;
-  for (const [event, entries] of Object.entries(want)) {
+  for (const [event, entries] of Object.entries(wantedHooks())) {
+    if (events && !events.includes(event)) continue;
     const list = Array.isArray(settings.hooks[event]) ? settings.hooks[event] : (settings.hooks[event] = []);
     if (hookPresent(settings.hooks, event)) continue;
     list.push(...entries);
     added++;
   }
-  const fresh = () => refreshInfo(login);
-  if (!added) { fresh(); broadcast(); settingsChanged(); return { ok: true, added: 0 }; }
+  if (!added) return { ok: true, added: 0, backup: null };
   let backup = null;
   if (fs.existsSync(file)) {
     backup = `${file}.before-glue-${new Date().toISOString().replace(/[:.]/g, '-')}`;
@@ -2532,10 +2538,28 @@ function connectProfile(body) {
   const tmp = `${file}.glue-tmp`;
   fs.writeFileSync(tmp, JSON.stringify(settings, null, 2) + '\n');
   fs.renameSync(tmp, file);
-  fresh();
+  return { ok: true, added, backup: backup && tilde(backup) };
+}
+function connectProfile(body) {
+  const login = L.get(String(body?.id ?? '')), p = login?.profile;
+  if (!p) return { ok: false, error: 'There is no such login.' };
+  const r = addHooks(p);
+  if (!r.ok) return r;
+  refreshInfo(login);
   broadcast();
   settingsChanged();
-  return { ok: true, added, backup: backup && tilde(backup) };
+  return r.added ? r : { ok: true, added: 0 };
+}
+/** A Claude login whose sessions already report here, connected before the GitHub-account hook existed: it is added
+ *  (you let Glue's hooks into that profile), so every session there acts as its repository's GitHub account. */
+function ensureGhHook(login) {
+  if (!login?.info?.connected) return;
+  let settings = null;
+  try { settings = JSON.parse(small(path.join(login.profile.dir, 'settings.json'), 4 << 20)); } catch { return; }
+  if (hookPresent(settings?.hooks, GH_HOOK_EVENT)) return;
+  const r = addHooks(login.profile, [GH_HOOK_EVENT]);
+  if (r.ok && r.added) console.log(`added the GitHub-account hook to ${tilde(path.join(login.profile.dir, 'settings.json'))} (copy of the file before: ${r.backup})`);
+  else if (!r.ok) console.error(`github account hook: ${r.error}`);
 }
 // ---------------------------------------------------------------- managing workspaces and logins (Settings)
 
@@ -3146,6 +3170,32 @@ async function refreshGhTokens() {
 const ghEnvFor = (login) => { const t = login ? ghTokens.get(login)?.token : null; return t ? { GH_TOKEN: t } : {}; };
 /** An agent's environment in workspace `wsId`: its login's, and its workspace's GitHub account. */
 const agentEnv = (login, wsId) => ({ ...envOf(login), ...ghEnvFor(store.githubOf(wsId)) });
+const GH_LOGIN = /^[A-Za-z0-9][\w-]{0,99}$/; // as workspaces.mjs: an enterprise-managed login has an underscore
+/** The GitHub account a Claude Code session in folder `dir` acts as: the one its repository's workspace picked (with one
+ *  workspace, that one's), else, when no workspace picked one, a gh account named like the repository's owner. Null for
+ *  gh's active account, which needs nothing, and for one gh doesn't hold. */
+async function ghAccountFor(dir) {
+  if (typeof dir !== 'string' || !path.isAbsolute(dir)) return null;
+  const accounts = (await ghAccounts()).filter((a) => a.ok);
+  const key = repoOf(dir).key, owner = key.match(/^gh:([^/]+)\//)?.[1]?.toLowerCase() ?? null;
+  const holders = W.size === 1 ? [...W.keys()] : sortedIn(key);
+  const picked = [...new Set(holders.map((id) => store.githubOf(id)).filter(Boolean))];
+  const named = (list) => list.find((l) => l.toLowerCase() === owner) ?? null;
+  const login = picked.length === 1 ? picked[0] : picked.length ? named(picked) : named(accounts.map((a) => a.login));
+  const a = login ? accounts.find((x) => x.login === login) : null;
+  return a && !a.active && GH_LOGIN.test(a.login) ? a.login : null;
+}
+/** sessionId → { login, active }: the GitHub account the SessionStart hook set for a session (active: none was set, so
+ *  it runs as gh's active one). Not kept on disk: a session started before a restart shows nothing until it resumes. */
+const ghAsOf = new Map();
+function noteGhAs(sessionId, login) {
+  if (!/^[\w-]{8,64}$/.test(sessionId)) return;
+  ghAsOf.delete(sessionId);
+  ghAsOf.set(sessionId, login ? { login, active: false } : { login: ghAccountList.list.find((a) => a.active)?.login ?? null, active: true });
+  if (ghAsOf.size > 2000) ghAsOf.delete(ghAsOf.keys().next().value);
+}
+/** What a session's card says of its GitHub account: OpenCode's run as gh's active one (its service is shared). */
+const ghAsView = (s) => (s.kind === 'opencode' ? { login: ghAccountList.list.find((a) => a.active)?.login ?? null, active: true } : ghAsOf.get(s.sessionId) ?? null);
 /** A poll round: the tokens first, so each repository is read as its workspace's account. */
 const githubTick = (watched) => refreshGhTokens().catch((e) => console.error('github accounts:', e?.message ?? e)).finally(() => github.tick({ watched }));
 
@@ -4418,7 +4468,7 @@ function snapshot(wsId) {
       const repoSide = mismatch ? { git: null, workCwd: null, cwd: null, gh: null, elsewhere: null }
         : { git, workCwd: here, gh: sessionGh(place, wsId), elsewhere: (editTops ?? []).filter((t) => t !== git?.top && !othersOnly(t, wsId)).slice(0, 3).map((t) => placeOut(gitPlace(t))).filter(Boolean) };
       return {
-      ...s, ...repoSide, repoAsk: ask, mismatch, space: store.spaceOf(wsId, s.sessionId), role: store.roleOf(wsId, s.sessionId), up: isUp(whole),
+      ...s, ...repoSide, repoAsk: ask, mismatch, ghAs: mismatch ? null : ghAsView(whole), space: store.spaceOf(wsId, s.sessionId), role: store.roleOf(wsId, s.sessionId), up: isUp(whole),
       stopping: stops.has(stopKey(s.sessionId, null)), hostsPanel: hostPids.has(s.pid), termable: !termable(s),
       queued: inbox.get(s.sessionId) ?? [], working: isWorking(s),
       subagents: [...s.subagents.values()].map((a) => ({ ...a, stopping: !a.stoppedAt && stops.has(stopKey(s.sessionId, a.agentId)) })),
@@ -4512,6 +4562,13 @@ async function handle(req, res) {
     // Each event goes to the workspace its session is in (routeEvent). One that is nobody's records nothing, and its
     // request is left to the terminal.
     if (url.pathname === '/hook/event') return send(res, 200, onHookEvent(e) ?? '');
+    // SessionStart (hooks.example.json): the GitHub account this session acts as, a bare login or nothing. The hook
+    // writes `gh auth token --user <login>` into the session's environment file: a command, never a token.
+    if (url.pathname === '/hook/gh-account') {
+      const login = await ghAccountFor(e?.cwd).catch(() => null);
+      if (typeof e?.session_id === 'string') noteGhAs(e.session_id, login);
+      return send(res, 200, login ?? '', 'text/plain; charset=utf-8');
+    }
     if (url.pathname === '/hook/permission') {
       // Nobody watching, or paused: answer nothing, the terminal decides.
       if (!armed || !watched()) return send(res, 200, '');
@@ -4759,6 +4816,7 @@ server.listen(PORT, '127.0.0.1', () => {
   // Each workspace's overseer, here and not at load (its state is declared further down): a missing file is seeded now.
   for (const id of W.keys()) overseerOf(id);
   serverUp = true;
+  for (const login of L.values()) ensureGhHook(login); // a profile connected before the GitHub-account hook existed
   checkSetup(true); // Settings, and later the sign-in banner, say what it finds
   pollAll().then(() => { if (looking()) checkVersions(); });
   setRosterPace(looking());

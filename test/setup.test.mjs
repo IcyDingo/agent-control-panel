@@ -34,6 +34,7 @@ test('gh auth status: signed in names the account', () => {
   const stdout = 'github.com\n  ✓ Logged in to github.com account octo-cat (keyring)\n  - Active account: true\n';
   assert.deepEqual(parseGhAuth({ err: null, stdout, stderr: '' }), { state: 'ok', login: 'octo-cat' });
   assert.deepEqual(parseGhAuth({ err: null, stdout: '', stderr: '✓ Logged in to github.com as old-style (oauth_token)' }), { state: 'ok', login: 'old-style' });
+  assert.deepEqual(parseGhAuth({ err: null, stdout: '✓ Logged in to github.com account octo-cat_corp (keyring)', stderr: '' }), { state: 'ok', login: 'octo-cat_corp' }, 'an enterprise-managed login');
 });
 
 test('gh auth status: missing, or signed out', () => {

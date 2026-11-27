@@ -506,7 +506,9 @@ test('a workspace keeps the GitHub account it uses: none (gh\'s own) until picke
   assert.equal(s.githubOf('default'), 'work-user');
   assert.equal(s.githubOf('contract'), null, 'each workspace its own');
   assert.equal(createStore({ file, home: '/h', profiles: PROFILES }).githubOf('default'), 'work-user');
-  assert.equal(s.setGithub('default', 'not a login!').ok, false, 'a GitHub login is letters, digits and dashes');
+  assert.equal(s.setGithub('default', 'not a login!').ok, false, 'a GitHub login is letters, digits, dashes and underscores');
+  assert.deepEqual(s.setGithub('default', 'rjensen-ic_chaigit'), { ok: true }, 'an enterprise-managed login (handle_shortcode)');
+  assert.equal(s.githubOf('default'), 'rjensen-ic_chaigit');
   assert.deepEqual(s.setGithub('default', null), { ok: true });
   assert.equal(s.githubOf('default'), null);
   assert.equal(s.setGithub('nope', 'x').ok, false);
