@@ -88,6 +88,31 @@ export function createIssues({ file, now = Date.now } = {}) {
       save();
       return { ok: true, id };
     },
+    /** Several goals with their parts at once (pasted text): all checked first, then made in order with one save, so
+     *  one that does not fit makes none. `[{ title, items: [text] }]`, at most 30 goals and 50 parts each. */
+    createMany(ws, goals) {
+      if (!Array.isArray(goals) || !goals.length) return no('There are no goals to make.');
+      if (goals.length > 30) return no('At most 30 goals at once.');
+      const want = [];
+      for (const g of goals) {
+        const t = titleOf(g?.title);
+        if (!t.ok) return t;
+        const items = Array.isArray(g?.items) ? g.items : [];
+        if (items.length > 50) return no('A goal takes at most 50 parts at once.');
+        const texts = [];
+        for (const x of items) { const p = textOf(x); if (!p.ok) return p; texts.push(p.t); }
+        want.push({ title: t.t, texts });
+      }
+      const list = issuesOf(ws), ids = [];
+      for (const g of want) {
+        const id = fresh(list), items = [];
+        for (const text of g.texts) items.push({ id: fresh(items), text, state: 'todo', sessionId: null, launchId: null, branches: [], doneBy: null, pr: null, doneAt: 0, at: now(), note: '', files: [] });
+        list.push({ id, title: g.title, space: null, owns: false, folder: null, choices: null, notes: '', files: [], items });
+        ids.push(id);
+      }
+      save();
+      return { ok: true, ids };
+    },
     rename(ws, id, title) {
       const i = find(ws, id), t = titleOf(title);
       if (!i) return NOISSUE;

@@ -23,7 +23,8 @@ import { createThread } from './thread.mjs';
 import { UNTRUSTED, trustKey, isTrusted, trustScript } from './trust.mjs';
 import { prefsPath } from './cli.mjs';
 import { createGithub, slugOf } from './github.mjs';
-import { createOverseer, migrateFrom, chatLines, saidKey, MODELS as OVERSEER_MODELS, OC_PREFIX as OVERSEER_OC } from './overseer.mjs';
+import { createOverseer, migrateFrom, chatLines, saidKey, MODELS as OVERSEER_MODELS, OC_PREFIX as OVERSEER_OC,
+  overseerArgs, readSort, sortPrompt, SORT_MODEL, SORT_MS, SORT_SCHEMA, SORT_SYSTEM, SORT_TEXT_MAX } from './overseer.mjs';
 import { createMains, mainBrief, workerTask, stateWord, flat as flatText } from './mains.mjs';
 import { createWatcher } from './watcher.mjs';
 import { parseClaudeAuth, parseGhAuth, claudeLoginCommand, loginScript, LOGIN_ERROR } from './setup.mjs';
@@ -1914,6 +1915,22 @@ function issueFolder(wsId, i) {
 }
 const issueRoutes = {
   create: (b, c) => nudged(issues.create(c.focus, b?.title)),
+  /** `{ goals: [{ title, items }] }`: pasted text the page split (HomeBoard.outlineOf), made in one go. */
+  import: (b, c) => nudged(issues.createMany(c.focus, b?.goals)),
+  /** `{ text }`: messy pasted text sorted into goals by one tool-less `claude -p`, on this workspace's default Claude
+   *  login. Nothing is made: the goals go back to the page, which shows them as text to check before Create. */
+  async sort(b, c) {
+    const text = typeof b?.text === 'string' ? b.text.trim() : '';
+    if (!text) return { ok: false, error: 'There is no text to sort.' };
+    if (text.length > SORT_TEXT_MAX) return { ok: false, error: `Claude sorts at most ${SORT_TEXT_MAX.toLocaleString('en')} characters at once.` };
+    const login = defaultLogin(c.focus);
+    if (!login) return { ok: false, error: 'This workspace has no Claude login to ask.' };
+    const id = crypto.randomUUID();
+    const r = await askModel(overseerArgs({ id, model: SORT_MODEL, system: SORT_SYSTEM, schema: SORT_SCHEMA }),
+      { input: sortPrompt(text), timeout: SORT_MS, env: envOf(login) });
+    const out = readSort(r);
+    return out.ok ? { ok: true, goals: out.value.goals } : out;
+  },
   rename(b, c) {
     const r = issues.rename(c.focus, String(b?.id ?? ''), b?.title);
     if (!r.ok) return r;

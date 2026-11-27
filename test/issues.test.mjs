@@ -178,3 +178,24 @@ test('an item records when it was done; undone clears it', () => {
   assert.equal(item(a).doneAt, 0);
   assert.equal(item(b, createIssues({ file })).doneAt, 2000, 'kept across a restart');
 });
+
+test('createMany: pasted goals with their parts, all or none, kept across a restart', () => {
+  const { file, s } = mk();
+  s.create('w', 'Already here');
+  const r = s.createMany('w', [{ title: ' Faster\npages ', items: ['cache images', 'lazy load'] }, { title: 'Better login' }]);
+  assert.equal(r.ok, true);
+  assert.equal(r.ids.length, 2);
+  const list = createIssues({ file }).list('w');
+  assert.deepEqual(list.map((x) => [x.title, x.items.map((y) => [y.text, y.state])]), [
+    ['Already here', []], ['Faster pages', [['cache images', 'todo'], ['lazy load', 'todo']]], ['Better login', []]]);
+  assert.deepEqual(ids(list).slice(1), r.ids);
+  assert.equal(new Set(list[1].items.map((y) => y.id)).size, 2);
+  // One that does not fit makes none.
+  assert.equal(s.createMany('w', [{ title: 'ok' }, { title: '  ' }]).ok, false);
+  assert.equal(s.createMany('w', [{ title: 'ok', items: ['x'.repeat(301)] }]).ok, false);
+  assert.equal(s.createMany('w', [{ title: 'ok', items: Array(51).fill('p') }]).ok, false);
+  assert.equal(s.createMany('w', Array.from({ length: 31 }, (_, i) => ({ title: `g${i}` }))).ok, false);
+  assert.equal(s.createMany('w', []).ok, false);
+  assert.equal(s.createMany('w', 'nope').ok, false);
+  assert.equal(s.list('w').length, 3);
+});
