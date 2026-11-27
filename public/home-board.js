@@ -184,43 +184,22 @@
   /** The titles of reached goals whose last part shipped on `now`'s local day. */
   const reachedToday = (goals, now = Date.now()) => goals.filter((g) => g.reached && g.lastShippedAt && new Date(g.lastShippedAt).toDateString() === new Date(now).toDateString()).map((g) => g.title);
 
-  /** Pasted text as goals and their parts: `[{ title, items: [text] }]`. `#` headings are goals with everything under
-   *  them as parts; else the shallowest lines are goals and deeper ones parts; else plain lines are goals and bulleted
-   *  ones parts; else each blank-line block is a goal and its other lines; else the first line is the goal and the rest
-   *  its parts. Markers (bullets, numbers, boxes, bold) go, lines are cut to what a goal and a part may hold. */
-  const OUT_GOALS = 30, OUT_ITEMS = 50, TITLE_MAX = 120, TEXT_MAX = 300;
-  const BULLET = /^(?:[-*+•–]|\d{1,3}[.)])(?:\s+|$)(?:\[[ xX]\](?:\s+|$))?|^\[[ xX]\](?:\s+|$)/;
+  /** Pasted text as one goal and its parts: `{ title, items: [text] }`, or null when there are no words. The first line
+   *  is the goal; every line under it is a part, nested or not. Markers (headings, bullets, numbers, boxes, bold) go, a
+   *  title's trailing colon too, and lines are cut to what a goal and a part may hold, 50 parts at most. */
+  const OUT_ITEMS = 50, TITLE_MAX = 120, TEXT_MAX = 300;
+  const MARK = /^(?:#{1,6}(?:\s+|$)|(?:[-*+•–]|\d{1,3}[.)])(?:\s+|$)(?:\[[ xX]\](?:\s+|$))?|\[[ xX]\](?:\s+|$))/;
   const cut = (s, n) => (s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s);
   const clean = (s) => s.replace(/\*\*(.+?)\*\*/g, '$1').replace(/__(.+?)__/g, '$1').replace(/`([^`]+)`/g, '$1').replace(/\s+/g, ' ').trim();
-  function outlineOf(text) {
-    const rows = [];
-    let block = 0, gap = false;
-    for (const raw of String(text ?? '').replace(/\r\n?/g, '\n').split('\n')) {
-      const exp = raw.replace(/\t/g, '    ').replace(/\s+$/, '');
-      if (!exp.trim()) { gap = rows.length > 0; continue; }
-      if (gap) { block++; gap = false; }
-      const depth = exp.length - exp.trimStart().length, body = exp.trimStart();
-      const h = /^#{1,6}\s+(.*)$/.exec(body), b = !h && BULLET.exec(body);
-      const words = clean(h ? h[1] : b ? body.slice(b[0].length) : body);
-      if (words) rows.push({ depth, head: Boolean(h), bullet: Boolean(b), block, words });
-    }
-    if (!rows.length) return [];
-    const goals = [];
-    const goal = (r) => { goals.push({ title: cut(r.words.replace(/\s*:$/, ''), TITLE_MAX), items: [] }); };
-    const part = (r) => { if (!goals.length) return goal(r); goals[goals.length - 1].items.push(cut(r.words, TEXT_MAX)); };
-    const top = Math.min(...rows.map((r) => r.depth));
-    let isGoal;
-    if (rows.some((r) => r.head)) isGoal = (r) => r.head;
-    else if (rows.some((r) => r.depth > top)) isGoal = (r) => r.depth === top;
-    else if (rows.some((r) => r.bullet) && rows.some((r) => !r.bullet)) isGoal = (r) => !r.bullet;
-    else if (rows[rows.length - 1].block > 0) isGoal = (r, i) => i === 0 || rows[i - 1].block !== r.block;
-    else isGoal = (r, i) => i === 0;
-    rows.forEach((r, i) => (isGoal(r, i) ? goal(r) : part(r)));
-    return goals.filter((g) => g.title).slice(0, OUT_GOALS).map((g) => ({ title: g.title, items: g.items.slice(0, OUT_ITEMS) }));
+  function pastedGoal(text) {
+    const lines = String(text ?? '').replace(/\r\n?/g, '\n').split('\n')
+      .map((l) => { const t = l.trim(); const m = MARK.exec(t); return clean(m ? t.slice(m[0].length) : t); }).filter(Boolean);
+    if (!lines.length) return null;
+    const [first, ...rest] = lines;
+    return { title: cut(first.replace(/\s*:$/, ''), TITLE_MAX), items: rest.slice(0, OUT_ITEMS).map((t) => cut(t, TEXT_MAX)) };
   }
-  /** Goals back as text outlineOf reads the same way: `# goal` and `- part` lines. */
-  const outlineText = (goals) => (Array.isArray(goals) ? goals : []).map((g) => [`# ${clean(String(g?.title ?? ''))}`,
-    ...(Array.isArray(g?.items) ? g.items : []).map((t) => `- ${clean(String(t ?? ''))}`)].join('\n')).join('\n\n');
+  /** A goal back as text pastedGoal reads the same way: the goal, then a `- part` line each. */
+  const pastedText = (g) => (g ? [clean(String(g.title ?? '')), ...(Array.isArray(g.items) ? g.items : []).map((t) => `- ${clean(String(t ?? ''))}`)].join('\n') : '');
 
-  globalThis.HomeBoard = { outlineOf, outlineText, tipOf, goalOf, goalsOrder, outsideOf, isOpen, reachedToday, agoWords, span, itemView, issueOrder, todoCount, plainAsk, inlineAsk, busyLine, syncChildren, dismissKey, pruneDismissed, repoName };
+  globalThis.HomeBoard = { pastedGoal, pastedText, tipOf, goalOf, goalsOrder, outsideOf, isOpen, reachedToday, agoWords, span, itemView, issueOrder, todoCount, plainAsk, inlineAsk, busyLine, syncChildren, dismissKey, pruneDismissed, repoName };
 })();

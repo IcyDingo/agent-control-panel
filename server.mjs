@@ -1926,10 +1926,13 @@ function issueFolder(wsId, i) {
 }
 const issueRoutes = {
   create: (b, c) => nudged(issues.create(c.focus, b?.title)),
-  /** `{ goals: [{ title, items }] }`: pasted text the page split (HomeBoard.outlineOf), made in one go. */
-  import: (b, c) => nudged(issues.createMany(c.focus, b?.goals)),
-  /** `{ text }`: messy pasted text sorted into goals by one tool-less `claude -p`, on this workspace's default Claude
-   *  login. Nothing is made: the goals go back to the page, which shows them as text to check before Create. */
+  /** `{ title, items }`: a goal and its parts from pasted text (HomeBoard.pastedGoal), made in one go. */
+  import(b, c) {
+    const r = issues.createMany(c.focus, [{ title: b?.title, items: b?.items }]);
+    return nudged(r.ok ? { ok: true, id: r.ids[0] } : r);
+  },
+  /** `{ text }`: messy pasted text sorted into one goal and its parts by one tool-less `claude -p`, on this workspace's
+   *  default Claude login. Nothing is made: the goal goes back to the page, which shows it as text to check first. */
   async sort(b, c) {
     const text = typeof b?.text === 'string' ? b.text.trim() : '';
     if (!text) return { ok: false, error: 'There is no text to sort.' };
@@ -1940,7 +1943,7 @@ const issueRoutes = {
     const r = await askModel(overseerArgs({ id, model: SORT_MODEL, system: SORT_SYSTEM, schema: SORT_SCHEMA }),
       { input: sortPrompt(text), timeout: SORT_MS, env: envOf(login) });
     const out = readSort(r);
-    return out.ok ? { ok: true, goals: out.value.goals } : out;
+    return out.ok ? { ok: true, goal: out.value } : out;
   },
   rename(b, c) {
     const r = issues.rename(c.focus, String(b?.id ?? ''), b?.title);
