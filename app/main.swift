@@ -12,6 +12,47 @@ let repo = setting("ACPRepo"), nodePath = setting("ACPNode"), shellPath = settin
 let port = setting("ACPPort").isEmpty ? "4747" : setting("ACPPort")
 let home = URL(string: "http://127.0.0.1:\(port)/")!
 let logURL = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Logs/Glue/server-\(port).log")
+// The background service (daemon.mjs): with it installed, it is the one server. The app waits for it, and starts it if
+// launchd hasn't yet (at login that can be a minute late), instead of starting a second server that takes the port
+// first and leaves the service waiting behind it.
+let serviceLabel = port == "4747" ? "local.glue" : "local.glue.\(port)"
+let servicePlist = NSHomeDirectory() + "/Library/LaunchAgents/\(serviceLabel).plist"
+var serviceInstalled: Bool { FileManager.default.fileExists(atPath: servicePlist) }
+/// How long the app waits for the service before it starts a server of its own after all.
+let serviceWait: TimeInterval = 30
+
+/// A line in the app's server log, with the time: what the app did about the server.
+func logLine(_ text: String) {
+  let fm = FileManager.default
+  try? fm.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+  if !fm.fileExists(atPath: logURL.path) { fm.createFile(atPath: logURL.path, contents: nil) }
+  guard let h = try? FileHandle(forWritingTo: logURL) else { return }
+  h.seekToEndOfFile()
+  h.write("--- \(Date()) \(text)\n".data(using: .utf8)!)
+  try? h.close()
+}
+
+/// Start the service now, if it isn't running: `launchctl kickstart` (never -k, which would restart a running one), or
+/// load it first when launchd doesn't have it loaded. Off the main queue; never waits on the page.
+func startService() {
+  DispatchQueue.global().async {
+    func launchctl(_ args: [String]) -> Int32 {
+      let p = Process()
+      p.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+      p.arguments = args
+      p.standardOutput = FileHandle.nullDevice
+      p.standardError = FileHandle.nullDevice
+      do { try p.run() } catch { return -1 }
+      p.waitUntilExit()
+      return p.terminationStatus
+    }
+    let domain = "gui/\(getuid())"
+    if launchctl(["kickstart", "\(domain)/\(serviceLabel)"]) != 0 {
+      let loaded = launchctl(["bootstrap", domain, servicePlist])
+      logLine("the background service wasn't loaded; loading it \(loaded == 0 ? "worked" : "failed (status \(loaded))")")
+    }
+  }
+}
 
 // The page asks for Notification, which WKWebView doesn't have. This stands in for it with the Mac's own.
 func notificationShim(_ permission: String) -> String { """
@@ -124,10 +165,14 @@ final class Panel: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
     }.resume()
   }
 
-  /// Show the panel once a server answers on its port, starting one if none does.
+  /// Show the panel once a server answers on its port, starting one if none does: the background service when it is
+  /// installed, else a server of this app's own.
   func connect() {
     probe { up in
-      if up { self.show() } else if self.server == nil { self.startServer() } else { self.reconnect() }
+      if up { return self.show() }
+      if self.server == nil && !serviceInstalled { return self.startServer() }
+      if self.server == nil { self.status("Starting Glue's background service…") }
+      self.reconnect()
     }
   }
 
@@ -169,16 +214,23 @@ final class Panel: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
 
   /// Wait for the server to answer, then show the panel. A restart takes a moment; after 8 s with no server of this
   /// app's own (the one it was reusing went away), start one. One it started that doesn't answer in 20 s is reported.
+  /// With the background service installed, the app starts the service and waits for it instead; only if it hasn't
+  /// answered in 30 s does the app start a server of its own, so there is still a panel.
   func reconnect() {
     gen += 1
     waitingForServer = true
-    let mine = gen, since = Date()
+    let mine = gen, since = Date(), service = server == nil && serviceInstalled
+    if service { startService() }
     func step() {
       probe { up in
         guard mine == self.gen else { return }
         if up { return self.show() }
         let waited = Date().timeIntervalSince(since)
-        if self.server == nil && waited >= 8 { return self.startServer() }
+        if service && self.server == nil && waited >= serviceWait {
+          logLine("the background service didn't answer in \(Int(serviceWait)) s; the app starts a server of its own")
+          return self.startServer()
+        }
+        if !service && self.server == nil && waited >= 8 { return self.startServer() }
         if self.server != nil && waited >= 20 { return self.fail("The panel server didn't answer within 20 seconds.") }
         DispatchQueue.main.asyncAfter(deadline: .now() + (waited < 3 ? 0.3 : 1)) { if mine == self.gen { step() } }
       }
@@ -196,6 +248,8 @@ final class Panel: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDe
     guard p === server else { return }
     server = nil
     guard !quitting else { return }
+    logLine("the server this app started stopped (exit status \(p.terminationStatus), after \(Int(Date().timeIntervalSince(serverStarted))) s)")
+    if serviceInstalled { return reconnect() }   // the service takes the port: wait for it, as at the start
     if Date().timeIntervalSince(serverStarted) > 30 { return startServer() }   // it ran a while, then stopped: start it again
     let log = (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
     fail(log.suffix(4000).contains("EADDRINUSE") ? "Something other than the panel is using port \(port)."

@@ -40,6 +40,32 @@ test('a taken port makes the daemon wait, not exit; it answers once the port fre
   assert.ok(await until(() => answers(port)), s.log());
 });
 
+test('its log says when: each line has the time, and it says when it starts and why it stops', async () => {
+  const port = await freePort(), prefs = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-'));
+  const s = start(port, prefs);
+  assert.ok(await until(() => answers(port)), s.log());
+  await s.stop(); // SIGTERM, as launchd and the app stop it
+  const lines = s.log().trim().split('\n');
+  const T = String.raw`^\[\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\] `;
+  assert.match(lines[0], new RegExp(`${T}Glue starting: pid ${s.child.pid}, node v[\\d.]+, port ${port}, background service$`));
+  assert.ok(lines.some((l) => new RegExp(`${T}Glue → http://127.0.0.1:${port}$`).test(l)), s.log());
+  assert.match(lines.at(-2), new RegExp(`${T}Glue got SIGTERM$`));
+  assert.match(lines.at(-1), new RegExp(`${T}Glue stopped \\(exit code 0\\)$`));
+});
+
+test('a crash is logged with its time and stack, and exits 1', async () => {
+  const port = await freePort(), prefs = fs.mkdtempSync(path.join(os.tmpdir(), 'acp-'));
+  // Not the daemon: a taken port is thrown, as a crash would be.
+  const holder = net.createServer().listen(port, '127.0.0.1');
+  await new Promise((r) => holder.once('listening', r));
+  const s = start(port, prefs, { ACP_DAEMON: '' });
+  const code = await new Promise((r) => s.child.once('exit', r));
+  holder.close();
+  assert.equal(code, 1);
+  assert.match(s.log(), /\] Glue crashed: Error: listen EADDRINUSE[^\n]*\n\s+at /);
+  assert.match(s.log(), /\] Glue stopped \(exit code 1\)\n$/);
+});
+
 test('an argument runs the CLI instead of the server', async () => {
   const r = await new Promise((resolve) => { const c = spawn(process.execPath, [SERVER, 'nonsense'], { env: process.env }); let out = ''; c.stdout.on('data', (d) => { out += d; }); c.stderr.on('data', (d) => { out += d; }); c.on('exit', (code) => resolve({ code, out })); });
   assert.equal(r.code, 2);
