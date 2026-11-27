@@ -41,6 +41,17 @@ import { logDir as linuxLogDir } from './paths.mjs';
 
 // `node server.mjs <command>` runs the CLI (cli.mjs) and never starts the server.
 if (process.argv.length > 2) { const { main } = await import('./cli.mjs'); process.exit(await main(process.argv.slice(2))); }
+// The server's log says when: every line starts with the local time. And it says when the server starts and why it
+// stops (a signal, a crash with its stack, or its exit code), so a gap in the log can be told from a crash. A start with
+// no stop line before it means the one before was killed outright (SIGKILL) or the computer went down.
+{
+  const two = (n) => String(n).padStart(2, '0');
+  const stamp = () => { const d = new Date(); return `[${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}]`; };
+  for (const k of ['log', 'warn', 'error']) { const f = console[k].bind(console); console[k] = (...a) => f(stamp(), ...a); }
+  console.log(`Glue starting: pid ${process.pid}, node ${process.version}, port ${process.env.ACP_PORT ?? 4747}, ${process.env.ACP_DAEMON === '1' ? 'background service' : 'not the background service'}`);
+  process.on('uncaughtException', (err) => { console.error('Glue crashed:', err?.stack ?? err); process.exit(1); });
+  process.on('exit', (code) => console.log(`Glue stopped (exit code ${code})`));
+}
 // Agent Panel's folders under Glue's name, before anything reads its prefs. A server that ACP_PREFS points elsewhere is
 // a second panel: the folders are not its to move.
 if (!process.env.ACP_PREFS) for (const [a, b] of migrateFolders({ home: os.homedir() })) console.log(`moved ${a} to ${b}`);
@@ -3520,7 +3531,7 @@ const overseerId = (p) => (/^(?!\.{1,2}$)[\w.-]{1,40}$/.test(p.id) ? p.id : 'p-'
 /** A line about session `s` in its own workspace's overseer's feed. A line about no session (a launch) names the
  *  workspace it happened in. */
 const feed = (type, s, text, wsId = s?.ws) => { try { overseerOf(wsId)?.note(type, { sessionId: s?.sessionId, name: s ? labelOf(s) : undefined, text }); } catch {} };
-for (const sig of ['SIGTERM', 'SIGINT']) process.once(sig, () => { for (const o of overseers.values()) { try { o.flush(); } catch {} } process.exit(0); });
+for (const sig of ['SIGTERM', 'SIGINT']) process.once(sig, () => { console.log(`Glue got ${sig}`); for (const o of overseers.values()) { try { o.flush(); } catch {} } process.exit(0); });
 /** The overseer routes: each page talks to its own workspace's overseer (ctx.focus), never another's. */
 const withOverseer = (fn) => (b, ctx) => { const o = overseerOf(ctx?.focus); return o ? fn(o, b) : { ok: false, error: 'There is no such workspace.' }; };
 const OVERSEER = {
